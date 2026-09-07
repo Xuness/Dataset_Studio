@@ -52,10 +52,8 @@ export function useProjectSession(
       restored.current = true;
       const old = current.current;
       if (old && old.id !== next?.id) {
-        current.current = null;
-        setProject(null);
-        await cache.cancelQueries({ queryKey: ["project", old.id] });
         await client.closeProject(old.id);
+        await cache.cancelQueries({ queryKey: ["project", old.id] });
       }
       current.current = next;
       setProject(next);
@@ -84,7 +82,6 @@ export function useProjectSession(
     restored.current = true;
     setPending(true);
     onError("");
-    rememberProject(null);
     try {
       await activate(null);
     } catch (error) {

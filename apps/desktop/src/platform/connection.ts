@@ -1,6 +1,7 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { StudioClient, validateConnection } from "@studio/client";
+let previousClient: StudioClient | null = null;
 export async function connectEngine() {
   const raw: unknown = isTauri()
     ? await invoke("engine_connection")
@@ -10,6 +11,8 @@ export async function connectEngine() {
       });
   const client = new StudioClient(validateConnection(raw));
   await client.health();
+  if (previousClient) client.preserveEdits(previousClient);
+  previousClient = client;
   return client;
 }
 export async function chooseDirectory(): Promise<string | null> {
@@ -19,6 +22,7 @@ export async function chooseDirectory(): Promise<string | null> {
 }
 export async function onNativeClose(
   releaseViews: () => Promise<void>,
+  onError: (message: string) => void,
 ): Promise<() => void> {
   if (!isTauri()) return () => {};
   const { getCurrentWindow } = await import("@tauri-apps/api/window");
@@ -30,8 +34,10 @@ export async function onNativeClose(
     closing = true;
     try {
       await releaseViews();
-    } finally {
       await window.destroy();
+    } catch (error) {
+      closing = false;
+      onError(error instanceof Error ? error.message : String(error));
     }
   });
 }

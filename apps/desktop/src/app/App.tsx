@@ -1,10 +1,16 @@
 import { useProjectSession } from "../features/projects/useProjectSession.js";
 import { useProjectQueries } from "../features/query/useProjectQueries.js";
-import { QueryPanel } from "../features/query/QueryPanel.js";
 import { scopeOptions } from "../features/scopes/scopes.js";
 import { ProjectDialog } from "../features/projects/ProjectDialog.js";
 import type { DialogKind } from "../features/projects/ProjectDialog.js";
-import { useEffect, useRef, useState, useCallback } from "react";
+import {
+  useEffect,
+  useRef,
+  useState,
+  useCallback,
+  Suspense,
+  useSyncExternalStore,
+} from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Images,
@@ -26,8 +32,11 @@ import {
   RotateCw,
   Search,
   Link2,
+  Calculator,
+  Archive,
 } from "lucide-react";
-import { Button } from "@studio/ui";
+import { Button, DraftStatus } from "@studio/ui";
+import type { ModuleContext, BrowseScope } from "@studio/ui";
 import type {
   Project,
   Asset,
@@ -43,19 +52,25 @@ import {
   chooseDirectory,
   onNativeClose,
 } from "../platform/connection.js";
-import { Browser } from "../features/browser/Browser.js";
-import type { Scope } from "../features/browser/Browser.js";
+import { modules, moduleViews } from "./modules.js";
+import { useWorkspaceState, useLayoutState } from "./workspaceState.js";
 import { AssetImage } from "../features/browser/AssetImage.js";
 import { Tasks } from "../features/tasks/Tasks.js";
 import { MetadataInspector } from "../features/metadata/MetadataInspector.js";
 
-type ViewState = { scope: Scope; focus: Asset | null; view: "grid" | "image" };
-const emptyView: ViewState = {
-  scope: { kind: "all" },
-  focus: null,
-  view: "grid",
+type ViewState = {
+  scope: BrowseScope;
+  focus: Asset | null;
+  view: "grid" | "image";
+};
+const moduleIcons = {
+  images: Images,
+  search: Search,
+  calculator: Calculator,
+  archive: Archive,
 };
 export function App() {
+  const [closeError, setCloseError] = useState("");
   const cache = useQueryClient();
   const engine = useQuery({
     queryKey: ["engine"],
@@ -77,10 +92,12 @@ export function App() {
     const client = engine.data;
     let stopped = false;
     let unlisten: (() => void) | undefined;
-    void onNativeClose(() => client.releaseProjectViews()).then((stop) => {
-      if (stopped) stop();
-      else unlisten = stop;
-    });
+    void onNativeClose(() => client.releaseProjectViews(), setCloseError).then(
+      (stop) => {
+        if (stopped) stop();
+        else unlisten = stop;
+      },
+    );
     return () => {
       stopped = true;
       unlisten?.();
@@ -103,11 +120,19 @@ export function App() {
       </div>
     );
   return (
-    <Studio
-      key={engine.data.connection.instance_id}
-      client={engine.data}
-      onReconnect={reconnect}
-    />
+    <>
+      <Studio
+        key={engine.data.connection.instance_id}
+        client={engine.data}
+        onReconnect={reconnect}
+      />
+      {closeError && (
+        <div className="error-banner" role="alert">
+          <span>{closeError}</span>
+          <button onClick={() => setCloseError("")}>关闭提示</button>
+        </div>
+      )}
+    </>
   );
 }
 function Studio({
@@ -130,7 +155,6 @@ function Studio({
       return () => clearTimeout(timer);
     }
   }, [health.isError, health.errorUpdatedAt, onReconnect]);
-  const [views, setViews] = useState<Record<string, ViewState>>({});
   const [dialog, setDialog] = useState<DialogKind>(null);
   const [menu, setMenu] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -138,13 +162,73 @@ function Studio({
   const session = useProjectSession(client, setError);
   const { project, projects } = session;
   const busy = saving || session.pending;
-  const [queryVisible, setQueryVisible] = useState(false);
   const [relinkTarget, setRelinkTarget] = useState<Source | null>(null);
-  const [projectsVisible, setProjectsVisible] = useState(true);
-  const [propertiesVisible, setPropertiesVisible] = useState(true);
-  const [tasksVisible, setTasksVisible] = useState(false);
   const currentId = project?.id ?? "";
-  const view = views[currentId] ?? emptyView;
+  const currentIdRef = useRef(currentId);
+  currentIdRef.current = currentId;
+  const workspace = useWorkspaceState(client, currentId);
+  const layout = useLayoutState(client);
+  const { projectsVisible, propertiesVisible, tasksVisible } = layout.value;
+  const queryVisible = workspace.value.panels.includes("core.query");
+  const [invocation, setInvocation] = useState<{
+    projectId: string;
+    sequence: number;
+    args: Record<string, string>;
+  } | null>(null);
+  useSyncExternalStore(client.edits.subscribe, client.edits.getSnapshot);
+  const draftState = client.edits.status(currentId || undefined);
+  const focusQuery = useQuery({
+    queryKey: ["project", currentId, "asset", workspace.value.focusKey],
+    queryFn: ({ signal }) =>
+      client.asset(currentId, workspace.value.focusKey!, signal),
+    enabled: !!currentId && !!workspace.value.focusKey && workspace.editable,
+    retry: false,
+  });
+  const view: ViewState = {
+    scope: workspace.value.scope,
+    view: workspace.value.view,
+    focus: focusQuery.data ?? null,
+  };
+  function setProjectsVisible(value: boolean | ((old: boolean) => boolean)) {
+    layout.update({
+      projectsVisible:
+        typeof value === "function" ? value(projectsVisible) : value,
+    });
+  }
+  function setPropertiesVisible(value: boolean | ((old: boolean) => boolean)) {
+    layout.update({
+      propertiesVisible:
+        typeof value === "function" ? value(propertiesVisible) : value,
+    });
+  }
+  function setTasksVisible(value: boolean | ((old: boolean) => boolean)) {
+    layout.update({
+      tasksVisible: typeof value === "function" ? value(tasksVisible) : value,
+    });
+  }
+  function setQueryVisible(value: boolean | ((old: boolean) => boolean)) {
+    const show = typeof value === "function" ? value(queryVisible) : value;
+    if (workspace.editable)
+      workspace.controller?.set((v) => ({
+        ...v,
+        panels: show
+          ? [...v.panels.filter((id) => id !== "core.query"), "core.query"]
+          : v.panels.filter((id) => id !== "core.query"),
+      }));
+  }
+  function activateView(id: string, args: Record<string, string> = {}) {
+    if (!workspace.editable) return;
+    if (moduleViews.get(id)?.kind !== "view") {
+      setError("该功能视图尚不可用。");
+      return;
+    }
+    workspace.controller?.set((v) => ({ ...v, moduleId: id }));
+    setInvocation((old) => ({
+      projectId: currentId,
+      sequence: (old?.sequence ?? 0) + 1,
+      args,
+    }));
+  }
   const sources = useQuery({
     queryKey: ["project", currentId, "sources"],
     queryFn: () => client.sources(currentId),
@@ -198,15 +282,80 @@ function Studio({
       : "selection";
   const selected = selection.data?.count ?? 0;
   function updateView(update: Partial<ViewState>) {
-    setViews((old) => ({
-      ...old,
-      [currentId]: {
-        ...(old[currentId] ?? emptyView),
-        ...(update.scope ? { focus: null, view: "grid" as const } : {}),
-        ...update,
-      },
+    if (!workspace.editable) return;
+    if (update.focus)
+      queryClient.setQueryData(
+        ["project", currentId, "asset", update.focus.key],
+        update.focus,
+      );
+    workspace.controller?.set((v) => ({
+      ...v,
+      ...(update.scope
+        ? {
+            scope: update.scope,
+            focusKey: null,
+            view: "grid" as const,
+            position: null,
+            moduleId: "core.browser",
+          }
+        : {}),
+      ...(update.view ? { view: update.view, moduleId: "core.browser" } : {}),
+      ...("focus" in update ? { focusKey: update.focus?.key ?? null } : {}),
     }));
   }
+  useEffect(() => {
+    if (!workspace.editable || !workspace.controller) return;
+    const value = workspace.value;
+    if (
+      moduleViews.get(value.moduleId)?.kind !== "view" ||
+      value.panels.some((id) => moduleViews.get(id)?.kind !== "panel")
+    ) {
+      workspace.controller.set((v) => ({
+        ...v,
+        moduleId:
+          moduleViews.get(v.moduleId)?.kind === "view"
+            ? v.moduleId
+            : "core.browser",
+        panels: v.panels.filter((id) => moduleViews.get(id)?.kind === "panel"),
+      }));
+      setError("部分已保存功能暂不可用，已恢复到可用视图。");
+    }
+  }, [workspace.controller, workspace.editable, workspace.value]);
+  useEffect(() => {
+    if (
+      focusQuery.error &&
+      workspace.editable &&
+      workspace.controller &&
+      workspace.value.focusKey
+    ) {
+      workspace.controller.set((v) => ({ ...v, focusKey: null, view: "grid" }));
+      setError(
+        "已保存的焦点对象暂不可用，已返回网格：" + focusQuery.error.message,
+      );
+    }
+  }, [
+    focusQuery.error,
+    workspace.controller,
+    workspace.editable,
+    workspace.value.focusKey,
+  ]);
+  useEffect(() => {
+    if (
+      activeResult.data &&
+      activeResult.data.state !== "ready" &&
+      workspace.editable &&
+      workspace.controller
+    ) {
+      workspace.controller.set((v) => ({
+        ...v,
+        scope: { kind: "all" },
+        focusKey: null,
+        position: null,
+        view: "grid",
+      }));
+      setError("已保存的查询结果已释放或尚未完成，已返回项目数据。");
+    }
+  }, [activeResult.data, workspace.controller, workspace.editable]);
   function activate(p: Project) {
     setMenu(null);
     setError("");
@@ -223,9 +372,16 @@ function Studio({
           void session.close();
           return;
         }
-        if (event.kind.startsWith("job."))
+        if (event.kind.startsWith("draft.")) return;
+        if (event.kind.startsWith("job.")) {
           void queryClient.invalidateQueries({ queryKey: [...prefix, "jobs"] });
-        else if (event.kind.startsWith("selection.")) {
+          void queryClient.invalidateQueries({
+            queryKey: [...prefix, "artifacts"],
+          });
+          void queryClient.invalidateQueries({
+            queryKey: [...prefix, "fields"],
+          });
+        } else if (event.kind.startsWith("selection.")) {
           void queryClient.invalidateQueries({
             queryKey: [...prefix, "selection"],
           });
@@ -318,6 +474,61 @@ function Studio({
     jobs.data?.items.filter((j) =>
       ["waiting_input", "queued", "preparing", "running"].includes(j.status),
     ).length ?? 0;
+  const moduleContext: ModuleContext = {
+    client,
+    projectId: currentId,
+    sources: sources.data?.items ?? [],
+    inputOptions: inputs,
+    defaultInput: selected > 0 ? "selection" : defaultScope,
+    browser: {
+      scope: view.scope,
+      focus: view.focus,
+      onFocus: (focus) => updateView({ focus }),
+      onPick: pick,
+      onScopeOperation: operateViewScope,
+      selectionRevision: selection.data?.revision ?? 0,
+      busy,
+      view: view.view,
+      setView: (mode) => updateView({ view: mode }),
+      position: workspace.value.position,
+      onPosition: (position) => {
+        if (workspace.editable)
+          workspace.controller?.set((v) => ({ ...v, position }));
+      },
+      thumbnailSize: layout.value.thumbnailSize,
+      onThumbnailSize: (thumbnailSize) => layout.update({ thumbnailSize }),
+    },
+    onResult: (result, name) => {
+      if (currentIdRef.current === result.project_id)
+        updateView({ scope: { kind: "result", id: result.id, name } });
+    },
+    onSelect: selectResult,
+    onJob: (job) => {
+      if (currentIdRef.current === job.project_id) setTasksVisible(true);
+    },
+    activateView,
+    togglePanel: (id) => {
+      if (workspace.editable)
+        workspace.controller?.set((v) => ({
+          ...v,
+          panels: v.panels.includes(id)
+            ? v.panels.filter((p) => p !== id)
+            : [...v.panels, id],
+        }));
+    },
+    closePanel: (id) => {
+      if (workspace.editable)
+        workspace.controller?.set((v) => ({
+          ...v,
+          panels: v.panels.filter((p) => p !== id),
+        }));
+    },
+    invocation:
+      invocation?.projectId === currentId
+        ? { sequence: invocation.sequence, args: invocation.args }
+        : null,
+  };
+  const ActiveModule = moduleViews.get(workspace.value.moduleId)?.Component;
   const menus: Record<
     string,
     { label: string; action: () => void; disabled?: boolean }[]
@@ -359,18 +570,11 @@ function Studio({
         disabled: !project,
       },
     ],
-    工具: [
-      {
-        label: "项目查询",
-        action: () => setQueryVisible((value) => !value),
-        disabled: !project,
-      },
-      {
-        label: "生成数据清单…",
-        action: () => setDialog("manifest"),
-        disabled: !hasTaskInput,
-      },
-    ],
+    工具: modules.entries().map((entry) => ({
+      label: entry.label,
+      action: () => modules.execute(entry.command, moduleContext),
+      disabled: !project || !workspace.editable,
+    })),
     窗口: [
       { label: "项目面板", action: () => setProjectsVisible((v) => !v) },
       { label: "属性面板", action: () => setPropertiesVisible((v) => !v) },
@@ -455,7 +659,9 @@ function Studio({
         </button>
         <button
           disabled={!hasTaskInput || busy}
-          onClick={() => setDialog("manifest")}
+          onClick={() =>
+            activateView("core.tools", { operatorId: "core.manifest" })
+          }
         >
           <FileText size={14} />
           生成清单
@@ -481,7 +687,13 @@ function Studio({
           <div className="document-tab active">
             <Layers size={13} />
             <span>{project.name}</span>
-            <small>{busy ? "保存中…" : "已保存"}</small>
+            <small>
+              {busy || draftState.saving
+                ? "保存中…"
+                : draftState.dirty
+                  ? "草稿待保存"
+                  : "已保存"}
+            </small>
             <button aria-label="关闭项目" onClick={() => void session.close()}>
               <X size={12} />
             </button>
@@ -563,13 +775,24 @@ function Studio({
           }
         >
           <aside className="tool-rail">
-            <button
-              className="tool-button active"
-              title="资料浏览"
-              onClick={() => updateView({ view: "grid" })}
-            >
-              <Images size={19} />
-            </button>
+            {modules.entries().map((entry) => {
+              const Icon = moduleIcons[entry.icon];
+              const active =
+                entry.id === "query"
+                  ? queryVisible
+                  : workspace.value.moduleId === "core." + entry.id;
+              return (
+                <button
+                  key={entry.id}
+                  disabled={!workspace.editable}
+                  className={"tool-button " + (active ? "active" : "")}
+                  title={entry.label}
+                  onClick={() => modules.execute(entry.command, moduleContext)}
+                >
+                  <Icon size={19} />
+                </button>
+              );
+            })}
             <button
               className="tool-button"
               title="单图查看"
@@ -577,13 +800,6 @@ function Studio({
               onClick={() => updateView({ view: "image" })}
             >
               <MousePointer2 size={19} />
-            </button>
-            <button
-              className={"tool-button " + (queryVisible ? "active" : "")}
-              title="项目查询"
-              onClick={() => setQueryVisible((value) => !value)}
-            >
-              <Search size={18} />
             </button>
             <div className="rail-divider" />
             <button
@@ -720,34 +936,25 @@ function Studio({
             </div>
           </aside>
           <div className="data-workspace">
-            {queryVisible && (
-              <QueryPanel
-                key={"query:" + project.id}
-                client={client}
-                projectId={project.id}
-                sources={sources.data?.items ?? []}
-                model={queryModel}
-                onResult={(result, name) =>
-                  updateView({ scope: { kind: "result", id: result.id, name } })
-                }
-                onSelect={selectResult}
-                onClose={() => setQueryVisible(false)}
-              />
-            )}
-            <Browser
-              key={"browser:" + project.id}
-              client={client}
-              projectId={project.id}
-              scope={view.scope}
-              focus={view.focus}
-              onFocus={(focus) => updateView({ focus })}
-              onPick={pick}
-              onScopeOperation={operateViewScope}
-              selectionRevision={selection.data?.revision ?? 0}
-              busy={busy}
-              view={view.view}
-              setView={(mode) => updateView({ view: mode })}
-            />
+            {workspace.controller &&
+              (!workspace.editable || workspace.error) && (
+                <DraftStatus controller={workspace.controller} />
+              )}
+            <Suspense fallback={<p className="tool-hint">正在载入功能…</p>}>
+              {workspace.editable &&
+                workspace.value.panels.map((id) => {
+                  const Panel = moduleViews.get(id)?.Component;
+                  return Panel ? (
+                    <Panel key={id + project.id} {...moduleContext} />
+                  ) : null;
+                })}
+              {workspace.editable && ActiveModule && (
+                <ActiveModule
+                  key={workspace.value.moduleId + project.id}
+                  {...moduleContext}
+                />
+              )}
+            </Suspense>
           </div>
           <aside className="properties-panel">
             <header className="panel-tabs">
@@ -857,7 +1064,15 @@ function Studio({
         {project && (
           <>
             <span className="status-divider" />
-            <span>{busy ? "正在保存项目" : "项目已保存"}</span>
+            <span>
+              {busy || draftState.saving
+                ? "正在保存项目"
+                : draftState.error
+                  ? "草稿需要处理"
+                  : draftState.dirty
+                    ? "草稿待保存"
+                    : "项目已保存"}
+            </span>
             <span className="status-divider" />
             <span>
               已选 {selected} 项
@@ -893,7 +1108,6 @@ function Studio({
             void queryClient.invalidateQueries({
               queryKey: ["project", currentId],
             });
-            if (dialog === "manifest") setTasksVisible(true);
           }}
         />
       )}

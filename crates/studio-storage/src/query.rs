@@ -125,6 +125,7 @@ pub(super) fn insert_result(
     validate_sources(db, spec)?;
     let id = new_id();
     db.execute("INSERT INTO query_results(id,definition_id,definition_revision,spec_json,versions_json,status,count,created_at) VALUES (?1,?2,?3,?4,?5,'queued',0,?6)",params![id,definition.map(|d|d.0),definition.map(|d|d.1 as i64),serde_json::to_string(spec).map_err(Error::io)?,serde_json::to_string(versions).map_err(Error::io)?,now()]).map_err(db_error)?;
+    derived_fields::references(db, pid, "query_result", &id, spec)?;
     event(db, "result.created", &id)?;
     read_result(db, pid, &id)
 }
@@ -163,6 +164,7 @@ impl QueryRepository for SqliteStore {
             .map_err(db_error)?;
             id
         };
+        derived_fields::references(&tx, pid, "query_definition", &id, &spec)?;
         event(&tx, "query.changed", &id)?;
         let result = read_definition(&tx, pid, &id)?;
         tx.commit().map_err(db_error)?;
@@ -309,6 +311,11 @@ impl QueryRepository for SqliteStore {
         }
         tx.execute("DELETE FROM result_members WHERE result_id=?1", [id])
             .map_err(db_error)?;
+        tx.execute(
+            "DELETE FROM artifact_references WHERE owner_kind='query_result' AND owner_id=?1",
+            [id],
+        )
+        .map_err(db_error)?;
         tx.execute(
             "UPDATE query_results SET status='released',count=NULL WHERE id=?1",
             [id],

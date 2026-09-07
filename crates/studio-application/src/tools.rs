@@ -8,6 +8,13 @@ pub trait Operator: Send + Sync {
     fn normalize(&self, parameters: Value) -> Result<Value>;
     fn required_fields(&self, parameters: &Value) -> Result<Vec<ScalarInput>>;
     fn row(&self, input: &FrozenInput, ordinal: u64, parameters: &Value) -> Result<Value>;
+    fn output_row(&self, output_id: &str, row: &Value) -> Result<Option<Value>> {
+        if output_id == "data" {
+            Ok(Some(row.clone()))
+        } else {
+            Err(Error::new("OUTPUT_UNSUPPORTED", "算子未实现声明的成果输出"))
+        }
+    }
 }
 
 #[derive(Default)]

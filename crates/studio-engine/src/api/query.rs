@@ -7,11 +7,13 @@ fn validate_spec(
     spec: domain::QuerySpec,
 ) -> domain::Result<domain::QuerySpec> {
     let spec = spec.normalize()?;
+    s.store.validate_derived(pid, &spec)?;
+    let native = studio_storage::native_spec(&spec);
     for id in &spec.source_ids {
         s.queries
             .reader
             .fields(&s.store.source(pid, id)?)?
-            .validate(&spec)?;
+            .validate(&native)?;
     }
     Ok(spec)
 }
@@ -22,10 +24,9 @@ pub(super) async fn fields(
 ) -> ApiResult<FieldDirectory> {
     Ok(Json(
         blocking(move || {
-            s.queries
-                .reader
-                .fields(&s.store.source(&pid, &sid)?)
-                .map(Into::into)
+            let mut directory = s.queries.reader.fields(&s.store.source(&pid, &sid)?)?;
+            directory.fields.extend(s.store.derived_fields(&pid, &sid)?);
+            Ok(directory.into())
         })
         .await?,
     ))

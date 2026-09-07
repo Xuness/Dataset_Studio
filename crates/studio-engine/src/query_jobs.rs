@@ -38,9 +38,11 @@ impl QueryRunner {
         pid: &str,
         spec: &QuerySpec,
     ) -> Result<Vec<QuerySourceVersion>> {
+        store.validate_derived(pid, spec)?;
+        let native = studio_storage::native_spec(spec);
         spec.source_ids
             .iter()
-            .map(|id| self.reader.query_version(&store.source(pid, id)?, spec))
+            .map(|id| self.reader.query_version(&store.source(pid, id)?, &native))
             .collect()
     }
     pub fn validate_result(&self, store: &SqliteStore, result: &QueryResult) -> Result<()> {
@@ -66,11 +68,12 @@ impl QueryRunner {
             let source = store.source(&result.project_id, &expected.source_id)?;
             self.reader.execute_query(
                 &source,
-                &result.spec,
+                &studio_storage::native_spec(&result.spec),
                 expected,
                 cancelled.clone(),
                 &mut |keys, processed| {
-                    store.append_result(&result.project_id, &result.id, keys, processed)
+                    let filtered = store.filter_derived(&result.project_id, &result.spec, keys)?;
+                    store.append_result(&result.project_id, &result.id, &filtered, processed)
                 },
             )?;
         }

@@ -21,6 +21,50 @@ impl MetadataReader {
             runtime: Runtime::new(dll),
         }
     }
+    pub fn freeze_origin_width(
+        &self,
+        source: &Source,
+        asset: &str,
+        expected: &QuerySourceVersion,
+    ) -> Result<FrozenField> {
+        let session = ReadSession::open(self, source, asset, None)?;
+        if expected.source_id != source.id
+            || expected.catalog_revision != session.catalog.revision
+            || expected.analysis_sequence.as_deref()
+                != Some(session.version.analysis_sequence.as_str())
+        {
+            return Err(Error::new(
+                "SOURCE_CHANGED",
+                "元数据已变化，不能替换提交时所需的字段版本",
+            ));
+        }
+        let rows = session.db.query(&format!("SELECT a.asset_id,a.observation_id,CAST(o.image_width AS VARCHAR) FROM (SELECT asset_id,observation_id FROM assets WHERE sha256={} ORDER BY asset_id LIMIT 1) a LEFT JOIN observations o ON o.observation_id=a.observation_id LIMIT 1", quote(asset)))?;
+        let record = rows.first().and_then(|r| r[0].clone());
+        let observation = rows.first().and_then(|r| r[1].clone());
+        let value = match rows.first().and_then(|r| r[2].as_deref()) {
+            Some(text) => ScalarValue::integer(
+                text.parse()
+                    .map_err(|_| Error::new("FIELD_VALUE_INVALID", "来源宽度不是有效整数"))?,
+            ),
+            None => ScalarValue::Missing {
+                reason: "first_linked_record_origin_width_absent".into(),
+            },
+        };
+        session.finish(source)?;
+        Ok(FrozenField {
+            input: ScalarInput::OriginWidth,
+            value,
+            basis: FieldBasis {
+                field_id: "source.origin.width".into(),
+                subject: "asset".into(),
+                rule: "lexicographically_first_linked_record_origin_observation".into(),
+                source_version: Some(session.version.token),
+                record_id: record,
+                observation_id: observation,
+                artifact_id: None,
+            },
+        })
+    }
 }
 fn source_error(e: Error) -> Error {
     if e.code == "IO_ERROR" {

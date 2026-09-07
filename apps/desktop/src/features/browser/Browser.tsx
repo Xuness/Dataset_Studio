@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import {
   Check,
   ChevronLeft,
@@ -10,17 +10,13 @@ import {
   Image as ImageIcon,
 } from "lucide-react";
 import { Button, EmptyState } from "@studio/ui";
+import type { ModuleContext, BrowseScope, BrowseViewProps } from "@studio/ui";
 import type { Asset, AssetKey, ScopeOperation } from "@studio/contracts";
 import { assetIdentity } from "@studio/client";
 import type { StudioClient } from "@studio/client";
 import { AssetImage } from "./AssetImage.js";
-export type Scope =
-  | { kind: "all" }
-  | { kind: "source"; id: string; name: string }
-  | { kind: "collection"; id: string; name: string }
-  | { kind: "result"; id: string; name: string }
-  | { kind: "selection"; name: string };
-export interface BrowserProps {
+export type Scope = BrowseScope;
+export interface BrowserProps extends BrowseViewProps {
   client: StudioClient;
   projectId: string;
   scope: Scope;
@@ -32,6 +28,15 @@ export interface BrowserProps {
   busy: boolean;
   view: "grid" | "image";
   setView: (view: "grid" | "image") => void;
+}
+export default function BrowserModule(context: ModuleContext) {
+  return (
+    <Browser
+      client={context.client}
+      projectId={context.projectId}
+      {...context.browser}
+    />
+  );
 }
 export function Browser({
   client,
@@ -45,20 +50,38 @@ export function Browser({
   busy,
   view,
   setView,
+  position,
+  onPosition,
+  thumbnailSize,
+  onThumbnailSize,
 }: BrowserProps) {
-  const [cursors, setCursors] = useState<(string | undefined)[]>([undefined]);
-  const [page, setPage] = useState(0);
-  const [pageBase, setPageBase] = useState(0);
-  const [pageSize, setPageSize] = useState(48);
-  const [scopeOperation, setScopeOperation] =
-    useState<ScopeOperation>("replace");
-  const [size, setSize] = useState(176);
+  const [pageSize, setPageSize] = useState(position?.pageSize ?? 48);
   const scopeKey = JSON.stringify([
     scope,
     scope.kind === "selection" ? selectionRevision : null,
     pageSize,
   ]);
+  const restored = position?.scopeKey === scopeKey;
+  const [cursors, setCursors] = useState<(string | undefined)[]>([
+    restored ? (position?.cursor ?? undefined) : undefined,
+  ]);
+  const [page, setPage] = useState(0);
+  const [pageBase, setPageBase] = useState(
+    restored ? (position?.pageNumber ?? 1) - 1 : 0,
+  );
+  const [notice, setNotice] = useState(
+    position && !restored ? "范围版本已变化，已返回第一页。" : "",
+  );
+  const previousScope = useRef(scopeKey);
+  const restoreCheck = useRef(restored ? position : null);
+  const [scopeOperation, setScopeOperation] =
+    useState<ScopeOperation>("replace");
+  const size = thumbnailSize;
+  const setSize = onThumbnailSize;
   useEffect(() => {
+    if (previousScope.current === scopeKey) return;
+    previousScope.current = scopeKey;
+    restoreCheck.current = null;
     setCursors([undefined]);
     setPage(0);
     setPageBase(0);
@@ -86,6 +109,58 @@ export function Browser({
     retry: 1,
   });
   const items = query.data?.items ?? [];
+  useEffect(() => {
+    if (!query.data || query.isFetching) return;
+    const expected = restoreCheck.current;
+    restoreCheck.current = null;
+    if (
+      expected &&
+      (expected.version !== query.data.revision ||
+        (expected.anchor &&
+          query.data.items[0] &&
+          assetIdentity(expected.anchor) !==
+            assetIdentity(query.data.items[0].key)))
+    ) {
+      setNotice("已保存的浏览位置已失效，已返回第一页。");
+      setCursors([undefined]);
+      setPage(0);
+      setPageBase(0);
+      return;
+    }
+    onPosition({
+      scopeKey,
+      cursor: cursors[page] ?? null,
+      pageNumber: pageBase + page + 1,
+      pageSize,
+      anchor: query.data.items[0]?.key ?? null,
+      version: query.data.revision,
+    });
+  }, [
+    query.data,
+    query.isFetching,
+    onPosition,
+    scopeKey,
+    cursors,
+    page,
+    pageBase,
+    pageSize,
+  ]);
+  useEffect(() => {
+    if (
+      query.error &&
+      cursors[page] &&
+      "code" in query.error &&
+      ["SOURCE_CHANGED", "INVALID_INPUT", "REVISION_CONFLICT"].includes(
+        String(query.error.code),
+      )
+    ) {
+      restoreCheck.current = null;
+      setNotice("已保存的分页位置已失效，已返回第一页。");
+      setCursors([undefined]);
+      setPage(0);
+      setPageBase(0);
+    }
+  }, [query.error, cursors, page]);
   function next() {
     const cursor = query.data?.next_cursor;
     if (cursor) {
@@ -145,6 +220,11 @@ export function Browser({
         </button>
       </div>
       <div className="browser-options">
+        {notice && (
+          <span role="status" className="subtle" title={notice}>
+            {notice}
+          </span>
+        )}
         <span className="subtle">
           {query.isFetching ? "读取中…" : items.length + " 项 / 本页"}
         </span>

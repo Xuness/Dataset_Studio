@@ -94,6 +94,53 @@ fn req(version: &str) -> MetadataRequest {
 }
 
 #[test]
+fn origin_field_freezes_value_record_observation_and_version() {
+    let f = fixture();
+    let catalog = Catalog::open(&f.source).unwrap();
+    let expected = QuerySourceVersion {
+        source_id: f.source.id.clone(),
+        catalog_revision: catalog.revision.clone(),
+        analysis_sequence: Some("1".into()),
+        consistency: "request_transactions_matched_watermarks".into(),
+    };
+    drop(catalog);
+    let field = f
+        .reader
+        .freeze_origin_width(&f.source, &hex(100), &expected)
+        .unwrap();
+    assert_eq!(field.value, ScalarValue::integer(2480));
+    assert_eq!(field.basis.record_id, Some(hex(1)));
+    assert_eq!(field.basis.observation_id, Some(hex(10)));
+    let saved = serde_json::to_vec(&field).unwrap();
+    assert!(matches!(
+        f.reader
+            .freeze_origin_width(&f.source, &hex(300), &expected)
+            .unwrap()
+            .value,
+        ScalarValue::Missing { .. }
+    ));
+    let db = Session::fixture(&f.dll, &f.path).unwrap();
+    db.query("UPDATE observations SET image_width=17; INSERT INTO applied VALUES(2)")
+        .unwrap();
+    drop(db);
+    let db =
+        rusqlite::Connection::open(f.root.path().join("indexes/gen-test/catalog.sqlite")).unwrap();
+    db.execute("UPDATE state SET value=2 WHERE key='seq'", [])
+        .unwrap();
+    drop(db);
+    assert_eq!(
+        f.reader
+            .freeze_origin_width(&f.source, &hex(100), &expected)
+            .unwrap_err()
+            .code,
+        "SOURCE_CHANGED"
+    );
+    let restored: FrozenField = serde_json::from_slice(&saved).unwrap();
+    assert_eq!(restored.value, ScalarValue::integer(2480));
+    assert_eq!(restored.basis.observation_id, Some(hex(10)));
+}
+
+#[test]
 fn blob_links_observations_missing_values_and_paging_remain_distinct() {
     let f = fixture();
     let first = f

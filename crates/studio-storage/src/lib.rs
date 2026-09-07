@@ -13,7 +13,10 @@ use std::{
 };
 use studio_application::ProjectRepository;
 use studio_domain::*;
+mod artifacts;
+mod derived_fields;
 mod drafts;
+pub use derived_fields::{artifact_field_id, native_spec};
 mod job_scopes;
 mod lifecycle;
 mod migrations;

@@ -14,9 +14,9 @@
     "typecheck": "tsc -b",
     "lint": "eslint apps/desktop/src packages tooling && node tooling/boundaries.mjs",
     "format": "prettier --write \"apps/desktop/src/**/*.{ts,tsx,css}\" \"packages/**/*.{ts,json,css}\" \"tooling/*.mjs\"",
-    "test": "node tooling/cargo-run.mjs test --workspace --exclude studio-desktop",
+    "test": "node tooling/cargo-run.mjs test --workspace --exclude studio-desktop && node tooling/client-foundations.mjs",
     "check": "pnpm typecheck && pnpm lint && pnpm contracts:check && node tooling/cargo-run.mjs fmt --all -- --check && node tooling/cargo-run.mjs clippy --workspace --all-targets -- -D warnings && pnpm test",
-    "test:integration": "node tooling/integration.mjs && node tooling/integration-scopes.mjs",
+    "test:integration": "node tooling/integration.mjs && node tooling/integration-scopes.mjs && node tooling/integration-tools.mjs",
     "engine:stop": "node tooling/stop-engine.mjs"
   },
   "devDependencies": {

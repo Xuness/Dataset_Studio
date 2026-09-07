@@ -1,0 +1,72 @@
+.tool-view {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  background: var(--panel, #25292e);
+}
+.tool-view form {
+  max-width: 740px;
+  padding: 12px 22px 20px;
+}
+.tool-view fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+.tool-view .field {
+  margin-bottom: 15px;
+}
+.tool-view input,
+.tool-view select {
+  width: 100%;
+  min-height: 30px;
+}
+.tool-hint {
+  font-size: 12px;
+  line-height: 1.8;
+  color: var(--muted, #969fa9);
+  margin: 10px 22px;
+  overflow-wrap: anywhere;
+}
+form .tool-hint {
+  margin: 10px 0;
+}
+.tool-notice {
+  padding: 10px 14px;
+  margin: 10px 22px;
+  background: #463725;
+  color: #f0c99b;
+  font-size: 12px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+.tool-notice .button {
+  margin-left: 12px;
+}
+.tool-capabilities {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 18px 0;
+  font-size: 11px;
+}
+.tool-capabilities span {
+  border: 1px solid var(--border, #484f57);
+  padding: 3px 7px;
+  border-radius: 3px;
+}
+.field-list {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.field-list > div {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+.field-list select {
+  flex: 1;
+}

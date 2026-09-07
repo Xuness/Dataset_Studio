@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Play, RotateCw, X } from "lucide-react";
-import { Button } from "@studio/ui";
+import { Button, useDraft, DraftStatus } from "@studio/ui";
 import type { StudioClient } from "@studio/client";
 import type {
   QueryDefinition,
@@ -25,6 +25,63 @@ const stateNames: Record<QueryResult["state"], string> = {
   released: "成员已释放",
 };
 type Model = ReturnType<typeof useProjectQueries>;
+type QueryDraft = {
+  definition: QueryDefinition | null;
+  name: string;
+  sourceId: string;
+  conditions: QuerySpec["conditions"];
+  rule: QuerySpec["observation_rule"];
+  order: QuerySpec["order"];
+};
+const initialDraft: QueryDraft = {
+  definition: null,
+  name: "资料筛选",
+  sourceId: "",
+  conditions: [],
+  rule: "current_post",
+  order: "asset_key_asc",
+};
+function decodeDraft(value: unknown): QueryDraft | null {
+  if (typeof value !== "object" || value === null) return null;
+  const v = value as Record<string, unknown>;
+  if (
+    typeof v.name !== "string" ||
+    typeof v.sourceId !== "string" ||
+    !Array.isArray(v.conditions) ||
+    v.conditions.length > 12 ||
+    !["current_post", "any_observation"].includes(String(v.rule)) ||
+    !["asset_key_asc", "asset_key_desc"].includes(String(v.order))
+  )
+    return null;
+  if (
+    v.definition !== null &&
+    (typeof v.definition !== "object" ||
+      !v.definition ||
+      !("id" in v.definition) ||
+      !("spec" in v.definition) ||
+      !("revision" in v.definition))
+  )
+    return null;
+  if (
+    v.conditions.some(
+      (c) =>
+        !c ||
+        typeof c !== "object" ||
+        typeof c.field !== "string" ||
+        ![
+          "eq",
+          "ne",
+          "gte",
+          "lte",
+          "has_tag",
+          "is_missing",
+          "is_present",
+        ].includes(c.operator),
+    )
+  )
+    return null;
+  return value as QueryDraft;
+}
 export function QueryPanel({
   client,
   projectId,
@@ -43,13 +100,26 @@ export function QueryPanel({
   onClose: () => void;
 }) {
   const cache = useQueryClient();
-  const [definition, setDefinition] = useState<QueryDefinition | null>(null);
-  const [name, setName] = useState("资料筛选");
-  const [sourceId, setSourceId] = useState(sources[0]?.id ?? "");
-  const [conditions, setConditions] = useState<QuerySpec["conditions"]>([]);
-  const [rule, setRule] =
-    useState<QuerySpec["observation_rule"]>("current_post");
-  const [order, setOrder] = useState<QuerySpec["order"]>("asset_key_asc");
+  const draft = useDraft(
+    client,
+    projectId,
+    "core.query",
+    initialDraft,
+    decodeDraft,
+  );
+  const { definition, name, sourceId, conditions, rule, order } = draft.value;
+  const setDefinition = (definition: QueryDefinition | null) =>
+    draft.controller.set((v) => ({ ...v, definition }));
+  const setName = (name: string) =>
+    draft.controller.set((v) => ({ ...v, name }));
+  const setSourceId = (sourceId: string) =>
+    draft.controller.set((v) => ({ ...v, sourceId }));
+  const setConditions = (conditions: QuerySpec["conditions"]) =>
+    draft.controller.set((v) => ({ ...v, conditions }));
+  const setRule = (rule: QuerySpec["observation_rule"]) =>
+    draft.controller.set((v) => ({ ...v, rule }));
+  const setOrder = (order: QuerySpec["order"]) =>
+    draft.controller.set((v) => ({ ...v, order }));
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const multiSource = !!definition && definition.spec.source_ids.length > 1;
@@ -59,8 +129,9 @@ export function QueryPanel({
       ? [definition, ...listedDefinitions]
       : listedDefinitions;
   useEffect(() => {
-    if (!sourceId && sources[0]) setSourceId(sources[0].id);
-  }, [sourceId, sources]);
+    if (draft.editable && !sourceId && sources[0])
+      draft.controller.set((v) => ({ ...v, sourceId: sources[0]!.id }));
+  }, [draft.controller, draft.editable, sourceId, sources]);
   const directory = useQuery({
     queryKey: ["project", projectId, "fields", sourceId],
     queryFn: ({ signal }) => client.queries.fields(projectId, sourceId, signal),
@@ -130,138 +201,144 @@ export function QueryPanel({
           <X size={14} />
         </button>
       </header>
+      <DraftStatus controller={draft.controller} />
       <form
         onSubmit={(event) => {
           event.preventDefault();
           void action(run);
         }}
       >
-        <div className="query-definition-row">
-          <select
-            aria-label="已保存查询"
-            value={definition?.id ?? ""}
-            onChange={(event) => {
-              const query = savedDefinitions.find(
-                (q) => q.id === event.target.value,
-              );
-              if (query) load(query);
-              else {
-                setDefinition(null);
-                setName("资料筛选");
+        <fieldset
+          className="draft-fields"
+          disabled={!draft.editable || pending}
+        >
+          <div className="query-definition-row">
+            <select
+              aria-label="已保存查询"
+              value={definition?.id ?? ""}
+              onChange={(event) => {
+                const query = savedDefinitions.find(
+                  (q) => q.id === event.target.value,
+                );
+                if (query) load(query);
+                else {
+                  setDefinition(null);
+                  setName("资料筛选");
+                  setConditions([]);
+                }
+              }}
+            >
+              <option value="">新建查询</option>
+              {savedDefinitions.map((q) => (
+                <option key={q.id} value={q.id}>
+                  {q.name}
+                </option>
+              ))}
+            </select>
+            <input
+              aria-label="查询名称"
+              disabled={multiSource}
+              value={name}
+              onChange={(event) => setName(event.target.value)}
+              maxLength={120}
+              required
+            />
+            <select
+              aria-label="查询数据湖"
+              disabled={multiSource}
+              value={sourceId}
+              onChange={(event) => {
+                setSourceId(event.target.value);
                 setConditions([]);
-              }
-            }}
-          >
-            <option value="">新建查询</option>
-            {savedDefinitions.map((q) => (
-              <option key={q.id} value={q.id}>
-                {q.name}
-              </option>
-            ))}
-          </select>
-          <input
-            aria-label="查询名称"
-            disabled={multiSource}
-            value={name}
-            onChange={(event) => setName(event.target.value)}
-            maxLength={120}
-            required
-          />
-          <select
-            aria-label="查询数据湖"
-            disabled={multiSource}
-            value={sourceId}
-            onChange={(event) => {
-              setSourceId(event.target.value);
-              setConditions([]);
-            }}
-            required
-          >
-            <option value="" disabled>
-              选择数据湖
-            </option>
-            {sources.map((s) => (
-              <option key={s.id} value={s.id} disabled={!s.available}>
-                {s.name}
-                {s.available ? "" : "（不可用）"}
-              </option>
-            ))}
-          </select>
-        </div>
-        {(model.definitionCursor || model.definitions.data?.next_cursor) && (
-          <div className="query-saved-pages">
-            <button
-              type="button"
-              disabled={!model.definitionCursor}
-              onClick={model.firstDefinitions}
+              }}
+              required
             >
-              最近查询
-            </button>
-            <button
-              type="button"
-              disabled={!model.definitions.data?.next_cursor}
-              onClick={model.nextDefinitions}
-            >
-              更多已保存查询
-            </button>
+              <option value="" disabled>
+                选择数据湖
+              </option>
+              {sources.map((s) => (
+                <option key={s.id} value={s.id} disabled={!s.available}>
+                  {s.name}
+                  {s.available ? "" : "（不可用）"}
+                </option>
+              ))}
+            </select>
           </div>
-        )}
-        {multiSource ? (
+          {(model.definitionCursor || model.definitions.data?.next_cursor) && (
+            <div className="query-saved-pages">
+              <button
+                type="button"
+                disabled={!model.definitionCursor}
+                onClick={model.firstDefinitions}
+              >
+                最近查询
+              </button>
+              <button
+                type="button"
+                disabled={!model.definitions.data?.next_cursor}
+                onClick={model.nextDefinitions}
+              >
+                更多已保存查询
+              </button>
+            </div>
+          )}
+          {multiSource ? (
+            <p className="query-rule-hint">
+              此定义包含多个数据湖，可按保存的条件重新计算。单湖查询可在此编辑。
+            </p>
+          ) : (
+            <QueryConditions
+              fields={fields}
+              conditions={conditions}
+              onChange={setConditions}
+            />
+          )}
+          <div className="query-run-row">
+            <select
+              aria-label="观察判定规则"
+              disabled={multiSource}
+              value={rule}
+              onChange={(event) =>
+                setRule(event.target.value as QuerySpec["observation_rule"])
+              }
+            >
+              <option value="current_post">当前帖子观察</option>
+              <option value="any_observation">任一关联观察</option>
+            </select>
+            <select
+              aria-label="查询排序"
+              disabled={multiSource}
+              value={order}
+              onChange={(event) =>
+                setOrder(event.target.value as QuerySpec["order"])
+              }
+            >
+              <option value="asset_key_asc">内容身份升序</option>
+              <option value="asset_key_desc">内容身份降序</option>
+            </select>
+            <span className="grow" />
+            <Button
+              type="submit"
+              className="primary"
+              disabled={
+                pending || !sourceId || directory.isPending || !!directory.error
+              }
+            >
+              <Play size={12} />
+              {pending
+                ? "提交中…"
+                : multiSource
+                  ? "按已保存定义查询"
+                  : "保存并查询"}
+            </Button>
+          </div>
           <p className="query-rule-hint">
-            此定义包含多个数据湖，可按保存的条件重新计算。单湖查询可在此编辑。
+            {rule === "current_post"
+              ? "元数据条件只检查当前帖子关联的观察和存储对象。"
+              : "每张图片须有同一条关联观察满足全部元数据条件。"}
+            仅查询存储字段时包含无元数据的对象。
           </p>
-        ) : (
-          <QueryConditions
-            fields={fields}
-            conditions={conditions}
-            onChange={setConditions}
-          />
-        )}
-        <div className="query-run-row">
-          <select
-            aria-label="观察判定规则"
-            disabled={multiSource}
-            value={rule}
-            onChange={(event) =>
-              setRule(event.target.value as QuerySpec["observation_rule"])
-            }
-          >
-            <option value="current_post">当前帖子观察</option>
-            <option value="any_observation">任一关联观察</option>
-          </select>
-          <select
-            aria-label="查询排序"
-            disabled={multiSource}
-            value={order}
-            onChange={(event) =>
-              setOrder(event.target.value as QuerySpec["order"])
-            }
-          >
-            <option value="asset_key_asc">内容身份升序</option>
-            <option value="asset_key_desc">内容身份降序</option>
-          </select>
-          <span className="grow" />
-          <Button
-            type="submit"
-            className="primary"
-            disabled={
-              pending || !sourceId || directory.isPending || !!directory.error
-            }
-          >
-            <Play size={12} />
-            {pending
-              ? "提交中…"
-              : multiSource
-                ? "按已保存定义查询"
-                : "保存并查询"}
-          </Button>
-        </div>
-        <p className="query-rule-hint">
-          {rule === "current_post"
-            ? "元数据条件只检查当前帖子关联的观察和存储对象。"
-            : "每张图片须有同一条关联观察满足全部元数据条件。"}
-          仅查询存储字段时包含无元数据的对象。
-        </p>
+        </fieldset>
       </form>
       {(error ||
         directory.error ||

@@ -89,6 +89,12 @@ importers:
 
   packages/ui:
     dependencies:
+      '@studio/client':
+        specifier: workspace:*
+        version: link:../client
+      '@studio/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       lucide-react:
         specifier: ^0.577.0
         version: 0.577.0(react@19.2.8)

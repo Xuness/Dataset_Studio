@@ -27,6 +27,94 @@
         }
       }
     },
+    "/v1/operators": {
+      "get": {
+        "tags": [
+          "tools"
+        ],
+        "operationId": "operators",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Operators"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/preferences/{key}": {
+      "get": {
+        "tags": [
+          "tools"
+        ],
+        "operationId": "preference",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaybePreference"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "tools"
+        ],
+        "operationId": "save_preference",
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveDraft"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Preference"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/projects": {
       "get": {
         "tags": [],
@@ -130,6 +218,222 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Project"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/artifacts": {
+      "get": {
+        "tags": [
+          "tools"
+        ],
+        "operationId": "artifacts",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Artifacts"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/artifacts/{artifact_id}": {
+      "get": {
+        "tags": [
+          "tools"
+        ],
+        "operationId": "get_artifact",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "artifact_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Artifact"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/artifacts/{artifact_id}/release": {
+      "post": {
+        "tags": [
+          "tools"
+        ],
+        "operationId": "release_artifact",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "artifact_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Artifact"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/artifacts/{artifact_id}/rows": {
+      "get": {
+        "tags": [
+          "tools"
+        ],
+        "operationId": "rows",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "artifact_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactPage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/artifacts/{artifact_id}/verify": {
+      "post": {
+        "tags": [
+          "tools"
+        ],
+        "operationId": "verify",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "artifact_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Artifact"
                 }
               }
             }
@@ -291,6 +595,106 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Collection"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/drafts/{module_id}/{instance_id}": {
+      "get": {
+        "tags": [
+          "tools"
+        ],
+        "operationId": "draft",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "module_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "instance_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MaybeDraft"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "tools"
+        ],
+        "operationId": "save_draft",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "module_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "instance_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveDraft"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Draft"
                 }
               }
             }
@@ -461,6 +865,82 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Job"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/jobs/{job_id}/retry": {
+      "post": {
+        "tags": [
+          "tools"
+        ],
+        "operationId": "retry",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/jobs/{job_id}/run": {
+      "get": {
+        "tags": [
+          "tools"
+        ],
+        "operationId": "run",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobRun"
                 }
               }
             }
@@ -1175,6 +1655,50 @@
         }
       }
     },
+    "/v1/projects/{project_id}/sources/{source_id}/assets/{asset_id}": {
+      "get": {
+        "tags": [],
+        "operationId": "asset_detail",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "source_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "asset_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Asset"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/projects/{project_id}/sources/{source_id}/assets/{asset_id}/media": {
       "get": {
         "tags": [],
@@ -1585,6 +2109,86 @@
         }
       }
     },
+    "/v1/projects/{project_id}/tools/jobs": {
+      "post": {
+        "tags": [
+          "tools"
+        ],
+        "operationId": "submit",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ToolSubmission"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Job"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/tools/validate-scope": {
+      "post": {
+        "tags": [
+          "tools"
+        ],
+        "operationId": "validate_scope",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CaptureScope"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/shutdown": {
       "post": {
         "tags": [],
@@ -1622,6 +2226,242 @@
           },
           "request_id": {
             "type": "string"
+          }
+        }
+      },
+      "Artifact": {
+        "type": "object",
+        "required": [
+          "id",
+          "project_id",
+          "job_id",
+          "output_id",
+          "name",
+          "kind",
+          "schema_version",
+          "state",
+          "created_at",
+          "files",
+          "provenance"
+        ],
+        "properties": {
+          "count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ArtifactFile"
+            }
+          },
+          "id": {
+            "type": "string"
+          },
+          "issue": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "job_id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "output_id": {
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/ArtifactProvenance"
+          },
+          "schema_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "state": {
+            "$ref": "#/components/schemas/ArtifactState"
+          }
+        }
+      },
+      "ArtifactFile": {
+        "type": "object",
+        "required": [
+          "path",
+          "media_type"
+        ],
+        "properties": {
+          "bytes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "media_type": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ArtifactPage": {
+        "type": "object",
+        "required": [
+          "artifact_id",
+          "items"
+        ],
+        "properties": {
+          "artifact_id": {
+            "type": "string"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ArtifactRow"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ArtifactProvenance": {
+        "type": "object",
+        "required": [
+          "input_artifacts",
+          "fields_frozen",
+          "evidence"
+        ],
+        "properties": {
+          "attempt": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "evidence": {
+            "type": "string"
+          },
+          "fields_frozen": {
+            "type": "boolean"
+          },
+          "input_artifacts": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "input_scope": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ScopeRef"
+              }
+            ]
+          },
+          "input_sha256": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "run": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OperatorRun"
+              }
+            ]
+          }
+        }
+      },
+      "ArtifactRow": {
+        "type": "object",
+        "required": [
+          "key",
+          "ordinal",
+          "data"
+        ],
+        "properties": {
+          "data": {},
+          "key": {
+            "$ref": "#/components/schemas/AssetKey"
+          },
+          "ordinal": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "scalar": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ScalarValue"
+              }
+            ]
+          }
+        }
+      },
+      "ArtifactState": {
+        "type": "string",
+        "enum": [
+          "legacy",
+          "publishing",
+          "ready",
+          "released",
+          "unavailable"
+        ]
+      },
+      "Artifacts": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Artifact"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -1913,6 +2753,43 @@
         },
         "additionalProperties": false
       },
+      "Draft": {
+        "type": "object",
+        "required": [
+          "project_id",
+          "module_id",
+          "instance_id",
+          "schema_version",
+          "revision",
+          "updated_at",
+          "value"
+        ],
+        "properties": {
+          "instance_id": {
+            "type": "string"
+          },
+          "module_id": {
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "schema_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "updated_at": {
+            "type": "string"
+          },
+          "value": {}
+        }
+      },
       "EngineConnection": {
         "type": "object",
         "required": [
@@ -2140,6 +3017,31 @@
           }
         }
       },
+      "JobRun": {
+        "type": "object",
+        "required": [
+          "run",
+          "fields",
+          "source_versions"
+        ],
+        "properties": {
+          "fields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScalarInput"
+            }
+          },
+          "run": {
+            "$ref": "#/components/schemas/OperatorRun"
+          },
+          "source_versions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QuerySourceVersion"
+            }
+          }
+        }
+      },
       "Jobs": {
         "type": "object",
         "required": [
@@ -2151,6 +3053,36 @@
             "items": {
               "$ref": "#/components/schemas/Job"
             }
+          }
+        }
+      },
+      "MaybeDraft": {
+        "type": "object",
+        "properties": {
+          "draft": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Draft"
+              }
+            ]
+          }
+        }
+      },
+      "MaybePreference": {
+        "type": "object",
+        "properties": {
+          "preference": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/Preference"
+              }
+            ]
           }
         }
       },
@@ -2511,6 +3443,214 @@
           }
         },
         "additionalProperties": false
+      },
+      "OperatorCapabilities": {
+        "type": "object",
+        "required": [
+          "cancel",
+          "checkpoint",
+          "retry",
+          "deterministic",
+          "item_failures"
+        ],
+        "properties": {
+          "cancel": {
+            "type": "boolean"
+          },
+          "checkpoint": {
+            "type": "boolean"
+          },
+          "deterministic": {
+            "type": "boolean"
+          },
+          "item_failures": {
+            "type": "boolean"
+          },
+          "retry": {
+            "type": "boolean"
+          }
+        }
+      },
+      "OperatorDescriptor": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "version",
+          "parameters_version",
+          "parameters",
+          "input_scopes",
+          "outputs",
+          "capabilities",
+          "resources"
+        ],
+        "properties": {
+          "capabilities": {
+            "$ref": "#/components/schemas/OperatorCapabilities"
+          },
+          "id": {
+            "type": "string"
+          },
+          "input_scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "name": {
+            "type": "string"
+          },
+          "outputs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OutputDescriptor"
+            }
+          },
+          "parameters": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ParameterDescriptor"
+            }
+          },
+          "parameters_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "resources": {
+            "$ref": "#/components/schemas/ResourceRequirements"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "OperatorRun": {
+        "type": "object",
+        "required": [
+          "operator_id",
+          "operator_version",
+          "parameters_version",
+          "parameters"
+        ],
+        "properties": {
+          "operator_id": {
+            "type": "string"
+          },
+          "operator_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "parameters": {},
+          "parameters_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "Operators": {
+        "type": "object",
+        "required": [
+          "protocol_version",
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OperatorDescriptor"
+            }
+          },
+          "protocol_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "OutputDescriptor": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "schema_version",
+          "subject"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "schema_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "subject": {
+            "type": "string"
+          }
+        }
+      },
+      "ParameterDescriptor": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "value_type",
+          "default_value",
+          "required"
+        ],
+        "properties": {
+          "default_value": {},
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "required": {
+            "type": "boolean"
+          },
+          "value_type": {
+            "type": "string"
+          }
+        }
+      },
+      "Preference": {
+        "type": "object",
+        "required": [
+          "key",
+          "schema_version",
+          "revision",
+          "value"
+        ],
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "schema_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "value": {}
+        }
       },
       "Project": {
         "type": "object",
@@ -3045,6 +4185,33 @@
         },
         "additionalProperties": false
       },
+      "ResourceRequirements": {
+        "type": "object",
+        "required": [
+          "cpu_slots",
+          "memory_bytes",
+          "media_reads",
+          "gpu"
+        ],
+        "properties": {
+          "cpu_slots": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "gpu": {
+            "type": "boolean"
+          },
+          "media_reads": {
+            "type": "boolean"
+          },
+          "memory_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "ResultAssets": {
         "type": "object",
         "required": [
@@ -3099,6 +4266,28 @@
           }
         }
       },
+      "SaveDraft": {
+        "type": "object",
+        "required": [
+          "schema_version",
+          "expected_revision",
+          "value"
+        ],
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "schema_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "value": {}
+        },
+        "additionalProperties": false
+      },
       "SaveQuery": {
         "type": "object",
         "required": [
@@ -3122,6 +4311,136 @@
           }
         },
         "additionalProperties": false
+      },
+      "ScalarInput": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "stored_bytes"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "origin_width"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "artifact_id",
+              "kind"
+            ],
+            "properties": {
+              "artifact_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "artifact"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "ScalarValue": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "value",
+              "status"
+            ],
+            "properties": {
+              "status": {
+                "type": "string",
+                "enum": [
+                  "available"
+                ]
+              },
+              "value": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "reason",
+              "status"
+            ],
+            "properties": {
+              "reason": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "missing"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "code",
+              "message",
+              "status"
+            ],
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "failed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "reason",
+              "status"
+            ],
+            "properties": {
+              "reason": {
+                "type": "string"
+              },
+              "status": {
+                "type": "string",
+                "enum": [
+                  "uncomputed"
+                ]
+              }
+            }
+          }
+        ]
       },
       "ScopeOperation": {
         "type": "string",
@@ -3372,6 +4691,31 @@
             ],
             "format": "int64",
             "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "ToolSubmission": {
+        "type": "object",
+        "required": [
+          "idempotency_key",
+          "run",
+          "scope"
+        ],
+        "properties": {
+          "delay_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "idempotency_key": {
+            "type": "string"
+          },
+          "run": {
+            "$ref": "#/components/schemas/OperatorRun"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/ScopeRef"
           }
         },
         "additionalProperties": false

@@ -1,6 +1,8 @@
 mod api;
+mod artifacts;
 mod jobs;
 mod query_jobs;
+mod tool_inputs;
 mod worker;
 use clap::{Parser, Subcommand};
 use fs2::FileExt;
@@ -176,6 +178,7 @@ async fn serve(root: PathBuf, port: u16) -> Result<()> {
             axum::http::Method::GET,
             axum::http::Method::POST,
             axum::http::Method::PATCH,
+            axum::http::Method::PUT,
         ])
         .allow_headers([
             axum::http::header::AUTHORIZATION,

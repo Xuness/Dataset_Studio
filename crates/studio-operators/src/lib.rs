@@ -28,6 +28,12 @@ fn descriptor(
             .into(),
         outputs: vec![OutputDescriptor {
             id: "data".into(),
+            name: if kind == "manifest" {
+                "数据清单"
+            } else {
+                "标量值"
+            }
+            .into(),
             kind: kind.into(),
             schema_version: 1,
             subject: "asset".into(),
@@ -137,7 +143,7 @@ fn integer(text: &str) -> Result<i64> {
 struct Scalar;
 impl Operator for Scalar {
     fn descriptor(&self) -> OperatorDescriptor {
-        descriptor(
+        let mut descriptor = descriptor(
             "core.scalar",
             "计算标量字段",
             "scalar_columns",
@@ -164,7 +170,22 @@ impl Operator for Scalar {
                     required: false,
                 },
             ],
-        )
+        );
+        descriptor.outputs.push(OutputDescriptor {
+            id: "failures".into(),
+            name: "单项失败".into(),
+            kind: "item_failures".into(),
+            schema_version: 1,
+            subject: "asset".into(),
+        });
+        descriptor
+    }
+    fn output_row(&self, output_id: &str, row: &Value) -> Result<Option<Value>> {
+        match output_id {
+            "data" => Ok(Some(row.clone())),
+            "failures" => Ok((row["scalar"]["status"] == "failed").then(|| row.clone())),
+            _ => Err(Error::new("OUTPUT_UNSUPPORTED", "算子未声明该成果输出")),
+        }
     }
     fn normalize(&self, parameters: Value) -> Result<Value> {
         let mut params: ScalarParameters = serde_json::from_value(parameters)

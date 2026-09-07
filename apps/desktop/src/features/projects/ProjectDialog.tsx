@@ -1,19 +1,12 @@
-import { useRef, useState } from "react";
-import { FolderOpen, FileText } from "lucide-react";
+import { useState } from "react";
+import { FolderOpen } from "lucide-react";
 import { Button, Dialog, Field } from "@studio/ui";
 import type { Project, Source } from "@studio/contracts";
 import type { StudioClient } from "@studio/client";
 import { ScopePicker } from "../scopes/ScopePicker.js";
 import type { ScopeOption } from "../scopes/scopes.js";
 export type DialogKind =
-  | "new"
-  | "open"
-  | "source"
-  | "relink"
-  | "collection"
-  | "manifest"
-  | "about"
-  | null;
+  "new" | "open" | "source" | "relink" | "collection" | "about" | null;
 export function ProjectDialog({
   kind,
   client,
@@ -53,14 +46,12 @@ export function ProjectDialog({
       "",
   );
   const input = options.find((o) => o.value === scopeId);
-  const idempotency = useRef(crypto.randomUUID());
   const titles = {
     new: "新建项目",
     open: "打开项目",
     source: "添加数据湖",
     relink: "重新关联数据湖位置",
     collection: "保存工作集",
-    manifest: "生成数据清单",
     about: "关于 Dataset Studio",
   };
   async function submit(e: React.FormEvent) {
@@ -68,7 +59,7 @@ export function ProjectDialog({
     setPending(true);
     setError("");
     try {
-      if ((kind === "manifest" || kind === "collection") && !input)
+      if (kind === "collection" && !input)
         throw new Error("请选择可用的数据范围。");
       if (kind === "new")
         await onCreated(
@@ -92,12 +83,6 @@ export function ProjectDialog({
         });
       if (kind === "collection" && project)
         await client.createCollection(project.id, name, input?.scope);
-      if (kind === "manifest" && project)
-        await client.submitJob(project.id, {
-          idempotency_key: idempotency.current,
-          scope: input?.scope ?? null,
-          delay_ms: 0,
-        });
       onDone();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -215,15 +200,14 @@ export function ProjectDialog({
               </div>
             </Field>
           )}
-          {(kind === "manifest" || kind === "collection") && (
+          {kind === "collection" && (
             <ScopePicker
               options={options}
               value={scopeId}
               onChange={(value) => {
                 setScopeId(value);
-                idempotency.current = crypto.randomUUID();
               }}
-              label={kind === "collection" ? "工作集成员范围" : "任务输入范围"}
+              label="工作集成员范围"
             />
           )}
           {kind === "relink" && (
@@ -231,27 +215,6 @@ export function ProjectDialog({
               为「{relinkSource?.name}
               」选择同一个数据湖的新位置。此位置由当前应用登记的项目共享，调整会影响其中所有引用该数据湖的项目。
             </p>
-          )}
-          {kind === "manifest" && (
-            <div className="job-confirm">
-              <div>
-                <FileText size={28} />
-                <strong>数据清单</strong>
-              </div>
-              <p>
-                将「{input?.label ?? "所选范围"}」
-                {input?.count == null
-                  ? "的全部对象"
-                  : "的 " + input.count.toLocaleString() + " 个对象"}
-                固定为输入，生成包含来源、内容身份和存储信息的清单。
-              </p>
-              <p>
-                {input?.scope.target.kind === "source"
-                  ? "任务会先在后台固定数据湖范围，再开始执行。"
-                  : "提交后修改选择或重新查询不会改变任务输入。"}
-                完成后可在项目任务中保存成果。
-              </p>
-            </div>
           )}
           {kind === "collection" && (
             <p className="dialog-hint">
@@ -277,19 +240,16 @@ export function ProjectDialog({
               type="submit"
               disabled={
                 pending ||
-                ((kind === "manifest" || kind === "collection") &&
-                  (!input || input.count === 0))
+                (kind === "collection" && (!input || input.count === 0))
               }
             >
               {pending
                 ? "处理中…"
-                : kind === "manifest"
-                  ? "创建任务"
-                  : kind === "open"
-                    ? "打开"
-                    : kind === "source"
-                      ? "加入项目"
-                      : "保存"}
+                : kind === "open"
+                  ? "打开"
+                  : kind === "source"
+                    ? "加入项目"
+                    : "保存"}
             </Button>
           </div>
         </form>

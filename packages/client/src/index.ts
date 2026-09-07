@@ -6,6 +6,10 @@ import type {
   Asset,
 } from "@studio/contracts";
 import { QueryClient } from "./queries.js";
+import { ToolClient, DraftClient } from "./tools.js";
+import { DraftCoordinator } from "./drafts.js";
+export { DraftController, DraftCoordinator } from "./drafts.js";
+export type { DraftSnapshot, DraftStatus } from "./drafts.js";
 export type { PageOptions } from "./queries.js";
 export class StudioError extends Error {
   constructor(
@@ -67,6 +71,17 @@ function metadataQuery(options: MetadataOptions) {
   return query;
 }
 export class StudioClient {
+  readonly tools = new ToolClient(<T>(path: string, init?: RequestInit) =>
+    this.request<T>(path, init),
+  );
+  readonly drafts = new DraftClient(<T>(path: string, init?: RequestInit) =>
+    this.request<T>(path, init),
+  );
+  edits = new DraftCoordinator(this.drafts);
+  preserveEdits(previous: StudioClient) {
+    this.edits = previous.edits;
+    this.edits.rebind(this.drafts);
+  }
   private openedProjects = new Set<string>();
   private openingProjects = new Set<Promise<Schema["Project"]>>();
   private closingViews = false;
@@ -78,6 +93,7 @@ export class StudioClient {
     const pending = request()
       .then((project) => {
         this.openedProjects.add(project.id);
+        void this.edits.flush(project.id).catch(() => {});
         return project;
       })
       .finally(() => this.openingProjects.delete(pending));
@@ -85,11 +101,17 @@ export class StudioClient {
     return pending;
   }
   async releaseProjectViews() {
+    await this.edits.flush();
     this.closingViews = true;
-    await Promise.allSettled([...this.openingProjects]);
-    await Promise.allSettled(
-      [...this.openedProjects].map((id) => this.closeProject(id)),
-    );
+    try {
+      await Promise.allSettled([...this.openingProjects]);
+      await Promise.all(
+        [...this.openedProjects].map((id) => this.closeProject(id)),
+      );
+    } catch (error) {
+      this.closingViews = false;
+      throw error;
+    }
   }
   readonly queries = new QueryClient(<T>(path: string, init?: RequestInit) =>
     this.request<T>(path, init),
@@ -184,6 +206,7 @@ export class StudioClient {
     );
   }
   async closeProject(id: string) {
+    await this.edits.flush(id);
     const result = await this.request<Schema["ProjectClose"]>(
       "/v1/projects/" + encodeURIComponent(id) + "/close",
       { method: "POST" },
@@ -249,6 +272,12 @@ export class StudioClient {
     return this.request<Schema["MetadataOverview"]>(
       metadataPath(projectId, key) + "/metadata?" + metadataQuery(options),
       options.signal ? { signal: options.signal } : {},
+    );
+  }
+  asset(projectId: string, key: AssetKey, signal?: AbortSignal) {
+    return this.request<Schema["Asset"]>(
+      metadataPath(projectId, key),
+      signal ? { signal } : {},
     );
   }
   observations(

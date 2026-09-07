@@ -31,6 +31,13 @@ pub struct ToolSubmission {
     pub delay_ms: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct JobRun {
+    pub run: OperatorRun,
+    pub fields: Vec<ScalarInput>,
+    pub source_versions: Vec<crate::QuerySourceVersion>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ScalarInput {
@@ -123,6 +130,7 @@ pub struct ParameterDescriptor {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutputDescriptor {
     pub id: String,
+    pub name: String,
     pub kind: String,
     pub schema_version: u32,
     pub subject: String,

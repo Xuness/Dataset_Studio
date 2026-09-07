@@ -232,3 +232,26 @@ button:hover:not(:disabled) {
     animation: none;
   }
 }
+.draft-fields {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+  display: contents;
+}
+.draft-status {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  padding: 7px 12px;
+  font-size: 11px;
+  color: var(--text-muted, #8b929c);
+}
+.draft-status button {
+  color: var(--text, #dce1e7);
+  text-decoration: underline;
+}
+.draft-error {
+  color: #edb88d;
+}

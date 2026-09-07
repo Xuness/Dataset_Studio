@@ -22,6 +22,7 @@ use studio_storage::SqliteStore;
 use utoipa::OpenApi;
 mod query;
 mod source_locations;
+mod tools;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -51,6 +52,10 @@ impl IntoResponse for Failure {
             | "PROJECT_CLOSED"
             | "RESULT_NOT_READY"
             | "RESULT_IN_USE"
+            | "ARTIFACT_IN_USE"
+            | "ARTIFACT_NOT_READY"
+            | "DRAFT_CONFLICT"
+            | "DRAFT_VERSION_UNSUPPORTED"
             | "SCOPE_PROJECT_MISMATCH"
             | "SOURCE_LOCATION_CONFLICT"
             | "PROJECT_ID_CONFLICT"
@@ -67,9 +72,11 @@ impl IntoResponse for Failure {
             | "METADATA_UNSUPPORTED"
             | "METADATA_RUNTIME_UNSUPPORTED"
             | "SOURCE_FORMAT_UNSUPPORTED" => StatusCode::BAD_REQUEST,
-            "QUERY_UNSUPPORTED" | "QUERY_VERSION_UNSUPPORTED" | "SCOPE_REQUIRES_CAPTURE" => {
-                StatusCode::BAD_REQUEST
-            }
+            "QUERY_UNSUPPORTED"
+            | "QUERY_VERSION_UNSUPPORTED"
+            | "SCOPE_REQUIRES_CAPTURE"
+            | "OPERATOR_UNAVAILABLE"
+            | "PARAMETERS_VERSION_UNSUPPORTED" => StatusCode::BAD_REQUEST,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
         let id = domain::new_id();
@@ -168,6 +175,34 @@ async fn close_project(
 #[utoipa::path(get,path="/v1/projects/{project_id}",params(("project_id"=String,Path)),responses((status=200,body=Project)))]
 async fn project(State(s): State<AppState>, Path(id): Path<String>) -> ApiResult<Project> {
     Ok(Json(blocking(move || s.store.project(&id)).await?.into()))
+}
+#[utoipa::path(get,path="/v1/projects/{project_id}/sources/{source_id}/assets/{asset_id}",operation_id="asset_detail",params(("project_id"=String,Path),("source_id"=String,Path),("asset_id"=String,Path)),responses((status=200,body=Asset)))]
+async fn asset_detail(
+    State(s): State<AppState>,
+    Path((pid, sid, aid)): Path<(String, String, String)>,
+) -> ApiResult<Asset> {
+    Ok(Json(
+        blocking(move || {
+            let key = domain::AssetKey {
+                source_id: sid.clone(),
+                asset_id: aid,
+            };
+            let source = s.store.source(&pid, &sid)?;
+            let item = SourceRouter
+                .freeze(&source, std::slice::from_ref(&key))?
+                .into_iter()
+                .next()
+                .ok_or_else(|| domain::Error::new("NOT_FOUND", "焦点对象已不可用"))?;
+            let selected = s
+                .store
+                .contains(&pid, &[key])?
+                .first()
+                .copied()
+                .unwrap_or(false);
+            Ok(Asset::from_domain(item.asset, selected))
+        })
+        .await?,
+    ))
 }
 
 fn metadata_permit(
@@ -655,10 +690,15 @@ async fn artifact(
         if job.status != "succeeded" || job.artifact.is_none() {
             return Err(domain::Error::new("NOT_FOUND", "任务尚未发布成果"));
         }
-        Ok(s.store
-            .directory(&pid)?
-            .join("artifacts")
-            .join(format!("{}.jsonl", job.id)))
+        let _lease = s.store.operation_lease(&pid)?;
+        let item = crate::artifacts::verify(&s.store, &pid, &jid)?;
+        if item.state != domain::ArtifactState::Ready {
+            return Err(domain::Error::new(
+                "ARTIFACT_NOT_READY",
+                "成果已释放或尚不可读",
+            ));
+        }
+        crate::artifacts::controlled_path(&s.store, &pid, &format!("artifacts/{}.jsonl", job.id))
     })
     .await?;
     let file = tokio::fs::File::open(path)
@@ -729,6 +769,7 @@ async fn shutdown(State(s): State<AppState>) -> Json<OkResponse> {
         sources,
         attach_source,
         assets,
+        asset_detail,
         media,
         metadata,
         observations,
@@ -756,7 +797,21 @@ async fn shutdown(State(s): State<AppState>) -> Json<OkResponse> {
         query::result_assets,
         query::capture,
         query::select_scope,
-        source_locations::relink
+        source_locations::relink,
+        tools::operators,
+        tools::submit,
+        tools::validate_scope,
+        tools::run,
+        tools::retry,
+        tools::artifacts,
+        tools::artifact,
+        tools::verify,
+        tools::rows,
+        tools::release,
+        tools::draft,
+        tools::save_draft,
+        tools::preference,
+        tools::save_preference
     ),
     components(schemas(
         EngineConnection,
@@ -771,6 +826,33 @@ async fn shutdown(State(s): State<AppState>) -> Json<OkResponse> {
 pub struct ApiDoc;
 pub fn routes() -> axum::Router<AppState> {
     axum::Router::new()
+        .route("/v1/operators", get(tools::operators))
+        .route(
+            "/v1/preferences/{key}",
+            get(tools::preference).put(tools::save_preference),
+        )
+        .route("/v1/projects/{pid}/tools/jobs", post(tools::submit))
+        .route(
+            "/v1/projects/{pid}/tools/validate-scope",
+            post(tools::validate_scope),
+        )
+        .route("/v1/projects/{pid}/jobs/{jid}/run", get(tools::run))
+        .route("/v1/projects/{pid}/jobs/{jid}/retry", post(tools::retry))
+        .route("/v1/projects/{pid}/artifacts", get(tools::artifacts))
+        .route("/v1/projects/{pid}/artifacts/{aid}", get(tools::artifact))
+        .route("/v1/projects/{pid}/artifacts/{aid}/rows", get(tools::rows))
+        .route(
+            "/v1/projects/{pid}/artifacts/{aid}/verify",
+            post(tools::verify),
+        )
+        .route(
+            "/v1/projects/{pid}/artifacts/{aid}/release",
+            post(tools::release),
+        )
+        .route(
+            "/v1/projects/{pid}/drafts/{module}/{instance}",
+            get(tools::draft).put(tools::save_draft),
+        )
         .route("/v1/health", get(health))
         .route("/v1/shutdown", post(shutdown))
         .route("/v1/projects", get(projects).post(create_project))
@@ -783,6 +865,10 @@ pub fn routes() -> axum::Router<AppState> {
             get(sources).post(attach_source),
         )
         .route("/v1/projects/{id}/assets", get(assets))
+        .route(
+            "/v1/projects/{pid}/sources/{sid}/assets/{aid}",
+            get(asset_detail),
+        )
         .route(
             "/v1/projects/{pid}/sources/{sid}/assets/{aid}/media",
             get(media),

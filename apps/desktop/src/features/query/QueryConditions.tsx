@@ -54,6 +54,11 @@ export function QueryConditions({
                 if (next) update(index, initialCondition(next));
               }}
             >
+              {!field && (
+                <option value={condition.field}>
+                  字段已不可用 · {condition.field}
+                </option>
+              )}
               {fields.map((f) => (
                 <option key={f.id} value={f.id}>
                   {f.name}

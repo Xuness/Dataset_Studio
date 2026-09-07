@@ -1,4 +1,5 @@
 use crate::worker;
+use futures::StreamExt;
 use std::{
     collections::HashMap,
     fs::{self, File},
@@ -11,10 +12,45 @@ use studio_application::SourceAdapter;
 use studio_domain::*;
 use studio_sources::SourceRouter;
 use studio_storage::{SqliteStore, atomic_json};
-use tokio::{
-    io::{AsyncBufReadExt, BufReader},
-    process::Command,
-};
+use tokio::process::Command;
+use tokio_util::codec::{FramedRead, LinesCodec};
+
+static ACTIVE: std::sync::LazyLock<std::sync::Mutex<std::collections::HashSet<String>>> =
+    std::sync::LazyLock::new(Default::default);
+struct ActiveAttempt(String);
+impl ActiveAttempt {
+    fn enter(job: &Job) -> Result<Self> {
+        let key = format!("{}:{}", job.project_id, job.id);
+        let mut active = ACTIVE
+            .lock()
+            .map_err(|_| Error::new("INTERNAL_ERROR", "执行器状态锁不可用"))?;
+        if !active.insert(key.clone()) {
+            return Err(Error::new("SOURCE_BUSY", "同一任务已有执行尝试"));
+        }
+        Ok(Self(key))
+    }
+}
+impl Drop for ActiveAttempt {
+    fn drop(&mut self) {
+        if let Ok(mut active) = ACTIVE.lock() {
+            active.remove(&self.0);
+        }
+    }
+}
+pub async fn wait_stopped(pid: &str, jid: &str) -> Result<()> {
+    let key = format!("{pid}:{jid}");
+    for _ in 0..100 {
+        if !ACTIVE
+            .lock()
+            .map_err(|_| Error::new("INTERNAL_ERROR", "执行器状态锁不可用"))?
+            .contains(&key)
+        {
+            return Ok(());
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    Err(Error::new("SOURCE_BUSY", "旧执行尝试正在停止，请稍后重试"))
+}
 
 pub async fn scheduler(store: Arc<SqliteStore>) {
     loop {
@@ -65,6 +101,7 @@ pub async fn scheduler(store: Arc<SqliteStore>) {
     }
 }
 fn prepare(store: &SqliteStore, job: &Job) -> Result<(PathBuf, WorkerPlan)> {
+    let frozen = store.job_run(&job.project_id, &job.id)?;
     let directory = store.directory(&job.project_id)?;
     let staging = directory.join(".staging").join(&job.id);
     fs::create_dir_all(&staging).map_err(Error::io)?;
@@ -75,17 +112,23 @@ fn prepare(store: &SqliteStore, job: &Job) -> Result<(PathBuf, WorkerPlan)> {
     let path = staging.join("plan.json");
     if path.exists() {
         let plan = worker::load_plan(&path)?;
-        if plan.job_id != job.id || plan.total != job.total {
+        if plan.job_id != job.id
+            || plan.total != job.total
+            || studio_operators::registry()?.normalize(plan.run.clone())?
+                != studio_operators::registry()?.normalize(frozen.run)?
+        {
             return Err(Error::new("CHECKPOINT_INVALID", "任务计划不一致"));
         }
         return Ok((path, plan));
     }
     store.update_job(&job.project_id, &job.id, "preparing", 0, None, None)?;
+    crate::tool_inputs::validate_versions(store, &job.project_id, &frozen)?;
     let input_path = staging.join("input.jsonl");
     let mut input = File::create(&input_path).map_err(Error::io)?;
     let mut after = None;
     let mut revisions = HashMap::<String, String>::new();
-    let mut count = 0;
+    let mut count: u64 = 0;
+    let metadata = studio_sources::MetadataReader::default();
     loop {
         if store.job(&job.project_id, &job.id)?.status == "cancelled" {
             return Err(Error::new("CANCELLED", "任务已取消"));
@@ -104,7 +147,20 @@ fn prepare(store: &SqliteStore, job: &Job) -> Result<(PathBuf, WorkerPlan)> {
         for (id, keys) in groups {
             let source = store.source(&job.project_id, &id)?;
             let items = SourceRouter.freeze(&source, &keys)?;
-            for item in items {
+            for mut item in items {
+                if count.is_multiple_of(8)
+                    && store.job(&job.project_id, &job.id)?.status == "cancelled"
+                {
+                    return Err(Error::new("CANCELLED", "字段准备已取消"));
+                }
+                crate::tool_inputs::project_fields(
+                    store,
+                    &job.project_id,
+                    &source,
+                    &mut item,
+                    &frozen,
+                    &metadata,
+                )?;
                 if let Some(old) = revisions.insert(id.clone(), item.source_revision.clone())
                     && old != item.source_revision
                 {
@@ -124,6 +180,7 @@ fn prepare(store: &SqliteStore, job: &Job) -> Result<(PathBuf, WorkerPlan)> {
         return Err(Error::new("INPUT_CHANGED", "固定输入数量不一致"));
     }
     input.sync_all().map_err(Error::io)?;
+    crate::tool_inputs::validate_versions(store, &job.project_id, &frozen)?;
     let plan = WorkerPlan {
         version: 1,
         job_id: job.id.clone(),
@@ -133,13 +190,14 @@ fn prepare(store: &SqliteStore, job: &Job) -> Result<(PathBuf, WorkerPlan)> {
         checkpoint_path: "checkpoint.json".into(),
         total: count,
         delay_ms: store.job_delay(&job.project_id, &job.id)?,
-        run: OperatorRun::default(),
+        run: frozen.run,
     };
     atomic_json(&path, &plan)?;
     let resolved = worker::load_plan(&path)?;
     Ok((path, resolved))
 }
 async fn execute(store: Arc<SqliteStore>, job: Job) -> Result<()> {
+    let _attempt = ActiveAttempt::enter(&job)?;
     let _project_lease = store.operation_lease(&job.project_id)?;
     let s = store.clone();
     let j = job.clone();
@@ -165,19 +223,12 @@ async fn execute(store: Arc<SqliteStore>, job: Job) -> Result<()> {
         return Err(Error::new("ARTIFACT_PATH_INVALID", "成果位置不能是链接"));
     }
     if final_path.exists() {
-        let hash = worker::validate_output(&final_path, &plan)?;
-        atomic_json(
-            &final_path.with_extension("manifest.json"),
-            &serde_json::json!({"schema_version":1,"job_id":job.id,"rows":job.total,"sha256":hash,"input_sha256":plan.input_sha256,"input_scope":job.input_scope,"operator":"core.manifest","operator_version":1}),
-        )?;
-        store.update_job(
-            &job.project_id,
-            &job.id,
-            "succeeded",
-            job.total,
-            None,
-            Some(&format!("artifacts/{}.jsonl", job.id)),
-        )?;
+        let s = store.clone();
+        tokio::task::spawn_blocking(move || {
+            crate::artifacts::publish(&s, &job, &plan, &final_path)
+        })
+        .await
+        .map_err(Error::io)??;
         return Ok(());
     }
     store.update_job(
@@ -207,18 +258,18 @@ async fn execute(store: Arc<SqliteStore>, job: Job) -> Result<()> {
     let mut child = command.spawn().map_err(Error::io)?;
     #[cfg(windows)]
     let _process_group = ProcessGroup::attach(&child)?;
-    let mut lines = BufReader::new(
+    let mut lines = FramedRead::new(
         child
             .stdout
             .take()
             .ok_or_else(|| Error::new("WORKER_ERROR", "执行器输出不可用"))?,
-    )
-    .lines();
+        LinesCodec::new_with_max_length(4096),
+    );
     let mut interval = tokio::time::interval(std::time::Duration::from_millis(150));
     loop {
         tokio::select! {
-            line=lines.next_line()=>{match line.map_err(Error::io)?{
-                Some(line)=>{let progress:worker::Progress=serde_json::from_str(&line).map_err(Error::io)?;if progress.total!=job.total||progress.completed>job.total{return Err(Error::new("WORKER_PROTOCOL_ERROR","无效的任务进度"));}store.update_job(&job.project_id,&job.id,"running",progress.completed,None,None)?;},
+            line=lines.next()=>{match line{
+                Some(line)=>{let line=line.map_err(|_|Error::new("WORKER_PROTOCOL_ERROR","进度消息无效或超过 4 KiB"))?;let progress:worker::Progress=serde_json::from_str(&line).map_err(Error::io)?;if progress.version!=1||progress.total!=job.total||progress.completed>job.total{return Err(Error::new("WORKER_PROTOCOL_ERROR","无效的任务进度"));}store.update_job(&job.project_id,&job.id,"running",progress.completed,None,None)?;},
                 None=>break
             }},
             _=interval.tick()=>{if store.job(&job.project_id,&job.id)?.status=="cancelled"{child.kill().await.map_err(Error::io)?;return Ok(());}}
@@ -236,12 +287,13 @@ async fn execute(store: Arc<SqliteStore>, job: Job) -> Result<()> {
     }
     let s = store.clone();
     let j = job.clone();
-    tokio::task::spawn_blocking(move||->Result<()>{
-        let hash=worker::validate_output(&plan.output_path,&plan)?;
-        fs::rename(&plan.output_path,&final_path).map_err(Error::io)?;
-        atomic_json(&final_path.with_extension("manifest.json"),&serde_json::json!({"schema_version":1,"job_id":j.id,"rows":j.total,"sha256":hash,"input_sha256":plan.input_sha256,"input_scope":j.input_scope,"operator":"core.manifest","operator_version":1}))?;
-        s.update_job(&j.project_id,&j.id,"succeeded",j.total,None,Some(&format!("artifacts/{}.jsonl",j.id)))?;Ok(())
-    }).await.map_err(Error::io)??;
+    tokio::task::spawn_blocking(move || -> Result<()> {
+        worker::validate_output(&plan.output_path, &plan)?;
+        fs::rename(&plan.output_path, &final_path).map_err(Error::io)?;
+        crate::artifacts::publish(&s, &j, &plan, &final_path)
+    })
+    .await
+    .map_err(Error::io)??;
     Ok(())
 }
 

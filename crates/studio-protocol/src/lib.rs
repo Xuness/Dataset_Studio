@@ -6,6 +6,8 @@ mod query;
 pub use query::*;
 mod scope;
 pub use scope::*;
+mod tools;
+pub use tools::*;
 use utoipa::ToSchema;
 pub const API_VERSION: u32 = 1;
 

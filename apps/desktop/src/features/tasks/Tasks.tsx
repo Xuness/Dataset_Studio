@@ -29,6 +29,10 @@ export function Tasks({
     refetchInterval: 5000,
   });
   const jobs = query.data?.items ?? [];
+  const operators = useQuery({
+    queryKey: ["operators", client.connection.instance_id],
+    queryFn: ({ signal }) => client.tools.operators(signal),
+  });
   return (
     <section className="tasks-panel">
       <header>
@@ -46,7 +50,7 @@ export function Tasks({
       <div className="tasks-scroll">
         {!jobs.length ? (
           <div className="tasks-empty">
-            可以为数据湖、工作集、查询结果或项目选择生成清单。任务会保存固定输入和执行进度。
+            工具任务会保存固定输入、算子版本和执行进度。
           </div>
         ) : (
           jobs.map((job) => (
@@ -61,7 +65,10 @@ export function Tasks({
                 )}
               </span>
               <div className="task-title">
-                <strong>数据清单</strong>
+                <strong>
+                  {operators.data?.items.find((o) => o.id === job.operator)
+                    ?.name ?? job.operator}
+                </strong>
                 <small>
                   {scopeKindLabel(job.input_scope)} ·{" "}
                   {!job.input_members_frozen
@@ -115,6 +122,20 @@ export function Tasks({
                   }
                 >
                   取消
+                </Button>
+              ) : ["failed", "cancelled"].includes(job.status) &&
+                job.total > 0 &&
+                operators.data?.items.find((o) => o.id === job.operator)
+                  ?.capabilities.retry ? (
+                <Button
+                  onClick={() =>
+                    void client.tools
+                      .retry(projectId, job.id)
+                      .then(() => query.refetch())
+                      .catch((error) => onError(String(error)))
+                  }
+                >
+                  重试固定输入
                 </Button>
               ) : null}
             </div>

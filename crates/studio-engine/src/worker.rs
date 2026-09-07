@@ -17,6 +17,7 @@ struct Checkpoint {
 }
 #[derive(Serialize, Deserialize)]
 pub struct Progress {
+    pub version: u32,
     pub completed: u64,
     pub total: u64,
 }
@@ -34,12 +35,16 @@ pub fn hash_file(path: &Path) -> Result<String> {
     Ok(hex::encode(hash.finalize()))
 }
 pub fn load_plan(path: &Path) -> Result<WorkerPlan> {
+    if fs::metadata(path).map_err(Error::io)?.len() > 1024 * 1024 {
+        return Err(Error::new("WORKER_PROTOCOL_ERROR", "执行计划超过 1 MiB"));
+    }
     let mut plan: WorkerPlan =
         serde_json::from_slice(&fs::read(path).map_err(Error::io)?).map_err(Error::io)?;
     if plan.version != 1 {
         return Err(Error::new("WORKER_VERSION_MISMATCH", "执行器协议不兼容"));
     }
     validate_id(&plan.job_id)?;
+    studio_operators::registry()?.resolve(&plan.run)?;
     let root = path
         .parent()
         .ok_or_else(|| Error::invalid("任务位置无效"))?
@@ -73,10 +78,18 @@ pub fn load_plan(path: &Path) -> Result<WorkerPlan> {
 
 pub fn run(plan_path: &Path) -> Result<()> {
     let plan = load_plan(plan_path)?;
+    let operator = studio_operators::registry()?.resolve(&plan.run)?;
     if plan.version != 1 {
         return Err(Error::new("WORKER_VERSION_MISMATCH", "执行器协议不兼容"));
     }
     let mut checkpoint: Checkpoint = if plan.checkpoint_path.exists() {
+        if fs::metadata(&plan.checkpoint_path)
+            .map_err(Error::io)?
+            .len()
+            > 65536
+        {
+            return Err(Error::new("CHECKPOINT_INVALID", "检查点超过 64 KiB"));
+        }
         serde_json::from_slice(&fs::read(&plan.checkpoint_path).map_err(Error::io)?)
             .map_err(Error::io)?
     } else {
@@ -118,12 +131,12 @@ pub fn run(plan_path: &Path) -> Result<()> {
     let mut stdout = std::io::stdout().lock();
     loop {
         line.clear();
-        let bytes = input.read_line(&mut line).map_err(Error::io)?;
+        let bytes = bounded_line(&mut input, &mut line)?;
         if bytes == 0 {
             break;
         }
         let item: FrozenInput = serde_json::from_str(&line).map_err(Error::io)?;
-        let row = serde_json::json!({"schema_version":1,"ordinal":checkpoint.completed,"asset":item.asset,"source_revision":item.source_revision});
+        let row = operator.row(&item, checkpoint.completed, &plan.run.parameters)?;
         serde_json::to_writer(&mut output, &row).map_err(Error::io)?;
         output.write_all(b"\n").map_err(Error::io)?;
         checkpoint.input_offset += bytes as u64;
@@ -139,6 +152,7 @@ pub fn run(plan_path: &Path) -> Result<()> {
             serde_json::to_writer(
                 &mut stdout,
                 &Progress {
+                    version: 1,
                     completed: checkpoint.completed,
                     total: plan.total,
                 },
@@ -158,6 +172,7 @@ pub fn run(plan_path: &Path) -> Result<()> {
 }
 
 pub fn validate_output(path: &Path, plan: &WorkerPlan) -> Result<String> {
+    let operator = studio_operators::registry()?.resolve(&plan.run)?;
     if hash_file(&plan.input_path)? != plan.input_sha256 {
         return Err(Error::new("INPUT_CHANGED", "发布前输入验证失败"));
     }
@@ -170,18 +185,15 @@ pub fn validate_output(path: &Path, plan: &WorkerPlan) -> Result<String> {
     loop {
         line.clear();
         input_line.clear();
-        if output.read_line(&mut line).map_err(Error::io)? == 0 {
+        if bounded_line(&mut output, &mut line)? == 0 {
             break;
         }
-        if !line.ends_with('\n') || input.read_line(&mut input_line).map_err(Error::io)? == 0 {
+        if !line.ends_with('\n') || bounded_line(&mut input, &mut input_line)? == 0 {
             return Err(Error::new("ARTIFACT_INVALID", "成果行不完整"));
         }
         let expected: FrozenInput = serde_json::from_str(&input_line).map_err(Error::io)?;
         let value: serde_json::Value = serde_json::from_str(&line).map_err(Error::io)?;
-        if value["ordinal"].as_u64() != Some(count)
-            || value["asset"] != serde_json::to_value(&expected.asset).map_err(Error::io)?
-            || value["source_revision"] != expected.source_revision
-        {
+        if value != operator.row(&expected, count, &plan.run.parameters)? {
             return Err(Error::new("ARTIFACT_INVALID", "成果与任务输入不一致"));
         }
         count += 1;
@@ -192,4 +204,17 @@ pub fn validate_output(path: &Path, plan: &WorkerPlan) -> Result<String> {
         return Err(Error::new("ARTIFACT_INVALID", "成果数量不一致"));
     }
     Ok(hex::encode(hash.finalize()))
+}
+fn bounded_line(reader: &mut impl BufRead, line: &mut String) -> Result<usize> {
+    let count = reader
+        .take(1024 * 1024 + 1)
+        .read_line(line)
+        .map_err(Error::io)?;
+    if count > 1024 * 1024 {
+        return Err(Error::new(
+            "WORKER_PROTOCOL_ERROR",
+            "输入输出单行超过 1 MiB",
+        ));
+    }
+    Ok(count)
 }
