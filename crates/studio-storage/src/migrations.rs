@@ -1,4 +1,4 @@
-//! Manifest v1 supports database v1 and v2. Only project.sqlite is migrated;
+//! Manifest v1 supports database v1 through v3. Only project.sqlite is migrated;
 //! artifacts and the manifest are immutable during this upgrade.
 use crate::{atomic_json, db_error, now};
 use rusqlite::{
@@ -12,8 +12,9 @@ use std::{
 };
 use studio_domain::{Error, Result, new_id};
 
-const VERSION: u32 = 2;
+const VERSION: u32 = 3;
 const V2: &str = "CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL, backup_directory TEXT);";
+const STEPS: &[(u32, &str)] = &[(2, V2), (3, include_str!("schema_v3.sql"))];
 
 fn version(db: &Connection) -> Result<u32> {
     db.query_row("PRAGMA user_version", [], |r| r.get(0))
@@ -37,20 +38,31 @@ pub(super) fn initialize(db: &mut Connection) -> Result<()> {
     let tx = db.transaction().map_err(db_error)?;
     tx.execute_batch(include_str!("schema.sql"))
         .map_err(db_error)?;
-    tx.execute_batch(V2).map_err(db_error)?;
-    tx.execute(
-        "INSERT INTO schema_migrations VALUES (?1,?2,NULL)",
-        (VERSION, now()),
-    )
-    .map_err(db_error)?;
+    apply_steps(&tx, 1, STEPS, None)?;
     tx.pragma_update(None, "user_version", VERSION)
         .map_err(db_error)?;
     tx.commit().map_err(db_error)
 }
 pub(super) fn upgrade(db: &mut Connection, directory: &Path) -> Result<()> {
-    upgrade_with(db, directory, V2)
+    upgrade_with(db, directory, STEPS)
 }
-fn upgrade_with(db: &mut Connection, directory: &Path, sql: &str) -> Result<()> {
+fn apply_steps(
+    db: &Connection,
+    from: u32,
+    steps: &[(u32, &str)],
+    backup: Option<&str>,
+) -> Result<()> {
+    for (version, sql) in steps.iter().filter(|(version, _)| *version > from) {
+        db.execute_batch(sql).map_err(db_error)?;
+        db.execute(
+            "INSERT INTO schema_migrations VALUES (?1,?2,?3)",
+            (version, now(), backup),
+        )
+        .map_err(db_error)?;
+    }
+    Ok(())
+}
+fn upgrade_with(db: &mut Connection, directory: &Path, steps: &[(u32, &str)]) -> Result<()> {
     let from = version(db)?;
     supported(from)?;
     if from == VERSION {
@@ -120,12 +132,7 @@ fn upgrade_with(db: &mut Connection, directory: &Path, sql: &str) -> Result<()> 
         if version(&tx)? != from {
             return Err(Error::new("FORMAT_CHANGED", "备份后项目数据库版本已变化"));
         }
-        tx.execute_batch(sql).map_err(db_error)?;
-        tx.execute(
-            "INSERT INTO schema_migrations VALUES (?1,?2,?3)",
-            (VERSION, now(), &relative),
-        )
-        .map_err(db_error)?;
+        apply_steps(&tx, from, steps, Some(&relative))?;
         tx.pragma_update(None, "user_version", VERSION)
             .map_err(db_error)?;
         let violations: bool = tx
@@ -171,7 +178,13 @@ mod tests {
         let error = upgrade_with(
             &mut db,
             root.path(),
-            "CREATE TABLE partial(id); SELECT * FROM deliberate_failure;",
+            &[
+                (2, V2),
+                (
+                    3,
+                    "CREATE TABLE partial(id); SELECT * FROM deliberate_failure;",
+                ),
+            ],
         )
         .unwrap_err();
         assert_eq!(error.code, "PROJECT_MIGRATION_FAILED");
@@ -206,6 +219,6 @@ mod tests {
         );
         assert!(folder.join("backup.json").is_file());
         upgrade(&mut db, root.path()).unwrap();
-        assert_eq!(version(&db).unwrap(), 2);
+        assert_eq!(version(&db).unwrap(), VERSION);
     }
 }

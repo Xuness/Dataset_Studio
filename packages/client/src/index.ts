@@ -5,6 +5,8 @@ import type {
   AssetKey,
   Asset,
 } from "@studio/contracts";
+import { QueryClient } from "./queries.js";
+export type { PageOptions } from "./queries.js";
 export class StudioError extends Error {
   constructor(
     public readonly code: string,
@@ -65,6 +67,33 @@ function metadataQuery(options: MetadataOptions) {
   return query;
 }
 export class StudioClient {
+  private openedProjects = new Set<string>();
+  private openingProjects = new Set<Promise<Schema["Project"]>>();
+  private closingViews = false;
+  private trackOpen(request: () => Promise<Schema["Project"]>) {
+    if (this.closingViews)
+      return Promise.reject(
+        new StudioError("PROJECT_CLOSED", "应用窗口正在关闭。"),
+      );
+    const pending = request()
+      .then((project) => {
+        this.openedProjects.add(project.id);
+        return project;
+      })
+      .finally(() => this.openingProjects.delete(pending));
+    this.openingProjects.add(pending);
+    return pending;
+  }
+  async releaseProjectViews() {
+    this.closingViews = true;
+    await Promise.allSettled([...this.openingProjects]);
+    await Promise.allSettled(
+      [...this.openedProjects].map((id) => this.closeProject(id)),
+    );
+  }
+  readonly queries = new QueryClient(<T>(path: string, init?: RequestInit) =>
+    this.request<T>(path, init),
+  );
   private media = new Map<
     string,
     { url: string; bytes: number; refs: number; used: number }
@@ -131,16 +160,36 @@ export class StudioClient {
     return this.request<Schema["Projects"]>("/v1/projects");
   }
   createProject(body: Schema["CreateProject"]) {
-    return this.request<Schema["Project"]>("/v1/projects", {
-      method: "POST",
-      body: JSON.stringify(body),
-    });
+    return this.trackOpen(() =>
+      this.request<Schema["Project"]>("/v1/projects", {
+        method: "POST",
+        body: JSON.stringify(body),
+      }),
+    );
   }
   openProject(directory: string) {
-    return this.request<Schema["Project"]>("/v1/projects/open", {
-      method: "POST",
-      body: JSON.stringify({ directory }),
-    });
+    return this.trackOpen(() =>
+      this.request<Schema["Project"]>("/v1/projects/open", {
+        method: "POST",
+        body: JSON.stringify({ directory }),
+      }),
+    );
+  }
+  openRecentProject(id: string) {
+    return this.trackOpen(() =>
+      this.request<Schema["Project"]>(
+        "/v1/projects/" + encodeURIComponent(id) + "/open",
+        { method: "POST" },
+      ),
+    );
+  }
+  async closeProject(id: string) {
+    const result = await this.request<Schema["ProjectClose"]>(
+      "/v1/projects/" + encodeURIComponent(id) + "/close",
+      { method: "POST" },
+    );
+    this.openedProjects.delete(id);
+    return result;
   }
   project(id: string) {
     return this.request<Schema["Project"]>(
@@ -156,11 +205,26 @@ export class StudioClient {
       body: JSON.stringify(body),
     });
   }
+  relinkSource(
+    projectId: string,
+    sourceId: string,
+    body: Schema["RelinkSource"],
+  ) {
+    return this.request<Schema["SourceRelinked"]>(
+      "/v1/projects/" +
+        encodeURIComponent(projectId) +
+        "/sources/" +
+        encodeURIComponent(sourceId) +
+        "/relink",
+      { method: "POST", body: JSON.stringify(body) },
+    );
+  }
   assets(
     id: string,
     options: {
       sourceId?: string;
       collectionId?: string;
+      selection?: boolean;
       cursor?: string;
       limit?: number;
       signal?: AbortSignal;
@@ -169,6 +233,7 @@ export class StudioClient {
     const query = new URLSearchParams({ limit: String(options.limit ?? 48) });
     if (options.sourceId) query.set("source_id", options.sourceId);
     if (options.collectionId) query.set("collection_id", options.collectionId);
+    if (options.selection) query.set("selection", "true");
     if (options.cursor) query.set("cursor", options.cursor);
     return this.request<Schema["AssetPage"]>(
       "/v1/projects/" + id + "/assets?" + query,
@@ -226,15 +291,21 @@ export class StudioClient {
       { method: "PATCH", body: JSON.stringify(body) },
     );
   }
+  changeSelectionScope(id: string, body: Schema["ChangeSelectionScope"]) {
+    return this.request<Schema["Selection"]>(
+      "/v1/projects/" + encodeURIComponent(id) + "/selection/scope",
+      { method: "POST", body: JSON.stringify(body) },
+    );
+  }
   collections(id: string) {
     return this.request<Schema["Collections"]>(
       "/v1/projects/" + id + "/collections",
     );
   }
-  createCollection(id: string, name: string) {
+  createCollection(id: string, name: string, scope?: Schema["ScopeRef"]) {
     return this.request<Schema["Collection"]>(
       "/v1/projects/" + id + "/collections",
-      { method: "POST", body: JSON.stringify({ name }) },
+      { method: "POST", body: JSON.stringify({ name, scope }) },
     );
   }
   jobs(id: string) {
@@ -377,6 +448,18 @@ export class StudioClient {
             headers: { Authorization: "Bearer " + this.connection.token },
           },
         );
+        if (!response.ok) {
+          const problem: unknown = await response.json().catch(() => null);
+          if (record(problem) && problem.code === "PROJECT_CLOSED") {
+            onEvent({
+              sequence: after ?? 0,
+              project_id: projectId,
+              kind: "project.closed",
+              resource_id: projectId,
+            });
+            return;
+          }
+        }
         if (!response.ok || !response.body)
           throw new Error("stream unavailable");
         const reader = response.body.getReader();

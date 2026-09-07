@@ -167,6 +167,14 @@
             }
           },
           {
+            "name": "selection",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
             "name": "cursor",
             "in": "query",
             "required": false,
@@ -191,6 +199,34 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AssetPage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/close": {
+      "post": {
+        "tags": [],
+        "operationId": "close_project",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectClose"
                 }
               }
             }
@@ -432,6 +468,545 @@
         }
       }
     },
+    "/v1/projects/{project_id}/open": {
+      "post": {
+        "tags": [],
+        "operationId": "open_recent",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Project"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/queries": {
+      "get": {
+        "tags": [
+          "query"
+        ],
+        "operationId": "definitions",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryDefinitions"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "query"
+        ],
+        "operationId": "create_definition",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveQuery"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryDefinition"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/queries/{query_id}": {
+      "get": {
+        "tags": [
+          "query"
+        ],
+        "operationId": "definition",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "query_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryDefinition"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "query"
+        ],
+        "operationId": "update_definition",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "query_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveQuery"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryDefinition"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/queries/{query_id}/results": {
+      "post": {
+        "tags": [
+          "query"
+        ],
+        "operationId": "build",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "query_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BuildQuery"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/query-results": {
+      "get": {
+        "tags": [
+          "query"
+        ],
+        "operationId": "results",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryResults"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/query-results/{result_id}": {
+      "get": {
+        "tags": [
+          "query"
+        ],
+        "operationId": "result",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "result_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/query-results/{result_id}/assets": {
+      "get": {
+        "tags": [
+          "query"
+        ],
+        "operationId": "result_assets",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "result_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResultAssets"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/query-results/{result_id}/cancel": {
+      "post": {
+        "tags": [
+          "query"
+        ],
+        "operationId": "cancel",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "result_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/query-results/{result_id}/release": {
+      "post": {
+        "tags": [
+          "query"
+        ],
+        "operationId": "release",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "result_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/query-results/{result_id}/validity": {
+      "get": {
+        "tags": [
+          "query"
+        ],
+        "operationId": "validity",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "result_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResultValidity"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/scopes/capture": {
+      "post": {
+        "tags": [
+          "query"
+        ],
+        "operationId": "capture",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CaptureScope"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/projects/{project_id}/selection": {
       "get": {
         "tags": [],
@@ -477,6 +1052,46 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/ChangeSelection"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Selection"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/selection/scope": {
+      "post": {
+        "tags": [
+          "query"
+        ],
+        "operationId": "select_scope",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeSelectionScope"
               }
             }
           },
@@ -884,6 +1499,92 @@
         }
       }
     },
+    "/v1/projects/{project_id}/sources/{source_id}/fields": {
+      "get": {
+        "tags": [
+          "query"
+        ],
+        "operationId": "fields",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "source_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FieldDirectory"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/sources/{source_id}/relink": {
+      "post": {
+        "tags": [
+          "source_locations"
+        ],
+        "operationId": "relink",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "source_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RelinkSource"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceRelinked"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/shutdown": {
       "post": {
         "tags": [],
@@ -1057,6 +1758,32 @@
         },
         "additionalProperties": false
       },
+      "BuildQuery": {
+        "type": "object",
+        "required": [
+          "expected_revision"
+        ],
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "CaptureScope": {
+        "type": "object",
+        "required": [
+          "scope"
+        ],
+        "properties": {
+          "scope": {
+            "$ref": "#/components/schemas/ScopeRef"
+          }
+        },
+        "additionalProperties": false
+      },
       "ChangeSelection": {
         "type": "object",
         "required": [
@@ -1085,6 +1812,28 @@
             "items": {
               "$ref": "#/components/schemas/AssetKey"
             }
+          }
+        },
+        "additionalProperties": false
+      },
+      "ChangeSelectionScope": {
+        "type": "object",
+        "required": [
+          "expected_revision",
+          "scope",
+          "operation"
+        ],
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "operation": {
+            "$ref": "#/components/schemas/ScopeOperation"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/ScopeRef"
           }
         },
         "additionalProperties": false
@@ -1132,6 +1881,16 @@
         "properties": {
           "name": {
             "type": "string"
+          },
+          "scope": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ScopeRef"
+              }
+            ]
           }
         },
         "additionalProperties": false
@@ -1185,6 +1944,110 @@
           }
         }
       },
+      "FieldDefinition": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "field_type",
+          "missing",
+          "basis",
+          "display",
+          "operators",
+          "sortable",
+          "cost"
+        ],
+        "properties": {
+          "basis": {
+            "type": "string"
+          },
+          "cost": {
+            "type": "string"
+          },
+          "display": {
+            "type": "boolean"
+          },
+          "field_type": {
+            "$ref": "#/components/schemas/FieldType"
+          },
+          "id": {
+            "type": "string"
+          },
+          "missing": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "operators": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QueryOperator"
+            }
+          },
+          "sortable": {
+            "type": "boolean"
+          },
+          "unit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "FieldDirectory": {
+        "type": "object",
+        "required": [
+          "version",
+          "source_id",
+          "fields",
+          "observation_rules",
+          "orders",
+          "max_conditions"
+        ],
+        "properties": {
+          "fields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FieldDefinition"
+            }
+          },
+          "max_conditions": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "observation_rules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ObservationRule"
+            }
+          },
+          "orders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QueryOrder"
+            }
+          },
+          "source_id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "FieldType": {
+        "type": "string",
+        "enum": [
+          "text",
+          "integer",
+          "boolean",
+          "tags"
+        ]
+      },
       "Health": {
         "type": "object",
         "required": [
@@ -1216,7 +2079,8 @@
           "total",
           "completed",
           "attempt",
-          "created_at"
+          "created_at",
+          "input_members_frozen"
         ],
         "properties": {
           "artifact": {
@@ -1246,6 +2110,19 @@
           },
           "id": {
             "type": "string"
+          },
+          "input_members_frozen": {
+            "type": "boolean"
+          },
+          "input_scope": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ScopeRef"
+              }
+            ]
           },
           "operator": {
             "type": "string"
@@ -1605,6 +2482,13 @@
           }
         }
       },
+      "ObservationRule": {
+        "type": "string",
+        "enum": [
+          "current_post",
+          "any_observation"
+        ]
+      },
       "OkResponse": {
         "type": "object",
         "required": [
@@ -1657,6 +2541,21 @@
           }
         }
       },
+      "ProjectClose": {
+        "type": "object",
+        "required": [
+          "project_id",
+          "state"
+        ],
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ProjectState"
+          }
+        }
+      },
       "ProjectEvent": {
         "type": "object",
         "required": [
@@ -1682,6 +2581,49 @@
           }
         }
       },
+      "ProjectState": {
+        "type": "string",
+        "enum": [
+          "closed",
+          "open",
+          "background",
+          "draining",
+          "unavailable"
+        ]
+      },
+      "ProjectSummary": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "directory",
+          "opened_at",
+          "state"
+        ],
+        "properties": {
+          "directory": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "issue": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "opened_at": {
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ProjectState"
+          }
+        }
+      },
       "Projects": {
         "type": "object",
         "required": [
@@ -1691,10 +2633,315 @@
           "items": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/Project"
+              "$ref": "#/components/schemas/ProjectSummary"
             }
           }
         }
+      },
+      "QueryCondition": {
+        "type": "object",
+        "required": [
+          "field",
+          "operator"
+        ],
+        "properties": {
+          "field": {
+            "type": "string"
+          },
+          "operator": {
+            "$ref": "#/components/schemas/QueryOperator"
+          },
+          "value": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/QueryValue"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "QueryDefinition": {
+        "type": "object",
+        "required": [
+          "id",
+          "project_id",
+          "name",
+          "revision",
+          "spec",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "spec": {
+            "$ref": "#/components/schemas/QuerySpec"
+          }
+        }
+      },
+      "QueryDefinitions": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QueryDefinition"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "QueryOperator": {
+        "type": "string",
+        "enum": [
+          "eq",
+          "ne",
+          "gte",
+          "lte",
+          "has_tag",
+          "is_missing",
+          "is_present"
+        ]
+      },
+      "QueryOrder": {
+        "type": "string",
+        "enum": [
+          "asset_key_asc",
+          "asset_key_desc"
+        ]
+      },
+      "QueryResult": {
+        "type": "object",
+        "required": [
+          "id",
+          "project_id",
+          "spec",
+          "source_versions",
+          "state",
+          "processed",
+          "created_at"
+        ],
+        "properties": {
+          "count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "definition_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "definition_revision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "processed": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "source_versions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QuerySourceVersion"
+            }
+          },
+          "spec": {
+            "$ref": "#/components/schemas/QuerySpec"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ResultState"
+          }
+        }
+      },
+      "QueryResults": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QueryResult"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "QuerySourceVersion": {
+        "type": "object",
+        "required": [
+          "source_id",
+          "catalog_revision",
+          "consistency"
+        ],
+        "properties": {
+          "analysis_sequence": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "catalog_revision": {
+            "type": "string"
+          },
+          "consistency": {
+            "type": "string"
+          },
+          "source_id": {
+            "type": "string"
+          }
+        }
+      },
+      "QuerySpec": {
+        "type": "object",
+        "required": [
+          "version",
+          "source_ids",
+          "conditions",
+          "observation_rule",
+          "order"
+        ],
+        "properties": {
+          "conditions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QueryCondition"
+            }
+          },
+          "observation_rule": {
+            "$ref": "#/components/schemas/ObservationRule"
+          },
+          "order": {
+            "$ref": "#/components/schemas/QueryOrder"
+          },
+          "source_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "QueryValue": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "value",
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "text"
+                ]
+              },
+              "value": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "value",
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "integer"
+                ]
+              },
+              "value": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "value",
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "boolean"
+                ]
+              },
+              "value": {
+                "type": "boolean"
+              }
+            }
+          }
+        ]
       },
       "RawMetadata": {
         "type": "object",
@@ -1782,14 +3029,227 @@
           }
         }
       },
+      "RelinkSource": {
+        "type": "object",
+        "required": [
+          "index_root",
+          "media_root"
+        ],
+        "properties": {
+          "index_root": {
+            "type": "string"
+          },
+          "media_root": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ResultAssets": {
+        "type": "object",
+        "required": [
+          "result_id",
+          "count",
+          "page"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "page": {
+            "$ref": "#/components/schemas/AssetPage"
+          },
+          "result_id": {
+            "type": "string"
+          }
+        }
+      },
+      "ResultState": {
+        "type": "string",
+        "enum": [
+          "queued",
+          "running",
+          "ready",
+          "cancelled",
+          "failed",
+          "interrupted",
+          "released"
+        ]
+      },
+      "ResultValidity": {
+        "type": "object",
+        "required": [
+          "result_id",
+          "current"
+        ],
+        "properties": {
+          "current": {
+            "type": "boolean"
+          },
+          "issue": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "result_id": {
+            "type": "string"
+          }
+        }
+      },
+      "SaveQuery": {
+        "type": "object",
+        "required": [
+          "name",
+          "spec"
+        ],
+        "properties": {
+          "expected_revision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/QuerySpec"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ScopeOperation": {
+        "type": "string",
+        "enum": [
+          "replace",
+          "add",
+          "remove",
+          "intersect"
+        ]
+      },
+      "ScopeRef": {
+        "type": "object",
+        "required": [
+          "project_id",
+          "target"
+        ],
+        "properties": {
+          "project_id": {
+            "type": "string"
+          },
+          "target": {
+            "$ref": "#/components/schemas/ScopeTarget"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ScopeTarget": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "source_id",
+              "revision",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "source"
+                ]
+              },
+              "revision": {
+                "type": "string"
+              },
+              "source_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "collection_id",
+              "kind"
+            ],
+            "properties": {
+              "collection_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "workset"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "result_id",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "query_result"
+                ]
+              },
+              "result_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "revision",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "selection"
+                ]
+              },
+              "revision": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              }
+            }
+          }
+        ]
+      },
       "Selection": {
         "type": "object",
         "required": [
           "revision",
-          "count"
+          "count",
+          "excluded_count"
         ],
         "properties": {
+          "base_result": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "excluded_count": {
             "type": "integer",
             "format": "int64",
             "minimum": 0
@@ -1848,6 +3308,25 @@
           }
         }
       },
+      "SourceRelinked": {
+        "type": "object",
+        "required": [
+          "source_id",
+          "revision",
+          "impact"
+        ],
+        "properties": {
+          "impact": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "string"
+          },
+          "source_id": {
+            "type": "string"
+          }
+        }
+      },
       "Sources": {
         "type": "object",
         "required": [
@@ -1865,8 +3344,7 @@
       "SubmitJob": {
         "type": "object",
         "required": [
-          "idempotency_key",
-          "selection_revision"
+          "idempotency_key"
         ],
         "properties": {
           "delay_ms": {
@@ -1877,8 +3355,21 @@
           "idempotency_key": {
             "type": "string"
           },
+          "scope": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ScopeRef"
+              }
+            ]
+          },
           "selection_revision": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int64",
             "minimum": 0
           }

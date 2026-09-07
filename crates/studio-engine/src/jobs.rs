@@ -7,7 +7,7 @@ use std::{
     process::Stdio,
     sync::Arc,
 };
-use studio_application::{ProjectRepository, SourceAdapter};
+use studio_application::SourceAdapter;
 use studio_domain::*;
 use studio_sources::SourceRouter;
 use studio_storage::{SqliteStore, atomic_json};
@@ -20,13 +20,21 @@ pub async fn scheduler(store: Arc<SqliteStore>) {
     loop {
         let store2 = store.clone();
         let next = tokio::task::spawn_blocking(move || -> Result<Option<Job>> {
-            for p in store2.list()? {
-                if let Some(j) = store2
-                    .scheduled_jobs(&p.id, false)?
-                    .into_iter()
-                    .find(|j| j.status == "queued")
-                {
-                    return Ok(Some(j));
+            store2.reap_closed()?;
+            for id in store2.owned_projects()? {
+                if let Err(error) = store2.resolve_job_scopes(&id) {
+                    tracing::warn!(project_id=%id,%error,"scope preparation failed");
+                    continue;
+                }
+                match store2.scheduled_jobs(&id, false) {
+                    Ok(jobs) => {
+                        if let Some(job) = jobs.into_iter().find(|j| j.status == "queued") {
+                            return Ok(Some(job));
+                        }
+                    }
+                    Err(error) => {
+                        tracing::warn!(project_id=%id, %error, "project scheduling failed")
+                    }
                 }
             }
             Ok(None)
@@ -131,6 +139,7 @@ fn prepare(store: &SqliteStore, job: &Job) -> Result<(PathBuf, WorkerPlan)> {
     Ok((path, resolved))
 }
 async fn execute(store: Arc<SqliteStore>, job: Job) -> Result<()> {
+    let _project_lease = store.operation_lease(&job.project_id)?;
     let s = store.clone();
     let j = job.clone();
     let (plan_path, plan) = tokio::task::spawn_blocking(move || prepare(&s, &j))
@@ -158,7 +167,7 @@ async fn execute(store: Arc<SqliteStore>, job: Job) -> Result<()> {
         let hash = worker::validate_output(&final_path, &plan)?;
         atomic_json(
             &final_path.with_extension("manifest.json"),
-            &serde_json::json!({"schema_version":1,"job_id":job.id,"rows":job.total,"sha256":hash,"input_sha256":plan.input_sha256,"operator":"core.manifest","operator_version":1}),
+            &serde_json::json!({"schema_version":1,"job_id":job.id,"rows":job.total,"sha256":hash,"input_sha256":plan.input_sha256,"input_scope":job.input_scope,"operator":"core.manifest","operator_version":1}),
         )?;
         store.update_job(
             &job.project_id,
@@ -229,7 +238,7 @@ async fn execute(store: Arc<SqliteStore>, job: Job) -> Result<()> {
     tokio::task::spawn_blocking(move||->Result<()>{
         let hash=worker::validate_output(&plan.output_path,&plan)?;
         fs::rename(&plan.output_path,&final_path).map_err(Error::io)?;
-        atomic_json(&final_path.with_extension("manifest.json"),&serde_json::json!({"schema_version":1,"job_id":j.id,"rows":j.total,"sha256":hash,"operator":"core.manifest","operator_version":1}))?;
+        atomic_json(&final_path.with_extension("manifest.json"),&serde_json::json!({"schema_version":1,"job_id":j.id,"rows":j.total,"sha256":hash,"input_sha256":plan.input_sha256,"input_scope":j.input_scope,"operator":"core.manifest","operator_version":1}))?;
         s.update_job(&j.project_id,&j.id,"succeeded",j.total,None,Some(&format!("artifacts/{}.jsonl",j.id)))?;Ok(())
     }).await.map_err(Error::io)??;
     Ok(())

@@ -3921,14 +3921,14 @@ checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 
 [[package]]
 name = "studio-application"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "studio-domain",
 ]
 
 [[package]]
 name = "studio-desktop"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "reqwest 0.12.28",
  "serde",
@@ -3943,7 +3943,7 @@ dependencies = [
 
 [[package]]
 name = "studio-domain"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -3953,7 +3953,7 @@ dependencies = [
 
 [[package]]
 name = "studio-engine"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "async-stream",
  "axum",
@@ -3982,7 +3982,7 @@ dependencies = [
 
 [[package]]
 name = "studio-protocol"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -3992,7 +3992,7 @@ dependencies = [
 
 [[package]]
 name = "studio-sources"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "base64 0.22.1",
  "hex",
@@ -4009,7 +4009,7 @@ dependencies = [
 
 [[package]]
 name = "studio-storage"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "fs2",
  "hex",

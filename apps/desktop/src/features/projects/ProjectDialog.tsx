@@ -1,16 +1,26 @@
 import { useRef, useState } from "react";
 import { FolderOpen, FileText } from "lucide-react";
 import { Button, Dialog, Field } from "@studio/ui";
-import type { Project } from "@studio/contracts";
+import type { Project, Source } from "@studio/contracts";
 import type { StudioClient } from "@studio/client";
+import { ScopePicker } from "../scopes/ScopePicker.js";
+import type { ScopeOption } from "../scopes/scopes.js";
 export type DialogKind =
-  "new" | "open" | "source" | "collection" | "manifest" | "about" | null;
+  | "new"
+  | "open"
+  | "source"
+  | "relink"
+  | "collection"
+  | "manifest"
+  | "about"
+  | null;
 export function ProjectDialog({
   kind,
   client,
   project,
-  selected,
-  selectionRevision,
+  scopeOptions,
+  defaultScope,
+  relinkSource,
   onClose,
   onCreated,
   onDone,
@@ -19,10 +29,11 @@ export function ProjectDialog({
   kind: Exclude<DialogKind, null>;
   client: StudioClient;
   project: Project | null;
-  selected: number;
-  selectionRevision: number;
+  scopeOptions: ScopeOption[];
+  defaultScope: string;
+  relinkSource: Source | null;
   onClose: () => void;
-  onCreated: (p: Project) => void;
+  onCreated: (p: Project) => Promise<void>;
   onDone: () => void;
   pickDirectory: () => Promise<string | null>;
 }) {
@@ -32,11 +43,22 @@ export function ProjectDialog({
   const [sourceKind, setSourceKind] = useState("danbooru");
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
+  const options =
+    kind === "collection"
+      ? scopeOptions.filter((o) => o.scope.target.kind !== "source")
+      : scopeOptions;
+  const [scopeId, setScopeId] = useState(
+    options.find((o) => o.value === defaultScope)?.value ??
+      options[0]?.value ??
+      "",
+  );
+  const input = options.find((o) => o.value === scopeId);
   const idempotency = useRef(crypto.randomUUID());
   const titles = {
     new: "新建项目",
     open: "打开项目",
     source: "添加数据湖",
+    relink: "重新关联数据湖位置",
     collection: "保存工作集",
     manifest: "生成数据清单",
     about: "关于 Dataset Studio",
@@ -46,14 +68,16 @@ export function ProjectDialog({
     setPending(true);
     setError("");
     try {
+      if ((kind === "manifest" || kind === "collection") && !input)
+        throw new Error("请选择可用的数据范围。");
       if (kind === "new")
-        onCreated(
+        await onCreated(
           await client.createProject({
             name,
             parent_directory: directory || null,
           }),
         );
-      if (kind === "open") onCreated(await client.openProject(directory));
+      if (kind === "open") await onCreated(await client.openProject(directory));
       if (kind === "source" && project)
         await client.attachSource(project.id, {
           kind: sourceKind,
@@ -61,12 +85,17 @@ export function ProjectDialog({
           index_root: sourceKind === "danbooru" ? directory : null,
           media_root: sourceKind === "danbooru" ? media : null,
         });
+      if (kind === "relink" && project && relinkSource)
+        await client.relinkSource(project.id, relinkSource.id, {
+          index_root: directory,
+          media_root: media,
+        });
       if (kind === "collection" && project)
-        await client.createCollection(project.id, name);
+        await client.createCollection(project.id, name, input?.scope);
       if (kind === "manifest" && project)
         await client.submitJob(project.id, {
           idempotency_key: idempotency.current,
-          selection_revision: selectionRevision,
+          scope: input?.scope ?? null,
           delay_ms: 0,
         });
       onDone();
@@ -87,7 +116,7 @@ export function ProjectDialog({
         <div className="about-content">
           <span className="brand-tile">Ds</span>
           <h2>Dataset Studio</h2>
-          <p>项目数据层 · 0.2.0</p>
+          <p>项目数据范围层 · 0.3.0</p>
           <p>项目、数据湖、工作集与持续保存的工作。</p>
           <Button onClick={onClose}>关闭</Button>
         </div>
@@ -128,10 +157,11 @@ export function ProjectDialog({
           )}
           {(kind === "new" ||
             kind === "open" ||
+            kind === "relink" ||
             (kind === "source" && sourceKind === "danbooru")) && (
             <Field
               label={
-                kind === "source"
+                kind === "source" || kind === "relink"
                   ? "快速索引目录"
                   : kind === "open"
                     ? "项目目录"
@@ -144,7 +174,9 @@ export function ProjectDialog({
                   onChange={(e) => setDirectory(e.target.value)}
                   required={kind !== "new"}
                   placeholder={
-                    kind === "source" ? "包含 CURRENT.json 的目录" : ""
+                    kind === "source" || kind === "relink"
+                      ? "包含 CURRENT.json 的目录"
+                      : ""
                   }
                 />
                 <Button
@@ -160,7 +192,8 @@ export function ProjectDialog({
               </div>
             </Field>
           )}
-          {kind === "source" && sourceKind === "danbooru" && (
+          {(kind === "relink" ||
+            (kind === "source" && sourceKind === "danbooru")) && (
             <Field label="图片湖目录">
               <div className="path-field">
                 <input
@@ -182,6 +215,23 @@ export function ProjectDialog({
               </div>
             </Field>
           )}
+          {(kind === "manifest" || kind === "collection") && (
+            <ScopePicker
+              options={options}
+              value={scopeId}
+              onChange={(value) => {
+                setScopeId(value);
+                idempotency.current = crypto.randomUUID();
+              }}
+              label={kind === "collection" ? "工作集成员范围" : "任务输入范围"}
+            />
+          )}
+          {kind === "relink" && (
+            <p className="dialog-hint">
+              为「{relinkSource?.name}
+              」选择同一个数据湖的新位置。此位置由当前应用登记的项目共享，调整会影响其中所有引用该数据湖的项目。
+            </p>
+          )}
           {kind === "manifest" && (
             <div className="job-confirm">
               <div>
@@ -189,15 +239,23 @@ export function ProjectDialog({
                 <strong>数据清单</strong>
               </div>
               <p>
-                将当前选择的 <strong>{selected}</strong>{" "}
-                个对象固定为输入，生成包含来源、内容身份和存储信息的清单。
+                将「{input?.label ?? "所选范围"}」
+                {input?.count == null
+                  ? "的全部对象"
+                  : "的 " + input.count.toLocaleString() + " 个对象"}
+                固定为输入，生成包含来源、内容身份和存储信息的清单。
               </p>
-              <p>任务独立运行并保存进度，完成后可在项目任务中保存成果。</p>
+              <p>
+                {input?.scope.target.kind === "source"
+                  ? "任务会先在后台固定数据湖范围，再开始执行。"
+                  : "提交后修改选择或重新查询不会改变任务输入。"}
+                完成后可在项目任务中保存成果。
+              </p>
             </div>
           )}
           {kind === "collection" && (
             <p className="dialog-hint">
-              将当前选择的 {selected} 个对象保存到项目中。
+              保存所选范围的固定成员。之后修改选择或查询定义不会改变工作集。
             </p>
           )}
           {kind === "source" && (
@@ -214,7 +272,15 @@ export function ProjectDialog({
             <Button type="button" onClick={onClose} disabled={pending}>
               取消
             </Button>
-            <Button className="primary" type="submit" disabled={pending}>
+            <Button
+              className="primary"
+              type="submit"
+              disabled={
+                pending ||
+                ((kind === "manifest" || kind === "collection") &&
+                  (!input || input.count === 0))
+              }
+            >
               {pending
                 ? "处理中…"
                 : kind === "manifest"

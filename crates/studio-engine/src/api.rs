@@ -12,12 +12,16 @@ use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, convert::Infallible, sync::Arc};
-use studio_application::{MetadataAdapter, ProjectRepository, SourceAdapter};
+use studio_application::{
+    MetadataAdapter, ProjectRepository, QueryRepository, ScopeRepository, SourceAdapter,
+};
 use studio_domain as domain;
 use studio_protocol::*;
 use studio_sources::SourceRouter;
 use studio_storage::SqliteStore;
 use utoipa::OpenApi;
+mod query;
+mod source_locations;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -26,6 +30,7 @@ pub struct AppState {
     pub io: Arc<tokio::sync::Semaphore>,
     pub metadata_io: Arc<tokio::sync::Semaphore>,
     pub metadata: Arc<studio_sources::MetadataReader>,
+    pub queries: Arc<crate::query_jobs::QueryRunner>,
     pub shutdown: tokio::sync::watch::Sender<bool>,
 }
 pub struct Failure(domain::Error);
@@ -43,6 +48,11 @@ impl IntoResponse for Failure {
             "REVISION_CONFLICT"
             | "SOURCE_CHANGED"
             | "PROJECT_BUSY"
+            | "PROJECT_CLOSED"
+            | "RESULT_NOT_READY"
+            | "RESULT_IN_USE"
+            | "SCOPE_PROJECT_MISMATCH"
+            | "SOURCE_LOCATION_CONFLICT"
             | "PROJECT_ID_CONFLICT"
             | "IDEMPOTENCY_CONFLICT" => StatusCode::CONFLICT,
             "SOURCE_BUSY" | "SOURCE_UNAVAILABLE" | "METADATA_RUNTIME_UNAVAILABLE" => {
@@ -57,6 +67,9 @@ impl IntoResponse for Failure {
             | "METADATA_UNSUPPORTED"
             | "METADATA_RUNTIME_UNSUPPORTED"
             | "SOURCE_FORMAT_UNSUPPORTED" => StatusCode::BAD_REQUEST,
+            "QUERY_UNSUPPORTED" | "QUERY_VERSION_UNSUPPORTED" | "SCOPE_REQUIRES_CAPTURE" => {
+                StatusCode::BAD_REQUEST
+            }
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
         let id = domain::new_id();
@@ -138,6 +151,19 @@ async fn open_project(
             .await?
             .into(),
     ))
+}
+#[utoipa::path(post,path="/v1/projects/{project_id}/open",params(("project_id"=String,Path)),responses((status=200,body=Project)))]
+async fn open_recent(State(s): State<AppState>, Path(id): Path<String>) -> ApiResult<Project> {
+    Ok(Json(
+        blocking(move || s.store.open_recent(&id)).await?.into(),
+    ))
+}
+#[utoipa::path(post,path="/v1/projects/{project_id}/close",params(("project_id"=String,Path)),responses((status=200,body=ProjectClose)))]
+async fn close_project(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+) -> ApiResult<ProjectClose> {
+    Ok(Json(blocking(move || s.store.close(&id)).await?.into()))
 }
 #[utoipa::path(get,path="/v1/projects/{project_id}",params(("project_id"=String,Path)),responses((status=200,body=Project)))]
 async fn project(State(s): State<AppState>, Path(id): Path<String>) -> ApiResult<Project> {
@@ -288,6 +314,19 @@ fn encode_cursor(cursor: &Cursor) -> domain::Result<String> {
     Ok(URL_SAFE_NO_PAD.encode(serde_json::to_vec(cursor).map_err(domain::Error::io)?))
 }
 fn browse_sync(store: &SqliteStore, id: &str, query: BrowseQuery) -> domain::Result<AssetPage> {
+    let selected_scope = query.selection.unwrap_or(false);
+    if usize::from(query.source_id.is_some())
+        + usize::from(query.collection_id.is_some())
+        + usize::from(selected_scope)
+        > 1
+    {
+        return Err(domain::Error::invalid("一次只能浏览一个数据范围"));
+    }
+    let selection_revision = if selected_scope {
+        Some(store.selection(id)?.revision)
+    } else {
+        None
+    };
     let limit = query.limit.unwrap_or(48).clamp(1, 128);
     let mut sources = store.sources(id)?;
     if let Some(source_id) = &query.source_id {
@@ -297,7 +336,8 @@ fn browse_sync(store: &SqliteStore, id: &str, query: BrowseQuery) -> domain::Res
         }
     }
     let scope = hex::encode(Sha256::digest(
-        serde_json::to_vec(&(id, &sources, &query.collection_id)).map_err(domain::Error::io)?,
+        serde_json::to_vec(&(id, &sources, &query.collection_id, selection_revision))
+            .map_err(domain::Error::io)?,
     ));
     let mut cursor = match query.cursor {
         Some(raw) => {
@@ -324,12 +364,17 @@ fn browse_sync(store: &SqliteStore, id: &str, query: BrowseQuery) -> domain::Res
     };
     let mut items = Vec::new();
     let mut has_more = false;
-    if let Some(collection) = query.collection_id {
-        if !store.collections(id)?.iter().any(|c| c.id == collection) {
+    if query.collection_id.is_some() || selected_scope {
+        if let Some(collection) = &query.collection_id
+            && !store.collections(id)?.iter().any(|c| &c.id == collection)
+        {
             return Err(domain::Error::new("NOT_FOUND", "工作集不存在"));
         }
-        let mut keys =
-            store.collection_keys(id, &collection, cursor.last_key.as_ref(), limit + 1)?;
+        let mut keys = if let Some(collection) = &query.collection_id {
+            store.collection_keys(id, collection, cursor.last_key.as_ref(), limit + 1)?
+        } else {
+            store.selection_keys(id, cursor.last_key.as_ref(), limit + 1)?
+        };
         has_more = keys.len() > limit;
         keys.truncate(limit);
         cursor.last_key = keys.last().cloned();
@@ -375,6 +420,17 @@ fn browse_sync(store: &SqliteStore, id: &str, query: BrowseQuery) -> domain::Res
     }
     let membership =
         store.contains(id, &items.iter().map(|a| a.key.clone()).collect::<Vec<_>>())?;
+    if selection_revision.is_some_and(|revision| {
+        store
+            .selection(id)
+            .map(|s| s.revision != revision)
+            .unwrap_or(true)
+    }) {
+        return Err(domain::Error::new(
+            "SOURCE_CHANGED",
+            "选择范围已变化，请从第一页重新读取",
+        ));
+    }
     let revision = hex::encode(Sha256::digest(
         serde_json::to_vec(&cursor.revisions).map_err(domain::Error::io)?,
     ));
@@ -392,7 +448,7 @@ fn browse_sync(store: &SqliteStore, id: &str, query: BrowseQuery) -> domain::Res
         revision,
     })
 }
-#[utoipa::path(get,path="/v1/projects/{project_id}/assets",params(("project_id"=String,Path),("source_id"=Option<String>,Query),("collection_id"=Option<String>,Query),("cursor"=Option<String>,Query),("limit"=Option<usize>,Query)),responses((status=200,body=AssetPage)))]
+#[utoipa::path(get,path="/v1/projects/{project_id}/assets",params(("project_id"=String,Path),("source_id"=Option<String>,Query),("collection_id"=Option<String>,Query),("selection"=Option<bool>,Query),("cursor"=Option<String>,Query),("limit"=Option<usize>,Query)),responses((status=200,body=AssetPage)))]
 async fn assets(
     State(s): State<AppState>,
     Path(id): Path<String>,
@@ -492,10 +548,20 @@ async fn create_collection(
     Path(id): Path<String>,
     Body(body): Body<CreateCollection>,
 ) -> ApiResult<Collection> {
+    let permit = metadata_permit(&s)?;
     Ok(Json(
-        blocking(move || s.store.save_collection(&id, &body.name))
-            .await?
-            .into(),
+        blocking(move || {
+            let _permit = permit;
+            if let Some(scope) = body.scope {
+                let scope = scope.into();
+                query::validate_scope(&s, &id, &scope)?;
+                s.store.save_scope_collection(&id, &body.name, &scope)
+            } else {
+                s.store.save_collection(&id, &body.name)
+            }
+        })
+        .await?
+        .into(),
     ))
 }
 #[utoipa::path(get,path="/v1/projects/{project_id}/jobs",params(("project_id"=String,Path)),responses((status=200,body=Jobs)))]
@@ -514,14 +580,43 @@ async fn submit_job(
     Path(id): Path<String>,
     Body(body): Body<SubmitJob>,
 ) -> ApiResult<Job> {
+    let permit = metadata_permit(&s)?;
     Ok(Json(
         blocking(move || {
-            s.store.submit_job(
-                &id,
-                &body.idempotency_key,
-                body.selection_revision,
-                body.delay_ms,
-            )
+            let _permit = permit;
+            match (body.scope, body.selection_revision) {
+                (Some(scope), None) => {
+                    let scope: domain::ScopeRef = scope.into();
+                    if let Some(job) = s.store.retry_scope_job(
+                        &id,
+                        &body.idempotency_key,
+                        &scope,
+                        body.delay_ms,
+                    )? {
+                        return Ok(job);
+                    }
+                    query::validate_scope(&s, &id, &scope)?;
+                    let capture = if matches!(scope.target, domain::ScopeTarget::Source { .. }) {
+                        Some(query::source_capture(&s, &id, &scope)?)
+                    } else {
+                        None
+                    };
+                    s.store.submit_scope_job(
+                        &id,
+                        &body.idempotency_key,
+                        &scope,
+                        body.delay_ms,
+                        capture,
+                    )
+                }
+                (None, Some(revision)) => {
+                    s.store
+                        .submit_job(&id, &body.idempotency_key, revision, body.delay_ms)
+                }
+                _ => Err(domain::Error::invalid(
+                    "任务需要一个显式输入范围或旧选择版本",
+                )),
+            }
         })
         .await?
         .into(),
@@ -535,8 +630,16 @@ async fn cancel_job(
     Ok(Json(
         blocking(move || {
             let job = s.store.job(&pid, &jid)?;
-            s.store
-                .update_job(&pid, &jid, "cancelled", job.completed, None, None)
+            let cancelled =
+                s.store
+                    .update_job(&pid, &jid, "cancelled", job.completed, None, None)?;
+            if cancelled.status == "cancelled"
+                && let Some(result) = s.store.job_owned_result(&pid, &jid)?
+            {
+                s.store.cancel_result(&pid, &result)?;
+                s.queries.cancel(&result);
+            }
+            Ok(cancelled)
         })
         .await?
         .into(),
@@ -600,7 +703,7 @@ async fn events(
     let shutdown = s.shutdown.subscribe();
     let stream = async_stream::stream! {let mut after=initial;
     if q.after.is_none(){let sync=ProjectEvent{sequence:after,project_id:pid.clone(),kind:"project.sync".into(),resource_id:pid.clone()};yield Ok::<_,Infallible>(Event::default().id(after.to_string()).event("project").data(serde_json::to_string(&sync).unwrap_or_default()));}
-    loop{if *shutdown.borrow(){break;}
+    loop{if *shutdown.borrow() || !s.store.view_is_open(&pid){break;}
         let store=s.store.clone();let id=pid.clone();let rows=tokio::task::spawn_blocking(move||store.events(&id,after)).await;
         match rows{Ok(Ok(rows))=>{for row in rows{after=row.sequence;let dto:ProjectEvent=row.into();yield Ok::<_,Infallible>(Event::default().id(after.to_string()).event("project").data(serde_json::to_string(&dto).unwrap_or_default()));}},_=>break}
         tokio::time::sleep(std::time::Duration::from_millis(500)).await;
@@ -620,6 +723,8 @@ async fn shutdown(State(s): State<AppState>) -> Json<OkResponse> {
         projects,
         create_project,
         open_project,
+        open_recent,
+        close_project,
         project,
         sources,
         attach_source,
@@ -636,7 +741,22 @@ async fn shutdown(State(s): State<AppState>) -> Json<OkResponse> {
         submit_job,
         cancel_job,
         artifact,
-        events
+        events,
+        query::fields,
+        query::definitions,
+        query::create_definition,
+        query::definition,
+        query::update_definition,
+        query::build,
+        query::results,
+        query::result,
+        query::validity,
+        query::cancel,
+        query::release,
+        query::result_assets,
+        query::capture,
+        query::select_scope,
+        source_locations::relink
     ),
     components(schemas(
         EngineConnection,
@@ -656,6 +776,8 @@ pub fn routes() -> axum::Router<AppState> {
         .route("/v1/projects", get(projects).post(create_project))
         .route("/v1/projects/open", post(open_project))
         .route("/v1/projects/{id}", get(project))
+        .route("/v1/projects/{id}/open", post(open_recent))
+        .route("/v1/projects/{id}/close", post(close_project))
         .route(
             "/v1/projects/{id}/sources",
             get(sources).post(attach_source),
@@ -689,4 +811,47 @@ pub fn routes() -> axum::Router<AppState> {
         .route("/v1/projects/{pid}/jobs/{jid}/cancel", post(cancel_job))
         .route("/v1/projects/{pid}/jobs/{jid}/artifact", get(artifact))
         .route("/v1/projects/{id}/events", get(events))
+        .route(
+            "/v1/projects/{pid}/sources/{sid}/fields",
+            get(query::fields),
+        )
+        .route(
+            "/v1/projects/{pid}/queries",
+            get(query::definitions).post(query::create_definition),
+        )
+        .route(
+            "/v1/projects/{pid}/queries/{qid}",
+            get(query::definition).patch(query::update_definition),
+        )
+        .route(
+            "/v1/projects/{pid}/queries/{qid}/results",
+            post(query::build),
+        )
+        .route("/v1/projects/{pid}/query-results", get(query::results))
+        .route("/v1/projects/{pid}/query-results/{rid}", get(query::result))
+        .route(
+            "/v1/projects/{pid}/query-results/{rid}/validity",
+            get(query::validity),
+        )
+        .route(
+            "/v1/projects/{pid}/query-results/{rid}/assets",
+            get(query::result_assets),
+        )
+        .route(
+            "/v1/projects/{pid}/query-results/{rid}/cancel",
+            post(query::cancel),
+        )
+        .route(
+            "/v1/projects/{pid}/query-results/{rid}/release",
+            post(query::release),
+        )
+        .route("/v1/projects/{pid}/scopes/capture", post(query::capture))
+        .route(
+            "/v1/projects/{pid}/selection/scope",
+            post(query::select_scope),
+        )
+        .route(
+            "/v1/projects/{pid}/sources/{sid}/relink",
+            post(source_locations::relink),
+        )
 }

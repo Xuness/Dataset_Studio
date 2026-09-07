@@ -10,14 +10,16 @@ import {
   Image as ImageIcon,
 } from "lucide-react";
 import { Button, EmptyState } from "@studio/ui";
-import type { Asset, AssetKey } from "@studio/contracts";
+import type { Asset, AssetKey, ScopeOperation } from "@studio/contracts";
 import { assetIdentity } from "@studio/client";
 import type { StudioClient } from "@studio/client";
 import { AssetImage } from "./AssetImage.js";
 export type Scope =
   | { kind: "all" }
   | { kind: "source"; id: string; name: string }
-  | { kind: "collection"; id: string; name: string };
+  | { kind: "collection"; id: string; name: string }
+  | { kind: "result"; id: string; name: string }
+  | { kind: "selection"; name: string };
 export interface BrowserProps {
   client: StudioClient;
   projectId: string;
@@ -25,6 +27,8 @@ export interface BrowserProps {
   focus: Asset | null;
   onFocus: (asset: Asset) => void;
   onPick: (keys: AssetKey[], remove?: boolean) => void;
+  onScopeOperation: (operation: ScopeOperation) => void;
+  selectionRevision: number;
   busy: boolean;
   view: "grid" | "image";
   setView: (view: "grid" | "image") => void;
@@ -36,43 +40,92 @@ export function Browser({
   focus,
   onFocus,
   onPick,
+  onScopeOperation,
+  selectionRevision,
   busy,
   view,
   setView,
 }: BrowserProps) {
   const [cursors, setCursors] = useState<(string | undefined)[]>([undefined]);
   const [page, setPage] = useState(0);
+  const [pageBase, setPageBase] = useState(0);
+  const [pageSize, setPageSize] = useState(48);
+  const [scopeOperation, setScopeOperation] =
+    useState<ScopeOperation>("replace");
   const [size, setSize] = useState(176);
-  const scopeKey = JSON.stringify(scope);
+  const scopeKey = JSON.stringify([
+    scope,
+    scope.kind === "selection" ? selectionRevision : null,
+    pageSize,
+  ]);
   useEffect(() => {
     setCursors([undefined]);
     setPage(0);
+    setPageBase(0);
   }, [projectId, scopeKey]);
   const query = useQuery({
     queryKey: ["project", projectId, "assets", scopeKey, cursors[page]],
-    queryFn: ({ signal }) =>
-      client.assets(projectId, {
-        ...(scope.kind === "source" ? { sourceId: scope.id } : {}),
-        ...(scope.kind === "collection" ? { collectionId: scope.id } : {}),
-        ...(cursors[page] ? { cursor: cursors[page] } : {}),
-        limit: 48,
-        signal,
-      }),
+    queryFn: async ({ signal }) =>
+      scope.kind === "result"
+        ? (
+            await client.queries.assets(projectId, scope.id, {
+              ...(cursors[page] ? { cursor: cursors[page] } : {}),
+              limit: pageSize,
+              signal,
+            })
+          ).page
+        : client.assets(projectId, {
+            ...(scope.kind === "source" ? { sourceId: scope.id } : {}),
+            ...(scope.kind === "collection" ? { collectionId: scope.id } : {}),
+            ...(scope.kind === "selection" ? { selection: true } : {}),
+            ...(cursors[page] ? { cursor: cursors[page] } : {}),
+            limit: pageSize,
+            signal,
+          }),
+    gcTime: 0,
+    retry: 1,
   });
   const items = query.data?.items ?? [];
   function next() {
     const cursor = query.data?.next_cursor;
     if (cursor) {
-      setCursors((old) => [...old.slice(0, page + 1), cursor]);
-      setPage((p) => p + 1);
+      const history = [...cursors.slice(0, page + 1), cursor];
+      if (history.length > 128) {
+        history.shift();
+        setPageBase((base) => base + 1);
+      }
+      setCursors(history);
+      setPage(Math.min(page + 1, 127));
     }
   }
   return (
     <section className="browser-view">
       <div className="content-bar">
         <span>{scope.kind === "all" ? "项目全部数据" : scope.name}</span>
-        <span className="subtle">/ 储存对象</span>
+        <span className="subtle">/ 存储对象</span>
         <span className="grow" />
+        {(scope.kind === "result" || scope.kind === "collection") && (
+          <div className="scope-actions">
+            <select
+              aria-label="范围选择操作"
+              value={scopeOperation}
+              onChange={(event) =>
+                setScopeOperation(event.target.value as ScopeOperation)
+              }
+            >
+              <option value="replace">替换选择</option>
+              <option value="add">添加到选择</option>
+              <option value="remove">从选择移除</option>
+              <option value="intersect">与选择取交集</option>
+            </select>
+            <Button
+              disabled={busy || !!query.error || query.isFetching}
+              onClick={() => onScopeOperation(scopeOperation)}
+            >
+              {scopeOperation === "replace" ? "选择全部范围" : "应用范围"}
+            </Button>
+          </div>
+        )}
         <button
           className={view === "grid" ? "icon-button active" : "icon-button"}
           title="图像网格"
@@ -124,6 +177,7 @@ export function Browser({
             onClick={() => {
               setCursors([undefined]);
               setPage(0);
+              setPageBase(0);
               void query.refetch();
             }}
           >
@@ -227,6 +281,26 @@ export function Browser({
       <div className="paging">
         <span className="subtle">按数据湖与内容身份分页</span>
         <span className="grow" />
+        <select
+          aria-label="每页数量"
+          value={pageSize}
+          onChange={(event) => setPageSize(Number(event.target.value))}
+        >
+          <option value={12}>12 项 / 页</option>
+          <option value={48}>48 项 / 页</option>
+          <option value={96}>96 项 / 页</option>
+        </select>
+        {pageBase > 0 && (
+          <button
+            onClick={() => {
+              setCursors([undefined]);
+              setPage(0);
+              setPageBase(0);
+            }}
+          >
+            第一页
+          </button>
+        )}
         <button
           className="icon-button"
           disabled={page === 0}
@@ -235,7 +309,7 @@ export function Browser({
         >
           <ChevronLeft size={15} />
         </button>
-        <span>第 {page + 1} 页</span>
+        <span>第 {pageBase + page + 1} 页</span>
         <button
           className="icon-button"
           disabled={!query.data?.next_cursor || query.isFetching}

@@ -79,6 +79,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{project_id}/close": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["close_project"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects/{project_id}/collections": {
         parameters: {
             query?: never;
@@ -159,6 +175,182 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{project_id}/open": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["open_recent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/queries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["definitions"];
+        put?: never;
+        post: operations["create_definition"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/queries/{query_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["definition"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: operations["update_definition"];
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/queries/{query_id}/results": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["build"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/query-results": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["results"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/query-results/{result_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["result"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/query-results/{result_id}/assets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["result_assets"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/query-results/{result_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["cancel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/query-results/{result_id}/release": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["release"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/query-results/{result_id}/validity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["validity"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/scopes/capture": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["capture"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects/{project_id}/selection": {
         parameters: {
             query?: never;
@@ -173,6 +365,22 @@ export interface paths {
         options?: never;
         head?: never;
         patch: operations["change_selection"];
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/selection/scope": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["select_scope"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/v1/projects/{project_id}/sources": {
@@ -255,6 +463,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{project_id}/sources/{source_id}/fields": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["fields"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/sources/{source_id}/relink": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["relink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/shutdown": {
         parameters: {
             query?: never;
@@ -310,12 +550,25 @@ export interface components {
             media_root?: string | null;
             name: string;
         };
+        BuildQuery: {
+            /** Format: int64 */
+            expected_revision: number;
+        };
+        CaptureScope: {
+            scope: components["schemas"]["ScopeRef"];
+        };
         ChangeSelection: {
             add: components["schemas"]["AssetKey"][];
             clear: boolean;
             /** Format: int64 */
             expected_revision: number;
             remove: components["schemas"]["AssetKey"][];
+        };
+        ChangeSelectionScope: {
+            /** Format: int64 */
+            expected_revision: number;
+            operation: components["schemas"]["ScopeOperation"];
+            scope: components["schemas"]["ScopeRef"];
         };
         Collection: {
             /** Format: int64 */
@@ -328,6 +581,7 @@ export interface components {
         };
         CreateCollection: {
             name: string;
+            scope?: null | components["schemas"]["ScopeRef"];
         };
         CreateProject: {
             name: string;
@@ -342,6 +596,29 @@ export interface components {
             pid: number;
             token: string;
         };
+        FieldDefinition: {
+            basis: string;
+            cost: string;
+            display: boolean;
+            field_type: components["schemas"]["FieldType"];
+            id: string;
+            missing: string;
+            name: string;
+            operators: components["schemas"]["QueryOperator"][];
+            sortable: boolean;
+            unit?: string | null;
+        };
+        FieldDirectory: {
+            fields: components["schemas"]["FieldDefinition"][];
+            max_conditions: number;
+            observation_rules: components["schemas"]["ObservationRule"][];
+            orders: components["schemas"]["QueryOrder"][];
+            source_id: string;
+            /** Format: int32 */
+            version: number;
+        };
+        /** @enum {string} */
+        FieldType: "text" | "integer" | "boolean" | "tags";
         Health: {
             /** Format: int32 */
             api_version: number;
@@ -357,6 +634,8 @@ export interface components {
             created_at: string;
             error?: string | null;
             id: string;
+            input_members_frozen: boolean;
+            input_scope?: null | components["schemas"]["ScopeRef"];
             operator: string;
             project_id: string;
             status: string;
@@ -436,6 +715,8 @@ export interface components {
             record_id: string;
             version: components["schemas"]["ReadVersion"];
         };
+        /** @enum {string} */
+        ObservationRule: "current_post" | "any_observation";
         OkResponse: {
             ok: boolean;
         };
@@ -450,6 +731,10 @@ export interface components {
             /** Format: int64 */
             revision: number;
         };
+        ProjectClose: {
+            project_id: string;
+            state: components["schemas"]["ProjectState"];
+        };
         ProjectEvent: {
             kind: string;
             project_id: string;
@@ -457,8 +742,87 @@ export interface components {
             /** Format: int64 */
             sequence: number;
         };
+        /** @enum {string} */
+        ProjectState: "closed" | "open" | "background" | "draining" | "unavailable";
+        ProjectSummary: {
+            directory: string;
+            id: string;
+            issue?: string | null;
+            name: string;
+            opened_at: string;
+            state: components["schemas"]["ProjectState"];
+        };
         Projects: {
-            items: components["schemas"]["Project"][];
+            items: components["schemas"]["ProjectSummary"][];
+        };
+        QueryCondition: {
+            field: string;
+            operator: components["schemas"]["QueryOperator"];
+            value?: null | components["schemas"]["QueryValue"];
+        };
+        QueryDefinition: {
+            created_at: string;
+            id: string;
+            name: string;
+            project_id: string;
+            /** Format: int64 */
+            revision: number;
+            spec: components["schemas"]["QuerySpec"];
+        };
+        QueryDefinitions: {
+            items: components["schemas"]["QueryDefinition"][];
+            next_cursor?: string | null;
+        };
+        /** @enum {string} */
+        QueryOperator: "eq" | "ne" | "gte" | "lte" | "has_tag" | "is_missing" | "is_present";
+        /** @enum {string} */
+        QueryOrder: "asset_key_asc" | "asset_key_desc";
+        QueryResult: {
+            /** Format: int64 */
+            count?: number | null;
+            created_at: string;
+            definition_id?: string | null;
+            /** Format: int64 */
+            definition_revision?: number | null;
+            error?: string | null;
+            id: string;
+            /** Format: int64 */
+            processed: number;
+            project_id: string;
+            source_versions: components["schemas"]["QuerySourceVersion"][];
+            spec: components["schemas"]["QuerySpec"];
+            state: components["schemas"]["ResultState"];
+        };
+        QueryResults: {
+            items: components["schemas"]["QueryResult"][];
+            next_cursor?: string | null;
+        };
+        QuerySourceVersion: {
+            analysis_sequence?: string | null;
+            catalog_revision: string;
+            consistency: string;
+            source_id: string;
+        };
+        QuerySpec: {
+            conditions: components["schemas"]["QueryCondition"][];
+            observation_rule: components["schemas"]["ObservationRule"];
+            order: components["schemas"]["QueryOrder"];
+            source_ids: string[];
+            /** Format: int32 */
+            version: number;
+        };
+        QueryValue: {
+            /** @enum {string} */
+            type: "text";
+            value: string;
+        } | {
+            /** @enum {string} */
+            type: "integer";
+            value: string;
+        } | {
+            /** @enum {string} */
+            type: "boolean";
+            value: boolean;
         };
         RawMetadata: {
             bytes?: string | null;
@@ -480,9 +844,60 @@ export interface components {
             library_id: string;
             token: string;
         };
-        Selection: {
+        RelinkSource: {
+            index_root: string;
+            media_root: string;
+        };
+        ResultAssets: {
             /** Format: int64 */
             count: number;
+            page: components["schemas"]["AssetPage"];
+            result_id: string;
+        };
+        /** @enum {string} */
+        ResultState: "queued" | "running" | "ready" | "cancelled" | "failed" | "interrupted" | "released";
+        ResultValidity: {
+            current: boolean;
+            issue?: string | null;
+            result_id: string;
+        };
+        SaveQuery: {
+            /** Format: int64 */
+            expected_revision?: number | null;
+            name: string;
+            spec: components["schemas"]["QuerySpec"];
+        };
+        /** @enum {string} */
+        ScopeOperation: "replace" | "add" | "remove" | "intersect";
+        ScopeRef: {
+            project_id: string;
+            target: components["schemas"]["ScopeTarget"];
+        };
+        ScopeTarget: {
+            /** @enum {string} */
+            kind: "source";
+            revision: string;
+            source_id: string;
+        } | {
+            collection_id: string;
+            /** @enum {string} */
+            kind: "workset";
+        } | {
+            /** @enum {string} */
+            kind: "query_result";
+            result_id: string;
+        } | {
+            /** @enum {string} */
+            kind: "selection";
+            /** Format: int64 */
+            revision: number;
+        };
+        Selection: {
+            base_result?: string | null;
+            /** Format: int64 */
+            count: number;
+            /** Format: int64 */
+            excluded_count: number;
             /** Format: int64 */
             revision: number;
         };
@@ -497,6 +912,11 @@ export interface components {
             name: string;
             revision?: string | null;
         };
+        SourceRelinked: {
+            impact: string;
+            revision: string;
+            source_id: string;
+        };
         Sources: {
             items: components["schemas"]["Source"][];
         };
@@ -504,8 +924,9 @@ export interface components {
             /** Format: int64 */
             delay_ms?: number;
             idempotency_key: string;
+            scope?: null | components["schemas"]["ScopeRef"];
             /** Format: int64 */
-            selection_revision: number;
+            selection_revision?: number | null;
         };
     };
     responses: never;
@@ -634,6 +1055,7 @@ export interface operations {
             query?: {
                 source_id?: string;
                 collection_id?: string;
+                selection?: boolean;
                 cursor?: string;
                 limit?: number;
             };
@@ -651,6 +1073,27 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AssetPage"];
+                };
+            };
+        };
+    };
+    close_project: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectClose"];
                 };
             };
         };
@@ -815,6 +1258,312 @@ export interface operations {
             };
         };
     };
+    open_recent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Project"];
+                };
+            };
+        };
+    };
+    definitions: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueryDefinitions"];
+                };
+            };
+        };
+    };
+    create_definition: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveQuery"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueryDefinition"];
+                };
+            };
+        };
+    };
+    definition: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                query_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueryDefinition"];
+                };
+            };
+        };
+    };
+    update_definition: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                query_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveQuery"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueryDefinition"];
+                };
+            };
+        };
+    };
+    build: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                query_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BuildQuery"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueryResult"];
+                };
+            };
+        };
+    };
+    results: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueryResults"];
+                };
+            };
+        };
+    };
+    result: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                result_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueryResult"];
+                };
+            };
+        };
+    };
+    result_assets: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+                result_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResultAssets"];
+                };
+            };
+        };
+    };
+    cancel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                result_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueryResult"];
+                };
+            };
+        };
+    };
+    release: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                result_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueryResult"];
+                };
+            };
+        };
+    };
+    validity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                result_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResultValidity"];
+                };
+            };
+        };
+    };
+    capture: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CaptureScope"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueryResult"];
+                };
+            };
+        };
+    };
     selection: {
         parameters: {
             query?: never;
@@ -848,6 +1597,31 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["ChangeSelection"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Selection"];
+                };
+            };
+        };
+    };
+    select_scope: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangeSelectionScope"];
             };
         };
         responses: {
@@ -1059,6 +1833,54 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    fields: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                source_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FieldDirectory"];
+                };
+            };
+        };
+    };
+    relink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                source_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RelinkSource"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceRelinked"];
                 };
             };
         };

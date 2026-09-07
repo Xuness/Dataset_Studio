@@ -17,3 +17,21 @@ export async function chooseDirectory(): Promise<string | null> {
   const result = await open({ directory: true, multiple: false });
   return typeof result === "string" ? result : null;
 }
+export async function onNativeClose(
+  releaseViews: () => Promise<void>,
+): Promise<() => void> {
+  if (!isTauri()) return () => {};
+  const { getCurrentWindow } = await import("@tauri-apps/api/window");
+  const window = getCurrentWindow();
+  let closing = false;
+  return window.onCloseRequested(async (event) => {
+    event.preventDefault();
+    if (closing) return;
+    closing = true;
+    try {
+      await releaseViews();
+    } finally {
+      await window.destroy();
+    }
+  });
+}

@@ -2,7 +2,9 @@ import { useQuery } from "@tanstack/react-query";
 import { Download, X, CheckCircle2, LoaderCircle, Clock3 } from "lucide-react";
 import { Button } from "@studio/ui";
 import type { StudioClient } from "@studio/client";
+import { scopeKindLabel } from "../scopes/scopes.js";
 export const statusNames: Record<string, string> = {
+  waiting_input: "构建输入范围",
   queued: "等待执行",
   preparing: "固定输入",
   running: "运行中",
@@ -44,7 +46,7 @@ export function Tasks({
       <div className="tasks-scroll">
         {!jobs.length ? (
           <div className="tasks-empty">
-            选择图片后，可以生成数据清单。任务会保存固定输入和执行进度。
+            可以为数据湖、工作集、查询结果或项目选择生成清单。任务会保存固定输入和执行进度。
           </div>
         ) : (
           jobs.map((job) => (
@@ -61,7 +63,11 @@ export function Tasks({
               <div className="task-title">
                 <strong>数据清单</strong>
                 <small>
-                  固定输入 {job.total} 项 · 第 {job.attempt} 次执行
+                  {scopeKindLabel(job.input_scope)} ·{" "}
+                  {!job.input_members_frozen
+                    ? "成员范围尚未固定"
+                    : "固定输入 " + job.total.toLocaleString() + " 项"}{" "}
+                  · 第 {job.attempt} 次执行
                   {job.error ? " · " + job.error : ""}
                 </small>
               </div>
@@ -76,7 +82,11 @@ export function Tasks({
                   />
                 </div>
                 <span>
-                  {job.completed} / {job.total}
+                  {!job.input_members_frozen
+                    ? job.status === "waiting_input"
+                      ? "固定范围中…"
+                      : "数量未确定"
+                    : job.completed + " / " + job.total}
                 </span>
               </div>
               <span className={"task-status " + job.status}>
@@ -93,7 +103,9 @@ export function Tasks({
                   <Download size={13} />
                   保存成果
                 </Button>
-              ) : ["queued", "running", "preparing"].includes(job.status) ? (
+              ) : ["waiting_input", "queued", "running", "preparing"].includes(
+                  job.status,
+                ) ? (
                 <Button
                   onClick={() =>
                     void client

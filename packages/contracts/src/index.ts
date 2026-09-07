@@ -1,6 +1,16 @@
 import type { components } from "./schema.js";
 export type Schema = components["schemas"];
 export type Project = Schema["Project"];
+export type ProjectSummary = Schema["ProjectSummary"];
+export type ProjectState = Schema["ProjectState"];
+export type ScopeRef = Schema["ScopeRef"];
+export type ScopeOperation = Schema["ScopeOperation"];
+export type FieldDirectory = Schema["FieldDirectory"];
+export type FieldDefinition = Schema["FieldDefinition"];
+export type QuerySpec = Schema["QuerySpec"];
+export type QueryCondition = Schema["QueryCondition"];
+export type QueryDefinition = Schema["QueryDefinition"];
+export type QueryResult = Schema["QueryResult"];
 export type Source = Schema["Source"];
 export type Asset = Schema["Asset"];
 export type AssetKey = Schema["AssetKey"];

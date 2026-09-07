@@ -6,11 +6,22 @@ use std::{
     fs::{self, File, OpenOptions},
     io::Write,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 use studio_application::ProjectRepository;
 use studio_domain::*;
+mod job_scopes;
+mod lifecycle;
 mod migrations;
+mod query;
+mod registry;
+mod scopes;
+mod selection;
+mod source_locations;
+pub use lifecycle::ProjectLease;
 
 fn unsigned(row: &rusqlite::Row, index: usize) -> rusqlite::Result<u64> {
     let value: i64 = row.get(index)?;
@@ -72,6 +83,8 @@ struct ProjectDb {
     db: Mutex<Connection>,
     _lease: File,
     project: Project,
+    view_open: AtomicBool,
+    background: AtomicBool,
 }
 pub struct SqliteStore {
     root: PathBuf,
@@ -82,8 +95,9 @@ impl SqliteStore {
     pub fn new(root: PathBuf) -> Result<Self> {
         fs::create_dir_all(&root).map_err(Error::io)?;
         let root = root.canonicalize().map_err(Error::io)?;
-        let db = connection(&root.join("registry.sqlite"))?;
-        db.execute_batch("CREATE TABLE IF NOT EXISTS projects(id TEXT PRIMARY KEY, directory TEXT UNIQUE NOT NULL, opened_at TEXT NOT NULL); CREATE TABLE IF NOT EXISTS source_locations(id TEXT PRIMARY KEY,json TEXT NOT NULL);").map_err(db_error)?;
+        registry::check(&root.join("registry.sqlite"))?;
+        let mut db = connection(&root.join("registry.sqlite"))?;
+        registry::initialize(&mut db, &root)?;
         Ok(Self {
             root,
             registry: Mutex::new(db),
@@ -98,24 +112,7 @@ impl SqliteStore {
         if let Some(p) = self.projects.lock().map_err(lock_error)?.get(id) {
             return Ok(p.clone());
         }
-        let path: Option<String> = self
-            .registry
-            .lock()
-            .map_err(lock_error)?
-            .query_row("SELECT directory FROM projects WHERE id=?1", [id], |r| {
-                r.get(0)
-            })
-            .optional()
-            .map_err(db_error)?;
-        self.open(PathBuf::from(
-            path.ok_or_else(|| Error::new("NOT_FOUND", "项目不存在"))?,
-        ))?;
-        self.projects
-            .lock()
-            .map_err(lock_error)?
-            .get(id)
-            .cloned()
-            .ok_or_else(|| Error::new("NOT_FOUND", "项目不存在"))
+        Err(Error::new("PROJECT_CLOSED", "请先显式打开项目"))
     }
     pub fn directory(&self, id: &str) -> Result<PathBuf> {
         Ok(self.handle(id)?.project.directory.clone())
@@ -129,16 +126,8 @@ impl SqliteStore {
     pub fn contains(&self, project_id: &str, keys: &[AssetKey]) -> Result<Vec<bool>> {
         let p = self.handle(project_id)?;
         let db = p.db.lock().map_err(lock_error)?;
-        let mut stmt = db
-            .prepare("SELECT 1 FROM selection WHERE source_id=?1 AND asset_id=?2")
-            .map_err(db_error)?;
         keys.iter()
-            .map(|k| {
-                stmt.query_row(params![k.source_id, k.asset_id], |_| Ok(()))
-                    .optional()
-                    .map(|r| r.is_some())
-                    .map_err(db_error)
-            })
+            .map(|key| selection::contains(&db, key))
             .collect()
     }
     fn keys(
@@ -162,10 +151,7 @@ impl SqliteStore {
                 "SELECT source_id,asset_id FROM job_inputs WHERE job_id=?1 AND (source_id,asset_id)>(?2,?3) ORDER BY source_id,asset_id LIMIT ?4",
                 id,
             ),
-            _ => (
-                "SELECT source_id,asset_id FROM selection WHERE ?1='' AND (source_id,asset_id)>(?2,?3) ORDER BY source_id,asset_id LIMIT ?4",
-                "",
-            ),
+            _ => return selection::keys(&db, after, limit),
         };
         let mut stmt = db.prepare(sql).map_err(db_error)?;
         stmt.query_map(
@@ -198,6 +184,7 @@ impl SqliteStore {
     ) -> Result<Job> {
         validate_id(key)?;
         let p = self.handle(project_id)?;
+        self.mark_background(project_id)?;
         let mut db = p.db.lock().map_err(lock_error)?;
         let tx = db.transaction().map_err(db_error)?;
         let request = format!("manifest-v1:{expected_selection}:{delay_ms}");
@@ -238,8 +225,28 @@ impl SqliteStore {
         let id = new_id();
         tx.execute("INSERT INTO jobs(id,operator,status,total,created_at,idempotency_key,request_hash,delay_ms) VALUES (?1,'core.manifest','queued',?2,?3,?4,?5,?6)",params![id,total as i64,now(),key,request,delay_ms.min(1000) as i64]).map_err(db_error)?;
         tx.execute(
-            "INSERT INTO job_inputs SELECT ?1,source_id,asset_id FROM selection",
+            &format!(
+                "INSERT INTO job_inputs SELECT ?1,source_id,asset_id FROM ({})",
+                selection::MEMBERS
+            ),
             [&id],
+        )
+        .map_err(db_error)?;
+        let scope = ScopeRef {
+            project_id: project_id.into(),
+            target: ScopeTarget::Selection {
+                revision: expected_selection,
+            },
+        };
+        let resolved = scopes::resolve(&tx, project_id, &scope)?;
+        scopes::references(&tx, "job", &id, &resolved.results)?;
+        tx.execute(
+            "INSERT INTO job_scopes VALUES (?1,?2,?3,NULL)",
+            params![
+                id,
+                serde_json::to_string(&scope).map_err(Error::io)?,
+                resolved.provenance.to_string()
+            ],
         )
         .map_err(db_error)?;
         event(&tx, "job.created", &id)?;
@@ -296,23 +303,6 @@ impl SqliteStore {
         tx.commit().map_err(db_error)?;
         Ok(job)
     }
-    pub fn recover_jobs(&self) -> Result<()> {
-        for project in self.list()? {
-            for job in self.scheduled_jobs(&project.id, true)? {
-                if ["running", "preparing"].contains(&job.status.as_str()) {
-                    self.update_job(
-                        &project.id,
-                        &job.id,
-                        "queued",
-                        job.completed,
-                        Some("恢复中断的执行"),
-                        None,
-                    )?;
-                }
-            }
-        }
-        Ok(())
-    }
     pub fn scheduled_jobs(&self, project_id: &str, recovery: bool) -> Result<Vec<Job>> {
         let p = self.handle(project_id)?;
         let db = p.db.lock().map_err(lock_error)?;
@@ -340,7 +330,23 @@ impl SqliteStore {
 }
 fn read_job(db: &Connection, project_id: &str, id: &str) -> Result<Job> {
     validate_id(id)?;
-    db.query_row("SELECT id,operator,status,total,completed,attempt,created_at,error,artifact FROM jobs WHERE id=?1",[id],|r|Ok(Job{id:r.get(0)?,project_id:project_id.to_owned(),operator:r.get(1)?,status:r.get(2)?,total:unsigned(r,3)?,completed:unsigned(r,4)?,attempt:r.get(5)?,created_at:r.get(6)?,error:r.get(7)?,artifact:r.get(8)?})).optional().map_err(db_error)?.ok_or_else(||Error::new("NOT_FOUND","任务不存在"))
+    let (mut job,scope)=db.query_row(
+        "SELECT j.id,j.operator,j.status,j.total,j.completed,j.attempt,j.created_at,j.error,j.artifact,s.scope_json FROM jobs j LEFT JOIN job_scopes s ON s.job_id=j.id WHERE j.id=?1",
+        [id],
+        |row| {
+            let total=unsigned(row,3)?;
+            Ok((Job {
+                id:row.get(0)?,project_id:project_id.to_owned(),operator:row.get(1)?,
+                status:row.get(2)?,total,completed:unsigned(row,4)?,attempt:row.get(5)?,
+                created_at:row.get(6)?,error:row.get(7)?,artifact:row.get(8)?,input_scope:None,
+                input_members_frozen:total>0,
+            },row.get::<_,Option<String>>(9)?))
+        },
+    ).optional().map_err(db_error)?.ok_or_else(||Error::new("NOT_FOUND","任务不存在"))?;
+    job.input_scope = scope
+        .map(|s| serde_json::from_str(&s).map_err(Error::io))
+        .transpose()?;
+    Ok(job)
 }
 impl ProjectRepository for SqliteStore {
     fn create(&self, name: &str, parent: Option<PathBuf>) -> Result<Project> {
@@ -366,133 +372,16 @@ impl ProjectRepository for SqliteStore {
         self.open(directory)
     }
     fn open(&self, directory: PathBuf) -> Result<Project> {
-        let directory = directory.canonicalize().map_err(Error::io)?;
-        let manifest: Manifest =
-            serde_json::from_slice(&fs::read(directory.join("project.json")).map_err(Error::io)?)
-                .map_err(|_| Error::invalid("不是有效的 Studio 项目"))?;
-        validate_id(&manifest.id)?;
-        if manifest.format_version != 1 {
-            return Err(Error::new("FORMAT_UNSUPPORTED", "项目格式版本不兼容"));
-        }
-        let mut projects = self.projects.lock().map_err(lock_error)?;
-        if let Some(p) = projects.get(&manifest.id) {
-            if p.project.directory != directory {
-                return Err(Error::new(
-                    "PROJECT_ID_CONFLICT",
-                    "相同项目身份已在另一个目录打开",
-                ));
-            }
-            let revision =
-                p.db.lock()
-                    .map_err(lock_error)?
-                    .query_row(
-                        "SELECT CAST(value AS INTEGER) FROM meta WHERE key='revision'",
-                        [],
-                        |r| unsigned(r, 0),
-                    )
-                    .map_err(db_error)?;
-            return Ok(Project {
-                revision,
-                ..p.project.clone()
-            });
-        }
-        let dbpath = directory
-            .join("project.sqlite")
-            .canonicalize()
-            .map_err(Error::io)?;
-        if dbpath.parent() != Some(directory.as_path()) {
-            return Err(Error::invalid("项目数据库必须位于项目目录内"));
-        }
-        let lease = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .truncate(false)
-            .open(directory.join(".project.lock"))
-            .map_err(Error::io)?;
-        lease
-            .try_lock_exclusive()
-            .map_err(|_| Error::new("PROJECT_BUSY", "项目已由其他引擎打开"))?;
-        // Reject future formats before opening a writable connection or changing journal mode.
-        migrations::check_supported(&dbpath)?;
-        let mut db =
-            Connection::open_with_flags(&dbpath, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)
-                .map_err(db_error)?;
-        db.busy_timeout(std::time::Duration::from_secs(3))
-            .map_err(db_error)?;
-        db.execute_batch("PRAGMA foreign_keys=ON;")
-            .map_err(db_error)?;
-        migrations::upgrade(&mut db, &directory)?;
-        db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;")
-            .map_err(db_error)?;
-        // A newly acquired project lease means no previous engine still owns its tasks.
-        // Cached handles return above, so opening an already active project does not interrupt it.
-        {
-            let tx = db.transaction().map_err(db_error)?;
-            let interrupted = {
-                let mut stmt = tx
-                    .prepare("SELECT id FROM jobs WHERE status IN ('running','preparing')")
-                    .map_err(db_error)?;
-                stmt.query_map([], |r| r.get::<_, String>(0))
-                    .map_err(db_error)?
-                    .collect::<std::result::Result<Vec<_>, _>>()
-                    .map_err(db_error)?
-            };
-            for id in interrupted {
-                tx.execute(
-                    "UPDATE jobs SET status='queued',error='恢复中断的执行' WHERE id=?1",
-                    [&id],
-                )
-                .map_err(db_error)?;
-                event(&tx, "job.recovered", &id)?;
-            }
-            tx.commit().map_err(db_error)?;
-        }
-        let revision: u64 = db
-            .query_row(
-                "SELECT CAST(value AS INTEGER) FROM meta WHERE key='revision'",
-                [],
-                |r| unsigned(r, 0),
-            )
-            .map_err(db_error)?;
-        let project = Project {
-            id: manifest.id,
-            name: manifest.name,
-            directory,
-            created_at: manifest.created_at,
-            revision,
-        };
-        self.registry.lock().map_err(lock_error)?.execute("INSERT INTO projects VALUES (?1,?2,?3) ON CONFLICT(id) DO UPDATE SET directory=excluded.directory,opened_at=excluded.opened_at",params![project.id,project.directory.to_string_lossy(),now()]).map_err(db_error)?;
-        projects.insert(
-            project.id.clone(),
-            Arc::new(ProjectDb {
-                db: Mutex::new(db),
-                _lease: lease,
-                project: project.clone(),
-            }),
-        );
-        Ok(project)
+        self.open_tracked(directory, true)
     }
-    fn list(&self) -> Result<Vec<Project>> {
-        let dirs = {
-            let db = self.registry.lock().map_err(lock_error)?;
-            let mut stmt = db
-                .prepare("SELECT directory FROM projects ORDER BY opened_at DESC")
-                .map_err(db_error)?;
-            stmt.query_map([], |r| r.get::<_, String>(0))
-                .map_err(db_error)?
-                .collect::<std::result::Result<Vec<_>, _>>()
-                .map_err(db_error)?
-        };
-        let mut projects = Vec::new();
-        for directory in dirs {
-            match self.open(PathBuf::from(directory)) {
-                Ok(p) => projects.push(p),
-                Err(e) if e.code == "IO_ERROR" => {}
-                Err(e) => return Err(e),
-            }
-        }
-        Ok(projects)
+    fn list(&self) -> Result<Vec<ProjectSummary>> {
+        self.recent_projects()
+    }
+    fn open_recent(&self, id: &str) -> Result<Project> {
+        self.open_tracked(self.registered_directory(id)?, true)
+    }
+    fn close(&self, id: &str) -> Result<ProjectClose> {
+        self.close_project(id)
     }
     fn project(&self, id: &str) -> Result<Project> {
         let p = self.handle(id)?;
@@ -512,7 +401,7 @@ impl ProjectRepository for SqliteStore {
     }
     fn attach(&self, project_id: &str, source: Source) -> Result<()> {
         let p = self.handle(project_id)?;
-        self.registry.lock().map_err(lock_error)?.execute("INSERT INTO source_locations VALUES (?1,?2) ON CONFLICT(id) DO UPDATE SET json=excluded.json",params![source.id,serde_json::to_string(&source).map_err(Error::io)?]).map_err(db_error)?;
+        self.attach_location(&source)?;
         let reference = Source {
             index_root: None,
             media_root: None,
@@ -573,8 +462,7 @@ impl ProjectRepository for SqliteStore {
     }
     fn selection(&self, project_id: &str) -> Result<Selection> {
         let p = self.handle(project_id)?;
-        let db = p.db.lock().map_err(lock_error)?;
-        db.query_row("SELECT (SELECT CAST(value AS INTEGER) FROM meta WHERE key='selection_revision'),(SELECT CAST(value AS INTEGER) FROM meta WHERE key='selection_count')",[],|r|Ok(Selection{revision:unsigned(r,0)?,count:unsigned(r,1)?})).map_err(db_error)
+        selection::read(&*p.db.lock().map_err(lock_error)?)
     }
     fn selection_keys(
         &self,
@@ -592,65 +480,7 @@ impl ProjectRepository for SqliteStore {
         remove: &[AssetKey],
         clear: bool,
     ) -> Result<Selection> {
-        if add.len() + remove.len() > 1000 {
-            return Err(Error::invalid("每次选择修改最多提交 1000 项"));
-        }
-        let p = self.handle(project_id)?;
-        let mut db = p.db.lock().map_err(lock_error)?;
-        let tx = db.transaction().map_err(db_error)?;
-        let revision: u64 = tx
-            .query_row(
-                "SELECT CAST(value AS INTEGER) FROM meta WHERE key='selection_revision'",
-                [],
-                |r| unsigned(r, 0),
-            )
-            .map_err(db_error)? as u64;
-        if revision != expected_revision {
-            return Err(Error::new("REVISION_CONFLICT", "选择已被其他操作修改"));
-        }
-        let mut count = tx
-            .query_row(
-                "SELECT CAST(value AS INTEGER) FROM meta WHERE key='selection_count'",
-                [],
-                |r| unsigned(r, 0),
-            )
-            .map_err(db_error)?;
-        if clear {
-            tx.execute("DELETE FROM selection", []).map_err(db_error)?;
-            count = 0;
-        }
-        for key in add {
-            count += tx
-                .execute(
-                    "INSERT OR IGNORE INTO selection VALUES (?1,?2)",
-                    params![key.source_id, key.asset_id],
-                )
-                .map_err(db_error)? as u64;
-        }
-        for key in remove {
-            count -= tx
-                .execute(
-                    "DELETE FROM selection WHERE source_id=?1 AND asset_id=?2",
-                    params![key.source_id, key.asset_id],
-                )
-                .map_err(db_error)? as u64;
-        }
-        tx.execute(
-            "UPDATE meta SET value=CAST(value AS INTEGER)+1 WHERE key='selection_revision'",
-            [],
-        )
-        .map_err(db_error)?;
-        event(&tx, "selection.changed", "selection")?;
-        tx.execute(
-            "UPDATE meta SET value=?1 WHERE key='selection_count'",
-            [count.to_string()],
-        )
-        .map_err(db_error)?;
-        tx.commit().map_err(db_error)?;
-        Ok(Selection {
-            revision: revision + 1,
-            count,
-        })
+        selection::change(self, project_id, expected_revision, add, remove, clear)
     }
     fn collections(&self, project_id: &str) -> Result<Vec<Collection>> {
         let p = self.handle(project_id)?;
@@ -670,34 +500,18 @@ impl ProjectRepository for SqliteStore {
         .map_err(db_error)
     }
     fn save_collection(&self, project_id: &str, name: &str) -> Result<Collection> {
-        let name = validate_name(name)?;
-        let p = self.handle(project_id)?;
-        let mut db = p.db.lock().map_err(lock_error)?;
-        let tx = db.transaction().map_err(db_error)?;
-        let count: u64 = tx
-            .query_row(
-                "SELECT CAST(value AS INTEGER) FROM meta WHERE key='selection_count'",
-                [],
-                |r| unsigned(r, 0),
-            )
-            .map_err(db_error)?;
-        if count == 0 {
-            return Err(Error::invalid("请先选择工作集成员"));
-        }
-        let id = new_id();
-        tx.execute(
-            "INSERT INTO collections VALUES (?1,?2,?3)",
-            params![id, name, count as i64],
+        use studio_application::ScopeRepository;
+        let current = self.selection(project_id)?;
+        self.save_scope_collection(
+            project_id,
+            name,
+            &ScopeRef {
+                project_id: project_id.into(),
+                target: ScopeTarget::Selection {
+                    revision: current.revision,
+                },
+            },
         )
-        .map_err(db_error)?;
-        tx.execute(
-            "INSERT INTO collection_members SELECT ?1,source_id,asset_id FROM selection",
-            [&id],
-        )
-        .map_err(db_error)?;
-        event(&tx, "collection.created", &id)?;
-        tx.commit().map_err(db_error)?;
-        Ok(Collection { id, name, count })
     }
     fn collection_keys(
         &self,

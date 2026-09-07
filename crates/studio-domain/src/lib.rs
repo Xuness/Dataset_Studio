@@ -2,6 +2,12 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 mod metadata;
 pub use metadata::*;
+mod lifecycle;
+pub use lifecycle::*;
+mod query;
+pub use query::*;
+mod scope;
+pub use scope::*;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -78,6 +84,8 @@ pub struct Collection {
 pub struct Selection {
     pub revision: u64,
     pub count: u64,
+    pub base_result: Option<String>,
+    pub excluded_count: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -92,6 +100,10 @@ pub struct Job {
     pub created_at: String,
     pub error: Option<String>,
     pub artifact: Option<String>,
+    #[serde(default)]
+    pub input_scope: Option<ScopeRef>,
+    #[serde(default)]
+    pub input_members_frozen: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

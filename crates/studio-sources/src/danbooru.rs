@@ -26,7 +26,7 @@ fn unsigned(row: &rusqlite::Row, index: usize) -> rusqlite::Result<u64> {
     let value: i64 = row.get(index)?;
     u64::try_from(value).map_err(|_| rusqlite::Error::IntegralValueOutOfRange(index, value))
 }
-fn err(e: rusqlite::Error) -> Error {
+pub(crate) fn err(e: rusqlite::Error) -> Error {
     Error::new(
         if matches!(e,rusqlite::Error::SqliteFailure(ref code,_) if matches!(code.code,rusqlite::ErrorCode::DatabaseBusy|rusqlite::ErrorCode::DatabaseLocked))
         {
@@ -68,6 +68,9 @@ pub struct Catalog {
     pub sequence: u64,
 }
 impl Catalog {
+    pub(crate) fn connection(&self) -> &Connection {
+        &self.db
+    }
     pub fn open(source: &Source) -> Result<Self> {
         let index = source
             .index_root

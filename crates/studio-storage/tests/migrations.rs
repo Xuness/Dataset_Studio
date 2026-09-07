@@ -8,6 +8,13 @@ use studio_storage::SqliteStore;
 const V1: &str = include_str!("../src/schema.sql");
 #[test]
 fn v1_upgrade_preserves_every_persistent_relationship_and_is_idempotent() {
+    upgrade_preserves_every_relationship(1);
+}
+#[test]
+fn v2_upgrade_keeps_earlier_migration_ledger_and_every_relationship() {
+    upgrade_preserves_every_relationship(2);
+}
+fn upgrade_preserves_every_relationship(from: u32) {
     let root = tempfile::tempdir().unwrap();
     let dir = root.path().join("中文旧项目");
     fs::create_dir(&dir).unwrap();
@@ -30,6 +37,9 @@ fn v1_upgrade_preserves_every_persistent_relationship_and_is_idempotent() {
     .unwrap();
     let db = Connection::open(dir.join("project.sqlite")).unwrap();
     db.execute_batch(V1).unwrap();
+    if from == 2 {
+        db.execute_batch("CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL, backup_directory TEXT); INSERT INTO schema_migrations VALUES (2,'earlier-migration','previous-backup'); PRAGMA user_version=2;").unwrap();
+    }
     let source = serde_json::json!({"id":sid,"name":"旧来源","kind":"demo","index_root":null,"media_root":null});
     db.execute(
         "INSERT INTO sources VALUES (?1,?2)",
@@ -105,15 +115,27 @@ fn v1_upgrade_preserves_every_persistent_relationship_and_is_idempotent() {
         before
             .query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0))
             .unwrap(),
-        1
+        from
     );
     assert_eq!(
         after
             .query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0))
             .unwrap(),
-        2
+        3
     );
     // Exact rows, including drafts, idempotency keys, event sequences and artifact references.
+    if from == 2 {
+        assert_eq!(
+            after
+                .query_row(
+                    "SELECT applied_at,backup_directory FROM schema_migrations WHERE version=2",
+                    [],
+                    |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+                )
+                .unwrap(),
+            ("earlier-migration".into(), "previous-backup".into())
+        );
+    }
     for table in [
         "meta",
         "sources",

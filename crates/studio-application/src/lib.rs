@@ -54,10 +54,82 @@ pub trait MetadataAdapter: Send + Sync {
     ) -> Result<RawMetadata>;
 }
 
+/// Adapters stream bounded identity batches. The receiver owns deduplication and publication.
+pub trait QueryAdapter: Send + Sync {
+    fn fields(&self, source: &Source) -> Result<FieldDirectory>;
+    fn query_version(&self, source: &Source, spec: &QuerySpec) -> Result<QuerySourceVersion>;
+    fn execute_query(
+        &self,
+        source: &Source,
+        spec: &QuerySpec,
+        expected: &QuerySourceVersion,
+        cancelled: std::sync::Arc<std::sync::atomic::AtomicBool>,
+        sink: &mut dyn FnMut(&[AssetKey], u64) -> Result<()>,
+    ) -> Result<()>;
+}
+
+pub trait QueryRepository: Send + Sync {
+    fn save_query(
+        &self,
+        project_id: &str,
+        name: &str,
+        spec: QuerySpec,
+        previous: Option<(&str, u64)>,
+    ) -> Result<QueryDefinition>;
+    fn query_definition(&self, project_id: &str, id: &str) -> Result<QueryDefinition>;
+    fn query_definitions(
+        &self,
+        project_id: &str,
+        after: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<QueryDefinition>>;
+    fn create_result(
+        &self,
+        project_id: &str,
+        definition: Option<(&str, u64)>,
+        spec: QuerySpec,
+        versions: Vec<QuerySourceVersion>,
+    ) -> Result<QueryResult>;
+    fn query_result(&self, project_id: &str, id: &str) -> Result<QueryResult>;
+    fn query_results(
+        &self,
+        project_id: &str,
+        after: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<QueryResult>>;
+    fn result_page(
+        &self,
+        project_id: &str,
+        id: &str,
+        after: Option<&AssetKey>,
+        limit: usize,
+    ) -> Result<ResultPage>;
+    fn cancel_result(&self, project_id: &str, id: &str) -> Result<QueryResult>;
+    fn release_result(&self, project_id: &str, id: &str) -> Result<QueryResult>;
+}
+
+pub trait ScopeRepository: Send + Sync {
+    fn change_selection_scope(
+        &self,
+        project_id: &str,
+        expected_revision: u64,
+        scope: &ScopeRef,
+        operation: ScopeOperation,
+    ) -> Result<Selection>;
+    fn save_scope_collection(
+        &self,
+        project_id: &str,
+        name: &str,
+        scope: &ScopeRef,
+    ) -> Result<Collection>;
+}
+
 pub trait ProjectRepository: Send + Sync {
     fn create(&self, name: &str, parent: Option<PathBuf>) -> Result<Project>;
     fn open(&self, directory: PathBuf) -> Result<Project>;
-    fn list(&self) -> Result<Vec<Project>>;
+    fn list(&self) -> Result<Vec<ProjectSummary>>;
+    fn open_recent(&self, id: &str) -> Result<Project>;
+    fn close(&self, id: &str) -> Result<ProjectClose>;
     fn project(&self, id: &str) -> Result<Project>;
     fn attach(&self, project_id: &str, source: Source) -> Result<()>;
     fn sources(&self, project_id: &str) -> Result<Vec<Source>>;

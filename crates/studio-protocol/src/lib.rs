@@ -2,6 +2,10 @@ use serde::{Deserialize, Serialize};
 use studio_domain as domain;
 mod metadata;
 pub use metadata::*;
+mod query;
+pub use query::*;
+mod scope;
+pub use scope::*;
 use utoipa::ToSchema;
 pub const API_VERSION: u32 = 1;
 
@@ -94,7 +98,61 @@ impl From<domain::Project> for Project {
 }
 #[derive(Serialize, ToSchema)]
 pub struct Projects {
-    pub items: Vec<Project>,
+    pub items: Vec<ProjectSummary>,
+}
+#[derive(Serialize, ToSchema)]
+pub struct ProjectSummary {
+    pub id: String,
+    pub name: String,
+    pub directory: String,
+    pub opened_at: String,
+    pub state: ProjectState,
+    pub issue: Option<String>,
+}
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectState {
+    Closed,
+    Open,
+    Background,
+    Draining,
+    Unavailable,
+}
+impl From<domain::ProjectState> for ProjectState {
+    fn from(value: domain::ProjectState) -> Self {
+        match value {
+            domain::ProjectState::Closed => Self::Closed,
+            domain::ProjectState::Open => Self::Open,
+            domain::ProjectState::Background => Self::Background,
+            domain::ProjectState::Draining => Self::Draining,
+            domain::ProjectState::Unavailable => Self::Unavailable,
+        }
+    }
+}
+impl From<domain::ProjectSummary> for ProjectSummary {
+    fn from(p: domain::ProjectSummary) -> Self {
+        Self {
+            id: p.id,
+            name: p.name,
+            directory: display_path(&p.directory),
+            opened_at: p.opened_at,
+            state: p.state.into(),
+            issue: p.issue,
+        }
+    }
+}
+#[derive(Serialize, ToSchema)]
+pub struct ProjectClose {
+    pub project_id: String,
+    pub state: ProjectState,
+}
+impl From<domain::ProjectClose> for ProjectClose {
+    fn from(p: domain::ProjectClose) -> Self {
+        Self {
+            project_id: p.project_id,
+            state: p.state.into(),
+        }
+    }
 }
 #[derive(Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
@@ -134,6 +192,7 @@ pub struct AttachSource {
 pub struct BrowseQuery {
     pub source_id: Option<String>,
     pub collection_id: Option<String>,
+    pub selection: Option<bool>,
     pub cursor: Option<String>,
     pub limit: Option<usize>,
 }
@@ -141,12 +200,16 @@ pub struct BrowseQuery {
 pub struct Selection {
     pub revision: u64,
     pub count: u64,
+    pub base_result: Option<String>,
+    pub excluded_count: u64,
 }
 impl From<domain::Selection> for Selection {
     fn from(s: domain::Selection) -> Self {
         Self {
             revision: s.revision,
             count: s.count,
+            base_result: s.base_result,
+            excluded_count: s.excluded_count,
         }
     }
 }
@@ -181,12 +244,14 @@ pub struct Collections {
 #[serde(deny_unknown_fields)]
 pub struct CreateCollection {
     pub name: String,
+    pub scope: Option<ScopeRef>,
 }
 #[derive(Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SubmitJob {
     pub idempotency_key: String,
-    pub selection_revision: u64,
+    pub selection_revision: Option<u64>,
+    pub scope: Option<ScopeRef>,
     #[serde(default)]
     pub delay_ms: u64,
 }
@@ -202,6 +267,8 @@ pub struct Job {
     pub created_at: String,
     pub error: Option<String>,
     pub artifact: Option<String>,
+    pub input_scope: Option<ScopeRef>,
+    pub input_members_frozen: bool,
 }
 impl From<domain::Job> for Job {
     fn from(j: domain::Job) -> Self {
@@ -216,6 +283,8 @@ impl From<domain::Job> for Job {
             created_at: j.created_at,
             error: j.error,
             artifact: j.artifact,
+            input_scope: j.input_scope.map(Into::into),
+            input_members_frozen: j.input_members_frozen,
         }
     }
 }

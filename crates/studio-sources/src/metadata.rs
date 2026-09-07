@@ -5,10 +5,13 @@ use crate::{
 };
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+#[cfg(test)]
+use std::path::Path;
+use std::path::PathBuf;
 use studio_application::MetadataAdapter;
 use studio_domain::*;
 
+#[derive(Default)]
 pub struct MetadataReader {
     runtime: Runtime,
 }
@@ -17,23 +20,6 @@ impl MetadataReader {
         Self {
             runtime: Runtime::new(dll),
         }
-    }
-}
-impl Default for MetadataReader {
-    fn default() -> Self {
-        let dll = std::env::var_os("STUDIO_DUCKDB_DLL")
-            .map(PathBuf::from)
-            .unwrap_or_else(|| {
-                let local = std::env::current_exe()
-                    .unwrap_or_default()
-                    .with_file_name("duckdb.dll");
-                if local.is_file() || !cfg!(debug_assertions) {
-                    local
-                } else {
-                    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/duckdb/duckdb.dll")
-                }
-            });
-        Self::new(dll)
     }
 }
 fn source_error(e: Error) -> Error {

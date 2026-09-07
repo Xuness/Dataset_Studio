@@ -1,3 +1,7 @@
+import { useProjectSession } from "../features/projects/useProjectSession.js";
+import { useProjectQueries } from "../features/query/useProjectQueries.js";
+import { QueryPanel } from "../features/query/QueryPanel.js";
+import { scopeOptions } from "../features/scopes/scopes.js";
 import { ProjectDialog } from "../features/projects/ProjectDialog.js";
 import type { DialogKind } from "../features/projects/ProjectDialog.js";
 import { useEffect, useRef, useState, useCallback } from "react";
@@ -20,32 +24,31 @@ import {
   Layers,
   Info,
   RotateCw,
+  Search,
+  Link2,
 } from "lucide-react";
 import { Button } from "@studio/ui";
-import type { Project, Asset, AssetKey, Source } from "@studio/contracts";
+import type {
+  Project,
+  Asset,
+  AssetKey,
+  Source,
+  QueryResult,
+  ScopeOperation,
+  ScopeRef,
+} from "@studio/contracts";
 import type { StudioClient } from "@studio/client";
-import { connectEngine, chooseDirectory } from "../platform/connection.js";
+import {
+  connectEngine,
+  chooseDirectory,
+  onNativeClose,
+} from "../platform/connection.js";
 import { Browser } from "../features/browser/Browser.js";
 import type { Scope } from "../features/browser/Browser.js";
 import { AssetImage } from "../features/browser/AssetImage.js";
 import { Tasks } from "../features/tasks/Tasks.js";
 import { MetadataInspector } from "../features/metadata/MetadataInspector.js";
 
-function savedProject() {
-  try {
-    return localStorage.getItem("studio.last-project");
-  } catch {
-    return null;
-  }
-}
-function rememberProject(id: string | null) {
-  try {
-    if (id) localStorage.setItem("studio.last-project", id);
-    else localStorage.removeItem("studio.last-project");
-  } catch {
-    /* Preferences are optional. */
-  }
-}
 type ViewState = { scope: Scope; focus: Asset | null; view: "grid" | "image" };
 const emptyView: ViewState = {
   scope: { kind: "all" },
@@ -53,6 +56,7 @@ const emptyView: ViewState = {
   view: "grid",
 };
 export function App() {
+  const cache = useQueryClient();
   const engine = useQuery({
     queryKey: ["engine"],
     queryFn: connectEngine,
@@ -64,8 +68,23 @@ export function App() {
   useEffect(() => {
     if (engine.data && previous.current !== engine.data) {
       previous.current?.dispose();
+      cache.removeQueries({ queryKey: ["project"] });
       previous.current = engine.data;
     }
+  }, [engine.data, cache]);
+  useEffect(() => {
+    if (!engine.data) return;
+    const client = engine.data;
+    let stopped = false;
+    let unlisten: (() => void) | undefined;
+    void onNativeClose(() => client.releaseProjectViews()).then((stop) => {
+      if (stopped) stop();
+      else unlisten = stop;
+    });
+    return () => {
+      stopped = true;
+      unlisten?.();
+    };
   }, [engine.data]);
   if (!engine.data)
     return (
@@ -83,7 +102,13 @@ export function App() {
         )}
       </div>
     );
-  return <Studio client={engine.data} onReconnect={reconnect} />;
+  return (
+    <Studio
+      key={engine.data.connection.instance_id}
+      client={engine.data}
+      onReconnect={reconnect}
+    />
+  );
 }
 function Studio({
   client,
@@ -105,22 +130,21 @@ function Studio({
       return () => clearTimeout(timer);
     }
   }, [health.isError, health.errorUpdatedAt, onReconnect]);
-  const [project, setProject] = useState<Project | null>(null);
   const [views, setViews] = useState<Record<string, ViewState>>({});
   const [dialog, setDialog] = useState<DialogKind>(null);
   const [menu, setMenu] = useState<string | null>(null);
   const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [saving, setBusy] = useState(false);
+  const session = useProjectSession(client, setError);
+  const { project, projects } = session;
+  const busy = saving || session.pending;
+  const [queryVisible, setQueryVisible] = useState(false);
+  const [relinkTarget, setRelinkTarget] = useState<Source | null>(null);
   const [projectsVisible, setProjectsVisible] = useState(true);
   const [propertiesVisible, setPropertiesVisible] = useState(true);
   const [tasksVisible, setTasksVisible] = useState(false);
-  const restored = useRef(false);
   const currentId = project?.id ?? "";
   const view = views[currentId] ?? emptyView;
-  const projects = useQuery({
-    queryKey: ["projects"],
-    queryFn: () => client.projects(),
-  });
   const sources = useQuery({
     queryKey: ["project", currentId, "sources"],
     queryFn: () => client.sources(currentId),
@@ -141,6 +165,37 @@ function Studio({
     queryFn: () => client.jobs(currentId),
     enabled: !!project,
   });
+  const queryModel = useProjectQueries(client, currentId);
+  const activeResultId = view.scope.kind === "result" ? view.scope.id : "";
+  const activeResult = useQuery({
+    queryKey: ["project", currentId, "query-result", activeResultId],
+    queryFn: ({ signal }) =>
+      client.queries.result(currentId, activeResultId, signal),
+    enabled: !!project && !!activeResultId,
+  });
+  const results = queryModel.results.data?.items ?? [];
+  const availableResults =
+    activeResult.data && !results.some((r) => r.id === activeResult.data?.id)
+      ? [...results, activeResult.data]
+      : results;
+  const inputs = project
+    ? scopeOptions(
+        project.id,
+        selection.data,
+        sources.data?.items ?? [],
+        collections.data?.items ?? [],
+        availableResults,
+        queryModel.definitions.data?.items ?? [],
+      )
+    : [];
+  const hasFixedInput = inputs.some(
+    (option) => option.scope.target.kind !== "source" && option.count !== 0,
+  );
+  const hasTaskInput = inputs.some((option) => option.count !== 0);
+  const defaultScope =
+    view.scope.kind !== "all" && view.scope.kind !== "selection"
+      ? view.scope.id
+      : "selection";
   const selected = selection.data?.count ?? 0;
   function updateView(update: Partial<ViewState>) {
     setViews((old) => ({
@@ -152,19 +207,11 @@ function Studio({
       },
     }));
   }
-  function activate(p: Project | null) {
-    setProject(p);
-    rememberProject(p?.id ?? null);
+  function activate(p: Project) {
     setMenu(null);
     setError("");
+    return session.activate(p);
   }
-  useEffect(() => {
-    if (restored.current || !projects.data) return;
-    restored.current = true;
-    const last = savedProject();
-    const p = projects.data.items.find((item) => item.id === last);
-    if (p) setProject(p);
-  }, [projects.data]);
   useEffect(() => {
     if (!currentId) return;
     const abort = new AbortController();
@@ -172,6 +219,10 @@ function Studio({
       currentId,
       (event) => {
         const prefix = ["project", currentId];
+        if (event.kind === "project.closed") {
+          void session.close();
+          return;
+        }
         if (event.kind.startsWith("job."))
           void queryClient.invalidateQueries({ queryKey: [...prefix, "jobs"] });
         else if (event.kind.startsWith("selection.")) {
@@ -186,7 +237,7 @@ function Studio({
       abort.signal,
     );
     return () => abort.abort();
-  }, [client, currentId, queryClient]);
+  }, [client, currentId, queryClient, session.close]);
   async function act(action: () => Promise<unknown>, pid = currentId) {
     setBusy(true);
     setError("");
@@ -214,6 +265,43 @@ function Studio({
       }),
     );
   }
+  function operateScope(scope: ScopeRef, operation: ScopeOperation) {
+    if (selection.data?.revision === undefined || busy) return;
+    void act(() =>
+      client.changeSelectionScope(currentId, {
+        expected_revision: selection.data!.revision,
+        scope,
+        operation,
+      }),
+    );
+  }
+  function selectResult(result: QueryResult, operation: ScopeOperation) {
+    operateScope(
+      {
+        project_id: currentId,
+        target: { kind: "query_result", result_id: result.id },
+      },
+      operation,
+    );
+  }
+  function operateViewScope(operation: ScopeOperation) {
+    if (view.scope.kind === "result")
+      operateScope(
+        {
+          project_id: currentId,
+          target: { kind: "query_result", result_id: view.scope.id },
+        },
+        operation,
+      );
+    if (view.scope.kind === "collection")
+      operateScope(
+        {
+          project_id: currentId,
+          target: { kind: "workset", collection_id: view.scope.id },
+        },
+        operation,
+      );
+  }
   function clearSelection() {
     const revision = selection.data?.revision;
     if (revision === undefined) return;
@@ -228,7 +316,7 @@ function Studio({
   }
   const activeJobs =
     jobs.data?.items.filter((j) =>
-      ["queued", "preparing", "running"].includes(j.status),
+      ["waiting_input", "queued", "preparing", "running"].includes(j.status),
     ).length ?? 0;
   const menus: Record<
     string,
@@ -239,7 +327,7 @@ function Studio({
       { label: "打开项目…", action: () => setDialog("open") },
       {
         label: "关闭当前项目",
-        action: () => activate(null),
+        action: () => void session.close(),
         disabled: !project,
       },
     ],
@@ -248,7 +336,7 @@ function Studio({
       {
         label: "保存选择为工作集…",
         action: () => setDialog("collection"),
-        disabled: !selected,
+        disabled: !hasFixedInput,
       },
     ],
     视图: [
@@ -273,9 +361,14 @@ function Studio({
     ],
     工具: [
       {
+        label: "项目查询",
+        action: () => setQueryVisible((value) => !value),
+        disabled: !project,
+      },
+      {
         label: "生成数据清单…",
         action: () => setDialog("manifest"),
-        disabled: !selected,
+        disabled: !hasTaskInput,
       },
     ],
     窗口: [
@@ -328,15 +421,22 @@ function Studio({
           </div>
         ))}
         <span className="grow" />
-        <span className="version-label">开发版 0.2</span>
+        <span className="version-label">开发版 0.3</span>
       </div>
       <div className="options-bar">
         <button
           className="icon-button"
           title="项目起始页"
-          onClick={() => activate(null)}
+          onClick={() => void session.close()}
         >
           <Home size={17} />
+        </button>
+        <button
+          disabled={!project}
+          onClick={() => setQueryVisible((value) => !value)}
+        >
+          <Search size={14} />
+          查询
         </button>
         <span className="option-separator" />
         <MousePointer2 size={16} />
@@ -347,14 +447,14 @@ function Studio({
         </button>
         <span className="option-separator" />
         <button
-          disabled={!selected || busy}
+          disabled={!hasFixedInput || busy}
           onClick={() => setDialog("collection")}
         >
           <FolderPlus size={14} />
           存为工作集
         </button>
         <button
-          disabled={!selected || busy}
+          disabled={!hasTaskInput || busy}
           onClick={() => setDialog("manifest")}
         >
           <FileText size={14} />
@@ -382,7 +482,7 @@ function Studio({
             <Layers size={13} />
             <span>{project.name}</span>
             <small>{busy ? "保存中…" : "已保存"}</small>
-            <button aria-label="关闭项目" onClick={() => activate(null)}>
+            <button aria-label="关闭项目" onClick={() => void session.close()}>
               <X size={12} />
             </button>
           </div>
@@ -418,7 +518,8 @@ function Studio({
                 <button
                   className="recent-row"
                   key={p.id}
-                  onClick={() => activate(p)}
+                  onClick={() => void session.openRecent(p.id)}
+                  disabled={busy}
                 >
                   <span className="recent-icon">
                     <Layers size={24} />
@@ -426,7 +527,21 @@ function Studio({
                   <span>
                     <strong>{p.name}</strong>
                     <small>{p.directory}</small>
+                    {p.issue && (
+                      <small className="source-offline">{p.issue}</small>
+                    )}
                   </span>
+                  <small className="recent-state">
+                    {
+                      {
+                        open: "已打开",
+                        background: "后台工作中",
+                        draining: "正在关闭",
+                        unavailable: "需要检查",
+                        closed: "",
+                      }[p.state]
+                    }
+                  </small>
                   <ChevronRight size={16} />
                 </button>
               ))
@@ -462,6 +577,13 @@ function Studio({
               onClick={() => updateView({ view: "image" })}
             >
               <MousePointer2 size={19} />
+            </button>
+            <button
+              className={"tool-button " + (queryVisible ? "active" : "")}
+              title="项目查询"
+              onClick={() => setQueryVisible((value) => !value)}
+            >
+              <Search size={18} />
             </button>
             <div className="rail-divider" />
             <button
@@ -502,6 +624,21 @@ function Studio({
                 <Layers size={15} />
                 <span>全部项目数据</span>
               </button>
+              <button
+                className={
+                  "tree-row " +
+                  (view.scope.kind === "selection" ? "active" : "")
+                }
+                onClick={() =>
+                  updateView({
+                    scope: { kind: "selection", name: "项目当前选择" },
+                  })
+                }
+              >
+                <MousePointer2 size={14} />
+                <span>当前选择</span>
+                <small>{selected}</small>
+              </button>
               <div className="tree-heading">
                 <ChevronDown size={12} />
                 <span>数据湖</span>
@@ -510,6 +647,10 @@ function Studio({
                 <SourceRow
                   key={source.id}
                   source={source}
+                  onRelink={() => {
+                    setRelinkTarget(source);
+                    setDialog("relink");
+                  }}
                   active={
                     view.scope.kind === "source" && view.scope.id === source.id
                   }
@@ -578,18 +719,36 @@ function Studio({
               </span>
             </div>
           </aside>
-          <Browser
-            key={project.id}
-            client={client}
-            projectId={project.id}
-            scope={view.scope}
-            focus={view.focus}
-            onFocus={(focus) => updateView({ focus })}
-            onPick={pick}
-            busy={busy}
-            view={view.view}
-            setView={(mode) => updateView({ view: mode })}
-          />
+          <div className="data-workspace">
+            {queryVisible && (
+              <QueryPanel
+                key={"query:" + project.id}
+                client={client}
+                projectId={project.id}
+                sources={sources.data?.items ?? []}
+                model={queryModel}
+                onResult={(result, name) =>
+                  updateView({ scope: { kind: "result", id: result.id, name } })
+                }
+                onSelect={selectResult}
+                onClose={() => setQueryVisible(false)}
+              />
+            )}
+            <Browser
+              key={"browser:" + project.id}
+              client={client}
+              projectId={project.id}
+              scope={view.scope}
+              focus={view.focus}
+              onFocus={(focus) => updateView({ focus })}
+              onPick={pick}
+              onScopeOperation={operateViewScope}
+              selectionRevision={selection.data?.revision ?? 0}
+              busy={busy}
+              view={view.view}
+              setView={(mode) => updateView({ view: mode })}
+            />
+          </div>
           <aside className="properties-panel">
             <header className="panel-tabs">
               <strong>属性</strong>
@@ -615,7 +774,7 @@ function Studio({
                     <dd>{view.focus.source_name}</dd>
                     <dt>格式</dt>
                     <dd>{view.focus.extension.toUpperCase()}</dd>
-                    <dt>储存大小</dt>
+                    <dt>存储大小</dt>
                     <dd>
                       {Number(view.focus.bytes)
                         ? (Number(view.focus.bytes) / 1024).toFixed(1) + " KB"
@@ -657,7 +816,7 @@ function Studio({
               <div className="properties-empty">
                 <MousePointer2 size={25} />
                 <p>
-                  选择一张图片
+                  点击一张图片
                   <br />
                   在这里查看对象属性
                 </p>
@@ -700,7 +859,14 @@ function Studio({
             <span className="status-divider" />
             <span>{busy ? "正在保存项目" : "项目已保存"}</span>
             <span className="status-divider" />
-            <span>已选 {selected} 项</span>
+            <span>
+              已选 {selected} 项
+              {selection.data?.base_result
+                ? " · 基于查询结果，已排除 " +
+                  (selection.data.excluded_count ?? 0) +
+                  " 项"
+                : ""}
+            </span>
           </>
         )}
         <span className="grow" />
@@ -717,13 +883,11 @@ function Studio({
           kind={dialog}
           client={client}
           project={project}
-          selected={selected}
-          selectionRevision={selection.data?.revision ?? 0}
+          scopeOptions={inputs}
+          defaultScope={selected > 0 ? "selection" : defaultScope}
+          relinkSource={relinkTarget}
           onClose={() => setDialog(null)}
-          onCreated={(p) => {
-            activate(p);
-            void queryClient.invalidateQueries({ queryKey: ["projects"] });
-          }}
+          onCreated={activate}
           onDone={() => {
             setDialog(null);
             void queryClient.invalidateQueries({
@@ -740,24 +904,37 @@ function SourceRow({
   source,
   active,
   onClick,
+  onRelink,
 }: {
   source: Source;
   active: boolean;
   onClick: () => void;
+  onRelink: () => void;
 }) {
   return (
-    <button
-      className={"tree-row " + (active ? "active" : "")}
-      onClick={onClick}
-      title={source.issue ?? source.name}
-    >
-      <Database size={14} />
-      <span>{source.name}</span>
-      {source.available ? (
-        <small className="source-state">●</small>
-      ) : (
-        <small className="source-offline">离线</small>
+    <div className="source-tree-row">
+      <button
+        className={"tree-row " + (active ? "active" : "")}
+        onClick={onClick}
+        title={source.issue ?? source.name}
+      >
+        <Database size={14} />
+        <span>{source.name}</span>
+        {source.available ? (
+          <small className="source-state">●</small>
+        ) : (
+          <small className="source-offline">离线</small>
+        )}
+      </button>
+      {source.kind === "danbooru" && (
+        <button
+          className="icon-button"
+          title={"重新关联 " + source.name}
+          onClick={onRelink}
+        >
+          <Link2 size={12} />
+        </button>
       )}
-    </button>
+    </div>
   );
 }
