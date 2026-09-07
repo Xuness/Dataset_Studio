@@ -48,7 +48,10 @@ SSD 索引：D:\Dataset\Danbooru
 - `.local/dev/projects/`：默认新建项目的位置；也可以在新建时选择其他父目录。
 - 项目内的 project.json、project.sqlite、artifacts 与 .staging 分别保存身份、项目状态、正式成果与恢复所需暂存。
 - `.local/engine-binaries/`：开发引擎的可重建二进制快照，避免运行中的 EXE 阻止增量链接。
-- `.local/startup-install.log`、`.local/dev/engine.log`：启动与引擎日志。
+- `.local/logs/`：构建、检查和临时命令日志；启动依赖检查写入其中的 startup-install.log。
+- `.local/dev/engine.log`：与开发运行环境一起保存的引擎日志。
+
+根目录仅保留工程入口、说明及工具所需配置。首次搭建留下的散落日志已归档至 .local/logs/root-archive-*，后续检查输出也统一放入日志目录。
 
 `.local/dev` 包含实际项目数据，不是一个整体可丢弃的构建缓存。Git 忽略项目数据、设计参考、依赖、日志与二进制。
 
