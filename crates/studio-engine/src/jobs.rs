@@ -133,6 +133,7 @@ fn prepare(store: &SqliteStore, job: &Job) -> Result<(PathBuf, WorkerPlan)> {
         checkpoint_path: "checkpoint.json".into(),
         total: count,
         delay_ms: store.job_delay(&job.project_id, &job.id)?,
+        run: OperatorRun::default(),
     };
     atomic_json(&path, &plan)?;
     let resolved = worker::load_plan(&path)?;

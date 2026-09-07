@@ -8,6 +8,12 @@ mod query;
 pub use query::*;
 mod scope;
 pub use scope::*;
+mod operators;
+pub use operators::*;
+mod artifacts;
+pub use artifacts::*;
+mod drafts;
+pub use drafts::*;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -118,6 +124,8 @@ pub struct ProjectEvent {
 pub struct FrozenInput {
     pub asset: Asset,
     pub source_revision: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fields: Vec<FrozenField>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -130,6 +138,8 @@ pub struct WorkerPlan {
     pub checkpoint_path: PathBuf,
     pub total: u64,
     pub delay_ms: u64,
+    #[serde(default)]
+    pub run: OperatorRun,
 }
 
 pub fn new_id() -> String {

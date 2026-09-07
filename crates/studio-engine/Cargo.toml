@@ -9,6 +9,7 @@ studio-application = { path = "../studio-application" }
 studio-storage = { path = "../studio-storage" }
 studio-sources = { path = "../studio-sources" }
 studio-protocol = { path = "../studio-protocol" }
+studio-operators = { path = "../studio-operators" }
 serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true

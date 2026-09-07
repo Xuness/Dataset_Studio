@@ -1,4 +1,4 @@
-//! Manifest v1 supports database v1 through v3. Only project.sqlite is migrated;
+//! Manifest v1 supports database v1 through v4. Only project.sqlite is migrated;
 //! artifacts and the manifest are immutable during this upgrade.
 use crate::{atomic_json, db_error, now};
 use rusqlite::{
@@ -12,9 +12,13 @@ use std::{
 };
 use studio_domain::{Error, Result, new_id};
 
-const VERSION: u32 = 3;
+const VERSION: u32 = 4;
 const V2: &str = "CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL, backup_directory TEXT);";
-const STEPS: &[(u32, &str)] = &[(2, V2), (3, include_str!("schema_v3.sql"))];
+const STEPS: &[(u32, &str)] = &[
+    (2, V2),
+    (3, include_str!("schema_v3.sql")),
+    (4, include_str!("schema_v4.sql")),
+];
 
 fn version(db: &Connection) -> Result<u32> {
     db.query_row("PRAGMA user_version", [], |r| r.get(0))

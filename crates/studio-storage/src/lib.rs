@@ -13,6 +13,7 @@ use std::{
 };
 use studio_application::ProjectRepository;
 use studio_domain::*;
+mod drafts;
 mod job_scopes;
 mod lifecycle;
 mod migrations;

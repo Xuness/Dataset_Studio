@@ -14,6 +14,10 @@ fn v1_upgrade_preserves_every_persistent_relationship_and_is_idempotent() {
 fn v2_upgrade_keeps_earlier_migration_ledger_and_every_relationship() {
     upgrade_preserves_every_relationship(2);
 }
+#[test]
+fn v3_upgrade_preserves_query_members_scopes_and_legacy_artifact_paths() {
+    upgrade_preserves_every_relationship(3);
+}
 fn upgrade_preserves_every_relationship(from: u32) {
     let root = tempfile::tempdir().unwrap();
     let dir = root.path().join("中文旧项目");
@@ -37,8 +41,13 @@ fn upgrade_preserves_every_relationship(from: u32) {
     .unwrap();
     let db = Connection::open(dir.join("project.sqlite")).unwrap();
     db.execute_batch(V1).unwrap();
-    if from == 2 {
+    if from >= 2 {
         db.execute_batch("CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL, backup_directory TEXT); INSERT INTO schema_migrations VALUES (2,'earlier-migration','previous-backup'); PRAGMA user_version=2;").unwrap();
+    }
+    if from >= 3 {
+        db.execute_batch(include_str!("../src/schema_v3.sql"))
+            .unwrap();
+        db.execute_batch("INSERT INTO schema_migrations VALUES (3,'earlier-scope-migration','scope-backup'); PRAGMA user_version=3;").unwrap();
     }
     let source = serde_json::json!({"id":sid,"name":"旧来源","kind":"demo","index_root":null,"media_root":null});
     db.execute(
@@ -64,6 +73,36 @@ fn upgrade_preserves_every_relationship(from: u32) {
     .unwrap();
     db.execute("INSERT INTO events VALUES (42,'job.succeeded',?1)", [&jid])
         .unwrap();
+    if from >= 3 {
+        let qid = new_id();
+        let rid = new_id();
+        let spec = serde_json::json!({"version":1,"source_ids":[sid],"conditions":[],"observation_rule":"any_observation","order":"asset_key_asc"}).to_string();
+        db.execute(
+            "INSERT INTO query_definitions VALUES (?1,'保存条件',1,?2,'1')",
+            (&qid, &spec),
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO query_results VALUES (?1,?2,1,?3,'[]','ready',1,1,'1',NULL)",
+            (&rid, &qid, &spec),
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO result_members VALUES (?1,?2,'kept-object')",
+            (&rid, &sid),
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO result_references VALUES ('collection',?1,?2)",
+            (&cid, &rid),
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO collection_scopes VALUES (?1,'{}','{}')",
+            [&cid],
+        )
+        .unwrap();
+    }
     // Last committed page remains in WAL while the upgrade takes its consistent backup.
     db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; INSERT INTO events VALUES (43,'fixture.wal','kept');").unwrap();
     let store = SqliteStore::new(root.path().join("runtime")).unwrap();
@@ -121,10 +160,10 @@ fn upgrade_preserves_every_relationship(from: u32) {
         after
             .query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0))
             .unwrap(),
-        3
+        4
     );
     // Exact rows, including drafts, idempotency keys, event sequences and artifact references.
-    if from == 2 {
+    if from >= 2 {
         assert_eq!(
             after
                 .query_row(
@@ -136,7 +175,7 @@ fn upgrade_preserves_every_relationship(from: u32) {
             ("earlier-migration".into(), "previous-backup".into())
         );
     }
-    for table in [
+    let mut tables = vec![
         "meta",
         "sources",
         "selection",
@@ -146,7 +185,20 @@ fn upgrade_preserves_every_relationship(from: u32) {
         "job_inputs",
         "events",
         "drafts",
-    ] {
+    ];
+    if from >= 3 {
+        tables.extend([
+            "query_definitions",
+            "query_results",
+            "result_members",
+            "selection_base",
+            "selection_exclusions",
+            "result_references",
+            "job_scopes",
+            "collection_scopes",
+        ]);
+    }
+    for table in tables {
         let sql = format!("SELECT * FROM {table} ORDER BY 1");
         fn rows(db: &Connection, sql: &str) -> Vec<Vec<rusqlite::types::Value>> {
             let mut stmt = db.prepare(sql).unwrap();

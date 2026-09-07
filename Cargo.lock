@@ -3923,6 +3923,7 @@ checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 name = "studio-application"
 version = "0.3.0"
 dependencies = [
+ "serde_json",
  "studio-domain",
 ]
 
@@ -3967,6 +3968,7 @@ dependencies = [
  "sha2",
  "studio-application",
  "studio-domain",
+ "studio-operators",
  "studio-protocol",
  "studio-sources",
  "studio-storage",
@@ -3978,6 +3980,16 @@ dependencies = [
  "tracing-subscriber",
  "utoipa",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "studio-operators"
+version = "0.3.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "studio-application",
+ "studio-domain",
 ]
 
 [[package]]

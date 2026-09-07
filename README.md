@@ -4,6 +4,8 @@
 
 当前版本：0.3 项目数据范围层。当前交付和日常迭代均使用开发模式。
 
+正在实施：[0.4 工具扩展与成果基础层](docs/plans/tool-foundation-v0.4.md)，涵盖功能模块与算子注册、成果与派生数据管理、工具草稿与会话恢复、读取调度与持久缓存。当前完整交付基线仍为 0.3，新增能力将随本轮验证完成更新。
+
 ## 启动
 
 在 Windows 上双击仓库根目录的 **启动开发版.bat**。
@@ -100,6 +102,7 @@ pnpm build
 - [查询、数据范围与项目生命周期决策](docs/decisions/0003-project-data-scopes.md)
 - [项目数据层计划及验收标准](docs/plans/project-data-layer-v0.2.md)
 - [0.3 项目数据范围层计划](docs/plans/project-data-scopes-v0.3.md)
+- [下一阶段：0.4 工具扩展与成果基础层](docs/plans/tool-foundation-v0.4.md)
 
 ## 当前边界
 

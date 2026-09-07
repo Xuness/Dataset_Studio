@@ -84,6 +84,7 @@ impl SourceAdapter for SourceRouter {
                     Ok(FrozenInput {
                         asset: catalog.asset(source, &key.asset_id)?,
                         source_revision: catalog.revision.clone(),
+                        fields: Vec::new(),
                     })
                 })
                 .collect();
@@ -96,6 +97,7 @@ impl SourceAdapter for SourceRouter {
                 Ok(FrozenInput {
                     asset: demo_asset(source, demo_number(&key.asset_id)?),
                     source_revision: "demo-v1".into(),
+                    fields: Vec::new(),
                 })
             })
             .collect()

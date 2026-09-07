@@ -18,7 +18,7 @@ pub(super) fn check(path: &Path) -> Result<()> {
         let version: u32 = db
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .map_err(db_error)?;
-        if version > 1 {
+        if version > 2 {
             return Err(Error::new(
                 "REGISTRY_FORMAT_UNSUPPORTED",
                 "应用注册表版本过新",
@@ -32,7 +32,7 @@ pub(super) fn initialize(db: &mut Connection, root: &Path) -> Result<()> {
     let version: u32 = db
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .map_err(db_error)?;
-    if version == 1 {
+    if version == 2 {
         return Ok(());
     }
     let existing = db
@@ -43,7 +43,7 @@ pub(super) fn initialize(db: &mut Connection, root: &Path) -> Result<()> {
     if existing {
         let directory =
             root.join(".backups")
-                .join(format!("registry-v0-to-v1-{}-{}", now(), new_id()));
+                .join(format!("registry-v{version}-to-v2-{}-{}", now(), new_id()));
         fs::create_dir_all(&directory).map_err(Error::io)?;
         let mut target = Connection::open(directory.join("registry.sqlite")).map_err(db_error)?;
         {
@@ -80,14 +80,16 @@ pub(super) fn initialize(db: &mut Connection, root: &Path) -> Result<()> {
             .map_err(Error::io)?;
         atomic_json(
             &directory.join("backup.json"),
-            &serde_json::json!({"from":0,"to":1,"created_at":now(),"integrity_check":"ok"}),
+            &serde_json::json!({"from":version,"to":2,"created_at":now(),"integrity_check":"ok"}),
         )?;
     }
     let tx = db.transaction().map_err(db_error)?;
-    tx.execute_batch("CREATE TABLE IF NOT EXISTS projects(id TEXT PRIMARY KEY, directory TEXT UNIQUE NOT NULL, opened_at TEXT NOT NULL); CREATE TABLE IF NOT EXISTS source_locations(id TEXT PRIMARY KEY,json TEXT NOT NULL);
+    if version == 0 {
+        tx.execute_batch("CREATE TABLE IF NOT EXISTS projects(id TEXT PRIMARY KEY, directory TEXT UNIQUE NOT NULL, opened_at TEXT NOT NULL); CREATE TABLE IF NOT EXISTS source_locations(id TEXT PRIMARY KEY,json TEXT NOT NULL);
         ALTER TABLE projects ADD COLUMN summary TEXT;
         ALTER TABLE projects ADD COLUMN background_pending INTEGER NOT NULL DEFAULT 1;
-        ALTER TABLE projects ADD COLUMN issue TEXT;
-        PRAGMA user_version=1;").map_err(db_error)?;
+        ALTER TABLE projects ADD COLUMN issue TEXT;").map_err(db_error)?;
+    }
+    tx.execute_batch("CREATE TABLE preferences(key TEXT PRIMARY KEY,schema_version INTEGER NOT NULL,revision INTEGER NOT NULL,value_json TEXT NOT NULL); PRAGMA user_version=2;").map_err(db_error)?;
     tx.commit().map_err(db_error)
 }
