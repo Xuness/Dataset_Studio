@@ -1,0 +1,32 @@
+{
+  "name": "dataset-studio",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.30.3",
+  "type": "module",
+  "scripts": {
+    "dev": "node tooling/dev.mjs",
+    "dev:web": "node tooling/dev.mjs --web",
+    "build": "pnpm --filter @studio/desktop build",
+    "build:web": "pnpm --filter @studio/desktop build",
+    "contracts": "node tooling/contracts.mjs",
+    "contracts:check": "node tooling/contracts.mjs --check",
+    "typecheck": "tsc -b",
+    "lint": "eslint apps/desktop/src packages tooling && node tooling/boundaries.mjs",
+    "format": "prettier --write \"apps/desktop/src/**/*.{ts,tsx,css}\" \"packages/**/*.{ts,json,css}\" \"tooling/*.mjs\"",
+    "test": "node tooling/cargo-run.mjs test --workspace --exclude studio-desktop",
+    "check": "pnpm typecheck && pnpm lint && pnpm contracts:check && node tooling/cargo-run.mjs fmt --all -- --check && node tooling/cargo-run.mjs clippy --workspace --all-targets -- -D warnings && pnpm test",
+    "test:integration": "node tooling/integration.mjs",
+    "engine:stop": "node tooling/stop-engine.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.0",
+    "eslint": "^9.39.0",
+    "typescript-eslint": "^8.0.0",
+    "typescript": "~5.9.3",
+    "prettier": "^3.6.0",
+    "openapi-typescript": "^7.10.0",
+    "@playwright/test": "^1.55.0",
+    "@types/node": "^24.0.0"
+  }
+}

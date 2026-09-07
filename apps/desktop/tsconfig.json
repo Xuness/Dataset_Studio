@@ -1,0 +1,6 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {"outDir":"dist/types","tsBuildInfoFile":"dist/tsconfig.tsbuildinfo"},
+  "include":["src"],
+  "references":[{"path":"../../packages/client"},{"path":"../../packages/contracts"},{"path":"../../packages/ui"}]
+}

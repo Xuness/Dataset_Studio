@@ -1,0 +1,13 @@
+PRAGMA foreign_keys = ON;
+CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+INSERT OR IGNORE INTO meta VALUES ('revision', '0'), ('selection_revision', '0'), ('selection_count', '0');
+CREATE TABLE IF NOT EXISTS sources(id TEXT PRIMARY KEY, json TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS selection(source_id TEXT NOT NULL REFERENCES sources(id), asset_id TEXT NOT NULL, PRIMARY KEY(source_id,asset_id)) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS collections(id TEXT PRIMARY KEY, name TEXT NOT NULL, count INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS collection_members(collection_id TEXT NOT NULL REFERENCES collections(id), source_id TEXT NOT NULL REFERENCES sources(id), asset_id TEXT NOT NULL, PRIMARY KEY(collection_id,source_id,asset_id)) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS jobs(id TEXT PRIMARY KEY, operator TEXT NOT NULL, status TEXT NOT NULL, total INTEGER NOT NULL, completed INTEGER NOT NULL DEFAULT 0, attempt INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, error TEXT, artifact TEXT, idempotency_key TEXT UNIQUE NOT NULL, request_hash TEXT NOT NULL, delay_ms INTEGER NOT NULL);
+CREATE INDEX IF NOT EXISTS jobs_scheduling ON jobs(status,created_at);
+CREATE TABLE IF NOT EXISTS job_inputs(job_id TEXT NOT NULL REFERENCES jobs(id), source_id TEXT NOT NULL, asset_id TEXT NOT NULL, PRIMARY KEY(job_id,source_id,asset_id)) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS events(sequence INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, resource_id TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS drafts(tool_id TEXT PRIMARY KEY, json TEXT NOT NULL);
+PRAGMA user_version = 1;

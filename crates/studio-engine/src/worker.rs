@@ -1,0 +1,195 @@
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use std::{
+    fs::{self, File, OpenOptions},
+    io::{BufRead, BufReader, Read, Seek, SeekFrom, Write},
+    path::Path,
+};
+use studio_domain::*;
+use studio_storage::atomic_json;
+
+#[derive(Serialize, Deserialize, Default)]
+struct Checkpoint {
+    job_id: String,
+    input_offset: u64,
+    output_offset: u64,
+    completed: u64,
+}
+#[derive(Serialize, Deserialize)]
+pub struct Progress {
+    pub completed: u64,
+    pub total: u64,
+}
+pub fn hash_file(path: &Path) -> Result<String> {
+    let mut file = File::open(path).map_err(Error::io)?;
+    let mut hash = Sha256::new();
+    let mut buffer = [0u8; 65536];
+    loop {
+        let n = file.read(&mut buffer).map_err(Error::io)?;
+        if n == 0 {
+            break;
+        }
+        hash.update(&buffer[..n]);
+    }
+    Ok(hex::encode(hash.finalize()))
+}
+pub fn load_plan(path: &Path) -> Result<WorkerPlan> {
+    let mut plan: WorkerPlan =
+        serde_json::from_slice(&fs::read(path).map_err(Error::io)?).map_err(Error::io)?;
+    if plan.version != 1 {
+        return Err(Error::new("WORKER_VERSION_MISMATCH", "执行器协议不兼容"));
+    }
+    validate_id(&plan.job_id)?;
+    let root = path
+        .parent()
+        .ok_or_else(|| Error::invalid("任务位置无效"))?
+        .canonicalize()
+        .map_err(Error::io)?;
+    for (field, name) in [
+        (&mut plan.input_path, "input.jsonl"),
+        (&mut plan.output_path, "output.jsonl"),
+        (&mut plan.checkpoint_path, "checkpoint.json"),
+    ] {
+        if field.as_path() != Path::new(name) {
+            return Err(Error::new(
+                "WORKER_PATH_INVALID",
+                "任务资源必须使用受控相对路径",
+            ));
+        }
+        let resolved = root.join(name);
+        if resolved.exists() && resolved.canonicalize().map_err(Error::io)? != resolved {
+            return Err(Error::new(
+                "WORKER_PATH_INVALID",
+                "任务资源不能指向其他位置",
+            ));
+        }
+        *field = resolved;
+    }
+    if hash_file(&plan.input_path)? != plan.input_sha256 {
+        return Err(Error::new("INPUT_CHANGED", "固定输入内容已改变"));
+    }
+    Ok(plan)
+}
+
+pub fn run(plan_path: &Path) -> Result<()> {
+    let plan = load_plan(plan_path)?;
+    if plan.version != 1 {
+        return Err(Error::new("WORKER_VERSION_MISMATCH", "执行器协议不兼容"));
+    }
+    let mut checkpoint: Checkpoint = if plan.checkpoint_path.exists() {
+        serde_json::from_slice(&fs::read(&plan.checkpoint_path).map_err(Error::io)?)
+            .map_err(Error::io)?
+    } else {
+        Checkpoint {
+            job_id: plan.job_id.clone(),
+            ..Default::default()
+        }
+    };
+    if checkpoint.job_id != plan.job_id || checkpoint.completed > plan.total {
+        return Err(Error::new("CHECKPOINT_INVALID", "检查点与任务不匹配"));
+    }
+    let mut input = File::open(&plan.input_path).map_err(Error::io)?;
+    if checkpoint.input_offset > input.metadata().map_err(Error::io)?.len() {
+        return Err(Error::new("CHECKPOINT_INVALID", "输入检查点越界"));
+    }
+    input
+        .seek(SeekFrom::Start(checkpoint.input_offset))
+        .map_err(Error::io)?;
+    let mut output = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&plan.output_path)
+        .map_err(Error::io)?;
+    if checkpoint.output_offset > output.metadata().map_err(Error::io)?.len() {
+        return Err(Error::new(
+            "CHECKPOINT_INVALID",
+            "成果文件缺少已提交的检查点",
+        ));
+    }
+    output
+        .set_len(checkpoint.output_offset)
+        .map_err(Error::io)?;
+    output
+        .seek(SeekFrom::Start(checkpoint.output_offset))
+        .map_err(Error::io)?;
+    let mut input = BufReader::new(input);
+    let mut line = String::new();
+    let mut stdout = std::io::stdout().lock();
+    loop {
+        line.clear();
+        let bytes = input.read_line(&mut line).map_err(Error::io)?;
+        if bytes == 0 {
+            break;
+        }
+        let item: FrozenInput = serde_json::from_str(&line).map_err(Error::io)?;
+        let row = serde_json::json!({"schema_version":1,"ordinal":checkpoint.completed,"asset":item.asset,"source_revision":item.source_revision});
+        serde_json::to_writer(&mut output, &row).map_err(Error::io)?;
+        output.write_all(b"\n").map_err(Error::io)?;
+        checkpoint.input_offset += bytes as u64;
+        checkpoint.completed += 1;
+        if checkpoint.completed > plan.total {
+            return Err(Error::new("INPUT_CHANGED", "输入数量超过固定快照"));
+        }
+        if checkpoint.completed.is_multiple_of(8) || checkpoint.completed == plan.total {
+            output.flush().map_err(Error::io)?;
+            output.sync_all().map_err(Error::io)?;
+            checkpoint.output_offset = output.stream_position().map_err(Error::io)?;
+            atomic_json(&plan.checkpoint_path, &checkpoint)?;
+            serde_json::to_writer(
+                &mut stdout,
+                &Progress {
+                    completed: checkpoint.completed,
+                    total: plan.total,
+                },
+            )
+            .map_err(Error::io)?;
+            stdout.write_all(b"\n").map_err(Error::io)?;
+            stdout.flush().map_err(Error::io)?;
+        }
+        if plan.delay_ms > 0 {
+            std::thread::sleep(std::time::Duration::from_millis(plan.delay_ms.min(1000)));
+        }
+    }
+    if checkpoint.completed != plan.total {
+        return Err(Error::new("INPUT_CHANGED", "固定输入不完整"));
+    }
+    Ok(())
+}
+
+pub fn validate_output(path: &Path, plan: &WorkerPlan) -> Result<String> {
+    if hash_file(&plan.input_path)? != plan.input_sha256 {
+        return Err(Error::new("INPUT_CHANGED", "发布前输入验证失败"));
+    }
+    let mut input = BufReader::new(File::open(&plan.input_path).map_err(Error::io)?);
+    let mut output = BufReader::new(File::open(path).map_err(Error::io)?);
+    let mut count = 0;
+    let mut line = String::new();
+    let mut input_line = String::new();
+    let mut hash = Sha256::new();
+    loop {
+        line.clear();
+        input_line.clear();
+        if output.read_line(&mut line).map_err(Error::io)? == 0 {
+            break;
+        }
+        if !line.ends_with('\n') || input.read_line(&mut input_line).map_err(Error::io)? == 0 {
+            return Err(Error::new("ARTIFACT_INVALID", "成果行不完整"));
+        }
+        let expected: FrozenInput = serde_json::from_str(&input_line).map_err(Error::io)?;
+        let value: serde_json::Value = serde_json::from_str(&line).map_err(Error::io)?;
+        if value["ordinal"].as_u64() != Some(count)
+            || value["asset"] != serde_json::to_value(&expected.asset).map_err(Error::io)?
+            || value["source_revision"] != expected.source_revision
+        {
+            return Err(Error::new("ARTIFACT_INVALID", "成果与任务输入不一致"));
+        }
+        count += 1;
+        hash.update(line.as_bytes());
+    }
+    let mut extra = [0; 1];
+    if count != plan.total || input.read(&mut extra).map_err(Error::io)? != 0 {
+        return Err(Error::new("ARTIFACT_INVALID", "成果数量不一致"));
+    }
+    Ok(hex::encode(hash.finalize()))
+}

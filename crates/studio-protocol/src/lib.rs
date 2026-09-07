@@ -1,0 +1,253 @@
+use serde::{Deserialize, Serialize};
+use studio_domain as domain;
+use utoipa::ToSchema;
+pub const API_VERSION: u32 = 1;
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct EngineConnection {
+    pub api_version: u32,
+    pub instance_id: String,
+    pub pid: u32,
+    pub endpoint: String,
+    pub token: String,
+}
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct Health {
+    pub api_version: u32,
+    pub version: String,
+    pub instance_id: String,
+}
+#[derive(Serialize, ToSchema)]
+pub struct ApiError {
+    pub code: String,
+    pub message: String,
+    pub request_id: String,
+}
+#[derive(Clone, Serialize, Deserialize, ToSchema)]
+pub struct AssetKey {
+    pub source_id: String,
+    pub asset_id: String,
+}
+impl From<AssetKey> for domain::AssetKey {
+    fn from(k: AssetKey) -> Self {
+        Self {
+            source_id: k.source_id,
+            asset_id: k.asset_id,
+        }
+    }
+}
+impl From<domain::AssetKey> for AssetKey {
+    fn from(k: domain::AssetKey) -> Self {
+        Self {
+            source_id: k.source_id,
+            asset_id: k.asset_id,
+        }
+    }
+}
+#[derive(Serialize, ToSchema)]
+pub struct Asset {
+    pub key: AssetKey,
+    pub name: String,
+    pub bytes: String,
+    pub extension: String,
+    pub source_name: String,
+    pub selected: bool,
+}
+impl Asset {
+    pub fn from_domain(a: domain::Asset, selected: bool) -> Self {
+        Self {
+            key: a.key.into(),
+            name: a.name,
+            bytes: a.bytes.to_string(),
+            extension: a.extension,
+            source_name: a.source_name,
+            selected,
+        }
+    }
+}
+#[derive(Serialize, ToSchema)]
+pub struct AssetPage {
+    pub items: Vec<Asset>,
+    pub next_cursor: Option<String>,
+    pub revision: String,
+}
+#[derive(Serialize, ToSchema)]
+pub struct Project {
+    pub id: String,
+    pub name: String,
+    pub directory: String,
+    pub created_at: String,
+    pub revision: u64,
+}
+impl From<domain::Project> for Project {
+    fn from(p: domain::Project) -> Self {
+        Self {
+            id: p.id,
+            name: p.name,
+            directory: display_path(&p.directory),
+            created_at: p.created_at,
+            revision: p.revision,
+        }
+    }
+}
+#[derive(Serialize, ToSchema)]
+pub struct Projects {
+    pub items: Vec<Project>,
+}
+#[derive(Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CreateProject {
+    pub name: String,
+    pub parent_directory: Option<String>,
+}
+#[derive(Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct OpenProject {
+    pub directory: String,
+}
+#[derive(Serialize, ToSchema)]
+pub struct Source {
+    pub id: String,
+    pub name: String,
+    pub kind: String,
+    pub revision: Option<String>,
+    pub enumeration: String,
+    pub count: Option<u64>,
+    pub available: bool,
+    pub issue: Option<String>,
+}
+#[derive(Serialize, ToSchema)]
+pub struct Sources {
+    pub items: Vec<Source>,
+}
+#[derive(Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct AttachSource {
+    pub kind: String,
+    pub name: String,
+    pub index_root: Option<String>,
+    pub media_root: Option<String>,
+}
+#[derive(Deserialize, ToSchema)]
+pub struct BrowseQuery {
+    pub source_id: Option<String>,
+    pub collection_id: Option<String>,
+    pub cursor: Option<String>,
+    pub limit: Option<usize>,
+}
+#[derive(Serialize, ToSchema)]
+pub struct Selection {
+    pub revision: u64,
+    pub count: u64,
+}
+impl From<domain::Selection> for Selection {
+    fn from(s: domain::Selection) -> Self {
+        Self {
+            revision: s.revision,
+            count: s.count,
+        }
+    }
+}
+#[derive(Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ChangeSelection {
+    pub expected_revision: u64,
+    pub add: Vec<AssetKey>,
+    pub remove: Vec<AssetKey>,
+    pub clear: bool,
+}
+#[derive(Serialize, ToSchema)]
+pub struct Collection {
+    pub id: String,
+    pub name: String,
+    pub count: u64,
+}
+impl From<domain::Collection> for Collection {
+    fn from(c: domain::Collection) -> Self {
+        Self {
+            id: c.id,
+            name: c.name,
+            count: c.count,
+        }
+    }
+}
+#[derive(Serialize, ToSchema)]
+pub struct Collections {
+    pub items: Vec<Collection>,
+}
+#[derive(Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CreateCollection {
+    pub name: String,
+}
+#[derive(Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SubmitJob {
+    pub idempotency_key: String,
+    pub selection_revision: u64,
+    #[serde(default)]
+    pub delay_ms: u64,
+}
+#[derive(Serialize, ToSchema)]
+pub struct Job {
+    pub id: String,
+    pub project_id: String,
+    pub operator: String,
+    pub status: String,
+    pub total: u64,
+    pub completed: u64,
+    pub attempt: u32,
+    pub created_at: String,
+    pub error: Option<String>,
+    pub artifact: Option<String>,
+}
+impl From<domain::Job> for Job {
+    fn from(j: domain::Job) -> Self {
+        Self {
+            id: j.id,
+            project_id: j.project_id,
+            operator: j.operator,
+            status: j.status,
+            total: j.total,
+            completed: j.completed,
+            attempt: j.attempt,
+            created_at: j.created_at,
+            error: j.error,
+            artifact: j.artifact,
+        }
+    }
+}
+#[derive(Serialize, ToSchema)]
+pub struct Jobs {
+    pub items: Vec<Job>,
+}
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct ProjectEvent {
+    pub sequence: u64,
+    pub project_id: String,
+    pub kind: String,
+    pub resource_id: String,
+}
+impl From<domain::ProjectEvent> for ProjectEvent {
+    fn from(e: domain::ProjectEvent) -> Self {
+        Self {
+            sequence: e.sequence,
+            project_id: e.project_id,
+            kind: e.kind,
+            resource_id: e.resource_id,
+        }
+    }
+}
+#[derive(Serialize, ToSchema)]
+pub struct OkResponse {
+    pub ok: bool,
+}
+
+fn display_path(path: &std::path::Path) -> String {
+    let text = path.to_string_lossy();
+    if let Some(unc) = text.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{}", unc)
+    } else {
+        text.strip_prefix(r"\\?\").unwrap_or(&text).to_owned()
+    }
+}

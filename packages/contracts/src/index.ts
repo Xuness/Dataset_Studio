@@ -1,0 +1,13 @@
+import type { components } from "./schema.js";
+export type Schema = components["schemas"];
+export type Project = Schema["Project"];
+export type Source = Schema["Source"];
+export type Asset = Schema["Asset"];
+export type AssetKey = Schema["AssetKey"];
+export type AssetPage = Schema["AssetPage"];
+export type Selection = Schema["Selection"];
+export type Collection = Schema["Collection"];
+export type Job = Schema["Job"];
+export type EngineConnection = Schema["EngineConnection"];
+export type ProjectEvent = Schema["ProjectEvent"];
+export type { paths, components } from "./schema.js";
