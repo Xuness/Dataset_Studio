@@ -2,19 +2,19 @@
 
 面向大型图片数据湖的桌面工作环境。项目持续保存来源引用、选择、工作集与处理成果，各工具围绕项目中的数据工作。
 
-当前版本：0.1 工程底座。当前交付和日常迭代均使用开发模式。
+当前版本：0.2 项目数据层。当前交付和日常迭代均使用开发模式。
 
 ## 启动
 
 在 Windows 上双击仓库根目录的 **启动开发版.bat**。
 
-脚本会检查锁文件和依赖，增量编译 Debug 引擎，启动前端开发服务和 Tauri 桌面窗口。再次启动时会使用已有开发环境。开发控制台可查看编译结果。
+脚本会检查锁文件、依赖与固定版本的元数据运行库，增量编译 Debug 引擎，启动前端开发服务和 Tauri 桌面窗口。再次启动时会使用已有开发环境。开发控制台可查看编译结果。
 
-命令行等效入口：
+命令行完整入口：
 
 ```powershell
 Set-Location 'D:\Dataset\Dataset_Studio'
-pnpm dev
+pwsh -File tooling/start-dev.ps1
 ```
 
 - 修改前端和 CSS：Vite 热更新。
@@ -23,6 +23,7 @@ pnpm dev
 - 关闭窗口会结束当前桌面开发控制台；引擎独立运行，任务不依附页面。
 - 停止开发引擎：在仓库目录运行 `pnpm engine:stop`，下次启动恢复未完成任务。
 - 仅用浏览器调试：`pnpm dev:web`，入口为 `http://127.0.0.1:1420`。
+- 已准备依赖时可直接运行 `pnpm dev`；首次使用 Danbooru 元数据前运行 `pwsh -File tooling/setup-duckdb.ps1`。
 
 需要 Node.js 22.12 或更新版本、pnpm 10.30.3、Rust 1.94 或更新版本、Visual Studio C++ 工具链与 WebView2。本机已经验证这些构建能力。脚本只调整子进程的 MSVC 编译环境。
 
@@ -31,7 +32,8 @@ pnpm dev
 1. 新建项目，或打开包含 project.json 的项目目录。
 2. 添加完整数据湖。Danbooru 需要 SSD 索引目录和机械盘图片湖目录；内置参考资料用于验证基础功能。
 3. 在项目中浏览、查看单图、选择对象、保存工作集。选择属于项目，在切换来源和重开项目后保留。
-4. 工具中的“生成数据清单”固定当前选择，使用独立执行器生成带来源版本的 JSONL 成果。任务面板显示进度、取消和成果下载。
+4. 点击图片后，右侧属性面板的“元数据”可切换来源记录与历史观察、查看标签及来源尺寸，按需读取原始 JSON。滚动面板查看完整内容；记录切换不改变项目选择。
+5. 工具中的“生成数据清单”固定当前选择，使用独立执行器生成带来源版本的 JSONL 成果。任务面板显示进度、取消和成果下载。
 
 当前机器的 Danbooru 位置：
 
@@ -42,11 +44,14 @@ SSD 索引：D:\Dataset\Danbooru
 
 数据湖按只读方式接入。当前浏览单位是 catalog.sqlite 中去重后的储存对象，使用 SHA-256 身份与包偏移定位图片；没有把历史观察条数或当前帖子数显示成图片总数。
 
+相同内容可以关联多条来源记录和多次观察，检查面板保留这些区别。来源尺寸来自所选观察，实际存储尺寸尚未检查时显示未知。同条目的其他历史观察可能对应不同图片内容。
+
 ## 数据与缓存
 
 - `.local/dev/registry.sqlite`：开发环境的项目注册表与本机数据源位置。
 - `.local/dev/projects/`：默认新建项目的位置；也可以在新建时选择其他父目录。
 - 项目内的 project.json、project.sqlite、artifacts 与 .staging 分别保存身份、项目状态、正式成果与恢复所需暂存。
+- 旧项目数据库 v1 打开时升级至 v2；升级前的一致备份保存在项目内 `.backups/v1-to-v2-*`，包含 WAL 中已提交的数据。清单 format_version 仍为 1。
 - `.local/engine-binaries/`：开发引擎的可重建二进制快照，避免运行中的 EXE 阻止增量链接。
 - `.local/logs/`：构建、检查和临时命令日志；启动依赖检查写入其中的 startup-install.log。
 - `.local/dev/engine.log`：与开发运行环境一起保存的引擎日志。
@@ -61,6 +66,7 @@ SSD 索引：D:\Dataset\Danbooru
 
 ```powershell
 pnpm install --frozen-lockfile
+pwsh -File tooling/setup-duckdb.ps1
 node tooling/prepare-sidecar.mjs
 pnpm contracts
 pnpm check
@@ -72,17 +78,22 @@ pnpm build
 
 接口以 Rust DTO 和 Utoipa 定义为准。生成的 OpenAPI 和 TypeScript 类型纳入 Git，CI 重新生成后检查漂移。前端功能通过 SDK 调用引擎，原生目录选择由应用层注入。
 
-测试覆盖项目隔离、中文路径、独占写入、选择版本冲突、集合分页、只读数据包定位、路径边界、幂等提交、引擎中断、项目移动、检查点恢复、成果验证、取消与事件续接。
+测试覆盖项目升级、WAL 备份与迁移回滚、未知版本拒绝、项目隔离、只读元数据关联、历史观察分页、原始数据大小限制、原生查询中断和外部写入者占用；同时保留任务恢复、成果、选择与工作集回归。
+
+真实数据湖可使用 `node tooling/verify-metadata.mjs --index-root <索引根目录> --media-root <图片湖根目录> --asset <SHA256>` 做有界验证，最多传入 8 个 `--asset`。脚本使用隔离运行目录与真实引擎 API，报告写入 `.local/metadata-verification-*`。
 
 目录职责与实现边界见：
 
 - [基础架构方案](docs/architecture/foundation-proposal.md)
 - [0.1 实现状态](docs/architecture/foundation-status.md)
+- [0.2 实现与验证](docs/verification-project-data-layer-v0.2.md)
 - [开发模式决策](docs/decisions/0001-development-foundation.md)
+- [项目升级与元数据读取决策](docs/decisions/0002-project-metadata-layer.md)
+- [项目数据层计划及验收标准](docs/plans/project-data-layer-v0.2.md)
 
 ## 当前边界
 
-这是可运行的工程底座。元数据公式、大模型打标和审美评估尚未实现。
+元数据公式、大模型打标和审美评估尚未实现。
 
 查询每页最多 128 项，界面每页 48 项；选择修改每个请求最多 1000 项，可分次累积。任务逐批物化选择成员并生成清单，当前调度同时运行一个执行器。预览对单图原始字节设有 64 MiB 上限，对解码内存和同时读取数量设有预算。
 
@@ -90,4 +101,4 @@ pnpm build
 
 已经验证本机真实 Danbooru 的只读分页、包偏移读取、内容校验与预览。尚未完成千万级全量性能、长时间运行和大规模选择的压测。
 
-DuckDB 1.5.4 已完成真实归档只读兼容探测。完整元数据查询尚未接入浏览接口。可选诊断运行时通过 tooling/setup-duckdb.ps1 下载官方归档并校验固定 SHA-256；应用基础启动不依赖该 DLL。
+DuckDB 1.5.4 已通过应用自身的原生运行库接入元数据检查。每次读取分别建立 SQLite / DuckDB 只读事务并核对版本，不提供跨库原子历史快照。元数据默认 20 条来源记录、10 次观察分页；原始 JSON 查看上限为 128 KiB。源忙碌、离线和版本变化会明确提示。

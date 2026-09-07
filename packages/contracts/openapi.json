@@ -610,6 +610,280 @@
         }
       }
     },
+    "/v1/projects/{project_id}/sources/{source_id}/assets/{asset_id}/metadata": {
+      "get": {
+        "tags": [],
+        "operationId": "metadata",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "source_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "asset_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetadataOverview"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/sources/{source_id}/assets/{asset_id}/records/{record_id}/observations": {
+      "get": {
+        "tags": [],
+        "operationId": "observations",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "source_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "asset_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "record_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObservationPage"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/sources/{source_id}/assets/{asset_id}/records/{record_id}/observations/{observation_id}/raw": {
+      "get": {
+        "tags": [],
+        "operationId": "raw_metadata",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "source_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "asset_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "record_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "observation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RawMetadata"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/shutdown": {
       "post": {
         "tags": [],
@@ -717,6 +991,41 @@
           },
           "revision": {
             "type": "string"
+          }
+        }
+      },
+      "AssetRecord": {
+        "type": "object",
+        "required": [
+          "record_id"
+        ],
+        "properties": {
+          "origin_observation_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "post_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "record_id": {
+            "type": "string"
+          },
+          "source_md5": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "storage_profile": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -968,6 +1277,334 @@
           }
         }
       },
+      "MetadataField": {
+        "type": "object",
+        "required": [
+          "name",
+          "provenance",
+          "truncated"
+        ],
+        "properties": {
+          "missing_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "provenance": {
+            "type": "string"
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "value": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/MetadataValue"
+              }
+            ]
+          }
+        }
+      },
+      "MetadataObject": {
+        "type": "object",
+        "required": [
+          "key",
+          "name",
+          "bytes",
+          "extension",
+          "source_name"
+        ],
+        "properties": {
+          "bytes": {
+            "type": "string"
+          },
+          "extension": {
+            "type": "string"
+          },
+          "key": {
+            "$ref": "#/components/schemas/AssetKey"
+          },
+          "name": {
+            "type": "string"
+          },
+          "source_name": {
+            "type": "string"
+          }
+        }
+      },
+      "MetadataOverview": {
+        "type": "object",
+        "required": [
+          "object",
+          "dimensions_evidence",
+          "records",
+          "version"
+        ],
+        "properties": {
+          "dimensions_evidence": {
+            "type": "string"
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "object": {
+            "$ref": "#/components/schemas/MetadataObject"
+          },
+          "records": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssetRecord"
+            }
+          },
+          "stored_height": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "stored_width": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "version": {
+            "$ref": "#/components/schemas/ReadVersion"
+          }
+        }
+      },
+      "MetadataQuery": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "limit": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "MetadataValue": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "value",
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "text"
+                ]
+              },
+              "value": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "value",
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "integer"
+                ]
+              },
+              "value": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "value",
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "boolean"
+                ]
+              },
+              "value": {
+                "type": "boolean"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "value",
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "tags"
+                ]
+              },
+              "value": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "value",
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "timestamp"
+                ]
+              },
+              "value": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
+      "Observation": {
+        "type": "object",
+        "required": [
+          "observation_id",
+          "row_id",
+          "relation",
+          "fields"
+        ],
+        "properties": {
+          "commit_sequence": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fields": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MetadataField"
+            }
+          },
+          "ingested_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "observation_id": {
+            "type": "string"
+          },
+          "observed_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "post_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "relation": {
+            "type": "string"
+          },
+          "row_id": {
+            "type": "string"
+          },
+          "source_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source_kind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "time_quality": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ObservationPage": {
+        "type": "object",
+        "required": [
+          "record_id",
+          "items",
+          "version"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Observation"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "record_id": {
+            "type": "string"
+          },
+          "version": {
+            "$ref": "#/components/schemas/ReadVersion"
+          }
+        }
+      },
       "OkResponse": {
         "type": "object",
         "required": [
@@ -1056,6 +1693,92 @@
             "items": {
               "$ref": "#/components/schemas/Project"
             }
+          }
+        }
+      },
+      "RawMetadata": {
+        "type": "object",
+        "required": [
+          "observation_id",
+          "status",
+          "version"
+        ],
+        "properties": {
+          "bytes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "format": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "json": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "observation_id": {
+            "type": "string"
+          },
+          "schema_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string"
+          },
+          "version": {
+            "$ref": "#/components/schemas/ReadVersion"
+          }
+        }
+      },
+      "RawMetadataQuery": {
+        "type": "object",
+        "required": [
+          "version"
+        ],
+        "properties": {
+          "version": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ReadVersion": {
+        "type": "object",
+        "required": [
+          "token",
+          "library_id",
+          "generation",
+          "catalog_sequence",
+          "analysis_sequence",
+          "consistency"
+        ],
+        "properties": {
+          "analysis_sequence": {
+            "type": "string"
+          },
+          "catalog_sequence": {
+            "type": "string"
+          },
+          "consistency": {
+            "type": "string"
+          },
+          "generation": {
+            "type": "string"
+          },
+          "library_id": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
           }
         }
       },

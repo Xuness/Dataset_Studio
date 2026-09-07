@@ -29,6 +29,31 @@ pub struct Media {
     pub content_type: String,
 }
 
+/// Metadata inspection is independent of project selection and task inputs.
+pub trait MetadataAdapter: Send + Sync {
+    fn metadata(
+        &self,
+        source: &Source,
+        asset_id: &str,
+        request: MetadataRequest,
+    ) -> Result<MetadataOverview>;
+    fn observations(
+        &self,
+        source: &Source,
+        asset_id: &str,
+        record_id: &str,
+        request: MetadataRequest,
+    ) -> Result<ObservationPage>;
+    fn raw_metadata(
+        &self,
+        source: &Source,
+        asset_id: &str,
+        record_id: &str,
+        observation_id: &str,
+        version: &str,
+    ) -> Result<RawMetadata>;
+}
+
 pub trait ProjectRepository: Send + Sync {
     fn create(&self, name: &str, parent: Option<PathBuf>) -> Result<Project>;
     fn open(&self, directory: PathBuf) -> Result<Project>;

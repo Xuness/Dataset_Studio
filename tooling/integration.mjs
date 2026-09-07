@@ -155,6 +155,62 @@ try {
   );
   assert.equal(foreign.status, 404);
   checks.push("cross-project media access is scoped");
+  const inspection =
+    "/v1/projects/" + p.id + "/sources/" + sid + "/assets/sample-0001";
+  const beforeInspection = await api("/v1/projects/" + p.id + "/selection");
+  const beforeProject = await api("/v1/projects/" + p.id);
+  const metadata = await api(inspection + "/metadata");
+  assert.equal(metadata.stored_width, 640);
+  assert.equal(metadata.records.length, 1);
+  assert.equal("selected" in metadata.object, false);
+  const observationPath = "/records/sample-0001/observations";
+  const versionQuery = "?version=" + encodeURIComponent(metadata.version.token);
+  const observations = await api(inspection + observationPath + versionQuery);
+  assert.equal(observations.items[0].relation, "asset_origin");
+  assert.equal(observations.items[0].fields[0].value.type, "integer");
+  assert.equal(
+    (
+      await api(
+        inspection + observationPath + "/sample-0001/raw" + versionQuery,
+      )
+    ).status,
+    "missing",
+  );
+  assert.deepEqual(
+    await api("/v1/projects/" + p.id + "/selection"),
+    beforeInspection,
+  );
+  assert.equal(
+    (await api("/v1/projects/" + p.id)).revision,
+    beforeProject.revision,
+  );
+  checks.push(
+    "metadata and raw inspection preserve project selection and revision",
+  );
+  for (const suffix of [
+    "/metadata",
+    observationPath + versionQuery,
+    observationPath + "/sample-0001/raw" + versionQuery,
+  ]) {
+    const response = await fetch(
+      connection.endpoint + inspection.replace(p.id, p2.id) + suffix,
+      {
+        headers: { Authorization: "Bearer " + connection.token },
+      },
+    );
+    assert.equal(response.status, 404);
+  }
+  const changed = await fetch(
+    connection.endpoint + inspection + "/metadata?version=old",
+    {
+      headers: { Authorization: "Bearer " + connection.token },
+    },
+  );
+  assert.equal(changed.status, 409);
+  assert.equal((await changed.json()).code, "SOURCE_CHANGED");
+  checks.push(
+    "all metadata endpoints enforce project scope and report changed versions",
+  );
   const all = await api("/v1/projects/" + p.id + "/assets?limit=64");
   const selected = await api("/v1/projects/" + p.id + "/selection", "PATCH", {
     expected_revision: 0,

@@ -10,6 +10,7 @@ use std::{
 };
 use studio_application::ProjectRepository;
 use studio_domain::*;
+mod migrations;
 
 fn unsigned(row: &rusqlite::Row, index: usize) -> rusqlite::Result<u64> {
     let value: i64 = row.get(index)?;
@@ -358,9 +359,8 @@ impl ProjectRepository for SqliteStore {
             name,
             created_at: now(),
         };
-        let db = connection(&directory.join("project.sqlite"))?;
-        db.execute_batch(include_str!("schema.sql"))
-            .map_err(db_error)?;
+        let mut db = connection(&directory.join("project.sqlite"))?;
+        migrations::initialize(&mut db)?;
         drop(db);
         atomic_json(&directory.join("project.json"), &manifest)?;
         self.open(directory)
@@ -413,13 +413,18 @@ impl ProjectRepository for SqliteStore {
         lease
             .try_lock_exclusive()
             .map_err(|_| Error::new("PROJECT_BUSY", "项目已由其他引擎打开"))?;
-        let mut db = connection(&dbpath)?;
-        let version: u32 = db
-            .query_row("PRAGMA user_version", [], |r| r.get(0))
+        // Reject future formats before opening a writable connection or changing journal mode.
+        migrations::check_supported(&dbpath)?;
+        let mut db =
+            Connection::open_with_flags(&dbpath, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)
+                .map_err(db_error)?;
+        db.busy_timeout(std::time::Duration::from_secs(3))
             .map_err(db_error)?;
-        if version != 1 {
-            return Err(Error::new("FORMAT_UNSUPPORTED", "项目数据库格式不兼容"));
-        }
+        db.execute_batch("PRAGMA foreign_keys=ON;")
+            .map_err(db_error)?;
+        migrations::upgrade(&mut db, &directory)?;
+        db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;")
+            .map_err(db_error)?;
         // A newly acquired project lease means no previous engine still owns its tasks.
         // Cached handles return above, so opening an already active project does not interrupt it.
         {

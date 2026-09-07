@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+mod metadata;
+pub use metadata::*;
 
 pub type Result<T> = std::result::Result<T, Error>;
 

@@ -62,6 +62,10 @@ pub struct Catalog {
     pub revision: String,
     pub library_id: String,
     root: PathBuf,
+    index: PathBuf,
+    pub generation_path: PathBuf,
+    pub generation: String,
+    pub sequence: u64,
 }
 impl Catalog {
     pub fn open(source: &Source) -> Result<Self> {
@@ -125,7 +129,37 @@ impl Catalog {
             revision,
             library_id: library.library_id,
             root,
+            index,
+            generation_path: generation,
+            generation: current.generation,
+            sequence: seq,
         })
+    }
+    pub fn analysis_path(&self) -> Result<PathBuf> {
+        child(&self.generation_path, "analysis.duckdb")
+    }
+    pub fn verify_unchanged(&self, source: &Source) -> Result<()> {
+        let pointer: Current =
+            serde_json::from_slice(&fs::read(self.index.join("CURRENT.json")).map_err(Error::io)?)
+                .map_err(Error::io)?;
+        if pointer.library_id != self.library_id
+            || pointer.generation != self.generation
+            || pointer.index_version != 1
+        {
+            return Err(Error::new(
+                "SOURCE_CHANGED",
+                "读取过程中数据源切换了索引版本，请刷新元数据",
+            ));
+        }
+        // A fresh connection supplies an end fence; the original transaction remains open.
+        let current = Self::open(source)?;
+        if current.revision != self.revision || current.library_id != self.library_id {
+            return Err(Error::new(
+                "SOURCE_CHANGED",
+                "读取过程中数据源已更新，请刷新元数据",
+            ));
+        }
+        Ok(())
     }
     pub fn probe(&self) -> SourceProbe {
         SourceProbe {

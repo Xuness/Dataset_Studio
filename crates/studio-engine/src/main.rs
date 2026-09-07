@@ -99,6 +99,8 @@ async fn serve(root: PathBuf, port: u16) -> Result<()> {
         store: store.clone(),
         connection: connection.clone(),
         io: Arc::new(tokio::sync::Semaphore::new(2)),
+        metadata_io: Arc::new(tokio::sync::Semaphore::new(1)),
+        metadata: Arc::new(studio_sources::MetadataReader::default()),
         shutdown: shutdown_tx.clone(),
     };
     let token = connection.token.clone();

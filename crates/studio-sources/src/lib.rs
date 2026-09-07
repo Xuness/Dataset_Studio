@@ -1,4 +1,7 @@
 mod danbooru;
+mod duckdb;
+mod metadata;
+pub use metadata::MetadataReader;
 pub mod duckdb_probe;
 use image::{ImageEncoder, ImageReader};
 use std::io::Cursor;

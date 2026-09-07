@@ -1,3 +1,4 @@
+-- Frozen project database v1 baseline. New versions belong in migrations.rs.
 PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
 INSERT OR IGNORE INTO meta VALUES ('revision', '0'), ('selection_revision', '0'), ('selection_count', '0');

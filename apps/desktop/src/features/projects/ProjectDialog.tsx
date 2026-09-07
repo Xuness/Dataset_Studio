@@ -87,7 +87,7 @@ export function ProjectDialog({
         <div className="about-content">
           <span className="brand-tile">Ds</span>
           <h2>Dataset Studio</h2>
-          <p>首版工程底座 · 0.1.0</p>
+          <p>项目数据层 · 0.2.0</p>
           <p>项目、数据湖、工作集与持续保存的工作。</p>
           <Button onClick={onClose}>关闭</Button>
         </div>

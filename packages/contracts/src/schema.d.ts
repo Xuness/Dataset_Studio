@@ -207,6 +207,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{project_id}/sources/{source_id}/assets/{asset_id}/metadata": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["metadata"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/sources/{source_id}/assets/{asset_id}/records/{record_id}/observations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["observations"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/sources/{source_id}/assets/{asset_id}/records/{record_id}/observations/{observation_id}/raw": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["raw_metadata"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/shutdown": {
         parameters: {
             query?: never;
@@ -248,6 +296,13 @@ export interface components {
             items: components["schemas"]["Asset"][];
             next_cursor?: string | null;
             revision: string;
+        };
+        AssetRecord: {
+            origin_observation_id?: string | null;
+            post_id?: string | null;
+            record_id: string;
+            source_md5?: string | null;
+            storage_profile?: string | null;
         };
         AttachSource: {
             index_root?: string | null;
@@ -311,6 +366,76 @@ export interface components {
         Jobs: {
             items: components["schemas"]["Job"][];
         };
+        MetadataField: {
+            missing_reason?: string | null;
+            name: string;
+            provenance: string;
+            truncated: boolean;
+            value?: null | components["schemas"]["MetadataValue"];
+        };
+        MetadataObject: {
+            bytes: string;
+            extension: string;
+            key: components["schemas"]["AssetKey"];
+            name: string;
+            source_name: string;
+        };
+        MetadataOverview: {
+            dimensions_evidence: string;
+            next_cursor?: string | null;
+            object: components["schemas"]["MetadataObject"];
+            records: components["schemas"]["AssetRecord"][];
+            /** Format: int32 */
+            stored_height?: number | null;
+            /** Format: int32 */
+            stored_width?: number | null;
+            version: components["schemas"]["ReadVersion"];
+        };
+        MetadataQuery: {
+            cursor?: string | null;
+            limit?: number | null;
+            version?: string | null;
+        };
+        MetadataValue: {
+            /** @enum {string} */
+            type: "text";
+            value: string;
+        } | {
+            /** @enum {string} */
+            type: "integer";
+            value: string;
+        } | {
+            /** @enum {string} */
+            type: "boolean";
+            value: boolean;
+        } | {
+            /** @enum {string} */
+            type: "tags";
+            value: string[];
+        } | {
+            /** @enum {string} */
+            type: "timestamp";
+            value: string;
+        };
+        Observation: {
+            commit_sequence?: string | null;
+            fields: components["schemas"]["MetadataField"][];
+            ingested_at?: string | null;
+            observation_id: string;
+            observed_at?: string | null;
+            post_id?: string | null;
+            relation: string;
+            row_id: string;
+            source_key?: string | null;
+            source_kind?: string | null;
+            time_quality?: string | null;
+        };
+        ObservationPage: {
+            items: components["schemas"]["Observation"][];
+            next_cursor?: string | null;
+            record_id: string;
+            version: components["schemas"]["ReadVersion"];
+        };
         OkResponse: {
             ok: boolean;
         };
@@ -334,6 +459,26 @@ export interface components {
         };
         Projects: {
             items: components["schemas"]["Project"][];
+        };
+        RawMetadata: {
+            bytes?: string | null;
+            format?: string | null;
+            json?: string | null;
+            observation_id: string;
+            schema_id?: string | null;
+            status: string;
+            version: components["schemas"]["ReadVersion"];
+        };
+        RawMetadataQuery: {
+            version: string;
+        };
+        ReadVersion: {
+            analysis_sequence: string;
+            catalog_sequence: string;
+            consistency: string;
+            generation: string;
+            library_id: string;
+            token: string;
         };
         Selection: {
             /** Format: int64 */
@@ -784,6 +929,136 @@ export interface operations {
                 };
                 content: {
                     "image/jpeg": unknown;
+                };
+            };
+        };
+    };
+    metadata: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+                version?: string;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+                source_id: string;
+                asset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MetadataOverview"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    observations: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+                version?: string;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+                source_id: string;
+                asset_id: string;
+                record_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObservationPage"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    raw_metadata: {
+        parameters: {
+            query: {
+                version: string;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+                source_id: string;
+                asset_id: string;
+                record_id: string;
+                observation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RawMetadata"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
+                };
+            };
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiError"];
                 };
             };
         };

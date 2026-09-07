@@ -23,6 +23,8 @@ const env = {
   ...process.env,
   STUDIO_DATA_DIR: dataDir,
   STUDIO_DEVELOPMENT: "1",
+  STUDIO_DUCKDB_DLL:
+    process.env.STUDIO_DUCKDB_DLL ?? resolve(root, "vendor/duckdb/duckdb.dll"),
 };
 if (process.platform === "win32" && !env.INCLUDE) {
   delete env.CC;

@@ -16,5 +16,7 @@ if ($LASTEXITCODE -ne 0) {
     Get-Content -LiteralPath $studioStartupLog -Tail 25
     throw '依赖安装失败。'
 }
+Write-Host '检查元数据运行库…'
+& (Join-Path $studioRoot 'tooling\setup-duckdb.ps1') *> (Join-Path $studioLogDirectory 'startup-duckdb.log')
 & node (Join-Path $studioRoot 'tooling\dev.mjs')
 exit $LASTEXITCODE

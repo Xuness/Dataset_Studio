@@ -1,0 +1,85 @@
+use crate::Asset;
+
+#[derive(Debug, Clone)]
+pub struct ReadVersion {
+    pub token: String,
+    pub library_id: String,
+    pub generation: String,
+    pub catalog_sequence: String,
+    pub analysis_sequence: String,
+    /// Per-request transactions with matched watermarks, not a historical snapshot.
+    pub consistency: String,
+}
+#[derive(Debug, Clone)]
+pub struct AssetRecord {
+    pub record_id: String,
+    pub origin_observation_id: Option<String>,
+    pub post_id: Option<String>,
+    pub source_md5: Option<String>,
+    pub storage_profile: Option<String>,
+}
+#[derive(Debug, Clone)]
+pub struct MetadataOverview {
+    pub object: Asset,
+    pub stored_width: Option<u32>,
+    pub stored_height: Option<u32>,
+    pub dimensions_evidence: String,
+    pub records: Vec<AssetRecord>,
+    pub next_cursor: Option<String>,
+    pub version: ReadVersion,
+}
+#[derive(Debug, Clone)]
+pub enum MetadataValue {
+    Text(String),
+    Integer(String),
+    Boolean(bool),
+    Tags(Vec<String>),
+    Timestamp(String),
+}
+#[derive(Debug, Clone)]
+pub struct MetadataField {
+    pub name: String,
+    pub value: Option<MetadataValue>,
+    pub provenance: String,
+    pub missing_reason: Option<String>,
+    pub truncated: bool,
+}
+#[derive(Debug, Clone)]
+pub struct Observation {
+    pub observation_id: String,
+    pub row_id: String,
+    pub post_id: Option<String>,
+    /// asset_origin or same_post; a same_post observation need not describe this blob.
+    pub relation: String,
+    pub source_key: Option<String>,
+    pub source_kind: Option<String>,
+    pub observed_at: Option<String>,
+    pub time_quality: Option<String>,
+    pub ingested_at: Option<String>,
+    pub commit_sequence: Option<String>,
+    pub fields: Vec<MetadataField>,
+}
+#[derive(Debug, Clone)]
+pub struct ObservationPage {
+    pub record_id: String,
+    pub items: Vec<Observation>,
+    pub next_cursor: Option<String>,
+    pub version: ReadVersion,
+}
+#[derive(Debug, Clone)]
+pub struct RawMetadata {
+    pub observation_id: String,
+    pub format: Option<String>,
+    pub schema_id: Option<String>,
+    pub json: Option<String>,
+    pub bytes: Option<String>,
+    /// available, missing, or too_large. Oversized JSON is never returned partially.
+    pub status: String,
+    pub version: ReadVersion,
+}
+#[derive(Debug, Clone, Default)]
+pub struct MetadataRequest {
+    pub cursor: Option<String>,
+    pub limit: Option<usize>,
+    pub version: Option<String>,
+}

@@ -29,6 +29,7 @@ import { Browser } from "../features/browser/Browser.js";
 import type { Scope } from "../features/browser/Browser.js";
 import { AssetImage } from "../features/browser/AssetImage.js";
 import { Tasks } from "../features/tasks/Tasks.js";
+import { MetadataInspector } from "../features/metadata/MetadataInspector.js";
 
 function savedProject() {
   try {
@@ -327,7 +328,7 @@ function Studio({
           </div>
         ))}
         <span className="grow" />
-        <span className="version-label">基础版 0.1</span>
+        <span className="version-label">开发版 0.2</span>
       </div>
       <div className="options-bar">
         <button
@@ -594,7 +595,7 @@ function Studio({
               <strong>属性</strong>
             </header>
             {view.focus ? (
-              <>
+              <div className="properties-scroll">
                 <div className="property-preview">
                   <AssetImage
                     client={client}
@@ -622,6 +623,22 @@ function Studio({
                     </dd>
                   </dl>
                 </div>
+                {propertiesVisible && (
+                  <MetadataInspector
+                    key={
+                      project.id +
+                      ":" +
+                      view.focus.key.source_id +
+                      ":" +
+                      view.focus.key.asset_id +
+                      ":" +
+                      client.connection.instance_id
+                    }
+                    client={client}
+                    projectId={project.id}
+                    asset={view.focus}
+                  />
+                )}
                 <div className="property-section">
                   <h3>项目中的选择</h3>
                   <p>
@@ -635,7 +652,7 @@ function Studio({
                     保存为工作集
                   </Button>
                 </div>
-              </>
+              </div>
             ) : (
               <div className="properties-empty">
                 <MousePointer2 size={25} />

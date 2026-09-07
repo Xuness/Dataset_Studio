@@ -10,5 +10,19 @@ if (-not (Test-Path -LiteralPath $archivePath)) {
 if ((Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash -ne $expectedHash) {
     throw 'DuckDB archive checksum mismatch.'
 }
-Expand-Archive -LiteralPath $archivePath -DestinationPath $vendorDirectory -Force
-Write-Output 'DuckDB 1.5.4 compatibility probe runtime is ready.'
+$dllPath = Join-Path $vendorDirectory 'duckdb.dll'
+# Avoid replacing a DLL already loaded by an active engine. Verify the extracted
+# binary against the checked archive before deciding whether extraction is needed.
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+$duckArchive = [System.IO.Compression.ZipFile]::OpenRead($archivePath)
+try {
+    $duckEntry = $duckArchive.GetEntry('duckdb.dll')
+    if ($null -eq $duckEntry) { throw 'DuckDB archive has no runtime library.' }
+    $duckStream = $duckEntry.Open()
+    try { $duckExpected = [Convert]::ToHexString([System.Security.Cryptography.SHA256]::HashData($duckStream)) }
+    finally { $duckStream.Dispose() }
+} finally { $duckArchive.Dispose() }
+if (-not (Test-Path -LiteralPath $dllPath) -or (Get-FileHash -LiteralPath $dllPath -Algorithm SHA256).Hash -ne $duckExpected) {
+    Expand-Archive -LiteralPath $archivePath -DestinationPath $vendorDirectory -Force
+}
+Write-Output 'DuckDB 1.5.4 metadata runtime is ready.'

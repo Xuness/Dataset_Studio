@@ -41,6 +41,29 @@ export function validateConnection(value: unknown): EngineConnection {
 }
 export const assetIdentity = (key: AssetKey) =>
   key.source_id + ":" + key.asset_id;
+export type MetadataOptions = {
+  cursor?: string;
+  limit?: number;
+  version?: string;
+  signal?: AbortSignal;
+};
+function metadataPath(projectId: string, key: AssetKey) {
+  return (
+    "/v1/projects/" +
+    encodeURIComponent(projectId) +
+    "/sources/" +
+    encodeURIComponent(key.source_id) +
+    "/assets/" +
+    encodeURIComponent(key.asset_id)
+  );
+}
+function metadataQuery(options: MetadataOptions) {
+  const query = new URLSearchParams();
+  if (options.cursor) query.set("cursor", options.cursor);
+  if (options.limit !== undefined) query.set("limit", String(options.limit));
+  if (options.version) query.set("version", options.version);
+  return query;
+}
 export class StudioClient {
   private media = new Map<
     string,
@@ -155,6 +178,46 @@ export class StudioClient {
   selection(id: string) {
     return this.request<Schema["Selection"]>(
       "/v1/projects/" + id + "/selection",
+    );
+  }
+  metadata(projectId: string, key: AssetKey, options: MetadataOptions = {}) {
+    return this.request<Schema["MetadataOverview"]>(
+      metadataPath(projectId, key) + "/metadata?" + metadataQuery(options),
+      options.signal ? { signal: options.signal } : {},
+    );
+  }
+  observations(
+    projectId: string,
+    key: AssetKey,
+    recordId: string,
+    options: MetadataOptions = {},
+  ) {
+    return this.request<Schema["ObservationPage"]>(
+      metadataPath(projectId, key) +
+        "/records/" +
+        encodeURIComponent(recordId) +
+        "/observations?" +
+        metadataQuery(options),
+      options.signal ? { signal: options.signal } : {},
+    );
+  }
+  rawMetadata(
+    projectId: string,
+    key: AssetKey,
+    recordId: string,
+    observationId: string,
+    version: string,
+    signal?: AbortSignal,
+  ) {
+    return this.request<Schema["RawMetadata"]>(
+      metadataPath(projectId, key) +
+        "/records/" +
+        encodeURIComponent(recordId) +
+        "/observations/" +
+        encodeURIComponent(observationId) +
+        "/raw?" +
+        new URLSearchParams({ version }),
+      signal ? { signal } : {},
     );
   }
   changeSelection(id: string, body: Schema["ChangeSelection"]) {

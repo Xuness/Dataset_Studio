@@ -12,7 +12,7 @@ use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, convert::Infallible, sync::Arc};
-use studio_application::{ProjectRepository, SourceAdapter};
+use studio_application::{MetadataAdapter, ProjectRepository, SourceAdapter};
 use studio_domain as domain;
 use studio_protocol::*;
 use studio_sources::SourceRouter;
@@ -24,6 +24,8 @@ pub struct AppState {
     pub store: Arc<SqliteStore>,
     pub connection: EngineConnection,
     pub io: Arc<tokio::sync::Semaphore>,
+    pub metadata_io: Arc<tokio::sync::Semaphore>,
+    pub metadata: Arc<studio_sources::MetadataReader>,
     pub shutdown: tokio::sync::watch::Sender<bool>,
 }
 pub struct Failure(domain::Error);
@@ -43,11 +45,18 @@ impl IntoResponse for Failure {
             | "PROJECT_BUSY"
             | "PROJECT_ID_CONFLICT"
             | "IDEMPOTENCY_CONFLICT" => StatusCode::CONFLICT,
-            "SOURCE_BUSY" => StatusCode::SERVICE_UNAVAILABLE,
+            "SOURCE_BUSY" | "SOURCE_UNAVAILABLE" | "METADATA_RUNTIME_UNAVAILABLE" => {
+                StatusCode::SERVICE_UNAVAILABLE
+            }
+            "SOURCE_TIMEOUT" => StatusCode::GATEWAY_TIMEOUT,
+            "SOURCE_RESOURCE_LIMIT" | "METADATA_LIMIT" => StatusCode::PAYLOAD_TOO_LARGE,
             "INVALID_INPUT"
             | "SOURCE_ID_MISMATCH"
             | "SOURCE_PATH_INVALID"
-            | "FORMAT_UNSUPPORTED" => StatusCode::BAD_REQUEST,
+            | "FORMAT_UNSUPPORTED"
+            | "METADATA_UNSUPPORTED"
+            | "METADATA_RUNTIME_UNSUPPORTED"
+            | "SOURCE_FORMAT_UNSUPPORTED" => StatusCode::BAD_REQUEST,
             _ => StatusCode::INTERNAL_SERVER_ERROR,
         };
         let id = domain::new_id();
@@ -133,6 +142,69 @@ async fn open_project(
 #[utoipa::path(get,path="/v1/projects/{project_id}",params(("project_id"=String,Path)),responses((status=200,body=Project)))]
 async fn project(State(s): State<AppState>, Path(id): Path<String>) -> ApiResult<Project> {
     Ok(Json(blocking(move || s.store.project(&id)).await?.into()))
+}
+
+fn metadata_permit(
+    s: &AppState,
+) -> std::result::Result<tokio::sync::OwnedSemaphorePermit, Failure> {
+    s.metadata_io.clone().try_acquire_owned().map_err(|_| {
+        Failure(domain::Error::new(
+            "SOURCE_BUSY",
+            "另一个元数据请求正在读取，请稍后重试",
+        ))
+    })
+}
+#[utoipa::path(get,path="/v1/projects/{project_id}/sources/{source_id}/assets/{asset_id}/metadata",params(("project_id"=String,Path),("source_id"=String,Path),("asset_id"=String,Path),("cursor"=Option<String>,Query),("limit"=Option<usize>,Query),("version"=Option<String>,Query)),responses((status=200,body=MetadataOverview),(status=409,body=ApiError),(status=503,body=ApiError)))]
+async fn metadata(
+    State(s): State<AppState>,
+    Path((pid, sid, aid)): Path<(String, String, String)>,
+    Query(q): Query<MetadataQuery>,
+) -> ApiResult<MetadataOverview> {
+    let permit = metadata_permit(&s)?;
+    Ok(Json(
+        blocking(move || {
+            let _permit = permit;
+            let source = s.store.source(&pid, &sid)?;
+            s.metadata.metadata(&source, &aid, q.into()).map(Into::into)
+        })
+        .await?,
+    ))
+}
+#[utoipa::path(get,path="/v1/projects/{project_id}/sources/{source_id}/assets/{asset_id}/records/{record_id}/observations",params(("project_id"=String,Path),("source_id"=String,Path),("asset_id"=String,Path),("record_id"=String,Path),("cursor"=Option<String>,Query),("limit"=Option<usize>,Query),("version"=Option<String>,Query)),responses((status=200,body=ObservationPage),(status=409,body=ApiError),(status=503,body=ApiError)))]
+async fn observations(
+    State(s): State<AppState>,
+    Path((pid, sid, aid, rid)): Path<(String, String, String, String)>,
+    Query(q): Query<MetadataQuery>,
+) -> ApiResult<ObservationPage> {
+    let permit = metadata_permit(&s)?;
+    Ok(Json(
+        blocking(move || {
+            let _permit = permit;
+            let source = s.store.source(&pid, &sid)?;
+            s.metadata
+                .observations(&source, &aid, &rid, q.into())
+                .map(Into::into)
+        })
+        .await?,
+    ))
+}
+#[utoipa::path(get,path="/v1/projects/{project_id}/sources/{source_id}/assets/{asset_id}/records/{record_id}/observations/{observation_id}/raw",params(("project_id"=String,Path),("source_id"=String,Path),("asset_id"=String,Path),("record_id"=String,Path),("observation_id"=String,Path),("version"=String,Query)),responses((status=200,body=RawMetadata),(status=409,body=ApiError),(status=503,body=ApiError)))]
+async fn raw_metadata(
+    State(s): State<AppState>,
+    Path((pid, sid, aid, rid, oid)): Path<(String, String, String, String, String)>,
+    Query(q): Query<RawMetadataQuery>,
+) -> ApiResult<RawMetadata> {
+    let permit = metadata_permit(&s)?;
+    Ok(Json(
+        blocking(move || {
+            let _permit = permit;
+            let source = s.store.source(&pid, &sid)?;
+            s.metadata
+                .raw_metadata(&source, &aid, &rid, &oid, &q.version)
+                .map(Into::into)
+        })
+        .await?,
+    ))
 }
 #[utoipa::path(get,path="/v1/projects/{project_id}/sources",params(("project_id"=String,Path)),responses((status=200,body=Sources)))]
 async fn sources(State(s): State<AppState>, Path(id): Path<String>) -> ApiResult<Sources> {
@@ -553,6 +625,9 @@ async fn shutdown(State(s): State<AppState>) -> Json<OkResponse> {
         attach_source,
         assets,
         media,
+        metadata,
+        observations,
+        raw_metadata,
         selection,
         change_selection,
         collections,
@@ -563,7 +638,14 @@ async fn shutdown(State(s): State<AppState>) -> Json<OkResponse> {
         artifact,
         events
     ),
-    components(schemas(EngineConnection, ApiError, ProjectEvent, OkResponse)),
+    components(schemas(
+        EngineConnection,
+        ApiError,
+        ProjectEvent,
+        OkResponse,
+        MetadataQuery,
+        RawMetadataQuery
+    )),
     info(title = "Dataset Studio Engine", version = "1.0.0")
 )]
 pub struct ApiDoc;
@@ -582,6 +664,18 @@ pub fn routes() -> axum::Router<AppState> {
         .route(
             "/v1/projects/{pid}/sources/{sid}/assets/{aid}/media",
             get(media),
+        )
+        .route(
+            "/v1/projects/{pid}/sources/{sid}/assets/{aid}/metadata",
+            get(metadata),
+        )
+        .route(
+            "/v1/projects/{pid}/sources/{sid}/assets/{aid}/records/{rid}/observations",
+            get(observations),
+        )
+        .route(
+            "/v1/projects/{pid}/sources/{sid}/assets/{aid}/records/{rid}/observations/{oid}/raw",
+            get(raw_metadata),
         )
         .route(
             "/v1/projects/{id}/selection",

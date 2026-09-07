@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 use studio_domain as domain;
+mod metadata;
+pub use metadata::*;
 use utoipa::ToSchema;
 pub const API_VERSION: u32 = 1;
 
