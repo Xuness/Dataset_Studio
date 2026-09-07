@@ -6,32 +6,52 @@ use std::{
     io::Write,
     path::PathBuf,
     process::Stdio,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
 };
-use studio_application::SourceAdapter;
+use studio_application::{ReadResources, SourceAdapter};
 use studio_domain::*;
 use studio_sources::SourceRouter;
 use studio_storage::{SqliteStore, atomic_json};
 use tokio::process::Command;
 use tokio_util::codec::{FramedRead, LinesCodec};
 
-static ACTIVE: std::sync::LazyLock<std::sync::Mutex<std::collections::HashSet<String>>> =
+static ACTIVE: std::sync::LazyLock<std::sync::Mutex<HashMap<String, Arc<AtomicBool>>>> =
     std::sync::LazyLock::new(Default::default);
-struct ActiveAttempt(String);
+struct ActiveAttempt(String, Arc<AtomicBool>);
 impl ActiveAttempt {
     fn enter(job: &Job) -> Result<Self> {
         let key = format!("{}:{}", job.project_id, job.id);
         let mut active = ACTIVE
             .lock()
             .map_err(|_| Error::new("INTERNAL_ERROR", "执行器状态锁不可用"))?;
-        if !active.insert(key.clone()) {
+        if active.contains_key(&key) {
             return Err(Error::new("SOURCE_BUSY", "同一任务已有执行尝试"));
         }
-        Ok(Self(key))
+        let cancel = Arc::new(AtomicBool::new(false));
+        active.insert(key.clone(), cancel.clone());
+        Ok(Self(key, cancel))
+    }
+}
+pub fn cancel(pid: &str, jid: &str) {
+    if let Ok(active) = ACTIVE.lock()
+        && let Some(cancel) = active.get(&format!("{pid}:{jid}"))
+    {
+        cancel.store(true, Ordering::Release);
+    }
+}
+pub fn shutdown() {
+    if let Ok(active) = ACTIVE.lock() {
+        for cancel in active.values() {
+            cancel.store(true, Ordering::Release);
+        }
     }
 }
 impl Drop for ActiveAttempt {
     fn drop(&mut self) {
+        self.1.store(true, Ordering::Release);
         if let Ok(mut active) = ACTIVE.lock() {
             active.remove(&self.0);
         }
@@ -43,7 +63,7 @@ pub async fn wait_stopped(pid: &str, jid: &str) -> Result<()> {
         if !ACTIVE
             .lock()
             .map_err(|_| Error::new("INTERNAL_ERROR", "执行器状态锁不可用"))?
-            .contains(&key)
+            .contains_key(&key)
         {
             return Ok(());
         }
@@ -52,7 +72,7 @@ pub async fn wait_stopped(pid: &str, jid: &str) -> Result<()> {
     Err(Error::new("SOURCE_BUSY", "旧执行尝试正在停止，请稍后重试"))
 }
 
-pub async fn scheduler(store: Arc<SqliteStore>) {
+pub async fn scheduler(store: Arc<SqliteStore>, resources: Arc<dyn ReadResources>) {
     loop {
         let store2 = store.clone();
         let next = tokio::task::spawn_blocking(move || -> Result<Option<Job>> {
@@ -78,7 +98,7 @@ pub async fn scheduler(store: Arc<SqliteStore>) {
         .await;
         match next {
             Ok(Ok(Some(job))) => {
-                if let Err(error) = execute(store.clone(), job.clone()).await {
+                if let Err(error) = execute(store.clone(), job.clone(), resources.clone()).await {
                     tracing::warn!(job_id=%job.id,code=error.code,message=%error.message,"task failed");
                     let _ = store.update_job(
                         &job.project_id,
@@ -100,7 +120,12 @@ pub async fn scheduler(store: Arc<SqliteStore>) {
         tokio::time::sleep(std::time::Duration::from_millis(250)).await;
     }
 }
-fn prepare(store: &SqliteStore, job: &Job) -> Result<(PathBuf, WorkerPlan)> {
+fn prepare(
+    store: &SqliteStore,
+    job: &Job,
+    resources: &dyn ReadResources,
+    cancelled: &AtomicBool,
+) -> Result<(PathBuf, WorkerPlan)> {
     let frozen = store.job_run(&job.project_id, &job.id)?;
     let directory = store.directory(&job.project_id)?;
     let staging = directory.join(".staging").join(&job.id);
@@ -145,14 +170,44 @@ fn prepare(store: &SqliteStore, job: &Job) -> Result<(PathBuf, WorkerPlan)> {
                 .push(key.clone());
         }
         for (id, keys) in groups {
+            let permit = resources.acquire(
+                ReadRequest {
+                    class: ReadClass::Index,
+                    priority: ReadPriority::Background,
+                    bytes: 32 << 20,
+                },
+                cancelled,
+            )?;
             let source = store.source(&job.project_id, &id)?;
             let items = SourceRouter.freeze(&source, &keys)?;
+            drop(permit);
             for mut item in items {
                 if count.is_multiple_of(8)
                     && store.job(&job.project_id, &job.id)?.status == "cancelled"
                 {
                     return Err(Error::new("CANCELLED", "字段准备已取消"));
                 }
+                let class = if frozen
+                    .fields
+                    .iter()
+                    .any(|f| matches!(f, ScalarInput::OriginWidth))
+                {
+                    ReadClass::NativeQuery
+                } else {
+                    ReadClass::Index
+                };
+                let _permit = resources.acquire(
+                    ReadRequest {
+                        class,
+                        priority: ReadPriority::Background,
+                        bytes: if class == ReadClass::NativeQuery {
+                            256 << 20
+                        } else {
+                            1 << 20
+                        },
+                    },
+                    cancelled,
+                )?;
                 crate::tool_inputs::project_fields(
                     store,
                     &job.project_id,
@@ -196,14 +251,20 @@ fn prepare(store: &SqliteStore, job: &Job) -> Result<(PathBuf, WorkerPlan)> {
     let resolved = worker::load_plan(&path)?;
     Ok((path, resolved))
 }
-async fn execute(store: Arc<SqliteStore>, job: Job) -> Result<()> {
+async fn execute(
+    store: Arc<SqliteStore>,
+    job: Job,
+    resources: Arc<dyn ReadResources>,
+) -> Result<()> {
     let _attempt = ActiveAttempt::enter(&job)?;
     let _project_lease = store.operation_lease(&job.project_id)?;
     let s = store.clone();
     let j = job.clone();
-    let (plan_path, plan) = tokio::task::spawn_blocking(move || prepare(&s, &j))
-        .await
-        .map_err(Error::io)??;
+    let cancel = _attempt.1.clone();
+    let (plan_path, plan) =
+        tokio::task::spawn_blocking(move || prepare(&s, &j, resources.as_ref(), &cancel))
+            .await
+            .map_err(Error::io)??;
     if store.job(&job.project_id, &job.id)?.status == "cancelled" {
         return Ok(());
     }

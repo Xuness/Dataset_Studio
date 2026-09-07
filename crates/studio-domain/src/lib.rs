@@ -14,10 +14,12 @@ mod artifacts;
 pub use artifacts::*;
 mod drafts;
 pub use drafts::*;
+mod resources;
+pub use resources::*;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Clone, thiserror::Error)]
 #[error("{code}: {message}")]
 pub struct Error {
     pub code: &'static str,

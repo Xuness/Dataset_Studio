@@ -2,6 +2,8 @@ use std::path::PathBuf;
 use studio_domain::*;
 mod tools;
 pub use tools::*;
+mod resources;
+pub use resources::*;
 
 /// Application ports contain no window, HTTP, or database types.
 pub trait SourceAdapter: Send + Sync {
@@ -26,6 +28,7 @@ pub struct SourceProbe {
     pub index_version: u32,
 }
 
+#[derive(Debug, Clone)]
 pub struct Media {
     pub bytes: Vec<u8>,
     pub content_type: String,

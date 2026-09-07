@@ -151,3 +151,81 @@ pub fn thumbnail(media: Media, edge: u32) -> Result<Media> {
         content_type: "image/jpeg".into(),
     })
 }
+impl MediaSource for SourceRouter {
+    fn content_version(&self, source: &Source, asset_id: &str) -> Result<String> {
+        match source.kind.as_str() {
+            "demo" => Ok(format!("demo-render-v1:{}", demo_number(asset_id)?)),
+            "danbooru"
+                if asset_id.len() == 64
+                    && asset_id
+                        .bytes()
+                        .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()) =>
+            {
+                Ok(format!("sha256:{asset_id}"))
+            }
+            "danbooru" => Err(Error::invalid("图片身份需要是小写 SHA-256 值")),
+            _ => Err(Error::invalid("来源尚未支持可靠的预览内容身份")),
+        }
+    }
+    fn verify_media_identity(&self, source: &Source, asset_id: &str) -> Result<MediaIdentity> {
+        let content_version = self.content_version(source, asset_id)?;
+        if source.kind == "demo" {
+            return Ok(MediaIdentity {
+                content_version,
+                source_revision: "demo-v1".into(),
+                bytes: 1 << 20,
+            });
+        }
+        let catalog = danbooru::Catalog::open(source)?;
+        let asset = catalog.asset(source, asset_id)?;
+        Ok(MediaIdentity {
+            content_version,
+            source_revision: catalog.revision.clone(),
+            bytes: asset.bytes,
+        })
+    }
+    fn read_many(&self, source: &Source, inputs: &[MediaInput]) -> Result<MediaBatch> {
+        if inputs.len() > 16 {
+            return Err(Error::invalid("媒体批次最多 16 个对象"));
+        }
+        if inputs
+            .iter()
+            .all(|i| i.cancelled.load(std::sync::atomic::Ordering::Acquire))
+        {
+            return Ok(MediaBatch {
+                items: inputs
+                    .iter()
+                    .map(|_| Err(Error::new("CANCELLED", "读取已取消")))
+                    .collect(),
+                stats: PhysicalReadStats {
+                    cancelled: inputs.len() as u64,
+                    cancelled_before_read: inputs.len() as u64,
+                    ..Default::default()
+                },
+            });
+        }
+        if source.kind == "danbooru" {
+            return danbooru::Catalog::open(source)?.read_many(inputs);
+        }
+        let mut stats = PhysicalReadStats::default();
+        let items = inputs
+            .iter()
+            .map(|input| {
+                if let Err(error) = read_cancelled(&input.cancelled) {
+                    stats.cancelled += 1;
+                    stats.cancelled_before_read += 1;
+                    return Err(error);
+                }
+                let media = self.read(source, &input.asset_id)?;
+                if media.bytes.len() as u64 > input.byte_limit {
+                    return Err(Error::new(
+                        "READ_BUDGET_EXCEEDED",
+                        "来源输出超过已准入的读取预算",
+                    ));
+                }
+                Ok(media)
+            })
+            .collect();
+        Ok(MediaBatch { items, stats })
+    }
+}

@@ -1,0 +1,13 @@
+.asset-image {
+  position: relative;
+}
+.asset-image .offline-cache-badge {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  background: #263641e8;
+  color: #e4dbc1;
+  border-radius: 3px;
+  padding: 3px 5px;
+  font-size: 10px;
+}

@@ -5,18 +5,26 @@ use std::{
         atomic::{AtomicBool, Ordering},
     },
 };
-use studio_application::QueryAdapter;
+use studio_application::{QueryAdapter, ReadResources};
 use studio_domain::*;
 use studio_sources::QueryReader;
 use studio_storage::SqliteStore;
 
-#[derive(Default)]
 pub struct QueryRunner {
     pub reader: QueryReader,
     running: Mutex<HashMap<String, Arc<AtomicBool>>>,
     stopping: AtomicBool,
+    resources: Arc<dyn ReadResources>,
 }
 impl QueryRunner {
+    pub fn new(resources: Arc<dyn ReadResources>) -> Self {
+        Self {
+            reader: QueryReader::default(),
+            running: Mutex::new(HashMap::new()),
+            stopping: AtomicBool::new(false),
+            resources,
+        }
+    }
     pub fn cancel(&self, id: &str) {
         if let Ok(running) = self.running.lock()
             && let Some(cancel) = running.get(id)
@@ -65,6 +73,14 @@ impl QueryRunner {
     ) -> Result<()> {
         let _lease = store.operation_lease(&result.project_id)?;
         for expected in &result.source_versions {
+            let _permit = self.resources.acquire(
+                ReadRequest {
+                    class: ReadClass::NativeQuery,
+                    priority: ReadPriority::Background,
+                    bytes: 256 << 20,
+                },
+                &cancelled,
+            )?;
             let source = store.source(&result.project_id, &expected.source_id)?;
             self.reader.execute_query(
                 &source,

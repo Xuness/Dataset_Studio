@@ -6,7 +6,7 @@ use std::{
     io::{Read, Seek, SeekFrom},
     path::{Component, Path, PathBuf},
 };
-use studio_application::{Media, SourceProbe};
+use studio_application::{Media, MediaBatch, MediaInput, SourceProbe, read_cancelled};
 use studio_domain::*;
 
 #[derive(Deserialize)]
@@ -278,6 +278,121 @@ impl Catalog {
         Ok(Media {
             bytes,
             content_type,
+        })
+    }
+    pub fn read_many(&self, inputs: &[MediaInput]) -> Result<MediaBatch> {
+        if inputs.len() > 16 {
+            return Err(Error::invalid("媒体批次最多 16 个对象"));
+        }
+        let mut items: Vec<Option<Result<Media>>> = (0..inputs.len()).map(|_| None).collect();
+        let mut locations = Vec::<(usize, String, u64, u64, String)>::new();
+        let mut total = 0u64;
+        for (i, input) in inputs.iter().enumerate() {
+            let location: Option<(String,u64,u64,String)> = self.db.query_row(
+                "SELECT pack_path,offset,length,COALESCE(stored_ext,'') FROM objects WHERE sha256=?1",
+                [&input.asset_id], |r| Ok((r.get(0)?,unsigned(r,1)?,unsigned(r,2)?,r.get(3)?))
+            ).optional().map_err(err)?;
+            match location {
+                Some((_, _, length, _)) if length > input.byte_limit => {
+                    items[i] = Some(Err(Error::new(
+                        "READ_BUDGET_EXCEEDED",
+                        "索引中的图片长度超过已准入的读取预算",
+                    )));
+                }
+                Some((pack, offset, length, extension)) if length <= 64 << 20 => {
+                    total += length;
+                    locations.push((i, pack, offset, length, extension));
+                }
+                Some(_) => {
+                    items[i] = Some(Err(Error::new(
+                        "MEDIA_TOO_LARGE",
+                        "预览支持最大 64 MiB 的单张图片",
+                    )))
+                }
+                None => items[i] = Some(Err(Error::new("NOT_FOUND", "图片对象不存在"))),
+            }
+        }
+        if total > 64 << 20 {
+            return Err(Error::new(
+                "READ_BUDGET_EXCEEDED",
+                "一个媒体批次最多读取 64 MiB",
+            ));
+        }
+        locations.sort_by(|a, b| (&a.1, a.2, a.0).cmp(&(&b.1, b.2, b.0)));
+        let mut current: Option<(String, File)> = None;
+        let mut stats = PhysicalReadStats::default();
+        for (index, pack, offset, length, extension) in locations {
+            let input = &inputs[index];
+            let mut read = 0u64;
+            let result = (|| -> Result<Media> {
+                read_cancelled(&input.cancelled)?;
+                if current.as_ref().is_none_or(|(name, _)| name != &pack) {
+                    let path = child(&self.root, &pack)?;
+                    read_cancelled(&input.cancelled)?;
+                    current = Some((pack.clone(), File::open(path).map_err(Error::io)?));
+                    stats.opens += 1;
+                }
+                let file = &mut current.as_mut().expect("opened pack").1;
+                if offset
+                    .checked_add(length)
+                    .is_none_or(|end| end > file.metadata().map(|m| m.len()).unwrap_or(0))
+                {
+                    return Err(Error::new("SOURCE_CORRUPT", "图片位置超出数据包边界"));
+                }
+                read_cancelled(&input.cancelled)?;
+                file.seek(SeekFrom::Start(offset)).map_err(Error::io)?;
+                stats.seeks += 1;
+                let mut bytes = vec![0; length as usize];
+                for chunk in bytes.chunks_mut(64 * 1024) {
+                    let mut filled = 0;
+                    while filled < chunk.len() {
+                        read_cancelled(&input.cancelled)?;
+                        let count = file.read(&mut chunk[filled..]).map_err(Error::io)?;
+                        if count == 0 {
+                            return Err(Error::new("SOURCE_CORRUPT", "数据包读取提前结束"));
+                        }
+                        filled += count;
+                        read += count as u64;
+                        stats.bytes += count as u64;
+                    }
+                }
+                read_cancelled(&input.cancelled)?;
+                if hex::encode(Sha256::digest(&bytes)) != input.asset_id {
+                    return Err(Error::new("SOURCE_CORRUPT", "图片内容校验失败"));
+                }
+                let content_type = match extension.as_str() {
+                    "png" => "image/png",
+                    "jpg" | "jpeg" => "image/jpeg",
+                    "webp" => "image/webp",
+                    "gif" => "image/gif",
+                    _ => "application/octet-stream",
+                }
+                .into();
+                Ok(Media {
+                    bytes,
+                    content_type,
+                })
+            })();
+            if read > 0 {
+                stats.trace.push(PhysicalReadTrace {
+                    asset_id: input.asset_id.clone(),
+                    pack,
+                    offset,
+                    bytes: read,
+                });
+            }
+            if result.as_ref().is_err_and(|e| e.code == "CANCELLED") {
+                stats.cancelled += 1;
+                stats.cancelled_before_read += u64::from(read == 0);
+            }
+            items[index] = Some(result);
+        }
+        Ok(MediaBatch {
+            items: items
+                .into_iter()
+                .map(|v| v.expect("each input assigned once"))
+                .collect(),
+            stats,
         })
     }
 }

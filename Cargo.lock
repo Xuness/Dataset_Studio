@@ -3921,7 +3921,7 @@ checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 
 [[package]]
 name = "studio-application"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "serde_json",
  "studio-domain",
@@ -3929,7 +3929,7 @@ dependencies = [
 
 [[package]]
 name = "studio-desktop"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "reqwest 0.12.28",
  "serde",
@@ -3944,7 +3944,7 @@ dependencies = [
 
 [[package]]
 name = "studio-domain"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -3954,7 +3954,7 @@ dependencies = [
 
 [[package]]
 name = "studio-engine"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "async-stream",
  "axum",
@@ -3963,6 +3963,7 @@ dependencies = [
  "fs2",
  "futures",
  "hex",
+ "rusqlite",
  "serde",
  "serde_json",
  "sha2",
@@ -3970,6 +3971,7 @@ dependencies = [
  "studio-domain",
  "studio-operators",
  "studio-protocol",
+ "studio-resources",
  "studio-sources",
  "studio-storage",
  "tempfile",
@@ -3984,7 +3986,7 @@ dependencies = [
 
 [[package]]
 name = "studio-operators"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -3994,7 +3996,7 @@ dependencies = [
 
 [[package]]
 name = "studio-protocol"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -4003,8 +4005,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "studio-resources"
+version = "0.4.0"
+dependencies = [
+ "fs2",
+ "hex",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "studio-application",
+ "studio-domain",
+ "tempfile",
+]
+
+[[package]]
 name = "studio-sources"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "base64 0.22.1",
  "hex",
@@ -4021,7 +4038,7 @@ dependencies = [
 
 [[package]]
 name = "studio-storage"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "fs2",
  "hex",

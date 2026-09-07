@@ -495,6 +495,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{project_id}/read-requests/{request_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["cancel_read_subscription"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects/{project_id}/scopes/capture": {
         parameters: {
             query?: never;
@@ -697,6 +713,54 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["validate_scope"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/resources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/resources/cache": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["configure"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/resources/cache/clear": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["clear"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1060,6 +1124,62 @@ export interface components {
             schema_version: number;
             value: unknown;
         };
+        PreviewActivity: {
+            active_subscriptions: number;
+            /** Format: int64 */
+            batches: number;
+            /** Format: int64 */
+            cancelled_before_read: number;
+            /** Format: int64 */
+            cancelled_finished: number;
+            /** Format: int64 */
+            cancelled_last: number;
+            /** Format: int64 */
+            decode_ms: number;
+            /** Format: int64 */
+            generated: number;
+            max_batch: number;
+            /** Format: int64 */
+            max_cancel_latency_ms: number;
+            /** Format: int64 */
+            max_queue_wait_ms: number;
+            /** Format: int64 */
+            pack_opens: number;
+            /** Format: int64 */
+            queue_wait_ms: number;
+            queued: number;
+            /** Format: int64 */
+            read_ms: number;
+            /** Format: int64 */
+            seeks: number;
+            /** Format: int64 */
+            shared: number;
+            source_bytes: string;
+        };
+        PreviewCacheStatus: {
+            bytes: string;
+            clear_pending: boolean;
+            /** Format: int64 */
+            corrupt: number;
+            directory: string;
+            /** Format: int64 */
+            entries: number;
+            /** Format: int64 */
+            evicted: number;
+            /** Format: int64 */
+            hits: number;
+            index_rebuilt: boolean;
+            maintenance_pending: boolean;
+            /** Format: int64 */
+            maintenance_removed: number;
+            /** Format: int64 */
+            misses: number;
+            pinned: number;
+            quota_bytes: string;
+            read_bytes: string;
+            /** Format: int64 */
+            writes: number;
+        };
         Project: {
             created_at: string;
             directory: string;
@@ -1173,6 +1293,19 @@ export interface components {
         RawMetadataQuery: {
             version: string;
         };
+        ReadProcessMemory: {
+            peak_resident_bytes: string;
+            private_bytes: string;
+            resident_bytes: string;
+        };
+        ReadServiceStatus: {
+            cache: components["schemas"]["PreviewCacheStatus"];
+            previews: components["schemas"]["PreviewActivity"];
+            process_memory?: null | components["schemas"]["ReadProcessMemory"];
+            /** Format: int32 */
+            protocol_version: number;
+            resources: components["schemas"]["ResourceStatus"][];
+        };
         ReadVersion: {
             analysis_sequence: string;
             catalog_sequence: string;
@@ -1192,6 +1325,30 @@ export interface components {
             media_reads: boolean;
             /** Format: int64 */
             memory_bytes: number;
+        };
+        ResourceStatus: {
+            active: number;
+            byte_budget: string;
+            /** Format: int64 */
+            cancelled_waiting: number;
+            class: string;
+            /** Format: int64 */
+            completed: number;
+            concurrency: number;
+            /** Format: int64 */
+            max_wait_ms: number;
+            peak_reserved_bytes: string;
+            queue_limit: number;
+            queued: number;
+            /** Format: int64 */
+            rejected: number;
+            reserved_bytes: string;
+            /** Format: int64 */
+            started: number;
+            /** Format: int64 */
+            wait_ms: number;
+            /** Format: int64 */
+            work_ms: number;
         };
         ResultAssets: {
             /** Format: int64 */
@@ -1281,6 +1438,10 @@ export interface components {
             excluded_count: number;
             /** Format: int64 */
             revision: number;
+        };
+        SetCacheQuota: {
+            /** Format: int32 */
+            quota_mib: number;
         };
         Source: {
             available: boolean;
@@ -2201,6 +2362,28 @@ export interface operations {
             };
         };
     };
+    cancel_read_subscription: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                request_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+        };
+    };
     capture: {
         parameters: {
             query?: never;
@@ -2370,6 +2553,11 @@ export interface operations {
         parameters: {
             query?: {
                 edge?: number;
+                request_id?: string;
+                /** @description interactive, background or prefetch */
+                priority?: string;
+                /** @description Cold generation input byte limit, at most 64 MiB */
+                max_source_bytes?: number;
             };
             header?: never;
             path: {
@@ -2381,7 +2569,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Authenticated image bytes */
+            /** @description Authenticated image bytes; x-studio-cache, x-studio-freshness and x-studio-verified-ms report cache verification */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -2616,6 +2804,67 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+        };
+    };
+    status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReadServiceStatus"];
+                };
+            };
+        };
+    };
+    configure: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetCacheQuota"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreviewCacheStatus"];
+                };
+            };
+        };
+    };
+    clear: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreviewCacheStatus"];
                 };
             };
         };

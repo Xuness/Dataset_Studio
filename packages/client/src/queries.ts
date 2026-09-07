@@ -5,6 +5,7 @@ export type PageOptions = {
   cursor?: string;
   limit?: number;
   signal?: AbortSignal;
+  priority?: "interactive" | "background" | "prefetch";
 };
 const projectPath = (id: string) => "/v1/projects/" + encodeURIComponent(id);
 function pageQuery(options: PageOptions) {
@@ -83,7 +84,12 @@ export class QueryClient {
         encodeURIComponent(id) +
         "/assets?" +
         pageQuery(options),
-      options.signal ? { signal: options.signal } : {},
+      {
+        ...(options.signal ? { signal: options.signal } : {}),
+        headers: {
+          "x-studio-read-priority": options.priority ?? "interactive",
+        },
+      },
     );
   }
   cancel(projectId: string, id: string) {

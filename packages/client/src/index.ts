@@ -8,6 +8,8 @@ import type {
 import { QueryClient } from "./queries.js";
 import { ToolClient, DraftClient } from "./tools.js";
 import { DraftCoordinator } from "./drafts.js";
+import { MediaClient, ResourceClient } from "./media.js";
+import type { MediaOptions, MediaHandle } from "./media.js";
 export { DraftController, DraftCoordinator } from "./drafts.js";
 export type { DraftSnapshot, DraftStatus } from "./drafts.js";
 export type { PageOptions } from "./queries.js";
@@ -116,58 +118,79 @@ export class StudioClient {
   readonly queries = new QueryClient(<T>(path: string, init?: RequestInit) =>
     this.request<T>(path, init),
   );
-  private media = new Map<
-    string,
-    { url: string; bytes: number; refs: number; used: number }
-  >();
-  private disposed = false;
+  private mediaClient: MediaClient;
+  readonly resources: ResourceClient;
   dispose() {
-    this.disposed = true;
-    for (const item of this.media.values()) URL.revokeObjectURL(item.url);
-    this.media.clear();
+    this.mediaClient.dispose();
   }
-  private pendingMedia = new Map<string, Promise<string>>();
   constructor(readonly connection: EngineConnection) {
     validateConnection(connection);
+    this.mediaClient = new MediaClient(connection, (path, init) =>
+      this.request(path, init),
+    );
+    this.resources = new ResourceClient(
+      (path, init) => this.request(path, init),
+      () => this.mediaClient.clear(),
+    );
   }
   private async request<T>(path: string, init: RequestInit = {}): Promise<T> {
     const headers = new Headers(init.headers);
     headers.set("Authorization", "Bearer " + this.connection.token);
     if (init.body) headers.set("Content-Type", "application/json");
-    let response: Response;
+    const projectId = /^\/v1\/projects\/([0-9a-f-]{36})(?:\/|\?)/i.exec(
+      path,
+    )?.[1];
+    const readId =
+      (!init.method || init.method === "GET") && projectId && init.signal
+        ? crypto.randomUUID()
+        : null;
+    if (readId) headers.set("x-studio-read-id", readId);
+    const cancel = () => {
+      if (readId && projectId)
+        void this.request(
+          "/v1/projects/" + projectId + "/read-requests/" + readId + "/cancel",
+          { method: "POST", keepalive: true },
+        ).catch(() => {});
+    };
+    init.signal?.addEventListener("abort", cancel, { once: true });
     try {
-      response = await fetch(this.connection.endpoint + path, {
-        ...init,
-        headers,
-      });
-    } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError")
-        throw error;
-      throw new StudioError(
-        "ENGINE_DISCONNECTED",
-        "本机引擎连接中断，请重连。",
-      );
-    }
-    if (!response.ok) {
-      let body: unknown;
+      let response: Response;
       try {
-        body = await response.json();
-      } catch {
-        body = null;
+        response = await fetch(this.connection.endpoint + path, {
+          ...init,
+          headers,
+        });
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError")
+          throw error;
+        throw new StudioError(
+          "ENGINE_DISCONNECTED",
+          "本机引擎连接中断，请重连。",
+        );
       }
-      throw new StudioError(
-        record(body) && typeof body.code === "string"
-          ? body.code
-          : "HTTP_ERROR",
-        record(body) && typeof body.message === "string"
-          ? body.message
-          : "请求失败（" + response.status + "）",
-        record(body) && typeof body.request_id === "string"
-          ? body.request_id
-          : undefined,
-      );
+      if (!response.ok) {
+        let body: unknown;
+        try {
+          body = await response.json();
+        } catch {
+          body = null;
+        }
+        throw new StudioError(
+          record(body) && typeof body.code === "string"
+            ? body.code
+            : "HTTP_ERROR",
+          record(body) && typeof body.message === "string"
+            ? body.message
+            : "请求失败（" + response.status + "）",
+          record(body) && typeof body.request_id === "string"
+            ? body.request_id
+            : undefined,
+        );
+      }
+      return (await response.json()) as T;
+    } finally {
+      init.signal?.removeEventListener("abort", cancel);
     }
-    return response.json() as Promise<T>;
   }
   async health() {
     const result = await this.request<Schema["Health"]>("/v1/health");
@@ -207,6 +230,7 @@ export class StudioClient {
   }
   async closeProject(id: string) {
     await this.edits.flush(id);
+    await this.mediaClient.clear(id);
     const result = await this.request<Schema["ProjectClose"]>(
       "/v1/projects/" + encodeURIComponent(id) + "/close",
       { method: "POST" },
@@ -251,6 +275,7 @@ export class StudioClient {
       cursor?: string;
       limit?: number;
       signal?: AbortSignal;
+      priority?: "interactive" | "background" | "prefetch";
     } = {},
   ) {
     const query = new URLSearchParams({ limit: String(options.limit ?? 48) });
@@ -260,7 +285,12 @@ export class StudioClient {
     if (options.cursor) query.set("cursor", options.cursor);
     return this.request<Schema["AssetPage"]>(
       "/v1/projects/" + id + "/assets?" + query,
-      { ...(options.signal ? { signal: options.signal } : {}) },
+      {
+        ...(options.signal ? { signal: options.signal } : {}),
+        headers: {
+          "x-studio-read-priority": options.priority ?? "interactive",
+        },
+      },
     );
   }
   selection(id: string) {
@@ -380,83 +410,13 @@ export class StudioClient {
     link.click();
     setTimeout(() => URL.revokeObjectURL(url), 2000);
   }
-  async acquireMedia(
+  acquireMedia(
     projectId: string,
     asset: Asset,
     edge: number,
-  ): Promise<{ url: string; release: () => void }> {
-    const key = projectId + ":" + assetIdentity(asset.key) + ":" + edge;
-    let entry = this.media.get(key);
-    if (!entry) {
-      let promise = this.pendingMedia.get(key);
-      if (!promise) {
-        promise = (async () => {
-          const path =
-            "/v1/projects/" +
-            projectId +
-            "/sources/" +
-            asset.key.source_id +
-            "/assets/" +
-            encodeURIComponent(asset.key.asset_id) +
-            "/media?edge=" +
-            edge;
-          const response = await fetch(this.connection.endpoint + path, {
-            headers: { Authorization: "Bearer " + this.connection.token },
-          });
-          if (!response.ok) {
-            const error: unknown = await response.json().catch(() => null);
-            throw new StudioError(
-              record(error) && typeof error.code === "string"
-                ? error.code
-                : "MEDIA_UNAVAILABLE",
-              record(error) && typeof error.message === "string"
-                ? error.message
-                : "预览暂不可用",
-            );
-          }
-          const blob = await response.blob();
-          if (this.disposed)
-            throw new StudioError("CLIENT_DISPOSED", "连接已更换");
-          const url = URL.createObjectURL(blob);
-          this.media.set(key, {
-            url,
-            bytes: blob.size,
-            refs: 0,
-            used: Date.now(),
-          });
-          return url;
-        })().finally(() => this.pendingMedia.delete(key));
-        this.pendingMedia.set(key, promise);
-      }
-      await promise;
-      entry = this.media.get(key);
-    }
-    if (!entry) throw new StudioError("MEDIA_UNAVAILABLE", "预览已释放");
-    entry.refs++;
-    entry.used = Date.now();
-    this.evictMedia();
-    let released = false;
-    return {
-      url: entry.url,
-      release: () => {
-        if (released) return;
-        released = true;
-        const cached = this.media.get(key);
-        if (cached) cached.refs = Math.max(0, cached.refs - 1);
-        this.evictMedia();
-      },
-    };
-  }
-  private evictMedia() {
-    let total = [...this.media.values()].reduce((n, v) => n + v.bytes, 0);
-    for (const [key, item] of [...this.media.entries()]
-      .filter(([, v]) => v.refs === 0)
-      .sort((a, b) => a[1].used - b[1].used)) {
-      if (this.media.size <= 96 && total <= 32 * 1024 * 1024) break;
-      URL.revokeObjectURL(item.url);
-      total -= item.bytes;
-      this.media.delete(key);
-    }
+    options: MediaOptions = {},
+  ): Promise<MediaHandle> {
+    return this.mediaClient.acquire(projectId, asset, edge, options);
   }
   async watch(
     projectId: string,

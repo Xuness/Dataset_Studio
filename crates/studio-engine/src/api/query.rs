@@ -20,10 +20,12 @@ fn validate_spec(
 #[utoipa::path(get,path="/v1/projects/{project_id}/sources/{source_id}/fields",params(("project_id"=String,Path),("source_id"=String,Path)),responses((status=200,body=FieldDirectory)))]
 pub(super) async fn fields(
     State(s): State<AppState>,
+    Extension(read_context): Extension<RequestReadContext>,
     Path((pid, sid)): Path<(String, String)>,
 ) -> ApiResult<FieldDirectory> {
     Ok(Json(
         blocking(move || {
+            let _permit = read_permit(&s, domain::ReadClass::Index, &read_context)?;
             let mut directory = s.queries.reader.fields(&s.store.source(&pid, &sid)?)?;
             directory.fields.extend(s.store.derived_fields(&pid, &sid)?);
             Ok(directory.into())
@@ -107,13 +109,13 @@ pub(super) async fn update_definition(
 #[utoipa::path(post,path="/v1/projects/{project_id}/queries/{query_id}/results",params(("project_id"=String,Path),("query_id"=String,Path)),request_body=BuildQuery,responses((status=200,body=QueryResult)))]
 pub(super) async fn build(
     State(s): State<AppState>,
+    Extension(read_context): Extension<RequestReadContext>,
     Path((pid, qid)): Path<(String, String)>,
     Body(body): Body<BuildQuery>,
 ) -> ApiResult<QueryResult> {
-    let permit = metadata_permit(&s)?;
     Ok(Json(
         blocking(move || {
-            let _permit = permit;
+            let _permit = read_permit(&s, domain::ReadClass::Index, &read_context)?;
             let query = s.store.query_definition(&pid, &qid)?;
             if query.revision != body.expected_revision {
                 return Err(domain::Error::new("REVISION_CONFLICT", "查询定义已变化"));
@@ -164,12 +166,12 @@ pub(super) async fn result(
 #[utoipa::path(get,path="/v1/projects/{project_id}/query-results/{result_id}/validity",params(("project_id"=String,Path),("result_id"=String,Path)),responses((status=200,body=ResultValidity)))]
 pub(super) async fn validity(
     State(s): State<AppState>,
+    Extension(read_context): Extension<RequestReadContext>,
     Path((pid, rid)): Path<(String, String)>,
 ) -> ApiResult<ResultValidity> {
-    let permit = metadata_permit(&s)?;
     Ok(Json(
         blocking(move || {
-            let _permit = permit;
+            let _permit = read_permit(&s, domain::ReadClass::Index, &read_context)?;
             let result = s.store.query_result(&pid, &rid)?;
             let issue = s
                 .queries
@@ -218,13 +220,13 @@ struct ResultCursor {
 #[utoipa::path(get,path="/v1/projects/{project_id}/query-results/{result_id}/assets",params(("project_id"=String,Path),("result_id"=String,Path),("cursor"=Option<String>,Query),("limit"=Option<usize>,Query)),responses((status=200,body=ResultAssets)))]
 pub(super) async fn result_assets(
     State(s): State<AppState>,
+    Extension(read_context): Extension<RequestReadContext>,
     Path((pid, rid)): Path<(String, String)>,
     Query(q): Query<QueryListParams>,
 ) -> ApiResult<ResultAssets> {
-    let permit = metadata_permit(&s)?;
     Ok(Json(
         blocking(move || {
-            let _permit = permit;
+            let _permit = read_permit(&s, domain::ReadClass::Index, &read_context)?;
             let result = s.store.query_result(&pid, &rid)?;
             s.queries.validate_result(&s.store, &result)?;
             let after = q
@@ -365,13 +367,13 @@ pub(super) async fn capture(
 #[utoipa::path(post,path="/v1/projects/{project_id}/selection/scope",params(("project_id"=String,Path)),request_body=ChangeSelectionScope,responses((status=200,body=Selection)))]
 pub(super) async fn select_scope(
     State(s): State<AppState>,
+    Extension(read_context): Extension<RequestReadContext>,
     Path(pid): Path<String>,
     Body(body): Body<ChangeSelectionScope>,
 ) -> ApiResult<Selection> {
-    let permit = metadata_permit(&s)?;
     Ok(Json(
         blocking(move || {
-            let _permit = permit;
+            let _permit = read_permit(&s, domain::ReadClass::Index, &read_context)?;
             let scope = body.scope.into();
             validate_scope(&s, &pid, &scope)?;
             s.store

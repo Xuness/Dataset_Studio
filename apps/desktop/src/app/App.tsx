@@ -68,6 +68,7 @@ const moduleIcons = {
   search: Search,
   calculator: Calculator,
   archive: Archive,
+  database: Database,
 };
 export function App() {
   const [closeError, setCloseError] = useState("");
@@ -625,7 +626,7 @@ function Studio({
           </div>
         ))}
         <span className="grow" />
-        <span className="version-label">开发版 0.3</span>
+        <span className="version-label">开发版 0.4</span>
       </div>
       <div className="options-bar">
         <button

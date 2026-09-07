@@ -1,6 +1,6 @@
 use axum::{
     Json,
-    extract::{FromRequest, Path, Query, Request, State, rejection::JsonRejection},
+    extract::{Extension, FromRequest, Path, Query, Request, State, rejection::JsonRejection},
     http::{HeaderValue, StatusCode},
     response::{
         IntoResponse, Response,
@@ -21,6 +21,7 @@ use studio_sources::SourceRouter;
 use studio_storage::SqliteStore;
 use utoipa::OpenApi;
 mod query;
+mod resources;
 mod source_locations;
 mod tools;
 
@@ -28,11 +29,16 @@ mod tools;
 pub struct AppState {
     pub store: Arc<SqliteStore>,
     pub connection: EngineConnection,
-    pub io: Arc<tokio::sync::Semaphore>,
-    pub metadata_io: Arc<tokio::sync::Semaphore>,
+    pub resources: Arc<dyn studio_application::ReadResources>,
+    pub previews: Arc<crate::previews::PreviewService>,
     pub metadata: Arc<studio_sources::MetadataReader>,
     pub queries: Arc<crate::query_jobs::QueryRunner>,
     pub shutdown: tokio::sync::watch::Sender<bool>,
+}
+#[derive(Clone)]
+pub struct RequestReadContext {
+    pub cancelled: studio_application::ReadCancellation,
+    pub priority: domain::ReadPriority,
 }
 pub struct Failure(domain::Error);
 impl From<domain::Error> for Failure {
@@ -60,11 +66,14 @@ impl IntoResponse for Failure {
             | "SOURCE_LOCATION_CONFLICT"
             | "PROJECT_ID_CONFLICT"
             | "IDEMPOTENCY_CONFLICT" => StatusCode::CONFLICT,
-            "SOURCE_BUSY" | "SOURCE_UNAVAILABLE" | "METADATA_RUNTIME_UNAVAILABLE" => {
-                StatusCode::SERVICE_UNAVAILABLE
-            }
+            "SOURCE_BUSY"
+            | "SOURCE_UNAVAILABLE"
+            | "METADATA_RUNTIME_UNAVAILABLE"
+            | "READ_BUDGET_EXCEEDED"
+            | "CACHE_BUSY" => StatusCode::SERVICE_UNAVAILABLE,
             "SOURCE_TIMEOUT" => StatusCode::GATEWAY_TIMEOUT,
             "SOURCE_RESOURCE_LIMIT" | "METADATA_LIMIT" => StatusCode::PAYLOAD_TOO_LARGE,
+            "CANCELLED" => StatusCode::CONFLICT,
             "INVALID_INPUT"
             | "SOURCE_ID_MISMATCH"
             | "SOURCE_PATH_INVALID"
@@ -179,10 +188,12 @@ async fn project(State(s): State<AppState>, Path(id): Path<String>) -> ApiResult
 #[utoipa::path(get,path="/v1/projects/{project_id}/sources/{source_id}/assets/{asset_id}",operation_id="asset_detail",params(("project_id"=String,Path),("source_id"=String,Path),("asset_id"=String,Path)),responses((status=200,body=Asset)))]
 async fn asset_detail(
     State(s): State<AppState>,
+    Extension(read_context): Extension<RequestReadContext>,
     Path((pid, sid, aid)): Path<(String, String, String)>,
 ) -> ApiResult<Asset> {
     Ok(Json(
         blocking(move || {
+            let _permit = read_permit(&s, domain::ReadClass::Index, &read_context)?;
             let key = domain::AssetKey {
                 source_id: sid.clone(),
                 asset_id: aid,
@@ -205,26 +216,34 @@ async fn asset_detail(
     ))
 }
 
-fn metadata_permit(
+fn read_permit(
     s: &AppState,
-) -> std::result::Result<tokio::sync::OwnedSemaphorePermit, Failure> {
-    s.metadata_io.clone().try_acquire_owned().map_err(|_| {
-        Failure(domain::Error::new(
-            "SOURCE_BUSY",
-            "另一个元数据请求正在读取，请稍后重试",
-        ))
-    })
+    class: domain::ReadClass,
+    context: &RequestReadContext,
+) -> domain::Result<Box<dyn studio_application::ReadLease>> {
+    s.resources.acquire(
+        domain::ReadRequest {
+            class,
+            priority: context.priority,
+            bytes: if class == domain::ReadClass::NativeQuery {
+                256 << 20
+            } else {
+                32 << 20
+            },
+        },
+        &context.cancelled,
+    )
 }
 #[utoipa::path(get,path="/v1/projects/{project_id}/sources/{source_id}/assets/{asset_id}/metadata",params(("project_id"=String,Path),("source_id"=String,Path),("asset_id"=String,Path),("cursor"=Option<String>,Query),("limit"=Option<usize>,Query),("version"=Option<String>,Query)),responses((status=200,body=MetadataOverview),(status=409,body=ApiError),(status=503,body=ApiError)))]
 async fn metadata(
     State(s): State<AppState>,
+    Extension(read_context): Extension<RequestReadContext>,
     Path((pid, sid, aid)): Path<(String, String, String)>,
     Query(q): Query<MetadataQuery>,
 ) -> ApiResult<MetadataOverview> {
-    let permit = metadata_permit(&s)?;
     Ok(Json(
         blocking(move || {
-            let _permit = permit;
+            let _permit = read_permit(&s, domain::ReadClass::NativeQuery, &read_context)?;
             let source = s.store.source(&pid, &sid)?;
             s.metadata.metadata(&source, &aid, q.into()).map(Into::into)
         })
@@ -234,13 +253,13 @@ async fn metadata(
 #[utoipa::path(get,path="/v1/projects/{project_id}/sources/{source_id}/assets/{asset_id}/records/{record_id}/observations",params(("project_id"=String,Path),("source_id"=String,Path),("asset_id"=String,Path),("record_id"=String,Path),("cursor"=Option<String>,Query),("limit"=Option<usize>,Query),("version"=Option<String>,Query)),responses((status=200,body=ObservationPage),(status=409,body=ApiError),(status=503,body=ApiError)))]
 async fn observations(
     State(s): State<AppState>,
+    Extension(read_context): Extension<RequestReadContext>,
     Path((pid, sid, aid, rid)): Path<(String, String, String, String)>,
     Query(q): Query<MetadataQuery>,
 ) -> ApiResult<ObservationPage> {
-    let permit = metadata_permit(&s)?;
     Ok(Json(
         blocking(move || {
-            let _permit = permit;
+            let _permit = read_permit(&s, domain::ReadClass::NativeQuery, &read_context)?;
             let source = s.store.source(&pid, &sid)?;
             s.metadata
                 .observations(&source, &aid, &rid, q.into())
@@ -252,13 +271,13 @@ async fn observations(
 #[utoipa::path(get,path="/v1/projects/{project_id}/sources/{source_id}/assets/{asset_id}/records/{record_id}/observations/{observation_id}/raw",params(("project_id"=String,Path),("source_id"=String,Path),("asset_id"=String,Path),("record_id"=String,Path),("observation_id"=String,Path),("version"=String,Query)),responses((status=200,body=RawMetadata),(status=409,body=ApiError),(status=503,body=ApiError)))]
 async fn raw_metadata(
     State(s): State<AppState>,
+    Extension(read_context): Extension<RequestReadContext>,
     Path((pid, sid, aid, rid, oid)): Path<(String, String, String, String, String)>,
     Query(q): Query<RawMetadataQuery>,
 ) -> ApiResult<RawMetadata> {
-    let permit = metadata_permit(&s)?;
     Ok(Json(
         blocking(move || {
-            let _permit = permit;
+            let _permit = read_permit(&s, domain::ReadClass::NativeQuery, &read_context)?;
             let source = s.store.source(&pid, &sid)?;
             s.metadata
                 .raw_metadata(&source, &aid, &rid, &oid, &q.version)
@@ -268,9 +287,14 @@ async fn raw_metadata(
     ))
 }
 #[utoipa::path(get,path="/v1/projects/{project_id}/sources",params(("project_id"=String,Path)),responses((status=200,body=Sources)))]
-async fn sources(State(s): State<AppState>, Path(id): Path<String>) -> ApiResult<Sources> {
+async fn sources(
+    State(s): State<AppState>,
+    Extension(read_context): Extension<RequestReadContext>,
+    Path(id): Path<String>,
+) -> ApiResult<Sources> {
     Ok(Json(Sources {
         items: blocking(move || {
+            let _permit = read_permit(&s, domain::ReadClass::Index, &read_context)?;
             Ok(s.store
                 .sources(&id)?
                 .into_iter()
@@ -486,46 +510,60 @@ fn browse_sync(store: &SqliteStore, id: &str, query: BrowseQuery) -> domain::Res
 #[utoipa::path(get,path="/v1/projects/{project_id}/assets",params(("project_id"=String,Path),("source_id"=Option<String>,Query),("collection_id"=Option<String>,Query),("selection"=Option<bool>,Query),("cursor"=Option<String>,Query),("limit"=Option<usize>,Query)),responses((status=200,body=AssetPage)))]
 async fn assets(
     State(s): State<AppState>,
+    Extension(read_context): Extension<RequestReadContext>,
     Path(id): Path<String>,
     Query(query): Query<BrowseQuery>,
 ) -> ApiResult<AssetPage> {
-    let _permit =
-        s.io.acquire()
-            .await
-            .map_err(|e| Failure(domain::Error::io(e)))?;
     Ok(Json(
-        blocking(move || browse_sync(&s.store, &id, query)).await?,
+        blocking(move || {
+            let _permit = read_permit(&s, domain::ReadClass::Index, &read_context)?;
+            browse_sync(&s.store, &id, query)
+        })
+        .await?,
     ))
 }
 #[derive(Deserialize)]
 struct MediaQuery {
     edge: Option<u32>,
+    request_id: Option<String>,
+    priority: Option<domain::ReadPriority>,
+    max_source_bytes: Option<u64>,
 }
-#[utoipa::path(get,path="/v1/projects/{project_id}/sources/{source_id}/assets/{asset_id}/media",params(("project_id"=String,Path),("source_id"=String,Path),("asset_id"=String,Path),("edge"=Option<u32>,Query)),responses((status=200,description="Authenticated image bytes",content_type="image/jpeg")))]
+#[utoipa::path(get,path="/v1/projects/{project_id}/sources/{source_id}/assets/{asset_id}/media",params(("project_id"=String,Path),("source_id"=String,Path),("asset_id"=String,Path),("edge"=Option<u32>,Query),("request_id"=Option<String>,Query),("priority"=Option<String>,Query,description="interactive, background or prefetch"),("max_source_bytes"=Option<u64>,Query,description="Cold generation input byte limit, at most 64 MiB")),responses((status=200,description="Authenticated image bytes; x-studio-cache, x-studio-freshness and x-studio-verified-ms report cache verification",content_type="image/jpeg")))]
 async fn media(
     State(s): State<AppState>,
     Path((pid, sid, aid)): Path<(String, String, String)>,
     Query(q): Query<MediaQuery>,
 ) -> std::result::Result<Response, Failure> {
-    let _permit =
-        s.io.acquire()
-            .await
-            .map_err(|e| Failure(domain::Error::io(e)))?;
-    let result = blocking(move || {
-        let source = s.store.source(&pid, &sid)?;
-        let media = SourceRouter.read(&source, &aid)?;
-        studio_sources::thumbnail(media, q.edge.unwrap_or(360))
-    })
-    .await?;
+    let ticket = s
+        .previews
+        .ticket(&pid, &q.request_id.unwrap_or_else(domain::new_id))?;
+    let result = s
+        .previews
+        .get(
+            s.store,
+            &ticket,
+            pid,
+            domain::AssetKey {
+                source_id: sid,
+                asset_id: aid,
+            },
+            crate::previews::PreviewOptions {
+                edge: q.edge.unwrap_or(360),
+                priority: q.priority.unwrap_or(domain::ReadPriority::Interactive),
+                max_source_bytes: q.max_source_bytes.unwrap_or(64 << 20),
+            },
+        )
+        .await?;
     Ok((
         [
-            (axum::http::header::CONTENT_TYPE, result.content_type),
-            (
-                axum::http::header::CACHE_CONTROL,
-                "private, max-age=86400".into(),
-            ),
+            ("content-type", result.media.content_type.clone()),
+            ("cache-control", "no-store".into()),
+            ("x-studio-cache", result.cache.into()),
+            ("x-studio-freshness", result.freshness.into()),
+            ("x-studio-verified-ms", result.verified_ms.to_string()),
         ],
-        result.bytes,
+        result.media.bytes.clone(),
     )
         .into_response())
 }
@@ -580,13 +618,13 @@ async fn collections(State(s): State<AppState>, Path(id): Path<String>) -> ApiRe
 #[utoipa::path(post,path="/v1/projects/{project_id}/collections",params(("project_id"=String,Path)),request_body=CreateCollection,responses((status=200,body=Collection)))]
 async fn create_collection(
     State(s): State<AppState>,
+    Extension(read_context): Extension<RequestReadContext>,
     Path(id): Path<String>,
     Body(body): Body<CreateCollection>,
 ) -> ApiResult<Collection> {
-    let permit = metadata_permit(&s)?;
     Ok(Json(
         blocking(move || {
-            let _permit = permit;
+            let _permit = read_permit(&s, domain::ReadClass::Index, &read_context)?;
             if let Some(scope) = body.scope {
                 let scope = scope.into();
                 query::validate_scope(&s, &id, &scope)?;
@@ -612,13 +650,13 @@ async fn list_jobs(State(s): State<AppState>, Path(id): Path<String>) -> ApiResu
 #[utoipa::path(post,path="/v1/projects/{project_id}/jobs",params(("project_id"=String,Path)),request_body=SubmitJob,responses((status=200,body=Job)))]
 async fn submit_job(
     State(s): State<AppState>,
+    Extension(read_context): Extension<RequestReadContext>,
     Path(id): Path<String>,
     Body(body): Body<SubmitJob>,
 ) -> ApiResult<Job> {
-    let permit = metadata_permit(&s)?;
     Ok(Json(
         blocking(move || {
-            let _permit = permit;
+            let _permit = read_permit(&s, domain::ReadClass::Index, &read_context)?;
             match (body.scope, body.selection_revision) {
                 (Some(scope), None) => {
                     let scope: domain::ScopeRef = scope.into();
@@ -668,6 +706,9 @@ async fn cancel_job(
             let cancelled =
                 s.store
                     .update_job(&pid, &jid, "cancelled", job.completed, None, None)?;
+            if cancelled.status == "cancelled" {
+                crate::jobs::cancel(&pid, &jid);
+            }
             if cancelled.status == "cancelled"
                 && let Some(result) = s.store.job_owned_result(&pid, &jid)?
             {
@@ -811,7 +852,11 @@ async fn shutdown(State(s): State<AppState>) -> Json<OkResponse> {
         tools::draft,
         tools::save_draft,
         tools::preference,
-        tools::save_preference
+        tools::save_preference,
+        resources::status,
+        resources::configure,
+        resources::clear,
+        resources::cancel
     ),
     components(schemas(
         EngineConnection,
@@ -826,6 +871,16 @@ async fn shutdown(State(s): State<AppState>) -> Json<OkResponse> {
 pub struct ApiDoc;
 pub fn routes() -> axum::Router<AppState> {
     axum::Router::new()
+        .route("/v1/resources", get(resources::status))
+        .route(
+            "/v1/resources/cache",
+            axum::routing::put(resources::configure),
+        )
+        .route("/v1/resources/cache/clear", post(resources::clear))
+        .route(
+            "/v1/projects/{pid}/read-requests/{rid}/cancel",
+            post(resources::cancel),
+        )
         .route("/v1/operators", get(tools::operators))
         .route(
             "/v1/preferences/{key}",

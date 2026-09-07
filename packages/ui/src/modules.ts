@@ -63,7 +63,7 @@ export type ModuleContribution =
       kind: "entry";
       id: string;
       label: string;
-      icon: "images" | "search" | "calculator" | "archive";
+      icon: "images" | "search" | "calculator" | "archive" | "database";
       command: string;
     }
   | {

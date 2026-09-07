@@ -25,7 +25,13 @@ export class EngineFixture {
     const log = await open(resolve(this.logDir, "engine.log"), "a");
     this.child = spawn(
       resolve(this.root, "target/debug/studio-engine.exe"),
-      ["serve", "--data-dir", this.dataDir],
+      [
+        "serve",
+        "--data-dir",
+        this.dataDir,
+        "--cache-dir",
+        resolve(this.dataDir, "preview-cache"),
+      ],
       { stdio: ["ignore", log.fd, log.fd], windowsHide: true },
     );
     await log.close();

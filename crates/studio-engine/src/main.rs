@@ -1,6 +1,7 @@
 mod api;
 mod artifacts;
 mod jobs;
+mod previews;
 mod query_jobs;
 mod tool_inputs;
 mod worker;
@@ -28,6 +29,8 @@ enum Command {
         data_dir: PathBuf,
         #[arg(long, default_value_t = 0)]
         port: u16,
+        #[arg(long)]
+        cache_dir: Option<PathBuf>,
     },
     Worker {
         #[arg(long)]
@@ -62,7 +65,11 @@ async fn main() {
         .with_writer(std::io::stderr)
         .init();
     let result = match Cli::parse().command {
-        Command::Serve { data_dir, port } => serve(data_dir, port).await,
+        Command::Serve {
+            data_dir,
+            port,
+            cache_dir,
+        } => serve(data_dir, port, cache_dir).await,
         Command::Worker { plan } => worker::run(&plan),
         Command::Schema { output } => {
             if let Some(parent) = output.parent() {
@@ -92,7 +99,7 @@ fn explain_query(source: PathBuf, spec: PathBuf, output: PathBuf) -> Result<()> 
     let plan = studio_sources::QueryReader::default().explain(&source, spec)?;
     atomic_json(&output, &plan)
 }
-async fn serve(root: PathBuf, port: u16) -> Result<()> {
+async fn serve(root: PathBuf, port: u16, cache_dir: Option<PathBuf>) -> Result<()> {
     fs::create_dir_all(&root).map_err(Error::io)?;
     let root = root.canonicalize().map_err(Error::io)?;
     let lease = OpenOptions::new()
@@ -118,22 +125,33 @@ async fn serve(root: PathBuf, port: u16) -> Result<()> {
     };
     atomic_json(&root.join("engine.json"), &connection)?;
     let (shutdown_tx, mut shutdown_rx) = tokio::sync::watch::channel(false);
-    let queries = Arc::new(query_jobs::QueryRunner::default());
+    let resources: Arc<dyn studio_application::ReadResources> =
+        Arc::new(studio_resources::ReadCoordinator::default());
+    let cache_path = cache_dir
+        .or_else(|| std::env::var_os("STUDIO_CACHE_DIR").map(PathBuf::from))
+        .unwrap_or_else(|| root.join("preview-cache"));
+    let previews = previews::PreviewService::new(
+        resources.clone(),
+        studio_resources::PreviewCache::open(&cache_path)?,
+    );
+    let queries = Arc::new(query_jobs::QueryRunner::new(resources.clone()));
     let state = api::AppState {
         store: store.clone(),
         connection: connection.clone(),
-        io: Arc::new(tokio::sync::Semaphore::new(2)),
-        metadata_io: Arc::new(tokio::sync::Semaphore::new(1)),
+        resources: resources.clone(),
+        previews: previews.clone(),
         metadata: Arc::new(studio_sources::MetadataReader::default()),
         queries: queries.clone(),
         shutdown: shutdown_tx.clone(),
     };
     let token = connection.token.clone();
     let request_store = store.clone();
+    let request_previews = previews.clone();
     let auth = axum::middleware::from_fn(
-        move |request: axum::extract::Request, next: axum::middleware::Next| {
+        move |mut request: axum::extract::Request, next: axum::middleware::Next| {
             let token = token.clone();
             let store = request_store.clone();
+            let previews = request_previews.clone();
             async move {
                 use axum::response::IntoResponse;
                 let supplied = request
@@ -158,6 +176,40 @@ async fn serve(root: PathBuf, port: u16) -> Result<()> {
                 } else {
                     None
                 };
+                let read_id = request
+                    .headers()
+                    .get("x-studio-read-id")
+                    .and_then(|v| v.to_str().ok());
+                let _read_ticket = if request.method() == axum::http::Method::GET
+                    && segments.len() >= 4
+                    && segments[1..3] == ["v1", "projects"]
+                    && studio_domain::validate_id(segments[3]).is_ok()
+                    && let Some(read_id) = read_id
+                {
+                    match previews.ticket(segments[3], read_id) {
+                        Ok(ticket) => Some(ticket),
+                        Err(error) => return api::Failure::from(error).into_response(),
+                    }
+                } else {
+                    None
+                };
+                let cancelled = _read_ticket
+                    .as_ref()
+                    .map(|t| t.cancelled.clone())
+                    .unwrap_or_else(|| Arc::new(std::sync::atomic::AtomicBool::new(false)));
+                let priority = match request
+                    .headers()
+                    .get("x-studio-read-priority")
+                    .and_then(|v| v.to_str().ok())
+                {
+                    Some("prefetch") => ReadPriority::Prefetch,
+                    Some("background") => ReadPriority::Background,
+                    _ => ReadPriority::Interactive,
+                };
+                request.extensions_mut().insert(api::RequestReadContext {
+                    cancelled,
+                    priority,
+                });
                 next.run(request).await
             }
         },
@@ -183,7 +235,17 @@ async fn serve(root: PathBuf, port: u16) -> Result<()> {
         .allow_headers([
             axum::http::header::AUTHORIZATION,
             axum::http::header::CONTENT_TYPE,
-        ]);
+            axum::http::HeaderName::from_static("x-studio-read-id"),
+            axum::http::HeaderName::from_static("x-studio-read-priority"),
+        ])
+        .expose_headers(
+            [
+                "x-studio-cache",
+                "x-studio-freshness",
+                "x-studio-verified-ms",
+            ]
+            .map(axum::http::HeaderName::from_static),
+        );
     let app = api::routes()
         .layer(axum::extract::DefaultBodyLimit::max(1024 * 1024))
         .layer(auth)
@@ -200,15 +262,19 @@ async fn serve(root: PathBuf, port: u16) -> Result<()> {
         }
         Err(error) => tracing::warn!(%error,"background recovery unavailable"),
     });
-    let scheduler = tokio::spawn(jobs::scheduler(store));
+    let preview_scheduler = tokio::spawn(previews.clone().run());
+    let scheduler = tokio::spawn(jobs::scheduler(store, resources));
     tracing::info!(endpoint=%connection.endpoint,api_version=API_VERSION,"engine ready");
     let abort = scheduler.abort_handle();
     let query_shutdown = queries.clone();
+    let preview_shutdown = previews.clone();
     let result = axum::serve(listener, app)
         .with_graceful_shutdown(async move {
             tokio::select!{_ = tokio::signal::ctrl_c()=>{let _=shutdown_tx.send(true);},_ = shutdown_rx.changed()=>{}}
             abort.abort();
+            jobs::shutdown();
             query_shutdown.shutdown();
+            preview_shutdown.shutdown();
         })
         .await
         .map_err(Error::io);
@@ -217,6 +283,8 @@ async fn serve(root: PathBuf, port: u16) -> Result<()> {
     queries.shutdown();
     let _ = query_scheduler.await;
     let _ = recovery.await;
+    previews.shutdown();
+    let _ = preview_scheduler.await;
     drop(lease);
     result
 }

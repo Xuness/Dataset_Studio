@@ -35,12 +35,14 @@ pub(super) async fn operators() -> ApiResult<Operators> {
 #[utoipa::path(post,path="/v1/projects/{project_id}/tools/jobs",params(("project_id"=String,Path)),request_body=ToolSubmission,responses((status=200,body=Job)))]
 pub(super) async fn submit(
     State(s): State<AppState>,
+    Extension(read_context): Extension<RequestReadContext>,
     Path(pid): Path<String>,
     Body(body): Body<ToolSubmission>,
 ) -> ApiResult<Job> {
     Ok(Json(
         blocking(move || {
             let _lease = s.store.operation_lease(&pid)?;
+            let _permit = read_permit(&s, domain::ReadClass::Index, &read_context)?;
             let mut request: domain::ToolSubmission = body.into();
             request.scope.validate_project(&pid)?;
             request.run = studio_operators::registry()?.normalize(request.run)?;

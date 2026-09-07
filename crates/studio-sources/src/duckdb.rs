@@ -551,8 +551,10 @@ mod tests {
         let path = tmp.path().join("budget.duckdb");
         drop(Session::fixture(&dll, &path).unwrap());
         let db = Session::configured(&dll, &path, true, Duration::from_millis(100)).unwrap();
+        // A streaming aggregate keeps memory bounded, so the timeout is the
+        // first limit reached. A huge cross join can exhaust memory beforehand.
         assert_eq!(
-            db.query("SELECT SUM(i*j) FROM range(1000000000) a(i),range(1000000000) b(j)")
+            db.query("SELECT SUM(sin(CAST(i AS DOUBLE))) FROM range(1000000000000) t(i)")
                 .unwrap_err()
                 .code,
             "SOURCE_TIMEOUT"

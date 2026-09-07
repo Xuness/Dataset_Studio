@@ -8,6 +8,8 @@ mod scope;
 pub use scope::*;
 mod tools;
 pub use tools::*;
+mod resources;
+pub use resources::*;
 use utoipa::ToSchema;
 pub const API_VERSION: u32 = 1;
 

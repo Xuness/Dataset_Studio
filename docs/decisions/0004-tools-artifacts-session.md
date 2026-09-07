@@ -1,6 +1,6 @@
 # 0004：注册算子、项目成果与编辑会话
 
-日期：2026-09-08。状态：已实施本决策中的执行、成果和会话部分；0.4 的资源调度与持久缓存另行接续验收。
+日期：2026-09-08。状态：已实施并验证；读取调度和持久缓存见[独立决策](0005-read-coordination-cache.md)。
 
 ## 分层与注册
 
@@ -44,6 +44,6 @@ SDK 每个草稿身份维持一个串行写入流，以 400 ms 合并编辑；�
 
 ## 兼容与验证
 
-项目数据库升级至 v4，应用注册表至 v2，项目清单仍为 v1。旧模式升级前保留包含 WAL 已提交内容的一致备份。旧选择、工作集、任务、查询、事件和成果路径不由迁移重写；日常目录在最终升级核对前保持隔离。
+项目数据库升级至 v4，应用注册表至 v2，项目清单仍为 v1。旧模式升级前保留包含 WAL 已提交内容的一致备份。旧选择、工作集、任务、查询、事件和成果路径不由迁移重写；日常项目已通过升级前后全表与原成果哈希核对。
 
-可重复验证入口为 `pnpm check`、`pnpm test:integration`，其中新增的 `tooling/client-foundations.mjs` 和 `tooling/integration-tools.mjs` 分别验证前端协调协议与真实引擎链路。原生窗口验证报告位于 `.local/reports/phase4-native-tools.json`。持久缓存、资源公平性、真实湖读取量和日常项目升级核对仍属于后续实施批次，不能用本批结果替代。
+可重复验证入口为 `pnpm check`、`pnpm test:integration`，其中 `tooling/client-foundations.mjs` 和 `tooling/integration-tools.mjs` 分别验证前端协调协议与真实引擎链路；两万行标量验证位于 `tooling/integration-artifact-scale.mjs`。原生窗口报告位于 `.local/reports/phase4-native-tools.json`。完整范围及日常升级结果见 [0.4 验收记录](../verification-tools-resources-v0.4.md)。

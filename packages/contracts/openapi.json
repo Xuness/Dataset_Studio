@@ -1447,6 +1447,44 @@
         }
       }
     },
+    "/v1/projects/{project_id}/read-requests/{request_id}/cancel": {
+      "post": {
+        "tags": [
+          "resources"
+        ],
+        "operationId": "cancel_read_subscription",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "request_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/projects/{project_id}/scopes/capture": {
       "post": {
         "tags": [
@@ -1737,11 +1775,39 @@
               "format": "int32",
               "minimum": 0
             }
+          },
+          {
+            "name": "request_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "priority",
+            "in": "query",
+            "description": "interactive, background or prefetch",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "max_source_bytes",
+            "in": "query",
+            "description": "Cold generation input byte limit, at most 64 MiB",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "Authenticated image bytes",
+            "description": "Authenticated image bytes; x-studio-cache, x-studio-freshness and x-studio-verified-ms report cache verification",
             "content": {
               "image/jpeg": {}
             }
@@ -2182,6 +2248,76 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/resources": {
+      "get": {
+        "tags": [
+          "resources"
+        ],
+        "operationId": "status",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReadServiceStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/resources/cache": {
+      "put": {
+        "tags": [
+          "resources"
+        ],
+        "operationId": "configure",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetCacheQuota"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewCacheStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/resources/cache/clear": {
+      "post": {
+        "tags": [
+          "resources"
+        ],
+        "operationId": "clear",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PreviewCacheStatus"
                 }
               }
             }
@@ -3652,6 +3788,192 @@
           "value": {}
         }
       },
+      "PreviewActivity": {
+        "type": "object",
+        "required": [
+          "shared",
+          "queued",
+          "active_subscriptions",
+          "generated",
+          "cancelled_last",
+          "cancelled_before_read",
+          "source_bytes",
+          "pack_opens",
+          "seeks",
+          "decode_ms",
+          "read_ms",
+          "batches",
+          "max_batch",
+          "queue_wait_ms",
+          "max_queue_wait_ms",
+          "cancelled_finished",
+          "max_cancel_latency_ms"
+        ],
+        "properties": {
+          "active_subscriptions": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "batches": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "cancelled_before_read": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "cancelled_finished": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "cancelled_last": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "decode_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "generated": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "max_batch": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "max_cancel_latency_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "max_queue_wait_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "pack_opens": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "queue_wait_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "queued": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "read_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "seeks": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "shared": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "source_bytes": {
+            "type": "string"
+          }
+        }
+      },
+      "PreviewCacheStatus": {
+        "type": "object",
+        "required": [
+          "directory",
+          "quota_bytes",
+          "bytes",
+          "entries",
+          "pinned",
+          "hits",
+          "misses",
+          "corrupt",
+          "evicted",
+          "writes",
+          "read_bytes",
+          "maintenance_removed",
+          "maintenance_pending",
+          "index_rebuilt",
+          "clear_pending"
+        ],
+        "properties": {
+          "bytes": {
+            "type": "string"
+          },
+          "clear_pending": {
+            "type": "boolean"
+          },
+          "corrupt": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "directory": {
+            "type": "string"
+          },
+          "entries": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "evicted": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "hits": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "index_rebuilt": {
+            "type": "boolean"
+          },
+          "maintenance_pending": {
+            "type": "boolean"
+          },
+          "maintenance_removed": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "misses": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "pinned": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "quota_bytes": {
+            "type": "string"
+          },
+          "read_bytes": {
+            "type": "string"
+          },
+          "writes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "Project": {
         "type": "object",
         "required": [
@@ -4138,6 +4460,63 @@
         },
         "additionalProperties": false
       },
+      "ReadProcessMemory": {
+        "type": "object",
+        "required": [
+          "resident_bytes",
+          "peak_resident_bytes",
+          "private_bytes"
+        ],
+        "properties": {
+          "peak_resident_bytes": {
+            "type": "string"
+          },
+          "private_bytes": {
+            "type": "string"
+          },
+          "resident_bytes": {
+            "type": "string"
+          }
+        }
+      },
+      "ReadServiceStatus": {
+        "type": "object",
+        "required": [
+          "protocol_version",
+          "resources",
+          "cache",
+          "previews"
+        ],
+        "properties": {
+          "cache": {
+            "$ref": "#/components/schemas/PreviewCacheStatus"
+          },
+          "previews": {
+            "$ref": "#/components/schemas/PreviewActivity"
+          },
+          "process_memory": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ReadProcessMemory"
+              }
+            ]
+          },
+          "protocol_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "resources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ResourceStatus"
+            }
+          }
+        }
+      },
       "ReadVersion": {
         "type": "object",
         "required": [
@@ -4206,6 +4585,91 @@
             "type": "boolean"
           },
           "memory_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "ResourceStatus": {
+        "type": "object",
+        "required": [
+          "class",
+          "concurrency",
+          "queue_limit",
+          "byte_budget",
+          "active",
+          "queued",
+          "reserved_bytes",
+          "peak_reserved_bytes",
+          "started",
+          "completed",
+          "cancelled_waiting",
+          "rejected",
+          "wait_ms",
+          "max_wait_ms",
+          "work_ms"
+        ],
+        "properties": {
+          "active": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "byte_budget": {
+            "type": "string"
+          },
+          "cancelled_waiting": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "class": {
+            "type": "string"
+          },
+          "completed": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "concurrency": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "max_wait_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "peak_reserved_bytes": {
+            "type": "string"
+          },
+          "queue_limit": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "queued": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "rejected": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "reserved_bytes": {
+            "type": "string"
+          },
+          "started": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "wait_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "work_ms": {
             "type": "integer",
             "format": "int64",
             "minimum": 0
@@ -4576,6 +5040,19 @@
           "revision": {
             "type": "integer",
             "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "SetCacheQuota": {
+        "type": "object",
+        "required": [
+          "quota_mib"
+        ],
+        "properties": {
+          "quota_mib": {
+            "type": "integer",
+            "format": "int32",
             "minimum": 0
           }
         }

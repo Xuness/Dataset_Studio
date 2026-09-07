@@ -1,7 +1,7 @@
 use rusqlite::{Connection, params};
 use sha2::{Digest, Sha256};
 use std::fs;
-use studio_application::SourceAdapter;
+use studio_application::{MediaInput, MediaSource, SourceAdapter};
 use studio_domain::{AssetKey, Source, new_id};
 use studio_sources::SourceRouter;
 fn fixture() -> (tempfile::TempDir, Source, String, Vec<u8>) {
@@ -100,4 +100,104 @@ fn rejects_mismatched_index_and_media_identity() {
         SourceRouter.probe(&source).unwrap_err().code,
         "SOURCE_ID_MISMATCH"
     );
+}
+#[test]
+fn batches_read_pack_offsets_once_and_restore_logical_order() {
+    use std::sync::{Arc, atomic::AtomicBool};
+    let (_temp, source, original, _) = fixture();
+    let media = source.media_root.as_ref().unwrap();
+    let catalog = source
+        .index_root
+        .as_ref()
+        .unwrap()
+        .join("indexes/gen-1/catalog.sqlite");
+    let db = Connection::open(catalog).unwrap();
+    db.execute("DELETE FROM objects", []).unwrap();
+    let mut entries = Vec::new();
+    for (pack, offset, text) in [
+        ("segments/a/first.tar", 512, "one"),
+        ("segments/a/first.tar", 1024, "two"),
+        ("segments/a/second.tar", 512, "three"),
+    ] {
+        let path = media.join(pack);
+        let mut bytes = fs::read(&path).unwrap_or_default();
+        bytes.resize(offset + text.len(), 0);
+        bytes[offset..].copy_from_slice(text.as_bytes());
+        fs::write(path, bytes).unwrap();
+        let id = hex::encode(Sha256::digest(text.as_bytes()));
+        db.execute(
+            "INSERT INTO objects VALUES(?1,?2,?3,?4,'png')",
+            params![id, pack, offset as i64, text.len() as i64],
+        )
+        .unwrap();
+        entries.push((id, text));
+    }
+    let inputs = [2, 1, 0].map(|i| MediaInput {
+        asset_id: entries[i].0.clone(),
+        cancelled: Arc::new(AtomicBool::new(false)),
+        byte_limit: 64 << 20,
+    });
+    let result = SourceRouter.read_many(&source, &inputs).unwrap();
+    assert_eq!(result.stats.opens, 2);
+    assert_eq!(result.stats.seeks, 3);
+    assert_eq!(result.stats.bytes, 11);
+    assert_eq!(
+        result
+            .stats
+            .trace
+            .iter()
+            .map(|v| (&v.asset_id, v.offset))
+            .collect::<Vec<_>>(),
+        vec![
+            (&entries[0].0, 512),
+            (&entries[1].0, 1024),
+            (&entries[2].0, 512)
+        ]
+    );
+    assert_eq!(
+        result
+            .items
+            .into_iter()
+            .map(|r| r.unwrap().bytes)
+            .collect::<Vec<_>>(),
+        vec![b"three".to_vec(), b"two".to_vec(), b"one".to_vec()]
+    );
+    let inputs = entries
+        .iter()
+        .map(|(id, _)| MediaInput {
+            asset_id: id.clone(),
+            cancelled: Arc::new(AtomicBool::new(true)),
+            byte_limit: 64 << 20,
+        })
+        .collect::<Vec<_>>();
+    let stopped = SourceRouter.read_many(&source, &inputs).unwrap();
+    assert_eq!(stopped.stats.opens, 0);
+    assert_eq!(stopped.stats.bytes, 0);
+    assert_eq!(stopped.stats.cancelled, 3);
+    assert!(
+        SourceRouter
+            .verify_media_identity(&source, &original)
+            .is_err()
+    );
+}
+#[test]
+fn an_index_length_change_cannot_exceed_the_admitted_payload_budget() {
+    use std::sync::{Arc, atomic::AtomicBool};
+    let (_temp, source, id, bytes) = fixture();
+    let result = SourceRouter
+        .read_many(
+            &source,
+            &[MediaInput {
+                asset_id: id,
+                cancelled: Arc::new(AtomicBool::new(false)),
+                byte_limit: bytes.len() as u64 - 1,
+            }],
+        )
+        .unwrap();
+    assert_eq!(
+        result.items[0].as_ref().err().unwrap().code,
+        "READ_BUDGET_EXCEEDED"
+    );
+    assert_eq!(result.stats.bytes, 0);
+    assert_eq!(result.stats.opens, 0);
 }

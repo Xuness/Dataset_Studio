@@ -110,6 +110,58 @@ export function Browser({
   });
   const items = query.data?.items ?? [];
   useEffect(() => {
+    const nextCursor = query.data?.next_cursor;
+    if (!nextCursor || query.isFetching || view !== "grid") return;
+    const abort = new AbortController();
+    // A four-object look-ahead uses the existing keyset range, never a lake scan.
+    const timer = setTimeout(() => {
+      const options = {
+        cursor: nextCursor,
+        limit: 4,
+        signal: abort.signal,
+        priority: "prefetch" as const,
+      };
+      const page =
+        scope.kind === "result"
+          ? client.queries
+              .assets(projectId, scope.id, options)
+              .then((r) => r.page)
+          : client.assets(projectId, {
+              ...options,
+              ...(scope.kind === "source" ? { sourceId: scope.id } : {}),
+              ...(scope.kind === "collection"
+                ? { collectionId: scope.id }
+                : {}),
+              ...(scope.kind === "selection" ? { selection: true } : {}),
+            });
+      void page
+        .then((p) =>
+          Promise.allSettled(
+            p.items.map((asset) =>
+              client
+                .acquireMedia(projectId, asset, 360, {
+                  signal: abort.signal,
+                  priority: "prefetch",
+                })
+                .then((h) => h.release()),
+            ),
+          ),
+        )
+        .catch(() => {});
+    }, 450);
+    return () => {
+      clearTimeout(timer);
+      abort.abort();
+    };
+  }, [
+    client,
+    projectId,
+    scope,
+    query.data?.next_cursor,
+    query.isFetching,
+    view,
+  ]);
+  useEffect(() => {
     if (!query.data || query.isFetching) return;
     const expected = restoreCheck.current;
     restoreCheck.current = null;

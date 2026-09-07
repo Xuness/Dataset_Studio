@@ -101,6 +101,31 @@ registry.register({
     },
   ],
 });
+registry.register({
+  id: "core.resources",
+  version: 1,
+  protocolVersion: 1,
+  draftSchema: { version: 1 },
+  contributions: [
+    {
+      kind: "entry",
+      id: "resources",
+      label: "读取与缓存",
+      icon: "database",
+      command: "resources.open",
+    },
+    {
+      kind: "view",
+      id: "core.resources",
+      load: () => import("../features/resources/ResourcePanel.js"),
+    },
+    {
+      kind: "command",
+      id: "resources.open",
+      execute: (context) => context.activateView("core.resources"),
+    },
+  ],
+});
 registry.validate();
 export const modules = registry;
 export const moduleViews = new Map(

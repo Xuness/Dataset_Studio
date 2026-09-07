@@ -1,7 +1,7 @@
 {
   "name": "dataset-studio",
   "private": true,
-  "version": "0.3.0",
+  "version": "0.4.0",
   "packageManager": "pnpm@10.30.3",
   "type": "module",
   "scripts": {
@@ -14,9 +14,9 @@
     "typecheck": "tsc -b",
     "lint": "eslint apps/desktop/src packages tooling && node tooling/boundaries.mjs",
     "format": "prettier --write \"apps/desktop/src/**/*.{ts,tsx,css}\" \"packages/**/*.{ts,json,css}\" \"tooling/*.mjs\"",
-    "test": "node tooling/cargo-run.mjs test --workspace --exclude studio-desktop && node tooling/client-foundations.mjs",
+    "test": "node tooling/cargo-run.mjs test --workspace --exclude studio-desktop && node tooling/client-foundations.mjs && node tooling/client-media.mjs",
     "check": "pnpm typecheck && pnpm lint && pnpm contracts:check && node tooling/cargo-run.mjs fmt --all -- --check && node tooling/cargo-run.mjs clippy --workspace --all-targets -- -D warnings && pnpm test",
-    "test:integration": "node tooling/integration.mjs && node tooling/integration-scopes.mjs && node tooling/integration-tools.mjs",
+    "test:integration": "node tooling/integration.mjs && node tooling/integration-scopes.mjs && node tooling/integration-tools.mjs && node tooling/integration-resources.mjs && node tooling/integration-artifact-scale.mjs",
     "engine:stop": "node tooling/stop-engine.mjs"
   },
   "devDependencies": {
