@@ -12,6 +12,10 @@ export default function QueryModule(context: ModuleContext) {
       onResult={context.onResult}
       onSelect={context.onSelect}
       onClose={() => context.closePanel("core.query")}
+      browserScope={context.browser.scope}
+      inputOptions={context.inputOptions}
+      height={context.panelHeight("core.query")}
+      onHeight={(height) => context.resizePanel("core.query", height)}
     />
   );
 }

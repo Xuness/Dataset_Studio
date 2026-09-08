@@ -36,6 +36,12 @@ pub struct Media {
 
 /// Metadata inspection is independent of project selection and task inputs.
 pub trait MetadataAdapter: Send + Sync {
+    fn summaries(
+        &self,
+        source: &Source,
+        asset_ids: &[String],
+        cancelled: ReadCancellation,
+    ) -> Result<Vec<AssetSummary>>;
     fn metadata(
         &self,
         source: &Source,

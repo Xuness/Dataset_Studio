@@ -115,7 +115,10 @@ pub(super) fn directory(source: &Source) -> Result<FieldDirectory> {
                 display: true,
                 operators: match kind {
                     Integer => vec![Eq, Ne, Gte, Lte, IsMissing, IsPresent],
-                    Tags => vec![HasTag, IsMissing, IsPresent],
+                    Tags => vec![
+                        HasAllTags, HasAnyTags, HasNoTags, HasTag, IsMissing, IsPresent,
+                    ],
+                    Text if id == "rating" => vec![In, Eq, Ne, IsMissing, IsPresent],
                     _ => vec![Eq, Ne, IsMissing, IsPresent],
                 },
                 sortable: false,
@@ -145,7 +148,12 @@ pub(super) fn directory(source: &Source) -> Result<FieldDirectory> {
             ObservationRule::CurrentPost,
             ObservationRule::AnyObservation,
         ],
-        orders: vec![QueryOrder::AssetKeyAsc, QueryOrder::AssetKeyDesc],
+        orders: vec![
+            QueryOrder::PostIdDesc,
+            QueryOrder::PostIdAsc,
+            QueryOrder::AssetKeyAsc,
+            QueryOrder::AssetKeyDesc,
+        ],
         max_conditions: 12,
     })
 }

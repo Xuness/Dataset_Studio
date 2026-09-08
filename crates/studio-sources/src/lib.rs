@@ -3,7 +3,9 @@ mod duckdb;
 mod metadata;
 pub use metadata::MetadataReader;
 mod query;
-pub use query::QueryReader;
+pub use query::{ChangeAnchor, QueryReader};
+mod browse_index;
+pub use browse_index::{BrowseIndex, BrowseIndexReader, BrowseIndexStamp};
 pub mod duckdb_probe;
 use image::{ImageEncoder, ImageReader};
 use std::io::Cursor;
@@ -11,6 +13,37 @@ use studio_application::*;
 use studio_domain::*;
 pub const DEMO_ID: &str = "c0498544-0f82-4ce5-bd6d-bc6871059ca6";
 pub struct SourceRouter;
+impl SourceRouter {
+    pub fn page_ordered(
+        &self,
+        source: &Source,
+        after: Option<&str>,
+        limit: usize,
+        revision: Option<&str>,
+        descending: bool,
+    ) -> Result<AssetPage> {
+        let limit = limit.clamp(1, 128);
+        if !descending {
+            return self.page(source, after, limit, revision);
+        }
+        if source.kind == "danbooru" {
+            return danbooru::Catalog::open(source)?
+                .page_ordered(source, after, limit, revision, true);
+        }
+        let mut page = self.page(source, None, 128, revision)?;
+        page.items.reverse();
+        page.items
+            .retain(|a| after.is_none_or(|id| a.key.asset_id.as_str() < id));
+        let more = page.items.len() > limit;
+        page.items.truncate(limit);
+        page.next = if more {
+            page.items.last().map(|a| a.key.asset_id.clone())
+        } else {
+            None
+        };
+        Ok(page)
+    }
+}
 fn demo_asset(source: &Source, n: usize) -> Asset {
     Asset {
         key: AssetKey {

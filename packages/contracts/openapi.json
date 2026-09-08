@@ -487,6 +487,14 @@
             }
           },
           {
+            "name": "order",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/QueryOrder"
+            }
+          },
+          {
             "name": "limit",
             "in": "query",
             "required": false,
@@ -1238,6 +1246,44 @@
             }
           }
         }
+      },
+      "post": {
+        "tags": [
+          "query"
+        ],
+        "operationId": "run_query",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunQuery"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryResult"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/v1/projects/{project_id}/query-results/{result_id}": {
@@ -1310,6 +1356,14 @@
             }
           },
           {
+            "name": "order",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/QueryOrder"
+            }
+          },
+          {
             "name": "limit",
             "in": "query",
             "required": false,
@@ -1364,6 +1418,98 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/QueryResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/query-results/{result_id}/leases/{lease_id}": {
+      "post": {
+        "tags": [
+          "query"
+        ],
+        "operationId": "lease_result",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "result_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "lease_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/query-results/{result_id}/leases/{lease_id}/release": {
+      "post": {
+        "tags": [
+          "query"
+        ],
+        "operationId": "release_result_lease",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "result_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "lease_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
                 }
               }
             }
@@ -2325,6 +2471,86 @@
         }
       }
     },
+    "/v1/resources/query": {
+      "put": {
+        "tags": [
+          "resources"
+        ],
+        "operationId": "configure_query",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetQueryMemory"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryResourceLimits"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/resources/query-cache": {
+      "put": {
+        "tags": [
+          "resources"
+        ],
+        "operationId": "configure_query_cache",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetQueryCache"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryCacheStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/resources/query-cache/clear": {
+      "post": {
+        "tags": [
+          "resources"
+        ],
+        "operationId": "clear_query_cache",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryCacheStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/shutdown": {
       "post": {
         "tags": [],
@@ -2629,6 +2855,16 @@
           },
           "source_name": {
             "type": "string"
+          },
+          "summary": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AssetSummary"
+              }
+            ]
           }
         }
       },
@@ -2661,6 +2897,18 @@
             }
           },
           "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "preparing": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "result_id": {
             "type": [
               "string",
               "null"
@@ -2699,6 +2947,43 @@
             ]
           },
           "storage_profile": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "AssetSummary": {
+        "type": "object",
+        "required": [
+          "status",
+          "post_ids"
+        ],
+        "properties": {
+          "issue": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "post_count": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "post_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "status": {
+            "type": "string",
+            "description": "available, unlinked, unavailable, or unsupported; unavailable is not unlinked."
+          },
+          "version": {
             "type": [
               "string",
               "null"
@@ -4100,6 +4385,110 @@
           }
         }
       },
+      "QueryCacheInfo": {
+        "type": "object",
+        "required": [
+          "mode",
+          "evaluated_objects",
+          "changed_members"
+        ],
+        "properties": {
+          "changed_members": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "evaluated_objects": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "mode": {
+            "type": "string"
+          }
+        }
+      },
+      "QueryCacheStatus": {
+        "type": "object",
+        "required": [
+          "quota_bytes",
+          "max_age_days",
+          "retained_queries",
+          "member_versions",
+          "result_storage_bytes",
+          "database_free_bytes",
+          "protected_results",
+          "active_views",
+          "reused_results",
+          "incremental_results",
+          "source_index_bytes",
+          "source_indexes",
+          "cleanup_pending",
+          "reclaimed_queries"
+        ],
+        "properties": {
+          "active_views": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "cleanup_pending": {
+            "type": "boolean"
+          },
+          "database_free_bytes": {
+            "type": "string"
+          },
+          "incremental_results": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "max_age_days": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "member_versions": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "protected_results": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "quota_bytes": {
+            "type": "string"
+          },
+          "reclaimed_queries": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "result_storage_bytes": {
+            "type": "string"
+          },
+          "retained_queries": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "reused_results": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "source_index_bytes": {
+            "type": "string"
+          },
+          "source_indexes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "QueryCondition": {
         "type": "object",
         "required": [
@@ -4187,6 +4576,10 @@
           "gte",
           "lte",
           "has_tag",
+          "in",
+          "has_all_tags",
+          "has_any_tags",
+          "has_no_tags",
           "is_missing",
           "is_present"
         ]
@@ -4195,8 +4588,47 @@
         "type": "string",
         "enum": [
           "asset_key_asc",
-          "asset_key_desc"
+          "asset_key_desc",
+          "post_id_asc",
+          "post_id_desc"
         ]
+      },
+      "QueryResourceLimits": {
+        "type": "object",
+        "required": [
+          "metadata_memory_bytes",
+          "query_memory_bytes",
+          "native_query_memory_bytes",
+          "result_work_memory_bytes",
+          "temporary_disk_bytes",
+          "result_staging_disk_bytes"
+        ],
+        "properties": {
+          "active_query_memory_bytes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "metadata_memory_bytes": {
+            "type": "string"
+          },
+          "native_query_memory_bytes": {
+            "type": "string"
+          },
+          "query_memory_bytes": {
+            "type": "string"
+          },
+          "result_staging_disk_bytes": {
+            "type": "string"
+          },
+          "result_work_memory_bytes": {
+            "type": "string"
+          },
+          "temporary_disk_bytes": {
+            "type": "string"
+          }
+        }
       },
       "QueryResult": {
         "type": "object",
@@ -4207,9 +4639,13 @@
           "source_versions",
           "state",
           "processed",
-          "created_at"
+          "created_at",
+          "cache"
         ],
         "properties": {
+          "cache": {
+            "$ref": "#/components/schemas/QueryCacheInfo"
+          },
           "count": {
             "type": [
               "integer",
@@ -4327,6 +4763,16 @@
               "$ref": "#/components/schemas/QueryCondition"
             }
           },
+          "input_scope": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ScopeRef"
+              }
+            ]
+          },
           "observation_rule": {
             "$ref": "#/components/schemas/ObservationRule"
           },
@@ -4400,6 +4846,27 @@
               },
               "value": {
                 "type": "boolean"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "value",
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "type": "string",
+                "enum": [
+                  "text_list"
+                ]
+              },
+              "value": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
               }
             }
           }
@@ -4485,7 +4952,9 @@
           "protocol_version",
           "resources",
           "cache",
-          "previews"
+          "previews",
+          "query_limits",
+          "query_cache"
         ],
         "properties": {
           "cache": {
@@ -4508,6 +4977,12 @@
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          },
+          "query_cache": {
+            "$ref": "#/components/schemas/QueryCacheStatus"
+          },
+          "query_limits": {
+            "$ref": "#/components/schemas/QueryResourceLimits"
           },
           "resources": {
             "type": "array",
@@ -4729,6 +5204,18 @@
             "type": "string"
           }
         }
+      },
+      "RunQuery": {
+        "type": "object",
+        "required": [
+          "spec"
+        ],
+        "properties": {
+          "spec": {
+            "$ref": "#/components/schemas/QuerySpec"
+          }
+        },
+        "additionalProperties": false
       },
       "SaveDraft": {
         "type": "object",
@@ -5051,6 +5538,38 @@
         ],
         "properties": {
           "quota_mib": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "SetQueryCache": {
+        "type": "object",
+        "required": [
+          "quota_mib",
+          "max_age_days"
+        ],
+        "properties": {
+          "max_age_days": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "quota_mib": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "SetQueryMemory": {
+        "type": "object",
+        "required": [
+          "memory_gib"
+        ],
+        "properties": {
+          "memory_gib": {
             "type": "integer",
             "format": "int32",
             "minimum": 0

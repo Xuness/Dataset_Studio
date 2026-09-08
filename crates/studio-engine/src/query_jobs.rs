@@ -1,4 +1,8 @@
 use std::{
+    cell::{Cell, RefCell},
+    time::{Duration, Instant},
+};
+use std::{
     collections::HashMap,
     sync::{
         Arc, Mutex,
@@ -7,23 +11,104 @@ use std::{
 };
 use studio_application::{QueryAdapter, ReadResources};
 use studio_domain::*;
-use studio_sources::QueryReader;
-use studio_storage::SqliteStore;
+use studio_sources::{BrowseIndex, BrowseIndexStamp, QueryReader};
+use studio_storage::{QueryStage, SqliteStore};
 
+type IndexJobs = HashMap<String, (Arc<AtomicBool>, Option<Error>)>;
 pub struct QueryRunner {
     pub reader: QueryReader,
     running: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    indexes: Mutex<IndexJobs>,
     stopping: AtomicBool,
     resources: Arc<dyn ReadResources>,
+    pub budget: crate::query_budget::QueryBudget,
+    pub cache: crate::query_cache::CacheControl,
+    pub browse_index: BrowseIndex,
+    query_directory: std::path::PathBuf,
 }
 impl QueryRunner {
-    pub fn new(resources: Arc<dyn ReadResources>) -> Self {
+    pub fn new(
+        resources: Arc<dyn ReadResources>,
+        query_directory: std::path::PathBuf,
+        budget: crate::query_budget::QueryBudget,
+        cache: crate::query_cache::CacheControl,
+        index_directory: std::path::PathBuf,
+    ) -> Self {
         Self {
-            reader: QueryReader::default(),
+            reader: QueryReader::with_query_directory(query_directory.clone()),
             running: Mutex::new(HashMap::new()),
+            indexes: Mutex::new(HashMap::new()),
             stopping: AtomicBool::new(false),
             resources,
+            budget,
+            cache,
+            browse_index: BrowseIndex::new(index_directory),
+            query_directory,
         }
+    }
+    pub fn ensure_browse_index(
+        &self,
+        source: &Source,
+        cancelled: Arc<AtomicBool>,
+    ) -> Result<Option<BrowseIndexStamp>> {
+        if source.kind != "danbooru" || self.browse_index.is_current(source)? {
+            return Ok(None);
+        }
+        let budget = self.budget.wait(&cancelled)?;
+        let _permit = self.resources.acquire(
+            ReadRequest {
+                class: ReadClass::NativeQuery,
+                priority: ReadPriority::Background,
+                bytes: budget.memory_bytes,
+            },
+            &cancelled,
+        )?;
+        self.browse_index
+            .ensure(
+                source,
+                budget.memory_bytes,
+                &self.query_directory,
+                cancelled,
+            )
+            .map(Some)
+    }
+    pub fn prepare_browse_index(self: &Arc<Self>, source: &Source) -> Result<bool> {
+        if source.kind != "danbooru" || self.browse_index.is_current(source)? {
+            return Ok(true);
+        }
+        let mut jobs = self
+            .indexes
+            .lock()
+            .map_err(|_| Error::new("INTERNAL_ERROR", "排序准备状态不可用"))?;
+        if let Some((_, error)) = jobs.get(&source.id) {
+            if error.is_some() {
+                return Err(jobs
+                    .remove(&source.id)
+                    .and_then(|(_, e)| e)
+                    .expect("present error"));
+            }
+            return Ok(false);
+        }
+        if jobs.len() >= 32 {
+            return Err(Error::new("READ_BUDGET_EXCEEDED", "等待排序准备的来源过多"));
+        }
+        let cancelled = Arc::new(AtomicBool::new(false));
+        jobs.insert(source.id.clone(), (cancelled.clone(), None));
+        let runner = self.clone();
+        let source = source.clone();
+        tokio::task::spawn_blocking(move || {
+            let result = runner.ensure_browse_index(&source, cancelled);
+            if let Ok(mut jobs) = runner.indexes.lock() {
+                if let Err(error) = result {
+                    if let Some((_, state)) = jobs.get_mut(&source.id) {
+                        *state = Some(error);
+                    }
+                } else {
+                    jobs.remove(&source.id);
+                }
+            }
+        });
+        Ok(false)
     }
     pub fn cancel(&self, id: &str) {
         if let Ok(running) = self.running.lock()
@@ -36,6 +121,11 @@ impl QueryRunner {
         self.stopping.store(true, Ordering::Release);
         if let Ok(running) = self.running.lock() {
             for cancelled in running.values() {
+                cancelled.store(true, Ordering::Release);
+            }
+        }
+        if let Ok(indexes) = self.indexes.lock() {
+            for (cancelled, _) in indexes.values() {
                 cancelled.store(true, Ordering::Release);
             }
         }
@@ -72,26 +162,155 @@ impl QueryRunner {
         cancelled: Arc<AtomicBool>,
     ) -> Result<()> {
         let _lease = store.operation_lease(&result.project_id)?;
-        for expected in &result.source_versions {
-            let _permit = self.resources.acquire(
-                ReadRequest {
-                    class: ReadClass::NativeQuery,
-                    priority: ReadPriority::Background,
-                    bytes: 256 << 20,
-                },
-                &cancelled,
-            )?;
-            let source = store.source(&result.project_id, &expected.source_id)?;
-            self.reader.execute_query(
-                &source,
-                &studio_storage::native_spec(&result.spec),
-                expected,
-                cancelled.clone(),
-                &mut |keys, processed| {
-                    let filtered = store.filter_derived(&result.project_id, &result.spec, keys)?;
-                    store.append_result(&result.project_id, &result.id, &filtered, processed)
-                },
-            )?;
+        let sources = result
+            .source_versions
+            .iter()
+            .map(|v| store.source(&result.project_id, &v.source_id))
+            .collect::<Result<Vec<_>>>()?;
+        for source in &sources {
+            if source.kind == "danbooru" {
+                store.query_build_phase(&result.project_id, &result.id, "index")?;
+                if let Err(error) = self.ensure_browse_index(source, cancelled.clone())
+                    && (studio_storage::native_spec(&result.spec).uses_metadata()
+                        || result.spec.order.by_post()
+                        || !matches!(error.code, "IO_ERROR" | "SOURCE_UNAVAILABLE"))
+                {
+                    return Err(error);
+                }
+            }
+        }
+        let budget = self.budget.wait(&cancelled)?;
+        let work_memory = crate::query_budget::result_work_memory(budget.memory_bytes);
+        let reader = QueryReader::with_query_directory(self.query_directory.clone())
+            .with_query_memory(budget.memory_bytes - work_memory);
+        let basis = store.cached_basis(&result.project_id, &result.id)?;
+        let post_refresh = basis
+            .as_ref()
+            .map(|b| store.query_post_order_ready(&result.project_id, &b.id))
+            .transpose()?
+            .is_some_and(|ready| !ready);
+        let stage = RefCell::new(QueryStage::with_memory(&self.query_directory, work_memory)?);
+        let last_progress = Cell::new(Instant::now());
+        let mut mode = if basis.is_some() {
+            "incremental"
+        } else {
+            "full"
+        };
+        store.query_build_phase(&result.project_id, &result.id, mode)?;
+        let input_count = store.query_input_count(&result.project_id, &result.spec)?;
+        let _permit = self.resources.acquire(
+            ReadRequest {
+                class: ReadClass::NativeQuery,
+                priority: ReadPriority::Background,
+                bytes: budget.memory_bytes,
+            },
+            &cancelled,
+        )?;
+        for (expected, source) in result.source_versions.iter().zip(&sources) {
+            let previous = basis
+                .as_ref()
+                .and_then(|b| b.source_versions.iter().find(|v| v.source_id == source.id));
+            if previous == Some(expected) && !post_refresh {
+                continue;
+            }
+            let index = if source.kind == "danbooru" {
+                self.browse_index.reader(source).ok()
+            } else {
+                None
+            };
+            if source.kind == "danbooru" && index.is_none() {
+                stage.borrow_mut().post_ready = false;
+            }
+            let native = studio_storage::native_spec(&result.spec);
+            let mut sink = |keys: &[AssetKey], processed| {
+                let scoped = store.filter_query_input(&result.project_id, &result.spec, keys)?;
+                let filtered = store.filter_derived(&result.project_id, &result.spec, &scoped)?;
+                let posts = if let Some(index) = &index {
+                    index.post_ids(&filtered)?
+                } else {
+                    vec![None; filtered.len()]
+                };
+                let mut staging = stage.borrow_mut();
+                staging.append(&filtered, &posts, processed)?;
+                if last_progress.get().elapsed() >= Duration::from_millis(600) {
+                    store.query_build_progress(
+                        &result.project_id,
+                        &result.id,
+                        staging.processed,
+                        staging.evaluated,
+                    )?;
+                    last_progress.set(Instant::now());
+                }
+                Ok(())
+            };
+            if input_count.is_some_and(|count| count <= 4096) {
+                stage.borrow_mut().full_source(&source.id);
+                // Small project scopes use indexed identity predicates, not a lake scan.
+                let mut after = None;
+                loop {
+                    let keys = store.query_input_keys(
+                        &result.project_id,
+                        &result.spec,
+                        &source.id,
+                        after.as_deref(),
+                    )?;
+                    if keys.is_empty() {
+                        break;
+                    }
+                    stage.borrow_mut().evaluated += keys.len() as u64;
+                    reader.execute_query_keys(
+                        source,
+                        &native,
+                        expected,
+                        cancelled.clone(),
+                        &keys,
+                        &mut sink,
+                    )?;
+                    after = keys.last().map(|k| k.asset_id.clone());
+                }
+            } else {
+                let old_sequence = previous
+                    .and_then(|v| v.catalog_revision.rsplit(':').next())
+                    .and_then(|s| s.parse::<u64>().ok());
+                let anchor = old_sequence
+                    .map(|seq| self.browse_index.anchor(&source.id, seq))
+                    .transpose()?
+                    .flatten()
+                    .filter(|anchor| {
+                        previous.is_some_and(|v| {
+                            v.catalog_revision
+                                == format!("catalog-v1:{}:{}", anchor.generation, anchor.sequence)
+                        })
+                    });
+                let mut affected = |keys: &[AssetKey]| stage.borrow_mut().affected(keys);
+                let updated = if !post_refresh && let Some(anchor) = anchor {
+                    reader.execute_delta(
+                        source,
+                        &native,
+                        expected,
+                        &anchor,
+                        cancelled.clone(),
+                        &mut affected,
+                        &mut sink,
+                    )?
+                } else {
+                    false
+                };
+                if !updated {
+                    if basis.is_some() {
+                        mode = "rebuilt";
+                    }
+                    stage.borrow_mut().full_source(&source.id);
+                    store.query_build_phase(&result.project_id, &result.id, mode)?;
+                    reader.execute_query(
+                        source,
+                        &native,
+                        expected,
+                        cancelled.clone(),
+                        &mut sink,
+                    )?;
+                }
+            }
         }
         if cancelled.load(Ordering::Acquire) {
             return Err(Error::new("CANCELLED", "构建已取消"));
@@ -102,6 +321,23 @@ impl QueryRunner {
             return Err(Error::new(
                 "SOURCE_CHANGED",
                 "构建期间来源已更新，请重新计算",
+            ));
+        }
+        let stage = stage.into_inner();
+        stage.seal()?;
+        store.query_build_phase(&result.project_id, &result.id, "publishing")?;
+        store.publish_stage_with_budget(
+            &result.project_id,
+            &result.id,
+            &stage,
+            mode,
+            &cancelled,
+            (budget.memory_bytes / 2).min(4 << 30),
+        )?;
+        if self.versions(store, &result.project_id, &result.spec)? != result.source_versions {
+            return Err(Error::new(
+                "SOURCE_CHANGED",
+                "发布查询期间来源已更新，请刷新后重试",
             ));
         }
         Ok(())
@@ -135,10 +371,16 @@ pub async fn scheduler(store: Arc<SqliteStore>, runner: Arc<QueryRunner>) {
                     // Pin through status publication, including user cancellation.
                     let _lease=s.operation_lease(&query.project_id)?;
                     if !s.start_result(&query.project_id,&query.id)? { return Ok(()); }
+                    let started=std::time::Instant::now();
                     let built=r.build(&s,&query,cancelled);
                     let error=if r.stopping.load(Ordering::Acquire) { Some(Error::new("INTERRUPTED","引擎已停止，结果需要重新计算")) } else { built.err() };
                     if let Some(e)=&error { tracing::warn!(result_id=%query.id,code=e.code,message=%e.message,"query build stopped"); }
-                    s.finish_result(&query.project_id,&query.id,error.as_ref())?;
+                    let _cache_gate=r.cache.gate.lock().map_err(|_|Error::new("INTERNAL_ERROR","查询缓存锁不可用"))?;
+                    let published=s.finish_result(&query.project_id,&query.id,error.as_ref())?;
+                    if published.state==ResultState::Ready {r.cache.recent(&query.project_id,&query.id);}
+                    r.cache.track_committed(&s,&query.project_id);
+                    r.cache.requested.store(true,Ordering::Release);
+                    tracing::info!(result_id=%query.id,state=?published.state,count=?published.count,elapsed_ms=started.elapsed().as_millis(),"query build finished");
                     Ok(())
                 }).await;
                 if let Ok(mut running) = runner.running.lock() {
@@ -154,5 +396,55 @@ pub async fn scheduler(store: Arc<SqliteStore>, runner: Arc<QueryRunner>) {
             _ => {}
         }
         tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+    }
+}
+
+pub async fn cache_maintenance(store: Arc<SqliteStore>, runner: Arc<QueryRunner>) {
+    let mut last = Instant::now();
+    while !runner.stopping.load(Ordering::Acquire) {
+        if runner.cache.requested.swap(false, Ordering::AcqRel)
+            || last.elapsed() >= Duration::from_secs(30)
+        {
+            last = Instant::now();
+            let s = store.clone();
+            let r = runner.clone();
+            let force = runner.cache.force.swap(false, Ordering::AcqRel);
+            runner.cache.busy.store(true, Ordering::Release);
+            let result=tokio::task::spawn_blocking(move||->Result<u64>{
+                let _gate=r.cache.gate.lock().map_err(|_|Error::new("INTERNAL_ERROR","查询缓存锁不可用"))?;
+                let policy=r.cache.config()?.policy();
+                let owned=s.owned_projects()?;
+                for id in &owned {if let Err(e)=r.cache.track(&s,id){tracing::warn!(%e,"query cache inspection deferred");}}
+                let mut projects=r.cache.projects()?;
+                projects.sort_by_key(|p|p.touched);
+                let mut total=projects.iter().filter(|p|p.retained>0).map(|p|p.bytes).sum::<u64>();
+                let cutoff=studio_storage::now().parse::<u64>().unwrap_or(0).saturating_sub(policy.max_age_seconds*1000);
+                let mut reclaimed=0;
+                for project in projects {
+                    if project.retained==0 && project.members==0 && project.free_bytes==0 && !owned.contains(&project.id){continue;}
+                    if !owned.contains(&project.id) && !force && total<=policy.quota_bytes && project.touched>=cutoff {continue;}
+                    let local=studio_storage::QueryCachePolicy{quota_bytes:policy.quota_bytes.saturating_sub(total.saturating_sub(project.bytes)),..policy.clone()};
+                    let stats=if owned.contains(&project.id){Some(s.maintain_query_cache(&project.id,&local,&r.cache.live(&project.id),force)?)}else{match SqliteStore::maintain_closed_cache(s.root(),&project.id,&project.directory,&local,force){Ok(value)=>value,Err(e)=>{tracing::warn!(project_id=%project.id,%e,"closed query cache maintenance deferred");None}}};
+                    if let Some(stats)=stats {total=total.saturating_sub(if project.retained>0{project.bytes}else{0}).saturating_add(if stats.retained_families>0{stats.storage_bytes}else{0});reclaimed+=stats.reclaimed_families;r.cache.record(&project.id,project.directory,stats)?;}
+                    if reclaimed>=2 {break;}
+                }
+                Ok(reclaimed)
+            }).await;
+            match result {
+                Ok(Ok(n)) => {
+                    runner.cache.reclaimed.fetch_add(n, Ordering::Relaxed);
+                    if n >= 2 {
+                        runner.cache.requested.store(true, Ordering::Release);
+                        if force {
+                            runner.cache.force.store(true, Ordering::Release);
+                        }
+                    }
+                }
+                Ok(Err(e)) => tracing::warn!(%e,"query cache maintenance deferred"),
+                Err(e) => tracing::warn!(%e,"query cache maintenance failed"),
+            }
+            runner.cache.busy.store(false, Ordering::Release);
+        }
+        tokio::time::sleep(Duration::from_millis(500)).await;
     }
 }

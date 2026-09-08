@@ -5,7 +5,7 @@ fn decode<T: serde::de::DeserializeOwned>(text: String) -> Result<T> {
     serde_json::from_str(&text)
         .map_err(|e| Error::new("DATABASE_ERROR", format!("项目查询记录无效：{e}")))
 }
-fn read_definition(db: &Connection, pid: &str, id: &str) -> Result<QueryDefinition> {
+pub(super) fn read_definition(db: &Connection, pid: &str, id: &str) -> Result<QueryDefinition> {
     validate_id(id)?;
     let row = db
         .query_row(
@@ -37,6 +37,19 @@ pub(super) fn read_result(db: &Connection, pid: &str, id: &str) -> Result<QueryR
     let row = db.query_row("SELECT definition_id,definition_revision,spec_json,versions_json,status,processed,count,created_at,error FROM query_results WHERE id=?1",[id],|r| Ok((r.get(0)?,r.get::<_,Option<i64>>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?,r.get::<_,String>(4)?,unsigned(r,5)?,r.get::<_,Option<i64>>(6)?,r.get(7)?,r.get(8)?)))
         .optional().map_err(db_error)?.ok_or_else(|| Error::new("NOT_FOUND", "查询结果不属于当前项目"))?;
     let state: ResultState = decode(format!("\"{}\"", row.4))?;
+    let cache = db
+        .query_row(
+            "SELECT cache_mode,evaluated_count,changed_members FROM query_results WHERE id=?1",
+            [id],
+            |r| {
+                Ok(QueryCacheInfo {
+                    mode: r.get(0)?,
+                    evaluated_objects: unsigned(r, 1)?,
+                    changed_members: unsigned(r, 2)?,
+                })
+            },
+        )
+        .map_err(db_error)?;
     Ok(QueryResult {
         id: id.into(),
         project_id: pid.into(),
@@ -53,6 +66,7 @@ pub(super) fn read_result(db: &Connection, pid: &str, id: &str) -> Result<QueryR
         },
         created_at: row.7,
         error: row.8,
+        cache,
     })
 }
 pub(super) fn ready_result(db: &Connection, pid: &str, id: &str) -> Result<QueryResult> {
@@ -62,7 +76,7 @@ pub(super) fn ready_result(db: &Connection, pid: &str, id: &str) -> Result<Query
     }
     Ok(result)
 }
-fn validate_sources(db: &Connection, spec: &QuerySpec) -> Result<()> {
+pub(super) fn validate_sources(db: &Connection, spec: &QuerySpec) -> Result<()> {
     let mut stmt = db
         .prepare("SELECT 1 FROM sources WHERE id=?1")
         .map_err(db_error)?;
@@ -93,10 +107,15 @@ fn listed_ids(
             .ok_or_else(|| Error::invalid("列表游标不属于当前项目"))
         })
         .transpose()?;
-    let predicate = if after.is_some() {
-        "WHERE (created_at,id)<(?1,?2)"
+    let visibility = if table == "query_results" {
+        "internal=0"
     } else {
-        ""
+        "1"
+    };
+    let predicate = if after.is_some() {
+        format!("WHERE {visibility} AND (created_at,id)<(?1,?2)")
+    } else {
+        format!("WHERE {visibility}")
     };
     let mut stmt = db
         .prepare(&format!(
@@ -126,6 +145,7 @@ pub(super) fn insert_result(
     let id = new_id();
     db.execute("INSERT INTO query_results(id,definition_id,definition_revision,spec_json,versions_json,status,count,created_at) VALUES (?1,?2,?3,?4,?5,'queued',0,?6)",params![id,definition.map(|d|d.0),definition.map(|d|d.1 as i64),serde_json::to_string(spec).map_err(Error::io)?,serde_json::to_string(versions).map_err(Error::io)?,now()]).map_err(db_error)?;
     derived_fields::references(db, pid, "query_result", &id, spec)?;
+    input_references(db, pid, "query_input", &id, spec)?;
     event(db, "result.created", &id)?;
     read_result(db, pid, &id)
 }
@@ -165,6 +185,7 @@ impl QueryRepository for SqliteStore {
             id
         };
         derived_fields::references(&tx, pid, "query_definition", &id, &spec)?;
+        input_references(&tx, pid, "query_definition_input", &id, &spec)?;
         event(&tx, "query.changed", &id)?;
         let result = read_definition(&tx, pid, &id)?;
         tx.commit().map_err(db_error)?;
@@ -242,7 +263,11 @@ impl QueryRepository for SqliteStore {
         let p = self.handle(pid)?;
         let db = p.db.lock().map_err(lock_error)?;
         let result = ready_result(&db, pid, id)?;
-        let desc = result.spec.order == QueryOrder::AssetKeyDesc;
+        let order = result.spec.order;
+        if order.by_post() {
+            return post_page(&db, id, after, limit, order);
+        }
+        let desc = order.descending();
         let (source, asset) = after
             .map(|k| (k.source_id.as_str(), k.asset_id.as_str()))
             .unwrap_or(("", ""));
@@ -284,11 +309,13 @@ impl QueryRepository for SqliteStore {
         let tx = db.transaction().map_err(db_error)?;
         read_result(&tx, pid, id)?;
         if tx.execute("UPDATE query_results SET status='cancelled',count=NULL,error='已取消构建' WHERE id=?1 AND status IN ('queued','running')",[id]).map_err(db_error)?>0 { event(&tx,"result.changed",id)?; }
+        clear_input_references(&tx, id)?;
         let result = read_result(&tx, pid, id)?;
         tx.commit().map_err(db_error)?;
         Ok(result)
     }
     fn release_result(&self, pid: &str, id: &str) -> Result<QueryResult> {
+        self.invalidate_query_sizes(pid);
         let p = self.handle(pid)?;
         let mut db = p.db.lock().map_err(lock_error)?;
         let tx = db.transaction().map_err(db_error)?;
@@ -306,11 +333,11 @@ impl QueryRepository for SqliteStore {
         if references > 0 {
             return Err(Error::new(
                 "RESULT_IN_USE",
-                format!("结果仍由 {references} 个选择、工作集或任务引用"),
+                format!("结果仍由 {references} 个选择、工作集、查询或任务引用"),
             ));
         }
-        tx.execute("DELETE FROM result_members WHERE result_id=?1", [id])
-            .map_err(db_error)?;
+        // Memberships may be shared by another result or a retained cache.
+        clear_input_references(&tx, id)?;
         tx.execute(
             "DELETE FROM artifact_references WHERE owner_kind='query_result' AND owner_id=?1",
             [id],
@@ -322,10 +349,96 @@ impl QueryRepository for SqliteStore {
         )
         .map_err(db_error)?;
         event(&tx, "result.changed", id)?;
+        crate::query_cache::collect_family(&tx, &result.id)?;
         let result = read_result(&tx, pid, id)?;
         tx.commit().map_err(db_error)?;
         Ok(result)
     }
+}
+pub(super) fn post_page(
+    db: &Connection,
+    id: &str,
+    after: Option<&AssetKey>,
+    limit: usize,
+    order: QueryOrder,
+) -> Result<ResultPage> {
+    let ready: bool = db
+        .query_row(
+            "SELECT post_ready FROM query_results WHERE id=?1",
+            [id],
+            |r| r.get(0),
+        )
+        .map_err(db_error)?;
+    if !ready {
+        return Err(Error::new(
+            "SORT_REQUIRES_REFRESH",
+            "该结果尚无帖子 ID 排序信息，请重新执行查询",
+        ));
+    }
+    let (family, revision): (String, i64) = db
+        .query_row(
+            "SELECT family_id,member_revision FROM query_results WHERE id=?1",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .map_err(db_error)?;
+    let visible = "valid_from<=?2 AND (valid_until IS NULL OR valid_until>?2)";
+    let (source, asset) = after
+        .map(|k| (k.source_id.as_str(), k.asset_id.as_str()))
+        .unwrap_or(("", ""));
+    let post: Option<i64> = if after.is_some() {
+        db.query_row(&format!("SELECT post_id FROM query_member_data WHERE family_id=?1 AND {visible} AND source_id=?3 AND asset_id=?4"),params![family,revision,source,asset],|r|r.get(0)).optional().map_err(db_error)?.ok_or_else(||Error::invalid("结果排序游标不属于该成员版本"))?
+    } else {
+        None
+    };
+    let op = if order.descending() { "<" } else { ">" };
+    let direction = if order.descending() { "DESC" } else { "ASC" };
+    let limit = limit.clamp(1, 128);
+    let mut keys = Vec::new();
+    for missing in [false, true] {
+        if !missing && after.is_some() && post.is_none() {
+            continue;
+        }
+        let remaining = limit + 1 - keys.len();
+        if remaining == 0 {
+            break;
+        }
+        let condition = if missing {
+            if after.is_some() && post.is_none() {
+                format!("post_id IS NULL AND (source_id,asset_id){op}(?4,?5)")
+            } else {
+                "post_id IS NULL".into()
+            }
+        } else if post.is_some() {
+            format!("post_id IS NOT NULL AND (post_id,source_id,asset_id){op}(?3,?4,?5)")
+        } else {
+            "post_id IS NOT NULL".into()
+        };
+        let sql = format!(
+            "SELECT source_id,asset_id FROM query_member_data WHERE family_id=?1 AND {visible} AND {condition} ORDER BY post_id {direction},source_id {direction},asset_id {direction} LIMIT ?6"
+        );
+        let mut stmt = db.prepare(&sql).map_err(db_error)?;
+        keys.extend(
+            stmt.query_map(
+                params![family, revision, post, source, asset, remaining as i64],
+                |r| {
+                    Ok(AssetKey {
+                        source_id: r.get(0)?,
+                        asset_id: r.get(1)?,
+                    })
+                },
+            )
+            .map_err(db_error)?
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(db_error)?,
+        );
+    }
+    let more = keys.len() > limit;
+    keys.truncate(limit);
+    Ok(ResultPage {
+        next: if more { keys.last().cloned() } else { None },
+        keys,
+    })
 }
 impl SqliteStore {
     pub fn next_result(&self, pid: &str) -> Result<Option<QueryResult>> {
@@ -365,6 +478,7 @@ impl SqliteStore {
         keys: &[AssetKey],
         processed: u64,
     ) -> Result<()> {
+        self.invalidate_query_sizes(pid);
         if keys.len() > 512 || processed > 512 {
             return Err(Error::invalid("结果批次超过 512 行"));
         }
@@ -378,7 +492,7 @@ impl SqliteStore {
         let mut added = 0;
         {
             let mut insert = tx
-                .prepare("INSERT OR IGNORE INTO result_members VALUES (?1,?2,?3)")
+                .prepare("INSERT OR IGNORE INTO query_member_data(family_id,source_id,asset_id,valid_from) SELECT family_id,?2,?3,member_revision FROM query_results WHERE id=?1")
                 .map_err(db_error)?;
             for key in keys {
                 if !result.spec.source_ids.contains(&key.source_id)
@@ -400,23 +514,163 @@ impl SqliteStore {
         tx.commit().map_err(db_error)
     }
     pub fn finish_result(&self, pid: &str, id: &str, error: Option<&Error>) -> Result<QueryResult> {
+        self.invalidate_query_sizes(pid);
         let p = self.handle(pid)?;
         let mut db = p.db.lock().map_err(lock_error)?;
         let tx = db.transaction().map_err(db_error)?;
-        let (status, message) = match error {
+        // The final mutable-selection fence and publication share one transaction.
+        let result = read_result(&tx, pid, id)?;
+        if result.state != ResultState::Running {
+            clear_input_references(&tx, id)?;
+            crate::query_cache::rollback_revision(&tx, id)?;
+            tx.commit().map_err(db_error)?;
+            return Ok(result);
+        }
+        let scope_error = if error.is_none() && result.state == ResultState::Running {
+            validate_input(&tx, pid, &result.spec).err()
+        } else {
+            None
+        };
+        let (status, message) = match error.or(scope_error.as_ref()) {
             None => ("ready", None),
             Some(e) => (
-                if e.code == "INTERRUPTED" {
-                    "interrupted"
-                } else {
-                    "failed"
+                match e.code {
+                    "INTERRUPTED" => "interrupted",
+                    "CANCELLED" => "cancelled",
+                    _ => "failed",
                 },
                 Some(e.to_string()),
             ),
         };
         if tx.execute("UPDATE query_results SET status=?2,error=?3,count=CASE WHEN ?2='ready' THEN count ELSE NULL END WHERE id=?1 AND status='running'",params![id,status,message]).map_err(db_error)?>0 { event(&tx,"result.changed",id)?; }
+        clear_input_references(&tx, id)?;
+        if status == "ready" {
+            tx.execute("UPDATE query_families SET latest_revision=(SELECT member_revision FROM query_results WHERE id=?1),prune_pending=1,latest_result_id=?1,latest_count=(SELECT COALESCE(count,0) FROM query_results WHERE id=?1),post_ready=(SELECT post_ready FROM query_results WHERE id=?1),touched_at=CAST(?2 AS INTEGER) WHERE id=(SELECT family_id FROM query_results WHERE id=?1)",params![id,now()]).map_err(db_error)?;
+        } else {
+            crate::query_cache::rollback_revision(&tx, id)?;
+        }
         let result = read_result(&tx, pid, id)?;
         tx.commit().map_err(db_error)?;
         Ok(result)
+    }
+}
+
+pub(super) fn validate_input(
+    db: &Connection,
+    pid: &str,
+    spec: &QuerySpec,
+) -> Result<Option<scopes::ResolvedScope>> {
+    match &spec.input_scope {
+        None => Ok(None),
+        Some(scope) => {
+            scope.validate_project(pid)?;
+            if matches!(scope.target, ScopeTarget::Source { .. }) {
+                Ok(None)
+            } else {
+                scopes::resolve(db, pid, scope).map(Some)
+            }
+        }
+    }
+}
+
+pub(super) fn input_references(
+    db: &Connection,
+    pid: &str,
+    kind: &str,
+    owner: &str,
+    spec: &QuerySpec,
+) -> Result<()> {
+    db.execute(
+        "DELETE FROM result_references WHERE owner_kind=?1 AND owner_id=?2",
+        params![kind, owner],
+    )
+    .map_err(db_error)?;
+    if let Some(scope) = validate_input(db, pid, spec)? {
+        for id in scope.results {
+            db.execute(
+                "INSERT OR IGNORE INTO result_references VALUES (?1,?2,?3)",
+                params![kind, owner, id],
+            )
+            .map_err(db_error)?;
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn clear_input_references(db: &Connection, id: &str) -> Result<()> {
+    db.execute(
+        "DELETE FROM result_references WHERE owner_kind='query_input' AND owner_id=?1",
+        [id],
+    )
+    .map_err(db_error)?;
+    Ok(())
+}
+
+impl SqliteStore {
+    pub fn query_input_count(&self, pid: &str, spec: &QuerySpec) -> Result<Option<u64>> {
+        let p = self.handle(pid)?;
+        let db = p.db.lock().map_err(lock_error)?;
+        Ok(validate_input(&db, pid, spec)?.map(|scope| scope.count))
+    }
+
+    pub fn query_input_keys(
+        &self,
+        pid: &str,
+        spec: &QuerySpec,
+        source_id: &str,
+        after: Option<&str>,
+    ) -> Result<Vec<AssetKey>> {
+        let p = self.handle(pid)?;
+        let db = p.db.lock().map_err(lock_error)?;
+        let scope = validate_input(&db, pid, spec)?
+            .ok_or_else(|| Error::invalid("该查询没有固定的项目范围"))?;
+        let mut stmt = db.prepare(&format!("SELECT source_id,asset_id FROM ({}) WHERE source_id=?1 AND asset_id>?2 ORDER BY asset_id LIMIT 512",scope.sql)).map_err(db_error)?;
+        stmt.query_map(params![source_id, after.unwrap_or("")], |r| {
+            Ok(AssetKey {
+                source_id: r.get(0)?,
+                asset_id: r.get(1)?,
+            })
+        })
+        .map_err(db_error)?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(db_error)
+    }
+
+    pub fn filter_query_input(
+        &self,
+        pid: &str,
+        spec: &QuerySpec,
+        keys: &[AssetKey],
+    ) -> Result<Vec<AssetKey>> {
+        if keys.len() > 512 {
+            return Err(Error::invalid("查询范围批次超过 512 个对象"));
+        }
+        if spec.input_scope.is_none()
+            || spec
+                .input_scope
+                .as_ref()
+                .is_some_and(|s| matches!(s.target, ScopeTarget::Source { .. }))
+        {
+            return Ok(keys.to_vec());
+        }
+        let p = self.handle(pid)?;
+        let db = p.db.lock().map_err(lock_error)?;
+        let scope = validate_input(&db, pid, spec)?.expect("project scope validated");
+        let mut stmt = db
+            .prepare(&format!(
+                "SELECT 1 FROM ({}) WHERE source_id=?1 AND asset_id=?2 LIMIT 1",
+                scope.sql
+            ))
+            .map_err(db_error)?;
+        let mut kept = Vec::new();
+        for key in keys {
+            if stmt
+                .exists(params![key.source_id, key.asset_id])
+                .map_err(db_error)?
+            {
+                kept.push(key.clone());
+            }
+        }
+        Ok(kept)
     }
 }

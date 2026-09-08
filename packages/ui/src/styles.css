@@ -13,7 +13,7 @@
   --danger: #e8a39e;
   --radius: 3px;
   font-family: "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.5;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -254,4 +254,164 @@ button:hover:not(:disabled) {
 }
 .draft-error {
   color: #edb88d;
+}
+
+/* Shared reading and manipulation controls. */
+.brand-image {
+  display: inline-block;
+  flex-shrink: 0;
+  vertical-align: middle;
+  object-fit: contain;
+}
+.rating-picker {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+.rating-picker button {
+  min-height: 28px;
+  padding: 4px 10px;
+  border: 1px solid #555;
+  border-radius: 3px;
+  font-size: 12px;
+  white-space: nowrap;
+  background: #292929;
+}
+.rating-picker button[aria-pressed="true"] {
+  color: #edf6ff;
+  background: #36556d;
+  border-color: #7aa4c7;
+}
+.filters-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.filter-ratings {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.filter-label {
+  color: #b6b6b6;
+  font-size: 12px;
+}
+.filter-tags {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) 172px minmax(160px, 1fr);
+  align-items: end;
+  gap: 12px;
+}
+.filter-tags label {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12px;
+}
+.filter-tags input,
+.filter-tags select {
+  min-height: 31px;
+  width: 100%;
+  font-size: 12px;
+}
+.error-details {
+  border: 1px solid #665044;
+  border-radius: 3px;
+  padding: 10px 12px;
+  margin: 9px 0;
+  background: #382e28;
+  color: #f0c3a6;
+  font-size: 12px;
+}
+.error-details.compact {
+  padding: 7px 9px;
+}
+.error-summary {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.error-summary > svg {
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+.error-summary > span {
+  flex: 1;
+  min-width: 0;
+}
+.error-summary > .copy-action {
+  flex: 0 0 auto;
+}
+.error-details details {
+  margin-top: 5px;
+}
+.error-details summary {
+  cursor: pointer;
+  color: #c6b5a8;
+  font-size: 11px;
+}
+.error-details pre {
+  user-select: text;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 200px;
+  overflow: auto;
+  font:
+    12px/1.6 Consolas,
+    monospace;
+  padding: 9px;
+  background: #252321;
+  color: #dbd2ca;
+}
+.copy-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.copy-action button {
+  gap: 5px;
+  padding: 2px 5px;
+  white-space: nowrap;
+  font-size: 11px;
+}
+.copy-action small {
+  max-width: 220px;
+  color: #e7ad92;
+}
+.resize-grip {
+  z-index: 5;
+  touch-action: none;
+  user-select: none;
+  flex-shrink: 0;
+}
+.resize-grip.vertical {
+  position: absolute;
+  right: 0;
+  top: 30px;
+  bottom: 24px;
+  width: 6px;
+  cursor: col-resize;
+}
+.resize-grip.horizontal {
+  height: 6px;
+  width: 100%;
+  cursor: row-resize;
+  background: #242424;
+  border-top: 1px solid #171717;
+}
+.resize-grip:hover,
+.resize-grip:focus-visible {
+  background: #608bab;
+  outline: 0;
+}
+@media (max-width: 1100px) {
+  .filter-tags {
+    grid-template-columns: minmax(150px, 1fr) 155px;
+  }
+  .filter-tags label:last-child {
+    grid-column: 1/-1;
+  }
 }

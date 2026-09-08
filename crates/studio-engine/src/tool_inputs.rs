@@ -18,6 +18,7 @@ fn version_spec(source_id: &str, fields: &[ScalarInput]) -> QuerySpec {
         },
         observation_rule: ObservationRule::AnyObservation,
         order: QueryOrder::AssetKeyAsc,
+        input_scope: None,
     }
 }
 pub fn capture(

@@ -62,6 +62,7 @@ pub struct Asset {
     pub extension: String,
     pub source_name: String,
     pub selected: bool,
+    pub summary: Option<AssetSummary>,
 }
 impl Asset {
     pub fn from_domain(a: domain::Asset, selected: bool) -> Self {
@@ -72,6 +73,7 @@ impl Asset {
             extension: a.extension,
             source_name: a.source_name,
             selected,
+            summary: None,
         }
     }
 }
@@ -80,6 +82,10 @@ pub struct AssetPage {
     pub items: Vec<Asset>,
     pub next_cursor: Option<String>,
     pub revision: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preparing: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub result_id: Option<String>,
 }
 #[derive(Serialize, ToSchema)]
 pub struct Project {
@@ -194,6 +200,7 @@ pub struct AttachSource {
 }
 #[derive(Deserialize, ToSchema)]
 pub struct BrowseQuery {
+    pub order: Option<QueryOrder>,
     pub source_id: Option<String>,
     pub collection_id: Option<String>,
     pub selection: Option<bool>,

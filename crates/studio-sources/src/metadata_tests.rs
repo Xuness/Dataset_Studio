@@ -94,6 +94,45 @@ fn req(version: &str) -> MetadataRequest {
 }
 
 #[test]
+fn page_identity_summaries_are_batched_distinct_bounded_and_readonly() {
+    let f = fixture();
+    let db = Session::fixture(&f.dll, &f.path).unwrap();
+    for n in 1000..1012 {
+        db.query(&format!(
+            "INSERT INTO assets VALUES ('{}',NULL,{n},'{}',NULL,'fixture')",
+            hex(n),
+            hex(200)
+        ))
+        .unwrap();
+    }
+    drop(db);
+    let before = fs::metadata(&f.path).unwrap().modified().unwrap();
+    let values = f
+        .reader
+        .summaries(
+            &f.source,
+            &[hex(100), hex(200), hex(300)],
+            std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        )
+        .unwrap();
+    let many = values.iter().find(|v| v.asset_id == hex(200)).unwrap();
+    assert!(many.post_count >= 12);
+    assert_eq!(many.post_ids.len(), 8);
+    let missing = values.iter().find(|v| v.asset_id == hex(300)).unwrap();
+    assert_eq!(missing.post_count, 0);
+    assert!(missing.post_ids.is_empty());
+    let one = values.iter().find(|v| v.asset_id == hex(100)).unwrap();
+    assert_eq!(
+        one.post_ids
+            .iter()
+            .collect::<std::collections::BTreeSet<_>>()
+            .len(),
+        one.post_ids.len()
+    );
+    assert_eq!(fs::metadata(&f.path).unwrap().modified().unwrap(), before);
+}
+
+#[test]
 fn origin_field_freezes_value_record_observation_and_version() {
     let f = fixture();
     let catalog = Catalog::open(&f.source).unwrap();

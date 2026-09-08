@@ -18,6 +18,15 @@ pub struct AssetRecord {
     pub source_md5: Option<String>,
     pub storage_profile: Option<String>,
 }
+
+/// A bounded identity summary for one listed stored object.
+#[derive(Debug, Clone)]
+pub struct AssetSummary {
+    pub asset_id: String,
+    pub post_ids: Vec<String>,
+    pub post_count: u64,
+    pub version: String,
+}
 #[derive(Debug, Clone)]
 pub struct MetadataOverview {
     pub object: Asset,

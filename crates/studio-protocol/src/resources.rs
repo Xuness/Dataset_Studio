@@ -92,6 +92,44 @@ pub struct ReadServiceStatus {
     pub cache: PreviewCacheStatus,
     pub previews: PreviewActivity,
     pub process_memory: Option<ReadProcessMemory>,
+    pub query_limits: QueryResourceLimits,
+    pub query_cache: QueryCacheStatus,
+}
+#[derive(Serialize, ToSchema)]
+pub struct QueryCacheStatus {
+    pub quota_bytes: String,
+    pub max_age_days: u32,
+    pub retained_queries: u64,
+    pub member_versions: u64,
+    pub result_storage_bytes: String,
+    pub database_free_bytes: String,
+    pub protected_results: u64,
+    pub active_views: u64,
+    pub reused_results: u64,
+    pub incremental_results: u64,
+    pub source_index_bytes: String,
+    pub source_indexes: u64,
+    pub cleanup_pending: bool,
+    pub reclaimed_queries: u64,
+}
+#[derive(Deserialize, ToSchema)]
+pub struct SetQueryCache {
+    pub quota_mib: u32,
+    pub max_age_days: u32,
+}
+#[derive(Serialize, ToSchema)]
+pub struct QueryResourceLimits {
+    pub metadata_memory_bytes: String,
+    pub query_memory_bytes: String,
+    pub native_query_memory_bytes: String,
+    pub result_work_memory_bytes: String,
+    pub active_query_memory_bytes: Option<String>,
+    pub temporary_disk_bytes: String,
+    pub result_staging_disk_bytes: String,
+}
+#[derive(Deserialize, ToSchema)]
+pub struct SetQueryMemory {
+    pub memory_gib: u32,
 }
 #[derive(Serialize, ToSchema)]
 pub struct ReadProcessMemory {

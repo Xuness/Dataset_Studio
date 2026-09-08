@@ -80,7 +80,12 @@ impl SqliteStore {
                 ObservationRule::AnyObservation,
                 ObservationRule::CurrentPost,
             ],
-            orders: vec![QueryOrder::AssetKeyAsc, QueryOrder::AssetKeyDesc],
+            orders: vec![
+                QueryOrder::AssetKeyAsc,
+                QueryOrder::AssetKeyDesc,
+                QueryOrder::PostIdAsc,
+                QueryOrder::PostIdDesc,
+            ],
             max_conditions: 12,
         }
         .validate(&derived)

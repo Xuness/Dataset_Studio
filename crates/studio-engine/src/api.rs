@@ -163,15 +163,37 @@ async fn open_project(
     Body(body): Body<OpenProject>,
 ) -> ApiResult<Project> {
     Ok(Json(
-        blocking(move || s.store.open(body.directory.into()))
-            .await?
-            .into(),
+        blocking(move || {
+            let _gate = s
+                .queries
+                .cache
+                .gate
+                .lock()
+                .map_err(|_| domain::Error::new("INTERNAL_ERROR", "查询缓存锁不可用"))?;
+            let project = s.store.open(body.directory.into())?;
+            s.queries.cache.track_committed(&s.store, &project.id);
+            Ok(project)
+        })
+        .await?
+        .into(),
     ))
 }
 #[utoipa::path(post,path="/v1/projects/{project_id}/open",params(("project_id"=String,Path)),responses((status=200,body=Project)))]
 async fn open_recent(State(s): State<AppState>, Path(id): Path<String>) -> ApiResult<Project> {
     Ok(Json(
-        blocking(move || s.store.open_recent(&id)).await?.into(),
+        blocking(move || {
+            let _gate = s
+                .queries
+                .cache
+                .gate
+                .lock()
+                .map_err(|_| domain::Error::new("INTERNAL_ERROR", "查询缓存锁不可用"))?;
+            let project = s.store.open_recent(&id)?;
+            s.queries.cache.track_committed(&s.store, &id);
+            Ok(project)
+        })
+        .await?
+        .into(),
     ))
 }
 #[utoipa::path(post,path="/v1/projects/{project_id}/close",params(("project_id"=String,Path)),responses((status=200,body=ProjectClose)))]
@@ -179,7 +201,22 @@ async fn close_project(
     State(s): State<AppState>,
     Path(id): Path<String>,
 ) -> ApiResult<ProjectClose> {
-    Ok(Json(blocking(move || s.store.close(&id)).await?.into()))
+    Ok(Json(
+        blocking(move || {
+            let _gate = s
+                .queries
+                .cache
+                .gate
+                .lock()
+                .map_err(|_| domain::Error::new("INTERNAL_ERROR", "查询缓存锁不可用"))?;
+            if s.store.directory(&id).is_ok() {
+                s.queries.cache.track_committed(&s.store, &id);
+            }
+            s.store.close(&id)
+        })
+        .await?
+        .into(),
+    ))
 }
 #[utoipa::path(get,path="/v1/projects/{project_id}",params(("project_id"=String,Path)),responses((status=200,body=Project)))]
 async fn project(State(s): State<AppState>, Path(id): Path<String>) -> ApiResult<Project> {
@@ -210,7 +247,9 @@ async fn asset_detail(
                 .first()
                 .copied()
                 .unwrap_or(false);
-            Ok(Asset::from_domain(item.asset, selected))
+            let mut items = vec![Asset::from_domain(item.asset, selected)];
+            enrich_summaries(&s, &pid, &read_context, &mut items)?;
+            Ok(items.remove(0))
         })
         .await?,
     ))
@@ -226,13 +265,63 @@ fn read_permit(
             class,
             priority: context.priority,
             bytes: if class == domain::ReadClass::NativeQuery {
-                256 << 20
+                domain::METADATA_MEMORY_BYTES
             } else {
                 32 << 20
             },
         },
         &context.cancelled,
     )
+}
+
+fn enrich_summaries(
+    s: &AppState,
+    pid: &str,
+    context: &RequestReadContext,
+    items: &mut [Asset],
+) -> domain::Result<()> {
+    let mut groups = BTreeMap::<String, Vec<String>>::new();
+    for item in items.iter() {
+        groups
+            .entry(item.key.source_id.clone())
+            .or_default()
+            .push(item.key.asset_id.clone());
+    }
+    for (sid, ids) in groups {
+        let source = s.store.source(pid, &sid)?;
+        if source.kind != "danbooru" {
+            continue;
+        }
+        let result = (|| {
+            let _permit = read_permit(s, domain::ReadClass::NativeQuery, context)?;
+            s.metadata
+                .summaries(&source, &ids, context.cancelled.clone())
+        })();
+        match result {
+            Ok(summaries) => {
+                let mut summaries = summaries
+                    .into_iter()
+                    .map(|v| (v.asset_id.clone(), v))
+                    .collect::<std::collections::HashMap<_, _>>();
+                for item in items.iter_mut().filter(|item| item.key.source_id == sid) {
+                    item.summary = summaries.remove(&item.key.asset_id).map(Into::into);
+                }
+            }
+            Err(e) if e.code == "CANCELLED" => return Err(e),
+            Err(e) => {
+                for item in items.iter_mut().filter(|item| item.key.source_id == sid) {
+                    item.summary = Some(AssetSummary {
+                        status: "unavailable".into(),
+                        post_ids: Vec::new(),
+                        post_count: None,
+                        version: None,
+                        issue: Some(e.to_string()),
+                    });
+                }
+            }
+        }
+    }
+    Ok(())
 }
 #[utoipa::path(get,path="/v1/projects/{project_id}/sources/{source_id}/assets/{asset_id}/metadata",params(("project_id"=String,Path),("source_id"=String,Path),("asset_id"=String,Path),("cursor"=Option<String>,Query),("limit"=Option<usize>,Query),("version"=Option<String>,Query)),responses((status=200,body=MetadataOverview),(status=409,body=ApiError),(status=503,body=ApiError)))]
 async fn metadata(
@@ -368,11 +457,20 @@ struct Cursor {
     after: Option<String>,
     last_key: Option<domain::AssetKey>,
     revisions: BTreeMap<String, String>,
+    #[serde(default)]
+    source_afters: BTreeMap<String, String>,
+    #[serde(default)]
+    sorted_result_id: Option<String>,
 }
 fn encode_cursor(cursor: &Cursor) -> domain::Result<String> {
     Ok(URL_SAFE_NO_PAD.encode(serde_json::to_vec(cursor).map_err(domain::Error::io)?))
 }
-fn browse_sync(store: &SqliteStore, id: &str, query: BrowseQuery) -> domain::Result<AssetPage> {
+fn browse_sync(s: &AppState, id: &str, query: BrowseQuery) -> domain::Result<AssetPage> {
+    let store = &s.store;
+    let order = query
+        .order
+        .map(Into::into)
+        .unwrap_or(domain::QueryOrder::AssetKeyAsc);
     let selected_scope = query.selection.unwrap_or(false);
     if usize::from(query.source_id.is_some())
         + usize::from(query.collection_id.is_some())
@@ -395,8 +493,14 @@ fn browse_sync(store: &SqliteStore, id: &str, query: BrowseQuery) -> domain::Res
         }
     }
     let scope = hex::encode(Sha256::digest(
-        serde_json::to_vec(&(id, &sources, &query.collection_id, selection_revision))
-            .map_err(domain::Error::io)?,
+        serde_json::to_vec(&(
+            id,
+            &sources,
+            &query.collection_id,
+            selection_revision,
+            order,
+        ))
+        .map_err(domain::Error::io)?,
     ));
     let mut cursor = match query.cursor {
         Some(raw) => {
@@ -429,12 +533,109 @@ fn browse_sync(store: &SqliteStore, id: &str, query: BrowseQuery) -> domain::Res
         {
             return Err(domain::Error::new("NOT_FOUND", "工作集不存在"));
         }
-        let mut keys = if let Some(collection) = &query.collection_id {
+        let sorted = if order != domain::QueryOrder::AssetKeyAsc {
+            let input_scope = domain::ScopeRef {
+                project_id: id.into(),
+                target: if let Some(collection) = &query.collection_id {
+                    domain::ScopeTarget::Workset {
+                        collection_id: collection.clone(),
+                    }
+                } else {
+                    domain::ScopeTarget::Selection {
+                        revision: selection_revision.unwrap_or(0),
+                    }
+                },
+            };
+            let prepared = cursor
+                .sorted_result_id
+                .as_ref()
+                .map(|rid| store.query_result(id, rid))
+                .transpose()?;
+            let source_ids = if let Some(result) = &prepared {
+                if result.spec.input_scope.as_ref() != Some(&input_scope)
+                    || !result.spec.conditions.is_empty()
+                {
+                    return Err(domain::Error::invalid("排序游标不属于当前范围"));
+                }
+                result.spec.source_ids.clone()
+            } else {
+                store.scope_source_ids(id, &input_scope)?
+            };
+            if source_ids.is_empty() {
+                return Ok(AssetPage {
+                    items: vec![],
+                    next_cursor: None,
+                    revision: cursor.scope,
+                    preparing: None,
+                    result_id: None,
+                });
+            }
+            let spec = domain::QuerySpec {
+                version: 3,
+                source_ids,
+                conditions: vec![],
+                observation_rule: domain::ObservationRule::AnyObservation,
+                order,
+                input_scope: Some(input_scope),
+            }
+            .normalize()?;
+            let result =
+                {
+                    let _gate =
+                        s.queries.cache.gate.lock().map_err(|_| {
+                            domain::Error::new("INTERNAL_ERROR", "查询缓存锁不可用")
+                        })?;
+                    let result = if let Some(result) = prepared {
+                        result
+                    } else {
+                        let versions = s.queries.versions(store, id, &spec)?;
+                        store.browse_result(
+                            id,
+                            spec,
+                            versions,
+                            s.queries.cache.config()?.quota_mib > 0,
+                        )?
+                    };
+                    s.queries.cache.recent(id, &result.id);
+                    result
+                };
+            if matches!(
+                result.state,
+                domain::ResultState::Queued | domain::ResultState::Running
+            ) {
+                return Ok(AssetPage {
+                    items: vec![],
+                    next_cursor: None,
+                    revision: cursor.scope,
+                    preparing: Some("正在准备范围排序".into()),
+                    result_id: Some(result.id),
+                });
+            }
+            s.queries.validate_result(store, &result)?;
+            cursor.sorted_result_id = Some(result.id.clone());
+            let page = store.result_page_ordered(
+                id,
+                &result.id,
+                cursor.last_key.as_ref(),
+                limit,
+                order,
+            )?;
+            has_more = page.next.is_some();
+            Some(page.keys)
+        } else {
+            None
+        };
+        let sorted_page = sorted.is_some();
+        let mut keys = if let Some(keys) = sorted {
+            keys
+        } else if let Some(collection) = &query.collection_id {
             store.collection_keys(id, collection, cursor.last_key.as_ref(), limit + 1)?
         } else {
             store.selection_keys(id, cursor.last_key.as_ref(), limit + 1)?
         };
-        has_more = keys.len() > limit;
+        if !sorted_page {
+            has_more = keys.len() > limit;
+        }
         keys.truncate(limit);
         cursor.last_key = keys.last().cloned();
         for key in keys {
@@ -454,6 +655,121 @@ fn browse_sync(store: &SqliteStore, id: &str, query: BrowseQuery) -> domain::Res
                     .insert(source.id.clone(), item.source_revision);
                 items.push(item.asset);
             }
+        }
+    } else if order != domain::QueryOrder::AssetKeyAsc {
+        if sources.len() > 8 {
+            return Err(domain::Error::invalid(
+                "帖子 ID 排序最多合并 8 个来源，请缩小浏览范围",
+            ));
+        }
+        if order.by_post() {
+            let mut ready = true;
+            for source in &sources {
+                ready &= s.queries.prepare_browse_index(source)?;
+            }
+            if !ready {
+                return Ok(AssetPage {
+                    items: vec![],
+                    next_cursor: None,
+                    revision: cursor.scope,
+                    preparing: Some("正在更新帖子排序索引".into()),
+                    result_id: None,
+                });
+            }
+        }
+        let mut candidates = Vec::new();
+        let mut source_more = false;
+        for source in &sources {
+            let after = cursor.source_afters.get(&source.id).map(String::as_str);
+            let (mut rows, revision) = if source.kind == "danbooru" && order.by_post() {
+                let index = s.queries.browse_index.reader(source)?;
+                let revision = format!(
+                    "catalog-v1:{}:{}",
+                    index.stamp.generation, index.stamp.sequence
+                );
+                (index.page(&source.id, order, after, limit + 1)?, revision)
+            } else {
+                let page = SourceRouter.page_ordered(
+                    source,
+                    after,
+                    limit + 1,
+                    None,
+                    order.descending(),
+                )?;
+                source_more |= page.next.is_some();
+                let rows = page.items.into_iter().map(|a| (a.key, None)).collect();
+                (rows, page.revision)
+            };
+            if cursor
+                .revisions
+                .get(&source.id)
+                .is_some_and(|old| old != &revision)
+            {
+                return Err(domain::Error::new(
+                    "SOURCE_CHANGED",
+                    "浏览来源已更新，请返回第一页",
+                ));
+            }
+            cursor.revisions.insert(source.id.clone(), revision);
+            candidates.append(&mut rows);
+        }
+        candidates.sort_by(|(a, ap), (b, bp)| {
+            let ids = match (ap, bp) {
+                (Some(a), Some(b)) => {
+                    if order.descending() {
+                        b.cmp(a)
+                    } else {
+                        a.cmp(b)
+                    }
+                }
+                (None, Some(_)) => std::cmp::Ordering::Greater,
+                (Some(_), None) => std::cmp::Ordering::Less,
+                _ => std::cmp::Ordering::Equal,
+            };
+            ids.then_with(|| {
+                if order.descending() {
+                    (&b.source_id, &b.asset_id).cmp(&(&a.source_id, &a.asset_id))
+                } else {
+                    (&a.source_id, &a.asset_id).cmp(&(&b.source_id, &b.asset_id))
+                }
+            })
+        });
+        has_more = candidates.len() > limit || source_more;
+        candidates.truncate(limit);
+        let mut resolved = std::collections::HashMap::new();
+        for source in &sources {
+            let keys = candidates
+                .iter()
+                .filter(|(k, _)| k.source_id == source.id)
+                .map(|(k, _)| k.clone())
+                .collect::<Vec<_>>();
+            if let Some(last) = keys.last() {
+                cursor
+                    .source_afters
+                    .insert(source.id.clone(), last.asset_id.clone());
+            }
+            for item in SourceRouter.freeze(source, &keys)? {
+                if cursor.revisions.get(&source.id) != Some(&item.source_revision) {
+                    return Err(domain::Error::new(
+                        "SOURCE_CHANGED",
+                        "排序读取期间来源已变化",
+                    ));
+                }
+                resolved.insert(item.asset.key.clone(), item.asset);
+            }
+            if source.kind == "danbooru" {
+                studio_sources::BrowseIndex::verify_revision(
+                    source,
+                    &cursor.revisions[&source.id],
+                )?;
+            }
+        }
+        for (key, _) in candidates {
+            items.push(
+                resolved
+                    .remove(&key)
+                    .ok_or_else(|| domain::Error::new("SOURCE_CHANGED", "排序成员已不可用"))?,
+            );
         }
     } else {
         while items.len() < limit && cursor.source < sources.len() {
@@ -505,9 +821,11 @@ fn browse_sync(store: &SqliteStore, id: &str, query: BrowseQuery) -> domain::Res
             None
         },
         revision,
+        preparing: None,
+        result_id: cursor.sorted_result_id,
     })
 }
-#[utoipa::path(get,path="/v1/projects/{project_id}/assets",params(("project_id"=String,Path),("source_id"=Option<String>,Query),("collection_id"=Option<String>,Query),("selection"=Option<bool>,Query),("cursor"=Option<String>,Query),("limit"=Option<usize>,Query)),responses((status=200,body=AssetPage)))]
+#[utoipa::path(get,path="/v1/projects/{project_id}/assets",params(("project_id"=String,Path),("source_id"=Option<String>,Query),("collection_id"=Option<String>,Query),("selection"=Option<bool>,Query),("cursor"=Option<String>,Query),("order"=Option<QueryOrder>,Query),("limit"=Option<usize>,Query)),responses((status=200,body=AssetPage)))]
 async fn assets(
     State(s): State<AppState>,
     Extension(read_context): Extension<RequestReadContext>,
@@ -517,7 +835,9 @@ async fn assets(
     Ok(Json(
         blocking(move || {
             let _permit = read_permit(&s, domain::ReadClass::Index, &read_context)?;
-            browse_sync(&s.store, &id, query)
+            let mut page = browse_sync(&s, &id, query)?;
+            enrich_summaries(&s, &id, &read_context, &mut page.items)?;
+            Ok(page)
         })
         .await?,
     ))
@@ -831,10 +1151,13 @@ async fn shutdown(State(s): State<AppState>) -> Json<OkResponse> {
         query::update_definition,
         query::build,
         query::results,
+        query::run,
         query::result,
         query::validity,
         query::cancel,
         query::release,
+        query::lease_result,
+        query::release_result_lease,
         query::result_assets,
         query::capture,
         query::select_scope,
@@ -855,6 +1178,9 @@ async fn shutdown(State(s): State<AppState>) -> Json<OkResponse> {
         tools::save_preference,
         resources::status,
         resources::configure,
+        resources::configure_query,
+        resources::configure_query_cache,
+        resources::clear_query_cache,
         resources::clear,
         resources::cancel
     ),
@@ -872,6 +1198,18 @@ pub struct ApiDoc;
 pub fn routes() -> axum::Router<AppState> {
     axum::Router::new()
         .route("/v1/resources", get(resources::status))
+        .route(
+            "/v1/resources/query-cache",
+            axum::routing::put(resources::configure_query_cache),
+        )
+        .route(
+            "/v1/resources/query-cache/clear",
+            post(resources::clear_query_cache),
+        )
+        .route(
+            "/v1/resources/query",
+            axum::routing::put(resources::configure_query),
+        )
         .route(
             "/v1/resources/cache",
             axum::routing::put(resources::configure),
@@ -968,8 +1306,19 @@ pub fn routes() -> axum::Router<AppState> {
             "/v1/projects/{pid}/queries/{qid}/results",
             post(query::build),
         )
-        .route("/v1/projects/{pid}/query-results", get(query::results))
+        .route(
+            "/v1/projects/{pid}/query-results",
+            get(query::results).post(query::run),
+        )
         .route("/v1/projects/{pid}/query-results/{rid}", get(query::result))
+        .route(
+            "/v1/projects/{pid}/query-results/{rid}/leases/{lid}",
+            post(query::lease_result),
+        )
+        .route(
+            "/v1/projects/{pid}/query-results/{rid}/leases/{lid}/release",
+            post(query::release_result_lease),
+        )
         .route(
             "/v1/projects/{pid}/query-results/{rid}/validity",
             get(query::validity),

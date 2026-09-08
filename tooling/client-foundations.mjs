@@ -219,6 +219,112 @@ assert.throws(() => invalid.validate());
 checks.push(
   "module IDs, contribution types, protocol versions and command links validated before assembly",
 );
+const { initialHistory, restoreHistory, nextHistory } = await compiled(
+  "packages/ui/src/browserHistory.ts",
+  "browser-history",
+);
+let browserHistory = nextHistory(
+  nextHistory(initialHistory(), "page-two"),
+  "page-three",
+);
+const restoredHistory = restoreHistory(
+  {
+    scopeKey: "source",
+    cursor: "page-three",
+    pageNumber: 3,
+    pageSize: 48,
+    anchor: null,
+    version: "v1",
+    history: JSON.parse(JSON.stringify(browserHistory)),
+  },
+  "source",
+);
+assert.deepEqual(restoredHistory, browserHistory);
+assert.equal(restoredHistory.cursors[restoredHistory.index - 1], "page-two");
+browserHistory = nextHistory(
+  { ...restoredHistory, index: 1 },
+  "new-page-three",
+);
+assert.equal(browserHistory.cursors.at(-1), "new-page-three");
+assert.ok(!browserHistory.cursors.includes("page-three"));
+for (let i = 0; i < 300; i++)
+  browserHistory = nextHistory(
+    browserHistory,
+    "cursor-" + i + "x".repeat(1024),
+  );
+assert.ok(browserHistory.cursors.length <= 128);
+assert.ok(JSON.stringify(browserHistory).length <= 48 * 1024);
+assert.ok(browserHistory.firstPage > 1);
+assert.deepEqual(
+  restoreHistory(
+    {
+      scopeKey: "other",
+      cursor: "old",
+      pageNumber: 9,
+      pageSize: 48,
+      anchor: null,
+      version: "v1",
+    },
+    "source",
+  ),
+  initialHistory(),
+);
+checks.push(
+  "browser history survives view remounts, forks correctly and remains bounded in pages and bytes",
+);
+const { querySignature } = await compiled(
+  "packages/ui/src/querySemantics.ts",
+  "query-semantics",
+);
+const queryA = {
+  source_ids: ["lake"],
+  conditions: [
+    {
+      field: "observation.rating",
+      operator: "in",
+      value: { type: "text_list", value: ["s", "g"] },
+    },
+    {
+      field: "observation.tag_string",
+      operator: "has_no_tags",
+      value: { type: "text_list", value: ["comic", "group"] },
+    },
+  ],
+  observation_rule: "current_post",
+  order: "identity",
+  version: 2,
+};
+const queryB = {
+  ...queryA,
+  conditions: [
+    {
+      ...queryA.conditions[1],
+      value: { type: "text_list", value: ["group", "comic"] },
+    },
+    {
+      ...queryA.conditions[0],
+      value: { type: "text_list", value: ["g", "s"] },
+    },
+  ],
+};
+assert.equal(querySignature(queryA), querySignature(queryB));
+assert.notEqual(
+  querySignature(queryA),
+  querySignature({ ...queryB, observation_rule: "origin" }),
+);
+assert.notEqual(
+  querySignature(queryA),
+  querySignature({
+    ...queryB,
+    input_scope: {
+      project_id: "project",
+      target: { kind: "selection", revision: 3 },
+    },
+  }),
+);
+checks.push(
+  "saved query identity follows condition/set semantics while preserving observation rule and scope differences",
+);
 await writeFile(
   resolve(directory, "report.json"),
   JSON.stringify({ passed: true, checks }, null, 2),

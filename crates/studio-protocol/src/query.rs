@@ -24,6 +24,10 @@ enum_model!(QueryOperator {
     Gte,
     Lte,
     HasTag,
+    In,
+    HasAllTags,
+    HasAnyTags,
+    HasNoTags,
     IsMissing,
     IsPresent
 });
@@ -33,7 +37,9 @@ enum_model!(ObservationRule {
 });
 enum_model!(QueryOrder {
     AssetKeyAsc,
-    AssetKeyDesc
+    AssetKeyDesc,
+    PostIdAsc,
+    PostIdDesc
 });
 enum_model!(ResultState {
     Queued,
@@ -56,6 +62,7 @@ pub enum QueryValue {
     Text(String),
     Integer(String),
     Boolean(bool),
+    TextList(Vec<String>),
 }
 impl From<domain::QueryValue> for QueryValue {
     fn from(v: domain::QueryValue) -> Self {
@@ -63,6 +70,7 @@ impl From<domain::QueryValue> for QueryValue {
             domain::QueryValue::Text(v) => Self::Text(v),
             domain::QueryValue::Integer(v) => Self::Integer(v),
             domain::QueryValue::Boolean(v) => Self::Boolean(v),
+            domain::QueryValue::TextList(v) => Self::TextList(v),
         }
     }
 }
@@ -72,6 +80,7 @@ impl From<QueryValue> for domain::QueryValue {
             QueryValue::Text(v) => Self::Text(v),
             QueryValue::Integer(v) => Self::Integer(v),
             QueryValue::Boolean(v) => Self::Boolean(v),
+            QueryValue::TextList(v) => Self::TextList(v),
         }
     }
 }
@@ -110,6 +119,14 @@ pub struct QuerySpec {
     pub conditions: Vec<QueryCondition>,
     pub observation_rule: ObservationRule,
     pub order: QueryOrder,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_scope: Option<crate::ScopeRef>,
+}
+
+#[derive(Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RunQuery {
+    pub spec: QuerySpec,
 }
 impl From<domain::QuerySpec> for QuerySpec {
     fn from(q: domain::QuerySpec) -> Self {
@@ -119,6 +136,7 @@ impl From<domain::QuerySpec> for QuerySpec {
             conditions: q.conditions.into_iter().map(Into::into).collect(),
             observation_rule: q.observation_rule.into(),
             order: q.order.into(),
+            input_scope: q.input_scope.map(Into::into),
         }
     }
 }
@@ -130,6 +148,7 @@ impl From<QuerySpec> for domain::QuerySpec {
             conditions: q.conditions.into_iter().map(Into::into).collect(),
             observation_rule: q.observation_rule.into(),
             order: q.order.into(),
+            input_scope: q.input_scope.map(Into::into),
         }
     }
 }
@@ -244,6 +263,7 @@ pub struct BuildQuery {
 pub struct QueryListParams {
     pub cursor: Option<String>,
     pub limit: Option<usize>,
+    pub order: Option<QueryOrder>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -259,6 +279,13 @@ pub struct QueryResult {
     pub count: Option<u64>,
     pub created_at: String,
     pub error: Option<String>,
+    pub cache: QueryCacheInfo,
+}
+#[derive(Serialize, ToSchema)]
+pub struct QueryCacheInfo {
+    pub mode: String,
+    pub evaluated_objects: u64,
+    pub changed_members: u64,
 }
 impl From<domain::QueryResult> for QueryResult {
     fn from(r: domain::QueryResult) -> Self {
@@ -274,6 +301,11 @@ impl From<domain::QueryResult> for QueryResult {
             count: r.count,
             created_at: r.created_at,
             error: r.error,
+            cache: QueryCacheInfo {
+                mode: r.cache.mode,
+                evaluated_objects: r.cache.evaluated_objects,
+                changed_members: r.cache.changed_members,
+            },
         }
     }
 }

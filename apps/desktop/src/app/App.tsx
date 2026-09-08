@@ -35,7 +35,17 @@ import {
   Calculator,
   Archive,
 } from "lucide-react";
-import { Button, DraftStatus } from "@studio/ui";
+import {
+  Button,
+  DraftStatus,
+  Brand,
+  ResizeGrip,
+  CopyButton,
+  assetTitle,
+  ErrorDetails,
+} from "@studio/ui";
+import type { CSSProperties } from "react";
+import { MenuBar } from "./MenuBar.js";
 import type { ModuleContext, BrowseScope } from "@studio/ui";
 import type {
   Project,
@@ -106,18 +116,21 @@ export function App() {
   }, [engine.data]);
   if (!engine.data)
     return (
-      <div className="connection-screen">
-        <span className="brand-tile">Ds</span>
-        <h1>Dataset Studio</h1>
-        <p>{engine.error ? engine.error.message : "正在连接本机引擎…"}</p>
-        {engine.error ? (
-          <Button onClick={() => void engine.refetch()}>
-            <RotateCw size={14} />
-            重新连接
-          </Button>
-        ) : (
-          <span className="connection-progress" />
-        )}
+      <div className="connection-shell">
+        <MenuBar />
+        <div className="connection-screen">
+          <Brand size={64} />
+          <h1>Dataset Studio</h1>
+          <p>{engine.error ? engine.error.message : "正在连接本机引擎…"}</p>
+          {engine.error ? (
+            <Button onClick={() => void engine.refetch()}>
+              <RotateCw size={14} />
+              重新连接
+            </Button>
+          ) : (
+            <span className="connection-progress" />
+          )}
+        </div>
       </div>
     );
   return (
@@ -129,7 +142,7 @@ export function App() {
       />
       {closeError && (
         <div className="error-banner" role="alert">
-          <span>{closeError}</span>
+          <ErrorDetails error={closeError} compact />
           <button onClick={() => setCloseError("")}>关闭提示</button>
         </div>
       )}
@@ -157,7 +170,6 @@ function Studio({
     }
   }, [health.isError, health.errorUpdatedAt, onReconnect]);
   const [dialog, setDialog] = useState<DialogKind>(null);
-  const [menu, setMenu] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [saving, setBusy] = useState(false);
   const session = useProjectSession(client, setError);
@@ -170,7 +182,9 @@ function Studio({
   const workspace = useWorkspaceState(client, currentId);
   const layout = useLayoutState(client);
   const { projectsVisible, propertiesVisible, tasksVisible } = layout.value;
-  const queryVisible = workspace.value.panels.includes("core.query");
+  const queryVisible =
+    workspace.value.moduleId === "core.browser" &&
+    workspace.value.panels.includes("core.query");
   const [invocation, setInvocation] = useState<{
     projectId: string;
     sequence: number;
@@ -212,6 +226,7 @@ function Studio({
     if (workspace.editable)
       workspace.controller?.set((v) => ({
         ...v,
+        ...(show ? { moduleId: "core.browser" } : {}),
         panels: show
           ? [...v.panels.filter((id) => id !== "core.query"), "core.query"]
           : v.panels.filter((id) => id !== "core.query"),
@@ -223,7 +238,11 @@ function Studio({
       setError("该功能视图尚不可用。");
       return;
     }
-    workspace.controller?.set((v) => ({ ...v, moduleId: id }));
+    workspace.controller?.set((v) => ({
+      ...v,
+      moduleId: id,
+      panels: v.panels.filter((p) => p !== "core.query"),
+    }));
     setInvocation((old) => ({
       projectId: currentId,
       sequence: (old?.sequence ?? 0) + 1,
@@ -296,8 +315,20 @@ function Studio({
             scope: update.scope,
             focusKey: null,
             view: "grid" as const,
-            position: null,
+            position: v.position
+              ? {
+                  scopeKey: "",
+                  cursor: null,
+                  pageNumber: 1,
+                  pageSize: v.position.pageSize,
+                  anchor: null,
+                  version: null,
+                }
+              : null,
             moduleId: "core.browser",
+            panels: queryVisible
+              ? v.panels
+              : v.panels.filter((id) => id !== "core.query"),
           }
         : {}),
       ...(update.view ? { view: update.view, moduleId: "core.browser" } : {}),
@@ -358,7 +389,6 @@ function Studio({
     }
   }, [activeResult.data, workspace.controller, workspace.editable]);
   function activate(p: Project) {
-    setMenu(null);
     setError("");
     return session.activate(p);
   }
@@ -482,9 +512,20 @@ function Studio({
     inputOptions: inputs,
     defaultInput: selected > 0 ? "selection" : defaultScope,
     browser: {
+      order: workspace.value.order,
+      onOrder: (order) => {
+        if (workspace.editable)
+          workspace.controller?.set((v) => ({ ...v, order, position: null }));
+      },
       scope: view.scope,
       focus: view.focus,
+      focusPending: !!workspace.value.focusKey && focusQuery.isPending,
       onFocus: (focus) => updateView({ focus }),
+      onInspect: (focus) => {
+        updateView({ focus });
+        setPropertiesVisible(true);
+      },
+      onScope: (scope) => updateView({ scope }),
       onPick: pick,
       onScopeOperation: operateViewScope,
       selectionRevision: selection.data?.revision ?? 0,
@@ -508,6 +549,14 @@ function Studio({
       if (currentIdRef.current === job.project_id) setTasksVisible(true);
     },
     activateView,
+    openPanel: (id) => {
+      if (workspace.editable)
+        workspace.controller?.set((v) => ({
+          ...v,
+          moduleId: id === "core.query" ? "core.browser" : v.moduleId,
+          panels: [...v.panels.filter((p) => p !== id), id],
+        }));
+    },
     togglePanel: (id) => {
       if (workspace.editable)
         workspace.controller?.set((v) => ({
@@ -523,6 +572,12 @@ function Studio({
           ...v,
           panels: v.panels.filter((p) => p !== id),
         }));
+    },
+    panels:
+      workspace.value.moduleId === "core.browser" ? workspace.value.panels : [],
+    panelHeight: () => layout.value.queryHeight,
+    resizePanel: (id, height) => {
+      if (id === "core.query") layout.update({ queryHeight: height });
     },
     invocation:
       invocation?.projectId === currentId
@@ -588,46 +643,12 @@ function Studio({
     帮助: [{ label: "关于 Dataset Studio", action: () => setDialog("about") }],
   };
   return (
-    <div
-      className="studio-app"
-      onClick={() => {
-        if (menu) setMenu(null);
-      }}
-    >
-      <div className="menu-bar">
-        <span className="brand-small">Ds</span>
-        {Object.keys(menus).map((name) => (
-          <div className="menu-anchor" key={name}>
-            <button
-              className={menu === name ? "menu-button open" : "menu-button"}
-              onClick={(e) => {
-                e.stopPropagation();
-                setMenu(menu === name ? null : name);
-              }}
-            >
-              {name}
-            </button>
-            {menu === name && (
-              <div className="menu-popup">
-                {menus[name]?.map((item) => (
-                  <button
-                    key={item.label}
-                    disabled={item.disabled || busy}
-                    onClick={() => {
-                      item.action();
-                      setMenu(null);
-                    }}
-                  >
-                    {item.label}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        ))}
-        <span className="grow" />
-        <span className="version-label">开发版 0.4</span>
-      </div>
+    <div className="studio-app">
+      <MenuBar
+        menus={menus}
+        busy={busy}
+        title={project?.name ?? "Dataset Studio"}
+      />
       <div className="options-bar">
         <button
           className="icon-button"
@@ -710,7 +731,7 @@ function Studio({
       {!project ? (
         <main className="start-screen">
           <div className="start-actions">
-            <span className="brand-tile">Ds</span>
+            <Brand size={64} />
             <h1>Dataset Studio</h1>
             <p>打开项目，继续你的数据工作。</p>
             <Button className="primary" onClick={() => setDialog("new")}>
@@ -774,14 +795,21 @@ function Studio({
             (!projectsVisible ? "hide-projects " : "") +
             (!propertiesVisible ? "hide-properties" : "")
           }
+          style={
+            {
+              "--project-width": layout.value.projectWidth + "px",
+              "--properties-width": layout.value.propertiesWidth + "px",
+            } as CSSProperties
+          }
         >
           <aside className="tool-rail">
             {modules.entries().map((entry) => {
               const Icon = moduleIcons[entry.icon];
               const active =
                 entry.id === "query"
-                  ? queryVisible
-                  : workspace.value.moduleId === "core." + entry.id;
+                  ? queryVisible && workspace.value.moduleId === "core.browser"
+                  : workspace.value.moduleId === "core." + entry.id &&
+                    !(entry.id === "browser" && queryVisible);
               return (
                 <button
                   key={entry.id}
@@ -935,6 +963,15 @@ function Studio({
                 {collections.data?.items.length ?? 0} 个工作集
               </span>
             </div>
+            <ResizeGrip
+              label="项目面板宽度"
+              orientation="vertical"
+              value={layout.value.projectWidth}
+              minimum={180}
+              maximum={360}
+              onChange={(projectWidth) => layout.update({ projectWidth })}
+              onReset={() => layout.update({ projectWidth: 224 })}
+            />
           </aside>
           <div className="data-workspace">
             {workspace.controller &&
@@ -943,6 +980,7 @@ function Studio({
               )}
             <Suspense fallback={<p className="tool-hint">正在载入功能…</p>}>
               {workspace.editable &&
+                workspace.value.moduleId === "core.browser" &&
                 workspace.value.panels.map((id) => {
                   const Panel = moduleViews.get(id)?.Component;
                   return Panel ? (
@@ -972,12 +1010,10 @@ function Studio({
                   />
                 </div>
                 <div className="property-section">
-                  <h3>图像对象</h3>
+                  <h3 className="property-asset-title">
+                    {assetTitle(view.focus)}
+                  </h3>
                   <dl>
-                    <dt>名称</dt>
-                    <dd className="hash-value" title={view.focus.name}>
-                      {view.focus.name}
-                    </dd>
                     <dt>来源</dt>
                     <dd>{view.focus.source_name}</dd>
                     <dt>格式</dt>
@@ -989,6 +1025,26 @@ function Studio({
                         : "参考样本"}
                     </dd>
                   </dl>
+                  <details className="identity-details">
+                    <summary>存储身份与关联</summary>
+                    <code>{view.focus.key.asset_id}</code>
+                    <CopyButton
+                      label="复制图像身份"
+                      text={view.focus.key.asset_id}
+                    />
+                    {view.focus.summary?.post_ids.length ? (
+                      <p>
+                        关联帖子：
+                        {view.focus.summary.post_ids
+                          .map((id) => "#" + id)
+                          .join("、")}
+                        {Number(view.focus.summary.post_count) >
+                        view.focus.summary.post_ids.length
+                          ? " 等 " + view.focus.summary.post_count + " 个"
+                          : ""}
+                      </p>
+                    ) : null}
+                  </details>
                 </div>
                 {propertiesVisible && (
                   <MetadataInspector
@@ -1034,6 +1090,16 @@ function Studio({
               <Info size={13} />
               <span>项目保存选择和成果，数据湖提供来源。</span>
             </div>
+            <ResizeGrip
+              label="属性面板宽度"
+              orientation="vertical"
+              reverse
+              value={layout.value.propertiesWidth}
+              minimum={260}
+              maximum={600}
+              onChange={(propertiesWidth) => layout.update({ propertiesWidth })}
+              onReset={() => layout.update({ propertiesWidth: 320 })}
+            />
           </aside>
         </div>
       )}
@@ -1048,7 +1114,7 @@ function Studio({
       {error && (
         <div className="error-banner" role="alert">
           <Info size={15} />
-          <span>{error}</span>
+          <ErrorDetails error={error} compact />
           <button
             className="icon-button"
             aria-label="关闭错误提示"

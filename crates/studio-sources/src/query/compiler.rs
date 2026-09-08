@@ -3,6 +3,20 @@ use studio_domain::*;
 fn quote(text: &str) -> String {
     format!("'{}'", text.replace('\'', "''"))
 }
+
+pub(super) fn asset_predicate(column: &str, assets: &[String]) -> Result<String> {
+    if assets.is_empty() || assets.len() > 512 {
+        return Err(Error::invalid("查询输入批次需要 1–512 个对象"));
+    }
+    Ok(format!(
+        "{column} IN ({})",
+        assets
+            .iter()
+            .map(|a| quote(a))
+            .collect::<Vec<_>>()
+            .join(",")
+    ))
+}
 fn predicate(column: &str, condition: &QueryCondition) -> Result<String> {
     use QueryOperator::*;
     if condition.operator == IsMissing {
@@ -11,6 +25,22 @@ fn predicate(column: &str, condition: &QueryCondition) -> Result<String> {
     if condition.operator == IsPresent {
         return Ok(format!("{column} IS NOT NULL"));
     }
+    if let Some(QueryValue::TextList(values)) = &condition.value {
+        let list = values
+            .iter()
+            .map(|v| quote(v))
+            .collect::<Vec<_>>()
+            .join(",");
+        return match condition.operator {
+            In => Ok(format!("{column} IN ({list})")),
+            HasAllTags => Ok(format!("list_has_all(string_split({column},' '),[{list}])")),
+            HasAnyTags => Ok(format!("list_has_any(string_split({column},' '),[{list}])")),
+            HasNoTags => Ok(format!(
+                "NOT list_has_any(string_split({column},' '),[{list}])"
+            )),
+            _ => Err(Error::invalid("该操作不接受集合值")),
+        };
+    }
     let value = match &condition.value {
         Some(QueryValue::Text(value)) => quote(value),
         Some(QueryValue::Integer(value)) => value
@@ -18,6 +48,7 @@ fn predicate(column: &str, condition: &QueryCondition) -> Result<String> {
             .map_err(|_| Error::invalid("整数条件无效"))?
             .to_string(),
         Some(QueryValue::Boolean(value)) => value.to_string(),
+        Some(QueryValue::TextList(_)) => unreachable!("list handled above"),
         None => return Err(Error::invalid("条件缺少值")),
     };
     if condition.operator == HasTag {
@@ -52,7 +83,30 @@ pub(super) fn storage_predicates(spec: &QuerySpec) -> Result<String> {
 }
 
 pub(super) fn metadata_sql(spec: &QuerySpec) -> Result<String> {
+    metadata_sql_for_assets(spec, None)
+}
+
+pub(super) fn metadata_sql_for_assets(
+    spec: &QuerySpec,
+    assets: Option<&[String]>,
+) -> Result<String> {
+    metadata_sql_filtered(spec, assets, false)
+}
+pub(super) fn metadata_sql_for_changed(spec: &QuerySpec) -> Result<String> {
+    metadata_sql_filtered(spec, None, true)
+}
+fn metadata_sql_filtered(
+    spec: &QuerySpec,
+    assets: Option<&[String]>,
+    changed: bool,
+) -> Result<String> {
     let mut predicates = vec!["a.sha256 IS NOT NULL".to_owned()];
+    if changed {
+        predicates.push("a.sha256 IN (SELECT sha256 FROM studio_changed)".into());
+    }
+    if let Some(assets) = assets {
+        predicates.push(asset_predicate("a.sha256", assets)?);
+    }
     for condition in &spec.conditions {
         let column = match condition.field.as_str() {
             "asset.id" => "a.sha256",

@@ -1,3 +1,4 @@
+pub(crate) mod changes;
 mod compiler;
 mod fields;
 use crate::{
@@ -6,6 +7,7 @@ use crate::{
     demo_asset,
     duckdb::{Runtime, Session},
 };
+pub use changes::ChangeAnchor;
 use std::{
     path::PathBuf,
     sync::{
@@ -22,10 +24,68 @@ pub struct QueryReader {
     runtime: Runtime,
 }
 impl QueryReader {
+    #[allow(
+        clippy::too_many_arguments,
+        reason = "Changed identities and matched identities have independent bounded sinks"
+    )]
+    pub fn execute_delta(
+        &self,
+        source: &Source,
+        spec: &QuerySpec,
+        expected: &QuerySourceVersion,
+        previous: &ChangeAnchor,
+        cancelled: Arc<AtomicBool>,
+        affected: &mut dyn FnMut(&[AssetKey]) -> Result<()>,
+        sink: &mut dyn FnMut(&[AssetKey], u64) -> Result<()>,
+    ) -> Result<bool> {
+        if source.kind != "danbooru" {
+            return Ok(false);
+        }
+        self.fields(source)?.validate(spec)?;
+        let catalog = Catalog::open(source)?;
+        let db = self
+            .runtime
+            .open_query(&catalog.analysis_path()?, cancelled.clone())?;
+        let sequence = analysis_sequence(&db, &catalog)?;
+        let current = version(source, &catalog, spec.uses_metadata().then_some(sequence));
+        assert_version(&current, expected)?;
+        let Some(changed) = changes::change_sql(&db, &catalog, previous)? else {
+            return Ok(false);
+        };
+        db.query(&format!("CREATE TEMP TABLE studio_changed AS {changed}"))?;
+        db.stream_ids(
+            "SELECT sha256 FROM studio_changed ORDER BY sha256",
+            &mut |ids| {
+                let keys = checked_keys(source, ids)?;
+                affected(&keys)
+            },
+        )?;
+        let sql = if spec.uses_metadata() {
+            compiler::metadata_sql_for_changed(spec)?
+        } else {
+            format!(
+                "SELECT sha256 FROM objects WHERE {} AND sha256 IN (SELECT sha256 FROM studio_changed)",
+                compiler::storage_predicates(spec)?
+            )
+        };
+        stream_native(&db, &catalog, source, spec, &sql, &cancelled, sink)?;
+        catalog.verify_unchanged(source)?;
+        Ok(true)
+    }
+
     pub fn new(dll: PathBuf) -> Self {
         Self {
             runtime: Runtime::new(dll),
         }
+    }
+    pub fn with_query_directory(path: PathBuf) -> Self {
+        Self {
+            runtime: Runtime::default().with_query_directory(path),
+        }
+    }
+    pub fn with_query_memory(mut self, bytes: u64) -> Self {
+        self.runtime = self.runtime.with_query_memory(bytes);
+        self
     }
     /// Diagnostic only: explain the same controlled compiler used by the worker.
     pub fn explain(&self, source: &Source, spec: QuerySpec) -> Result<serde_json::Value> {
@@ -61,11 +121,11 @@ impl QueryReader {
         };
         catalog.verify_unchanged(source)?;
         Ok(
-            serde_json::json!({"spec":spec,"catalog_revision":catalog.revision,"storage_sql":storage_sql,"storage_plan":storage_plan,"metadata":metadata,"limits":{"native_memory":"256MB","native_threads":1,"source_budget_seconds":600,"batch_rows":512},"consistency":"read transactions plus matching watermarks and end fences; not a historical snapshot"}),
+            serde_json::json!({"spec":spec,"catalog_revision":catalog.revision,"storage_sql":storage_sql,"storage_plan":storage_plan,"metadata":metadata,"limits":{"native_memory_bytes":QUERY_MEMORY_BYTES,"native_threads":2,"temporary_disk_bytes":QUERY_TEMP_BYTES,"source_budget_seconds":600,"batch_rows":512},"consistency":"read transactions plus matching watermarks and end fences; not a historical snapshot"}),
         )
     }
 }
-fn analysis_sequence(db: &Session, catalog: &Catalog) -> Result<String> {
+pub(crate) fn analysis_sequence(db: &Session, catalog: &Catalog) -> Result<String> {
     db.query("BEGIN TRANSACTION")?;
     let rows = db.query("SELECT CAST(MAX(seq) AS VARCHAR) FROM applied")?;
     let sequence = rows
@@ -146,9 +206,44 @@ impl QueryAdapter for QueryReader {
         cancelled: Arc<AtomicBool>,
         sink: &mut dyn FnMut(&[AssetKey], u64) -> Result<()>,
     ) -> Result<()> {
+        self.execute_query_inner(source, spec, expected, cancelled, None, sink)
+    }
+}
+
+impl QueryReader {
+    pub fn execute_query_keys(
+        &self,
+        source: &Source,
+        spec: &QuerySpec,
+        expected: &QuerySourceVersion,
+        cancelled: Arc<AtomicBool>,
+        keys: &[AssetKey],
+        sink: &mut dyn FnMut(&[AssetKey], u64) -> Result<()>,
+    ) -> Result<()> {
+        if keys.is_empty() || keys.len() > 512 || keys.iter().any(|k| k.source_id != source.id) {
+            return Err(Error::invalid("查询输入批次无效"));
+        }
+        self.execute_query_inner(source, spec, expected, cancelled, Some(keys), sink)
+    }
+
+    fn execute_query_inner(
+        &self,
+        source: &Source,
+        spec: &QuerySpec,
+        expected: &QuerySourceVersion,
+        cancelled: Arc<AtomicBool>,
+        keys: Option<&[AssetKey]>,
+        sink: &mut dyn FnMut(&[AssetKey], u64) -> Result<()>,
+    ) -> Result<()> {
         let start = Instant::now();
         self.fields(source)?.validate(spec)?;
         check(&cancelled, start)?;
+        let only_ids = keys.map(|keys| keys.iter().map(|k| k.asset_id.clone()).collect::<Vec<_>>());
+        let mut predicates = compiler::storage_predicates(spec)?;
+        if let Some(ids) = &only_ids {
+            predicates.push_str(" AND ");
+            predicates.push_str(&compiler::asset_predicate("sha256", ids)?);
+        }
         if source.kind == "demo" {
             assert_version(&self.query_version(source, spec)?, expected)?;
             // Use the same NULL/comparison semantics as catalog queries in the small demo.
@@ -168,7 +263,7 @@ impl QueryAdapter for QueryReader {
             let mut statement = db
                 .prepare(&format!(
                     "SELECT sha256 FROM objects WHERE {} ORDER BY sha256",
-                    compiler::storage_predicates(spec)?
+                    predicates
                 ))
                 .map_err(err)?;
             let keys = statement
@@ -185,42 +280,21 @@ impl QueryAdapter for QueryReader {
             return sink(&keys, keys.len() as u64);
         }
         let catalog = Catalog::open(source)?;
-        let predicates = compiler::storage_predicates(spec)?;
         if spec.uses_metadata() {
             let db = self
                 .runtime
                 .open_query(&catalog.analysis_path()?, cancelled.clone())?;
             let sequence = analysis_sequence(&db, &catalog)?;
             assert_version(&version(source, &catalog, Some(sequence)), expected)?;
-            let mut lookup = catalog
-                .connection()
-                .prepare(&format!(
-                    "SELECT 1 FROM objects WHERE sha256=?1 AND {predicates}"
-                ))
-                .map_err(err)?;
-            db.stream_ids(&compiler::metadata_sql(spec)?, &mut |ids| {
-                check(&cancelled, start)?;
-                let mut keys = Vec::with_capacity(ids.len());
-                for id in ids {
-                    if id.len() != 64
-                        || !id
-                            .bytes()
-                            .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
-                    {
-                        return Err(Error::new(
-                            "SOURCE_FORMAT_ERROR",
-                            "分析索引返回了无效的存储身份",
-                        ));
-                    }
-                    if lookup.exists([id]).map_err(err)? {
-                        keys.push(AssetKey {
-                            source_id: source.id.clone(),
-                            asset_id: id.clone(),
-                        });
-                    }
-                }
-                sink(&keys, ids.len() as u64)
-            })?;
+            stream_native(
+                &db,
+                &catalog,
+                source,
+                spec,
+                &compiler::metadata_sql_for_assets(spec, only_ids.as_deref())?,
+                &cancelled,
+                sink,
+            )?;
         } else {
             assert_version(&version(source, &catalog, None), expected)?;
             let cancel = cancelled.clone();
@@ -264,6 +338,59 @@ impl QueryAdapter for QueryReader {
         check(&cancelled, start)?;
         catalog.verify_unchanged(source)
     }
+}
+
+fn checked_keys(source: &Source, ids: &[String]) -> Result<Vec<AssetKey>> {
+    ids.iter()
+        .map(|id| {
+            if id.len() != 64
+                || !id
+                    .bytes()
+                    .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase())
+            {
+                return Err(Error::new(
+                    "SOURCE_FORMAT_ERROR",
+                    "分析索引返回了无效的存储身份",
+                ));
+            }
+            Ok(AssetKey {
+                source_id: source.id.clone(),
+                asset_id: id.clone(),
+            })
+        })
+        .collect()
+}
+fn stream_native(
+    db: &Session,
+    catalog: &Catalog,
+    source: &Source,
+    spec: &QuerySpec,
+    sql: &str,
+    cancelled: &AtomicBool,
+    sink: &mut dyn FnMut(&[AssetKey], u64) -> Result<()>,
+) -> Result<()> {
+    let placeholders = std::iter::repeat_n("?", 512).collect::<Vec<_>>().join(",");
+    let predicates = compiler::storage_predicates(spec)?;
+    let mut lookup=catalog.connection().prepare(&format!("SELECT sha256 FROM objects WHERE sha256 IN ({placeholders}) AND {predicates} ORDER BY sha256")).map_err(err)?;
+    db.stream_ids(sql, &mut |ids| {
+        studio_application::read_cancelled(cancelled)?;
+        checked_keys(source, ids)?;
+        let parameters = ids
+            .iter()
+            .map(|id| Some(id.as_str()))
+            .chain(std::iter::repeat_n(None, 512 - ids.len()));
+        let keys = lookup
+            .query_map(rusqlite::params_from_iter(parameters), |r| {
+                Ok(AssetKey {
+                    source_id: source.id.clone(),
+                    asset_id: r.get(0)?,
+                })
+            })
+            .map_err(err)?
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(err)?;
+        sink(&keys, ids.len() as u64)
+    })
 }
 
 #[cfg(test)]

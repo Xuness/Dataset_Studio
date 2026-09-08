@@ -138,6 +138,33 @@ process.on("exit", () => engine.child?.kill());
 try {
   const lake = await fixture(96);
   await engine.start();
+  const initialQueryLimits = (await engine.api("/v1/resources")).query_limits;
+  assert.equal(initialQueryLimits.query_memory_bytes, String(12 * 2 ** 30));
+  const configuredQuery = await engine.api("/v1/resources/query", "PUT", {
+    memory_gib: 3,
+  });
+  assert.equal(configuredQuery.query_memory_bytes, String(3 * 2 ** 30));
+  await engine.expectError(
+    "/v1/resources/query",
+    "PUT",
+    { memory_gib: 0 },
+    "INVALID_INPUT",
+  );
+  await engine.expectError(
+    "/v1/resources/query",
+    "PUT",
+    { memory_gib: 65 },
+    "INVALID_INPUT",
+  );
+  const adjustedResources = await engine.api("/v1/resources");
+  assert.equal(
+    adjustedResources.resources.find((r) => r.class === "native_query")
+      .byte_budget,
+    String(3 * 2 ** 30 + 256 * 2 ** 20),
+  );
+  checks.push(
+    "query memory configuration validates bounds and updates the admission budget independently of cache quota",
+  );
   const project = await engine.api("/v1/projects", "POST", {
     name: "读取与缓存夹具",
   });
@@ -266,6 +293,11 @@ try {
   within(runDir, cacheDirectory);
   await engine.stop();
   await engine.start();
+  assert.equal(
+    (await engine.api("/v1/resources")).query_limits.query_memory_bytes,
+    String(3 * 2 ** 30),
+  );
+  checks.push("query memory configuration survives engine restart");
   await engine.api(base(project.id) + "/open", "POST");
   const restarted = await measure("restart_warm_ms", () =>
     preview(url(project.id, lake.id, input[0].id)),

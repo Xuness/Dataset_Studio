@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { FolderOpen } from "lucide-react";
-import { Button, Dialog, Field } from "@studio/ui";
+import { Button, Dialog, Field, Brand } from "@studio/ui";
 import type { Project, Source } from "@studio/contracts";
 import type { StudioClient } from "@studio/client";
 import { ScopePicker } from "../scopes/ScopePicker.js";
@@ -99,9 +99,9 @@ export function ProjectDialog({
     >
       {kind === "about" ? (
         <div className="about-content">
-          <span className="brand-tile">Ds</span>
+          <Brand size={72} />
           <h2>Dataset Studio</h2>
-          <p>项目数据范围层 · 0.3.0</p>
+          <p>Dataset Studio · 0.6.0</p>
           <p>项目、数据湖、工作集与持续保存的工作。</p>
           <Button onClick={onClose}>关闭</Button>
         </div>

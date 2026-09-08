@@ -1,8 +1,9 @@
 import { useMemo, useSyncExternalStore } from "react";
 import type { StudioClient, DraftSnapshot } from "@studio/client";
-import type { AssetKey } from "@studio/contracts";
+import type { AssetKey, QuerySpec } from "@studio/contracts";
 import type { BrowseScope, BrowserPosition } from "@studio/ui";
 export type WorkspaceState = {
+  order: QuerySpec["order"];
   moduleId: string;
   panels: string[];
   scope: BrowseScope;
@@ -11,6 +12,7 @@ export type WorkspaceState = {
   position: BrowserPosition | null;
 };
 const initial: WorkspaceState = {
+  order: "post_id_desc",
   moduleId: "core.browser",
   panels: [],
   scope: { kind: "all" },
@@ -67,7 +69,17 @@ function decode(value: unknown): WorkspaceState | null {
         typeof value.position.cursor !== "string"))
   )
     return null;
-  return value as WorkspaceState;
+  if (
+    value.order !== undefined &&
+    ![
+      "post_id_asc",
+      "post_id_desc",
+      "asset_key_asc",
+      "asset_key_desc",
+    ].includes(String(value.order))
+  )
+    return null;
+  return { ...value, order: value.order ?? "post_id_desc" } as WorkspaceState;
 }
 export function useWorkspaceState(client: StudioClient, projectId: string) {
   const controller = useMemo(
@@ -104,12 +116,18 @@ type LayoutState = {
   propertiesVisible: boolean;
   tasksVisible: boolean;
   thumbnailSize: number;
+  projectWidth: number;
+  propertiesWidth: number;
+  queryHeight: number;
 };
 const initialLayout: LayoutState = {
   projectsVisible: true,
   propertiesVisible: true,
   tasksVisible: false,
-  thumbnailSize: 176,
+  thumbnailSize: 208,
+  projectWidth: 224,
+  propertiesWidth: 320,
+  queryHeight: 350,
 };
 function decodeLayout(value: unknown): LayoutState | null {
   return record(value) &&
@@ -118,8 +136,23 @@ function decodeLayout(value: unknown): LayoutState | null {
     typeof value.tasksVisible === "boolean" &&
     typeof value.thumbnailSize === "number" &&
     value.thumbnailSize >= 128 &&
-    value.thumbnailSize <= 256
-    ? (value as LayoutState)
+    value.thumbnailSize <= 320
+    ? ({
+        ...initialLayout,
+        ...value,
+        projectWidth:
+          typeof value.projectWidth === "number"
+            ? Math.max(180, Math.min(360, value.projectWidth))
+            : initialLayout.projectWidth,
+        propertiesWidth:
+          typeof value.propertiesWidth === "number"
+            ? Math.max(260, Math.min(600, value.propertiesWidth))
+            : initialLayout.propertiesWidth,
+        queryHeight:
+          typeof value.queryHeight === "number"
+            ? Math.max(190, Math.min(640, value.queryHeight))
+            : initialLayout.queryHeight,
+      } as LayoutState)
     : null;
 }
 export function useLayoutState(client: StudioClient) {

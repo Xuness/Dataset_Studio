@@ -1,12 +1,12 @@
 import { RotateCw, FileJson2 } from "lucide-react";
-import { Button } from "@studio/ui";
+import { Button, ErrorDetails, ratingLabel } from "@studio/ui";
 import { StudioError } from "@studio/client";
 import type { StudioClient } from "@studio/client";
 import type { Asset, MetadataField, MetadataValue } from "@studio/contracts";
 import { useMetadata } from "./useMetadata.js";
 
 const labels: Record<string, string> = {
-  rating: "评级",
+  rating: "分级",
   tags: "标签",
   "tags.general": "一般",
   "tags.artist": "画师",
@@ -52,8 +52,7 @@ function Failure({ error, refresh }: { error: Error; refresh: () => void }) {
   };
   return (
     <div className="metadata-message metadata-error" role="alert">
-      <strong>{title[code] ?? "元数据读取失败"}</strong>
-      <p>{error.message}</p>
+      <ErrorDetails error={error} title={title[code] ?? "元数据读取失败"} />
       <Button onClick={refresh}>重新读取对象</Button>
     </div>
   );
@@ -78,7 +77,13 @@ function Field({ field }: { field: MetadataField }) {
     <div className="metadata-field" title={field.provenance}>
       <dt>{labels[field.name] ?? field.name}</dt>
       <dd>
-        <Value value={field.value} />
+        {field.name === "rating" && field.value?.type === "text" ? (
+          <span title="按来源原始分级显示；历史快照可能使用旧分级定义。">
+            {ratingLabel(field.value.value)}
+          </span>
+        ) : (
+          <Value value={field.value} />
+        )}
         {field.truncated && (
           <small className="metadata-unknown">字段过长，显示前 8192 字符</small>
         )}
@@ -128,234 +133,290 @@ export function MetadataInspector({
       )}
       {data && (
         <>
-          <dl className="metadata-fields">
-            <div className="metadata-field">
-              <dt>存储尺寸</dt>
-              <dd>
-                {data.stored_width && data.stored_height ? (
-                  `${data.stored_width} × ${data.stored_height}`
-                ) : (
-                  <span className="metadata-unknown">尚未检查图片</span>
-                )}
-              </dd>
-            </div>
-          </dl>
-          {!data.records.length && (
-            <p className="metadata-message">这个存储对象没有关联的来源记录。</p>
-          )}
-          {!!data.records.length && (
-            <>
-              <label className="metadata-label">
-                来源记录
-                <select
-                  aria-label="来源记录"
-                  value={record?.record_id ?? ""}
-                  onChange={(e) => state.selectRecord(e.target.value)}
-                >
-                  {data.records.map((r) => (
-                    <option key={r.record_id} value={r.record_id}>
-                      {r.post_id ? `条目 #${r.post_id}` : "无条目编号"} ·{" "}
-                      {r.record_id.slice(0, 10)}
-                    </option>
+          {observation && (
+            <div className="metadata-primary">
+              <p className="metadata-basis">
+                {observation.relation === "asset_origin"
+                  ? "来源初始记录"
+                  : "所选历史记录"}{" "}
+                · {observation.observed_at?.slice(0, 10) ?? "时间未知"}
+              </p>
+              <dl className="metadata-fields">
+                {observation.fields
+                  .filter((f) =>
+                    [
+                      "rating",
+                      "tags",
+                      "source_width",
+                      "source_height",
+                    ].includes(f.name),
+                  )
+                  .map((f) => (
+                    <Field key={f.name} field={f} />
                   ))}
-                </select>
-              </label>
-              <div className="metadata-paging">
-                <span>本页 {data.records.length} 条记录</span>
-                {state.recordCursor && (
-                  <button onClick={() => state.pageRecords()}>首批记录</button>
-                )}
-                {data.next_cursor && (
-                  <button onClick={() => state.pageRecords(data.next_cursor!)}>
-                    后续记录
-                  </button>
-                )}
-              </div>
-              {observations.isPending && (
-                <p className="metadata-message" role="status">
-                  正在读取历史观察…
-                </p>
-              )}
-              {observations.error && (
-                <Failure error={observations.error} refresh={state.refresh} />
-              )}
-              {!observations.error && observations.data && (
-                <>
-                  {!observations.data.items.length && (
-                    <p className="metadata-message">
-                      这条来源记录没有可读取的观察。
-                    </p>
+              </dl>
+            </div>
+          )}
+          {!data.records.length && (
+            <p className="metadata-message">这张图片没有可用的来源记录。</p>
+          )}
+          <details
+            className="metadata-details metadata-connections"
+            open={data.records.length > 1}
+          >
+            <summary>
+              来源与历史记录{record?.post_id ? " · #" + record.post_id : ""}
+            </summary>
+
+            <dl className="metadata-fields">
+              <div className="metadata-field">
+                <dt>存储尺寸</dt>
+                <dd>
+                  {data.stored_width && data.stored_height ? (
+                    `${data.stored_width} × ${data.stored_height}`
+                  ) : (
+                    <span className="metadata-unknown">尚未检查图片</span>
                   )}
-                  {observation && (
-                    <>
-                      <label className="metadata-label">
-                        历史观察
-                        <select
-                          aria-label="历史观察"
-                          value={observation.observation_id}
-                          onChange={(e) =>
-                            state.selectObservation(e.target.value)
-                          }
-                        >
-                          {observations.data.items.map((o) => (
-                            <option
-                              key={o.observation_id}
-                              value={o.observation_id}
-                            >
-                              {o.observed_at?.slice(0, 10) ?? "时间未知"} ·{" "}
-                              {o.relation === "asset_origin"
-                                ? "直接关联"
-                                : "同条目历史"}{" "}
-                              · 行 {o.row_id}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <div className="metadata-paging">
-                        <span>
-                          本页 {observations.data.items.length} 次观察
-                        </span>
-                        {state.observationCursor && (
-                          <button onClick={() => state.pageObservations()}>
-                            首批观察
-                          </button>
-                        )}
-                        {observations.data.next_cursor && (
-                          <button
-                            onClick={() =>
-                              state.pageObservations(
-                                observations.data!.next_cursor!,
-                              )
+                </dd>
+              </div>
+            </dl>
+            {!data.records.length && (
+              <p className="metadata-message">
+                这个存储对象没有关联的来源记录。
+              </p>
+            )}
+            {!!data.records.length && (
+              <>
+                <label className="metadata-label">
+                  来源记录
+                  <select
+                    aria-label="来源记录"
+                    value={record?.record_id ?? ""}
+                    onChange={(e) => state.selectRecord(e.target.value)}
+                  >
+                    {data.records.map((r) => (
+                      <option key={r.record_id} value={r.record_id}>
+                        {r.post_id ? `条目 #${r.post_id}` : "无条目编号"} ·{" "}
+                        {r.record_id.slice(0, 10)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="metadata-paging">
+                  <span>本页 {data.records.length} 条记录</span>
+                  {state.recordCursor && (
+                    <button onClick={() => state.pageRecords()}>
+                      首批记录
+                    </button>
+                  )}
+                  {data.next_cursor && (
+                    <button
+                      onClick={() => state.pageRecords(data.next_cursor!)}
+                    >
+                      后续记录
+                    </button>
+                  )}
+                </div>
+                {observations.isPending && (
+                  <p className="metadata-message" role="status">
+                    正在读取历史观察…
+                  </p>
+                )}
+                {observations.error && (
+                  <Failure error={observations.error} refresh={state.refresh} />
+                )}
+                {!observations.error && observations.data && (
+                  <>
+                    {!observations.data.items.length && (
+                      <p className="metadata-message">
+                        这条来源记录没有可读取的观察。
+                      </p>
+                    )}
+                    {observation && (
+                      <>
+                        <label className="metadata-label">
+                          历史观察
+                          <select
+                            aria-label="历史观察"
+                            value={observation.observation_id}
+                            onChange={(e) =>
+                              state.selectObservation(e.target.value)
                             }
                           >
-                            后续观察
-                          </button>
-                        )}
-                      </div>
-                      {observation.relation === "same_post" && (
-                        <p className="metadata-message">
-                          此观察属于同一来源条目，图片内容可能已变化。
-                        </p>
-                      )}
-                      <dl className="metadata-fields">
-                        <div className="metadata-field">
-                          <dt>观察时间</dt>
-                          <dd>
-                            {observation.observed_at ?? "未记录"}
-                            <small className="metadata-unknown">
-                              {quality[observation.time_quality ?? "unknown"] ??
-                                observation.time_quality}
-                            </small>
-                          </dd>
+                            {observations.data.items.map((o) => (
+                              <option
+                                key={o.observation_id}
+                                value={o.observation_id}
+                              >
+                                {o.observed_at?.slice(0, 10) ?? "时间未知"} ·{" "}
+                                {o.relation === "asset_origin"
+                                  ? "直接关联"
+                                  : "同条目历史"}{" "}
+                                · 行 {o.row_id}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <div className="metadata-paging">
+                          <span>
+                            本页 {observations.data.items.length} 次观察
+                          </span>
+                          {state.observationCursor && (
+                            <button onClick={() => state.pageObservations()}>
+                              首批观察
+                            </button>
+                          )}
+                          {observations.data.next_cursor && (
+                            <button
+                              onClick={() =>
+                                state.pageObservations(
+                                  observations.data!.next_cursor!,
+                                )
+                              }
+                            >
+                              后续观察
+                            </button>
+                          )}
                         </div>
-                        {observation.fields
-                          .filter(
-                            (f) =>
-                              !f.name.startsWith("tags.") &&
-                              !f.name.startsWith("danbooru."),
-                          )
-                          .map((f) => (
-                            <Field key={f.name} field={f} />
-                          ))}
-                      </dl>
-                      <details className="metadata-details">
-                        <summary>分类标签与 Danbooru 字段</summary>
+                        {observation.relation === "same_post" && (
+                          <p className="metadata-message">
+                            此观察属于同一来源条目，图片内容可能已变化。
+                          </p>
+                        )}
                         <dl className="metadata-fields">
+                          <div className="metadata-field">
+                            <dt>观察时间</dt>
+                            <dd>
+                              {observation.observed_at ?? "未记录"}
+                              <small className="metadata-unknown">
+                                {quality[
+                                  observation.time_quality ?? "unknown"
+                                ] ?? observation.time_quality}
+                              </small>
+                            </dd>
+                          </div>
                           {observation.fields
                             .filter(
                               (f) =>
-                                f.name.startsWith("tags.") ||
-                                f.name.startsWith("danbooru."),
+                                ![
+                                  "rating",
+                                  "tags",
+                                  "source_width",
+                                  "source_height",
+                                ].includes(f.name) &&
+                                !f.name.startsWith("tags.") &&
+                                !f.name.startsWith("danbooru."),
                             )
                             .map((f) => (
                               <Field key={f.name} field={f} />
                             ))}
                         </dl>
-                      </details>
-                      <details className="metadata-details">
-                        <summary>记录依据</summary>
-                        <dl className="metadata-fields">
-                          <div className="metadata-field">
-                            <dt>来源记录 ID</dt>
-                            <dd>{record?.record_id}</dd>
-                          </div>
-                          <div className="metadata-field">
-                            <dt>直接观察 ID</dt>
-                            <dd>{record?.origin_observation_id ?? "未记录"}</dd>
-                          </div>
-                          <div className="metadata-field">
-                            <dt>当前观察 ID</dt>
-                            <dd>{observation.observation_id}</dd>
-                          </div>
-                          <div className="metadata-field">
-                            <dt>数据来源</dt>
-                            <dd>
-                              {observation.source_kind ?? "未记录"}
-                              <small>{observation.source_key}</small>
-                            </dd>
-                          </div>
-                          <div className="metadata-field">
-                            <dt>入库时间</dt>
-                            <dd>{observation.ingested_at ?? "未记录"}</dd>
-                          </div>
-                          <div className="metadata-field">
-                            <dt>存储配置</dt>
-                            <dd>{record?.storage_profile ?? "未记录"}</dd>
-                          </div>
-                        </dl>
-                        <p>
-                          字段悬停可查看来源列。来源尺寸来自这次观察；存储尺寸需另行检查图片。
-                        </p>
-                      </details>
-                      <div className="metadata-raw">
-                        <Button
-                          onClick={state.requestRaw}
-                          disabled={state.rawRequested}
-                        >
-                          <FileJson2 size={13} />
-                          读取原始元数据
-                        </Button>
-                        {state.rawRequested && raw.isPending && (
-                          <p role="status">正在读取原始元数据…</p>
-                        )}
-                        {state.rawRequested && raw.error && (
-                          <Failure error={raw.error} refresh={state.refresh} />
-                        )}
-                        {state.rawRequested && !raw.error && raw.data && (
-                          <>
-                            {raw.data.status === "missing" && (
-                              <p className="metadata-unknown">
-                                这次观察未保存原始元数据。
-                              </p>
-                            )}
-                            {raw.data.status === "too_large" && (
-                              <p className="metadata-message">
-                                原始记录为 {raw.data.bytes} 字节，超过 128 KiB
-                                查看上限。
-                              </p>
-                            )}
-                            {raw.data.status === "available" && (
-                              <>
-                                <small>
-                                  {raw.data.format} · {raw.data.bytes} 字节
-                                </small>
-                                <pre tabIndex={0} aria-label="原始元数据">
-                                  {rawText(raw.data.json ?? "")}
-                                </pre>
-                                {raw.data.schema_id && (
-                                  <small>Schema ID: {raw.data.schema_id}</small>
-                                )}
-                              </>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    </>
-                  )}
-                </>
-              )}
-            </>
-          )}
+                        <details className="metadata-details">
+                          <summary>分类标签与 Danbooru 字段</summary>
+                          <dl className="metadata-fields">
+                            {observation.fields
+                              .filter(
+                                (f) =>
+                                  f.name.startsWith("tags.") ||
+                                  f.name.startsWith("danbooru."),
+                              )
+                              .map((f) => (
+                                <Field key={f.name} field={f} />
+                              ))}
+                          </dl>
+                        </details>
+                        <details className="metadata-details">
+                          <summary>记录依据</summary>
+                          <dl className="metadata-fields">
+                            <div className="metadata-field">
+                              <dt>来源记录 ID</dt>
+                              <dd>{record?.record_id}</dd>
+                            </div>
+                            <div className="metadata-field">
+                              <dt>直接观察 ID</dt>
+                              <dd>
+                                {record?.origin_observation_id ?? "未记录"}
+                              </dd>
+                            </div>
+                            <div className="metadata-field">
+                              <dt>当前观察 ID</dt>
+                              <dd>{observation.observation_id}</dd>
+                            </div>
+                            <div className="metadata-field">
+                              <dt>数据来源</dt>
+                              <dd>
+                                {observation.source_kind ?? "未记录"}
+                                <small>{observation.source_key}</small>
+                              </dd>
+                            </div>
+                            <div className="metadata-field">
+                              <dt>入库时间</dt>
+                              <dd>{observation.ingested_at ?? "未记录"}</dd>
+                            </div>
+                            <div className="metadata-field">
+                              <dt>存储配置</dt>
+                              <dd>{record?.storage_profile ?? "未记录"}</dd>
+                            </div>
+                          </dl>
+                          <p>
+                            字段悬停可查看来源列。来源尺寸来自这次观察；存储尺寸需另行检查图片。
+                          </p>
+                        </details>
+                        <div className="metadata-raw">
+                          <Button
+                            onClick={state.requestRaw}
+                            disabled={state.rawRequested}
+                          >
+                            <FileJson2 size={13} />
+                            读取原始元数据
+                          </Button>
+                          {state.rawRequested && raw.isPending && (
+                            <p role="status">正在读取原始元数据…</p>
+                          )}
+                          {state.rawRequested && raw.error && (
+                            <Failure
+                              error={raw.error}
+                              refresh={state.refresh}
+                            />
+                          )}
+                          {state.rawRequested && !raw.error && raw.data && (
+                            <>
+                              {raw.data.status === "missing" && (
+                                <p className="metadata-unknown">
+                                  这次观察未保存原始元数据。
+                                </p>
+                              )}
+                              {raw.data.status === "too_large" && (
+                                <p className="metadata-message">
+                                  原始记录为 {raw.data.bytes} 字节，超过 128 KiB
+                                  查看上限。
+                                </p>
+                              )}
+                              {raw.data.status === "available" && (
+                                <>
+                                  <small>
+                                    {raw.data.format} · {raw.data.bytes} 字节
+                                  </small>
+                                  <pre tabIndex={0} aria-label="原始元数据">
+                                    {rawText(raw.data.json ?? "")}
+                                  </pre>
+                                  {raw.data.schema_id && (
+                                    <small>
+                                      Schema ID: {raw.data.schema_id}
+                                    </small>
+                                  )}
+                                </>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      </>
+                    )}
+                  </>
+                )}
+              </>
+            )}
+          </details>
           <details className="metadata-details metadata-version">
             <summary>读取版本 · {data.version.analysis_sequence}</summary>
             <p>{data.version.generation}</p>

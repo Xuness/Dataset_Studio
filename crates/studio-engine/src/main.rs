@@ -2,6 +2,8 @@ mod api;
 mod artifacts;
 mod jobs;
 mod previews;
+mod query_budget;
+mod query_cache;
 mod query_jobs;
 mod tool_inputs;
 mod worker;
@@ -112,6 +114,8 @@ async fn serve(root: PathBuf, port: u16, cache_dir: Option<PathBuf>) -> Result<(
     lease
         .try_lock_exclusive()
         .map_err(|_| Error::new("ENGINE_BUSY", "已有引擎管理这个应用目录"))?;
+    remove_abandoned_query_temps(&root.join("query-temp"), "query-")?;
+    remove_abandoned_query_temps(&root.join("browse-index"), "index-build-")?;
     let store = Arc::new(SqliteStore::new(root.clone())?);
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", port))
         .await
@@ -125,8 +129,10 @@ async fn serve(root: PathBuf, port: u16, cache_dir: Option<PathBuf>) -> Result<(
     };
     atomic_json(&root.join("engine.json"), &connection)?;
     let (shutdown_tx, mut shutdown_rx) = tokio::sync::watch::channel(false);
-    let resources: Arc<dyn studio_application::ReadResources> =
-        Arc::new(studio_resources::ReadCoordinator::default());
+    let coordinator = Arc::new(studio_resources::ReadCoordinator::default());
+    let query_budget =
+        query_budget::QueryBudget::open(root.join("query-settings.json"), coordinator.clone())?;
+    let resources: Arc<dyn studio_application::ReadResources> = coordinator;
     let cache_path = cache_dir
         .or_else(|| std::env::var_os("STUDIO_CACHE_DIR").map(PathBuf::from))
         .unwrap_or_else(|| root.join("preview-cache"));
@@ -134,7 +140,13 @@ async fn serve(root: PathBuf, port: u16, cache_dir: Option<PathBuf>) -> Result<(
         resources.clone(),
         studio_resources::PreviewCache::open(&cache_path)?,
     );
-    let queries = Arc::new(query_jobs::QueryRunner::new(resources.clone()));
+    let queries = Arc::new(query_jobs::QueryRunner::new(
+        resources.clone(),
+        root.join("query-temp"),
+        query_budget,
+        query_cache::CacheControl::open(root.join("query-cache.json"))?,
+        root.join("browse-index"),
+    ));
     let state = api::AppState {
         store: store.clone(),
         connection: connection.clone(),
@@ -253,6 +265,10 @@ async fn serve(root: PathBuf, port: u16, cache_dir: Option<PathBuf>) -> Result<(
         .layer(tower_http::trace::TraceLayer::new_for_http())
         .with_state(state);
     let query_scheduler = tokio::spawn(query_jobs::scheduler(store.clone(), queries.clone()));
+    let cache_maintenance = tokio::spawn(query_jobs::cache_maintenance(
+        store.clone(),
+        queries.clone(),
+    ));
     let recovery_store = store.clone();
     let recovery = tokio::task::spawn_blocking(move || match recovery_store.recover_jobs() {
         Ok(issues) => {
@@ -282,9 +298,33 @@ async fn serve(root: PathBuf, port: u16, cache_dir: Option<PathBuf>) -> Result<(
     let _ = scheduler.await;
     queries.shutdown();
     let _ = query_scheduler.await;
+    let _ = cache_maintenance.await;
     let _ = recovery.await;
     previews.shutdown();
     let _ = preview_scheduler.await;
     drop(lease);
     result
+}
+fn remove_abandoned_query_temps(directory: &std::path::Path, prefix: &str) -> Result<()> {
+    if !directory.exists() {
+        return Ok(());
+    }
+    let root = directory.canonicalize().map_err(Error::io)?;
+    for entry in fs::read_dir(&root).map_err(Error::io)? {
+        let entry = entry.map_err(Error::io)?;
+        if !entry.file_name().to_string_lossy().starts_with(prefix) {
+            continue;
+        }
+        let path = entry.path();
+        let target = path.canonicalize().map_err(Error::io)?;
+        if !target.starts_with(&root) || entry.file_type().map_err(Error::io)?.is_symlink() {
+            return Err(Error::invalid("查询临时文件超出应用目录"));
+        }
+        if entry.file_type().map_err(Error::io)?.is_dir() {
+            fs::remove_dir_all(&target).map_err(Error::io)?;
+        } else {
+            fs::remove_file(&target).map_err(Error::io)?;
+        }
+    }
+    Ok(())
 }

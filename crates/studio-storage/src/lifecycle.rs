@@ -311,7 +311,7 @@ impl SqliteStore {
         db.execute_batch("PRAGMA foreign_keys=ON;")
             .map_err(db_error)?;
         migrations::upgrade(&mut db, &directory)?;
-        db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;")
+        db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA cache_size=-65536; PRAGMA journal_size_limit=33554432;")
             .map_err(db_error)?;
         // A newly acquired project lease means no previous engine still owns its tasks.
         // Cached handles return above, so opening an already active project does not interrupt it.
@@ -319,6 +319,8 @@ impl SqliteStore {
             let tx = db.transaction().map_err(db_error)?;
             // Incomplete query members are never published. Rebuild is explicit after a crash.
             tx.execute("UPDATE query_results SET status='interrupted',count=NULL,error='构建被中断，请重新计算' WHERE status='running'", []).map_err(db_error)?;
+            tx.execute("DELETE FROM result_references WHERE owner_kind='query_input' AND owner_id IN (SELECT id FROM query_results WHERE status NOT IN ('queued','running'))", []).map_err(db_error)?;
+            crate::query_cache::recover(&tx)?;
             let interrupted = {
                 let mut stmt = tx
                     .prepare("SELECT id FROM jobs WHERE status IN ('running','preparing')")

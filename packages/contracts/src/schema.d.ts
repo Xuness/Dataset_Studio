@@ -408,7 +408,7 @@ export interface paths {
         };
         get: operations["results"];
         put?: never;
-        post?: never;
+        post: operations["run_query"];
         delete?: never;
         options?: never;
         head?: never;
@@ -457,6 +457,38 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["cancel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/query-results/{result_id}/leases/{lease_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["lease_result"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/query-results/{result_id}/leases/{lease_id}/release": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["release_result_lease"];
         delete?: never;
         options?: never;
         head?: never;
@@ -767,6 +799,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/resources/query": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["configure_query"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/resources/query-cache": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["configure_query_cache"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/resources/query-cache/clear": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["clear_query_cache"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/shutdown": {
         parameters: {
             query?: never;
@@ -850,6 +930,7 @@ export interface components {
             name: string;
             selected: boolean;
             source_name: string;
+            summary?: null | components["schemas"]["AssetSummary"];
         };
         AssetKey: {
             asset_id: string;
@@ -858,6 +939,8 @@ export interface components {
         AssetPage: {
             items: components["schemas"]["Asset"][];
             next_cursor?: string | null;
+            preparing?: string | null;
+            result_id?: string | null;
             revision: string;
         };
         AssetRecord: {
@@ -866,6 +949,14 @@ export interface components {
             record_id: string;
             source_md5?: string | null;
             storage_profile?: string | null;
+        };
+        AssetSummary: {
+            issue?: string | null;
+            post_count?: string | null;
+            post_ids: string[];
+            /** @description available, unlinked, unavailable, or unsupported; unavailable is not unlinked. */
+            status: string;
+            version?: string | null;
         };
         AttachSource: {
             index_root?: string | null;
@@ -1212,6 +1303,38 @@ export interface components {
         Projects: {
             items: components["schemas"]["ProjectSummary"][];
         };
+        QueryCacheInfo: {
+            /** Format: int64 */
+            changed_members: number;
+            /** Format: int64 */
+            evaluated_objects: number;
+            mode: string;
+        };
+        QueryCacheStatus: {
+            /** Format: int64 */
+            active_views: number;
+            cleanup_pending: boolean;
+            database_free_bytes: string;
+            /** Format: int64 */
+            incremental_results: number;
+            /** Format: int32 */
+            max_age_days: number;
+            /** Format: int64 */
+            member_versions: number;
+            /** Format: int64 */
+            protected_results: number;
+            quota_bytes: string;
+            /** Format: int64 */
+            reclaimed_queries: number;
+            result_storage_bytes: string;
+            /** Format: int64 */
+            retained_queries: number;
+            /** Format: int64 */
+            reused_results: number;
+            source_index_bytes: string;
+            /** Format: int64 */
+            source_indexes: number;
+        };
         QueryCondition: {
             field: string;
             operator: components["schemas"]["QueryOperator"];
@@ -1231,10 +1354,20 @@ export interface components {
             next_cursor?: string | null;
         };
         /** @enum {string} */
-        QueryOperator: "eq" | "ne" | "gte" | "lte" | "has_tag" | "is_missing" | "is_present";
+        QueryOperator: "eq" | "ne" | "gte" | "lte" | "has_tag" | "in" | "has_all_tags" | "has_any_tags" | "has_no_tags" | "is_missing" | "is_present";
         /** @enum {string} */
-        QueryOrder: "asset_key_asc" | "asset_key_desc";
+        QueryOrder: "asset_key_asc" | "asset_key_desc" | "post_id_asc" | "post_id_desc";
+        QueryResourceLimits: {
+            active_query_memory_bytes?: string | null;
+            metadata_memory_bytes: string;
+            native_query_memory_bytes: string;
+            query_memory_bytes: string;
+            result_staging_disk_bytes: string;
+            result_work_memory_bytes: string;
+            temporary_disk_bytes: string;
+        };
         QueryResult: {
+            cache: components["schemas"]["QueryCacheInfo"];
             /** Format: int64 */
             count?: number | null;
             created_at: string;
@@ -1262,6 +1395,7 @@ export interface components {
         };
         QuerySpec: {
             conditions: components["schemas"]["QueryCondition"][];
+            input_scope?: null | components["schemas"]["ScopeRef"];
             observation_rule: components["schemas"]["ObservationRule"];
             order: components["schemas"]["QueryOrder"];
             source_ids: string[];
@@ -1280,6 +1414,10 @@ export interface components {
             /** @enum {string} */
             type: "boolean";
             value: boolean;
+        } | {
+            /** @enum {string} */
+            type: "text_list";
+            value: string[];
         };
         RawMetadata: {
             bytes?: string | null;
@@ -1304,6 +1442,8 @@ export interface components {
             process_memory?: null | components["schemas"]["ReadProcessMemory"];
             /** Format: int32 */
             protocol_version: number;
+            query_cache: components["schemas"]["QueryCacheStatus"];
+            query_limits: components["schemas"]["QueryResourceLimits"];
             resources: components["schemas"]["ResourceStatus"][];
         };
         ReadVersion: {
@@ -1362,6 +1502,9 @@ export interface components {
             current: boolean;
             issue?: string | null;
             result_id: string;
+        };
+        RunQuery: {
+            spec: components["schemas"]["QuerySpec"];
         };
         SaveDraft: {
             /** Format: int64 */
@@ -1442,6 +1585,16 @@ export interface components {
         SetCacheQuota: {
             /** Format: int32 */
             quota_mib: number;
+        };
+        SetQueryCache: {
+            /** Format: int32 */
+            max_age_days: number;
+            /** Format: int32 */
+            quota_mib: number;
+        };
+        SetQueryMemory: {
+            /** Format: int32 */
+            memory_gib: number;
         };
         Source: {
             available: boolean;
@@ -1786,6 +1939,7 @@ export interface operations {
                 collection_id?: string;
                 selection?: boolean;
                 cursor?: string;
+                order?: components["schemas"]["QueryOrder"];
                 limit?: number;
             };
             header?: never;
@@ -2249,6 +2403,31 @@ export interface operations {
             };
         };
     };
+    run_query: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunQuery"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueryResult"];
+                };
+            };
+        };
+    };
     result: {
         parameters: {
             query?: never;
@@ -2275,6 +2454,7 @@ export interface operations {
         parameters: {
             query?: {
                 cursor?: string;
+                order?: components["schemas"]["QueryOrder"];
                 limit?: number;
             };
             header?: never;
@@ -2314,6 +2494,52 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["QueryResult"];
+                };
+            };
+        };
+    };
+    lease_result: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                result_id: string;
+                lease_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+        };
+    };
+    release_result_lease: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                result_id: string;
+                lease_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
                 };
             };
         };
@@ -2865,6 +3091,71 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PreviewCacheStatus"];
+                };
+            };
+        };
+    };
+    configure_query: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetQueryMemory"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueryResourceLimits"];
+                };
+            };
+        };
+    };
+    configure_query_cache: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetQueryCache"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueryCacheStatus"];
+                };
+            };
+        };
+    };
+    clear_query_cache: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueryCacheStatus"];
                 };
             };
         };

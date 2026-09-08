@@ -1,4 +1,62 @@
 use super::*;
+
+fn validate_input(
+    s: &AppState,
+    pid: &str,
+    spec: &domain::QuerySpec,
+    versions: &[domain::QuerySourceVersion],
+) -> domain::Result<()> {
+    s.store.query_input_count(pid, spec)?;
+    if let Some(scope) = &spec.input_scope {
+        validate_scope(s, pid, scope)?;
+        if let domain::ScopeTarget::Source {
+            source_id,
+            revision,
+        } = &scope.target
+            && !versions
+                .iter()
+                .any(|v| v.source_id == *source_id && v.catalog_revision == *revision)
+        {
+            return Err(domain::Error::new(
+                "SOURCE_CHANGED",
+                "浏览来源已更新，请刷新后筛选",
+            ));
+        }
+    }
+    Ok(())
+}
+
+#[utoipa::path(post,path="/v1/projects/{project_id}/query-results",operation_id="run_query",params(("project_id"=String,Path)),request_body=RunQuery,responses((status=200,body=QueryResult)))]
+pub(super) async fn run(
+    State(s): State<AppState>,
+    Path(pid): Path<String>,
+    Body(body): Body<RunQuery>,
+) -> ApiResult<QueryResult> {
+    Ok(Json(
+        blocking(move || {
+            let spec = domain::QuerySpec::from(body.spec).normalize()?;
+            let versions = s.queries.versions(&s.store, &pid, &spec)?;
+            validate_input(&s, &pid, &spec, &versions)?;
+            let _cache_gate = s
+                .queries
+                .cache
+                .gate
+                .lock()
+                .map_err(|_| domain::Error::new("INTERNAL_ERROR", "查询缓存锁不可用"))?;
+            let result = s.store.create_cached_result(
+                &pid,
+                None,
+                spec,
+                versions,
+                s.queries.cache.config()?.quota_mib > 0,
+            )?;
+            s.queries.cache.recent(&pid, &result.id);
+            s.queries.cache.track_committed(&s.store, &pid);
+            Ok(result.into())
+        })
+        .await?,
+    ))
+}
 use studio_application::{QueryAdapter, QueryRepository, ScopeRepository};
 
 fn validate_spec(
@@ -121,9 +179,23 @@ pub(super) async fn build(
                 return Err(domain::Error::new("REVISION_CONFLICT", "查询定义已变化"));
             }
             let versions = s.queries.versions(&s.store, &pid, &query.spec)?;
-            s.store
-                .create_result(&pid, Some((&qid, query.revision)), query.spec, versions)
-                .map(Into::into)
+            validate_input(&s, &pid, &query.spec, &versions)?;
+            let _cache_gate = s
+                .queries
+                .cache
+                .gate
+                .lock()
+                .map_err(|_| domain::Error::new("INTERNAL_ERROR", "查询缓存锁不可用"))?;
+            let result = s.store.create_cached_result(
+                &pid,
+                Some((&qid, query.revision)),
+                query.spec,
+                versions,
+                s.queries.cache.config()?.quota_mib > 0,
+            )?;
+            s.queries.cache.recent(&pid, &result.id);
+            s.queries.cache.track_committed(&s.store, &pid);
+            Ok(result.into())
         })
         .await?,
     ))
@@ -194,8 +266,8 @@ pub(super) async fn cancel(
 ) -> ApiResult<QueryResult> {
     Ok(Json(
         blocking(move || {
-            let result = s.store.cancel_result(&pid, &rid)?;
             s.queries.cancel(&rid);
+            let result = s.store.cancel_result(&pid, &rid)?;
             Ok(result.into())
         })
         .await?,
@@ -210,14 +282,54 @@ pub(super) async fn release(
         blocking(move || s.store.release_result(&pid, &rid).map(Into::into)).await?,
     ))
 }
+#[utoipa::path(post,path="/v1/projects/{project_id}/query-results/{result_id}/leases/{lease_id}",params(("project_id"=String,Path),("result_id"=String,Path),("lease_id"=String,Path)),responses((status=200,body=OkResponse)))]
+pub(super) async fn lease_result(
+    State(s): State<AppState>,
+    Path((pid, rid, lid)): Path<(String, String, String)>,
+) -> ApiResult<OkResponse> {
+    Ok(Json(
+        blocking(move || {
+            let _gate = s
+                .queries
+                .cache
+                .gate
+                .lock()
+                .map_err(|_| domain::Error::new("INTERNAL_ERROR", "查询缓存锁不可用"))?;
+            let result = s.store.query_result(&pid, &rid)?;
+            if result.state != domain::ResultState::Ready {
+                return Err(domain::Error::new(
+                    "RESULT_NOT_READY",
+                    "查询结果已回收或尚未完成",
+                ));
+            }
+            s.queries.cache.lease(&pid, &rid, &lid)?;
+            s.store.touch_query_cache(&pid, &rid)?;
+            Ok(OkResponse { ok: true })
+        })
+        .await?,
+    ))
+}
+#[utoipa::path(post,path="/v1/projects/{project_id}/query-results/{result_id}/leases/{lease_id}/release",params(("project_id"=String,Path),("result_id"=String,Path),("lease_id"=String,Path)),responses((status=200,body=OkResponse)))]
+pub(super) async fn release_result_lease(
+    State(s): State<AppState>,
+    Path((pid, rid, lid)): Path<(String, String, String)>,
+) -> ApiResult<OkResponse> {
+    for value in [&pid, &rid, &lid] {
+        domain::validate_id(value)?;
+    }
+    s.queries.cache.release(&pid, &rid, &lid);
+    Ok(Json(OkResponse { ok: true }))
+}
 #[derive(Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct ResultCursor {
     project_id: String,
     result_id: String,
     after: domain::AssetKey,
+    #[serde(default)]
+    order: Option<domain::QueryOrder>,
 }
-#[utoipa::path(get,path="/v1/projects/{project_id}/query-results/{result_id}/assets",params(("project_id"=String,Path),("result_id"=String,Path),("cursor"=Option<String>,Query),("limit"=Option<usize>,Query)),responses((status=200,body=ResultAssets)))]
+#[utoipa::path(get,path="/v1/projects/{project_id}/query-results/{result_id}/assets",params(("project_id"=String,Path),("result_id"=String,Path),("cursor"=Option<String>,Query),("order"=Option<QueryOrder>,Query),("limit"=Option<usize>,Query)),responses((status=200,body=ResultAssets)))]
 pub(super) async fn result_assets(
     State(s): State<AppState>,
     Extension(read_context): Extension<RequestReadContext>,
@@ -227,8 +339,20 @@ pub(super) async fn result_assets(
     Ok(Json(
         blocking(move || {
             let _permit = read_permit(&s, domain::ReadClass::Index, &read_context)?;
-            let result = s.store.query_result(&pid, &rid)?;
+            let result =
+                {
+                    let _gate =
+                        s.queries.cache.gate.lock().map_err(|_| {
+                            domain::Error::new("INTERNAL_ERROR", "查询缓存锁不可用")
+                        })?;
+                    let result = s.store.query_result(&pid, &rid)?;
+                    if result.state == domain::ResultState::Ready {
+                        s.queries.cache.recent(&pid, &rid);
+                    }
+                    result
+                };
             s.queries.validate_result(&s.store, &result)?;
+            let order = q.order.map(Into::into).unwrap_or(result.spec.order);
             let after = q
                 .cursor
                 .map(|value| -> domain::Result<_> {
@@ -243,12 +367,19 @@ pub(super) async fn result_assets(
                     if cursor.project_id != pid || cursor.result_id != rid {
                         return Err(domain::Error::invalid("游标不属于当前结果"));
                     }
+                    if cursor.order.unwrap_or(result.spec.order) != order {
+                        return Err(domain::Error::invalid("分页排序已变化，请返回第一页"));
+                    }
                     Ok(cursor.after)
                 })
                 .transpose()?;
-            let page = s
-                .store
-                .result_page(&pid, &rid, after.as_ref(), q.limit.unwrap_or(48))?;
+            let page = s.store.result_page_ordered(
+                &pid,
+                &rid,
+                after.as_ref(),
+                q.limit.unwrap_or(48),
+                order,
+            )?;
             let mut groups = BTreeMap::<String, Vec<domain::AssetKey>>::new();
             for key in &page.keys {
                 groups
@@ -269,7 +400,7 @@ pub(super) async fn result_assets(
                 }
             }
             let membership = s.store.contains(&pid, &page.keys)?;
-            let items = page
+            let mut items = page
                 .keys
                 .into_iter()
                 .zip(membership)
@@ -280,6 +411,7 @@ pub(super) async fn result_assets(
                         .ok_or_else(|| domain::Error::new("SOURCE_CHANGED", "结果成员已不可用"))
                 })
                 .collect::<domain::Result<Vec<_>>>()?;
+            enrich_summaries(&s, &pid, &read_context, &mut items)?;
             let next_cursor = page
                 .next
                 .map(|after| {
@@ -287,6 +419,7 @@ pub(super) async fn result_assets(
                         project_id: pid,
                         result_id: rid.clone(),
                         after,
+                        order: Some(order),
                     })
                     .map(|b| URL_SAFE_NO_PAD.encode(b))
                     .map_err(domain::Error::io)
@@ -299,6 +432,8 @@ pub(super) async fn result_assets(
                     items,
                     next_cursor,
                     revision: rid,
+                    preparing: None,
+                    result_id: None,
                 },
             })
         })
@@ -338,6 +473,7 @@ pub(super) fn source_capture(
         conditions: vec![],
         observation_rule: domain::ObservationRule::CurrentPost,
         order: domain::QueryOrder::AssetKeyAsc,
+        input_scope: None,
     };
     let versions = s.queries.versions(&s.store, pid, &spec)?;
     if versions[0].catalog_revision != *revision {
@@ -357,9 +493,22 @@ pub(super) async fn capture(
     Ok(Json(
         blocking(move || {
             let (spec, versions) = source_capture(&s, &pid, &body.scope.into())?;
-            s.store
-                .create_result(&pid, None, spec, versions)
-                .map(Into::into)
+            let _cache_gate = s
+                .queries
+                .cache
+                .gate
+                .lock()
+                .map_err(|_| domain::Error::new("INTERNAL_ERROR", "查询缓存锁不可用"))?;
+            let result = s.store.create_cached_result(
+                &pid,
+                None,
+                spec,
+                versions,
+                s.queries.cache.config()?.quota_mib > 0,
+            )?;
+            s.queries.cache.recent(&pid, &result.id);
+            s.queries.cache.track_committed(&s.store, &pid);
+            Ok(result.into())
         })
         .await?,
     ))

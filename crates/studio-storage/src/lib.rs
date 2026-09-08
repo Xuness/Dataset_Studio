@@ -21,6 +21,8 @@ mod job_scopes;
 mod lifecycle;
 mod migrations;
 mod query;
+mod query_cache;
+pub use query_cache::{QueryCachePolicy, QueryCacheStats, QueryStage};
 mod registry;
 mod scopes;
 mod selection;
@@ -59,7 +61,7 @@ fn connection(path: &Path) -> Result<Connection> {
     let db = Connection::open(path).map_err(db_error)?;
     db.busy_timeout(std::time::Duration::from_secs(3))
         .map_err(db_error)?;
-    db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;")
+    db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON; PRAGMA cache_size=-65536; PRAGMA journal_size_limit=33554432;")
         .map_err(db_error)?;
     Ok(db)
 }
@@ -94,6 +96,7 @@ pub struct SqliteStore {
     root: PathBuf,
     registry: Mutex<Connection>,
     projects: Mutex<HashMap<String, Arc<ProjectDb>>>,
+    query_sizes: Mutex<HashMap<String, (u64, u64)>>,
 }
 impl SqliteStore {
     pub fn new(root: PathBuf) -> Result<Self> {
@@ -106,6 +109,7 @@ impl SqliteStore {
             root,
             registry: Mutex::new(db),
             projects: Mutex::new(HashMap::new()),
+            query_sizes: Mutex::new(HashMap::new()),
         })
     }
     pub fn root(&self) -> &Path {

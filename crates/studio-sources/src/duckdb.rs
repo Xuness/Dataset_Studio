@@ -10,7 +10,7 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
-use studio_domain::{Error, Result};
+use studio_domain::{Error, METADATA_MEMORY_BYTES, QUERY_MEMORY_BYTES, QUERY_TEMP_BYTES, Result};
 type Handle = *mut c_void;
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -86,11 +86,15 @@ pub(crate) struct Session {
     watchdog: Option<thread::JoinHandle<()>>,
     expired: Arc<AtomicBool>,
     cancelled: Option<Arc<AtomicBool>>,
+    // Drop runs after database handles have been closed in Session::drop.
+    _scratch: Option<tempfile::TempDir>,
 }
 /// Retain the DLL, while releasing all database handles at the end of a request.
 pub(crate) struct Runtime {
     path: PathBuf,
     api: Mutex<Option<Arc<Api>>>,
+    query_directory: PathBuf,
+    query_memory_bytes: u64,
 }
 impl Default for Runtime {
     fn default() -> Self {
@@ -114,19 +118,33 @@ impl Runtime {
         Self {
             path,
             api: Mutex::new(None),
+            query_directory: std::env::temp_dir().join("dataset-studio-query"),
+            query_memory_bytes: QUERY_MEMORY_BYTES,
         }
     }
+    pub fn with_query_directory(mut self, path: PathBuf) -> Self {
+        self.query_directory = path;
+        self
+    }
+    pub fn with_query_memory(mut self, bytes: u64) -> Self {
+        self.query_memory_bytes = bytes;
+        self
+    }
     pub fn open(&self, path: &Path) -> Result<Session> {
-        self.open_with(path, Duration::from_secs(8), None)
+        self.open_with(path, Duration::from_secs(8), None, false)
     }
     pub fn open_query(&self, path: &Path, cancelled: Arc<AtomicBool>) -> Result<Session> {
-        self.open_with(path, Duration::from_secs(600), Some(cancelled))
+        self.open_with(path, Duration::from_secs(600), Some(cancelled), true)
+    }
+    pub fn open_metadata(&self, path: &Path, cancelled: Arc<AtomicBool>) -> Result<Session> {
+        self.open_with(path, Duration::from_secs(8), Some(cancelled), false)
     }
     fn open_with(
         &self,
         path: &Path,
         budget: Duration,
         cancelled: Option<Arc<AtomicBool>>,
+        bulk: bool,
     ) -> Result<Session> {
         let started = Instant::now();
         let api = {
@@ -139,12 +157,37 @@ impl Runtime {
             }
             loaded.as_ref().expect("loaded library").clone()
         };
+        let scratch = if bulk {
+            std::fs::create_dir_all(&self.query_directory).map_err(Error::io)?;
+            let root = self.query_directory.canonicalize().map_err(Error::io)?;
+            let directory = tempfile::Builder::new()
+                .prefix("query-")
+                .tempdir_in(&root)
+                .map_err(Error::io)?;
+            if !directory
+                .path()
+                .canonicalize()
+                .map_err(Error::io)?
+                .starts_with(&root)
+            {
+                return Err(Error::invalid("查询临时目录超出应用管理范围"));
+            }
+            Some(directory)
+        } else {
+            None
+        };
         Session::with_api(
             api,
             path,
             true,
             budget.saturating_sub(started.elapsed()),
             cancelled,
+            scratch,
+            if bulk {
+                self.query_memory_bytes
+            } else {
+                METADATA_MEMORY_BYTES
+            },
         )
     }
 }
@@ -159,6 +202,8 @@ impl Session {
             readonly,
             budget,
             None,
+            None,
+            METADATA_MEMORY_BYTES,
         )
     }
     fn with_api(
@@ -167,6 +212,8 @@ impl Session {
         readonly: bool,
         budget: Duration,
         cancelled: Option<Arc<AtomicBool>>,
+        scratch: Option<tempfile::TempDir>,
+        memory_bytes: u64,
     ) -> Result<Self> {
         let started = Instant::now();
         let version = unsafe { CStr::from_ptr((api.library_version)()) }.to_string_lossy();
@@ -177,6 +224,13 @@ impl Session {
             ));
         }
         let path = CString::new(path.to_string_lossy().as_bytes()).map_err(Error::io)?;
+        let bulk = scratch.is_some();
+        let memory = format!("{memory_bytes}B");
+        let temporary = scratch
+            .as_ref()
+            .map(|d| d.path().to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let temporary_limit = format!("{QUERY_TEMP_BYTES}B");
         let mut config = std::ptr::null_mut();
         unsafe {
             if (api.create_config)(&mut config) != 0 {
@@ -187,9 +241,14 @@ impl Session {
                     "access_mode",
                     if readonly { "READ_ONLY" } else { "READ_WRITE" },
                 ),
-                ("threads", "1"),
-                ("memory_limit", "256MB"),
-                ("temp_directory", ""),
+                ("threads", if bulk { "2" } else { "1" }),
+                ("memory_limit", memory.as_str()),
+                ("temp_directory", temporary.as_str()),
+                ("max_temp_directory_size", temporary_limit.as_str()),
+                (
+                    "preserve_insertion_order",
+                    if bulk { "false" } else { "true" },
+                ),
                 ("enable_external_access", "false"),
                 ("autoinstall_known_extensions", "false"),
                 ("autoload_known_extensions", "false"),
@@ -286,12 +345,19 @@ impl Session {
                 watchdog: Some(watchdog),
                 expired,
                 cancelled,
+                _scratch: scratch,
             };
             session.query("SET TimeZone='UTC'")?;
             Ok(session)
         }
     }
     pub fn query(&self, sql: &str) -> Result<Vec<Vec<Option<String>>>> {
+        self.query_bounded(sql, 101)
+    }
+    pub fn query_bounded(&self, sql: &str, row_limit: u64) -> Result<Vec<Vec<Option<String>>>> {
+        if !(1..=1024).contains(&row_limit) {
+            return Err(Error::invalid("原生结果行数预算无效"));
+        }
         self.check_cancelled()?;
         if self.expired.load(Ordering::Acquire) {
             return Err(Error::new(
@@ -306,6 +372,7 @@ impl Session {
                 api: &self.api,
             };
             let status = (self.api.query)(self.connection, query.as_ptr(), &mut result.raw);
+            self.check_cancelled()?;
             if self.expired.load(Ordering::Acquire) {
                 return Err(Error::new(
                     "SOURCE_TIMEOUT",
@@ -329,7 +396,7 @@ impl Session {
             }
             let rows = (self.api.row_count)(&mut result.raw);
             let columns = (self.api.column_count)(&mut result.raw);
-            if rows > 101 || columns > 64 {
+            if rows > row_limit || columns > 64 {
                 return Err(Error::new("METADATA_LIMIT", "元数据结果超出读取边界"));
             }
             let mut output = Vec::new();
@@ -383,6 +450,18 @@ impl Session {
         sql: &str,
         sink: &mut dyn FnMut(&[String]) -> Result<()>,
     ) -> Result<()> {
+        self.stream_strings(sql, 128, sink)
+    }
+    /// Bounded VARCHAR projection for application-owned index/staging builders.
+    pub(crate) fn stream_strings(
+        &self,
+        sql: &str,
+        max_value_bytes: usize,
+        sink: &mut dyn FnMut(&[String]) -> Result<()>,
+    ) -> Result<()> {
+        if max_value_bytes == 0 || max_value_bytes > 8192 {
+            return Err(Error::invalid("流式字段大小超出边界"));
+        }
         self.check_cancelled()?;
         struct Statement<'a> {
             value: Handle,
@@ -452,7 +531,7 @@ impl Session {
                     }
                     let mut value = *data.add(row as usize);
                     let length = (self.api.string_t_length)(value) as usize;
-                    if length > 128 {
+                    if length > max_value_bytes {
                         return Err(Error::new("SOURCE_FORMAT_ERROR", "存储身份过长"));
                     }
                     let bytes = std::slice::from_raw_parts(
@@ -508,6 +587,79 @@ impl Drop for Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn external_query_work_uses_owned_disk_space_and_cleans_it() {
+        let dll = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/duckdb/duckdb.dll");
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("external.duckdb");
+        drop(Session::fixture(&dll, &path).unwrap());
+        let runtime = Runtime::new(dll).with_query_directory(tmp.path().join("scratch"));
+        let db = runtime
+            .open_query(&path, Arc::new(AtomicBool::new(false)))
+            .unwrap();
+        db.query("SET memory_limit='32MiB'; SET threads=1").unwrap();
+        let scratch = db._scratch.as_ref().unwrap().path().to_path_buf();
+        let profile = scratch.join("profile.json");
+        db.query(&format!(
+            "SET enable_profiling='json'; SET profiling_output='{}'",
+            profile.to_string_lossy().replace('\'', "''")
+        ))
+        .unwrap();
+        let mut rows = 0;
+        db.stream_ids("SELECT CAST(i AS VARCHAR) FROM range(1000000) t(i) ORDER BY sha256(CAST(i AS VARCHAR))", &mut |batch| {rows+=batch.len();Ok(())}).unwrap();
+        let metrics: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(profile).unwrap()).unwrap();
+        let spilled = metrics["system_peak_temp_dir_size"].as_u64().unwrap_or(0) > 0;
+        assert_eq!(rows, 1000000);
+        assert!(
+            spilled,
+            "the test must exercise actual external work, not only configuration"
+        );
+        drop(db);
+        assert!(!scratch.exists());
+    }
+    #[test]
+    fn metadata_and_bulk_sessions_have_independent_limits_and_clean_scratch() {
+        let dll = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/duckdb/duckdb.dll");
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("independent.duckdb");
+        drop(Session::fixture(&dll, &path).unwrap());
+        let root = tmp.path().join("scratch");
+        let runtime = Runtime::new(dll)
+            .with_query_directory(root.clone())
+            .with_query_memory(2 << 30);
+        let metadata = runtime.open(&path).unwrap();
+        let bulk = runtime
+            .open_query(&path, Arc::new(AtomicBool::new(false)))
+            .unwrap();
+        let memory = |db: &Session| {
+            db.query("SELECT current_setting('memory_limit'),current_setting('threads'),current_setting('temp_directory')").unwrap()
+        };
+        let one = memory(&metadata);
+        let two = memory(&bulk);
+        assert_eq!(one[0][1].as_deref(), Some("1"));
+        assert_eq!(two[0][1].as_deref(), Some("2"));
+        assert_ne!(one[0][0], two[0][0]);
+        assert_eq!(two[0][0].as_deref(), Some("2.0 GiB"));
+        assert_eq!(one[0][2].as_deref(), Some(""));
+        let scratch = PathBuf::from(two[0][2].as_ref().unwrap());
+        assert!(
+            scratch
+                .canonicalize()
+                .unwrap()
+                .starts_with(root.canonicalize().unwrap())
+        );
+        assert_eq!(
+            bulk.query("SELECT 42").unwrap()[0][0].as_deref(),
+            Some("42")
+        );
+        drop(bulk);
+        assert!(!scratch.exists());
+        assert_eq!(
+            metadata.query("SELECT 7").unwrap()[0][0].as_deref(),
+            Some("7")
+        );
+    }
     #[test]
     fn streaming_batches_cover_many_chunks_and_cancel_releases_native_handles() {
         let dll = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/duckdb/duckdb.dll");

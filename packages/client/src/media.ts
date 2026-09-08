@@ -273,6 +273,27 @@ export class ResourceClient {
       body: JSON.stringify({ quota_mib: quotaMib }),
     });
   }
+  configureQuery(memoryGib: number) {
+    return this.request<Schema["QueryResourceLimits"]>("/v1/resources/query", {
+      method: "PUT",
+      body: JSON.stringify({ memory_gib: memoryGib }),
+    });
+  }
+  configureQueryCache(quotaMib: number, maxAgeDays: number) {
+    return this.request<Schema["QueryCacheStatus"]>(
+      "/v1/resources/query-cache",
+      {
+        method: "PUT",
+        body: JSON.stringify({ quota_mib: quotaMib, max_age_days: maxAgeDays }),
+      },
+    );
+  }
+  clearQueryCache() {
+    return this.request<Schema["QueryCacheStatus"]>(
+      "/v1/resources/query-cache/clear",
+      { method: "POST" },
+    );
+  }
   async clear() {
     await this.clearMemory();
     return this.request<Schema["PreviewCacheStatus"]>(

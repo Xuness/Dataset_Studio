@@ -298,6 +298,79 @@ fn observation_predicate(record: &AssetRecord) -> String {
     }
 }
 impl MetadataAdapter for MetadataReader {
+    fn summaries(
+        &self,
+        source: &Source,
+        asset_ids: &[String],
+        cancelled: studio_application::ReadCancellation,
+    ) -> Result<Vec<AssetSummary>> {
+        if source.kind != "danbooru" {
+            return Err(Error::new("METADATA_UNSUPPORTED", "该来源没有帖子身份摘要"));
+        }
+        if asset_ids.is_empty() || asset_ids.len() > 128 {
+            return Err(Error::invalid("身份摘要需要 1–128 个对象"));
+        }
+        for id in asset_ids {
+            sha(id)?;
+        }
+        let catalog = Catalog::open(source).map_err(source_error)?;
+        let db = self
+            .runtime
+            .open_metadata(&catalog.analysis_path()?, cancelled)?;
+        db.query("BEGIN TRANSACTION")?;
+        let watermarks = db.query("SELECT CAST(MAX(seq) AS VARCHAR) FROM applied")?;
+        let sequence = watermarks
+            .first()
+            .and_then(|r| r[0].as_deref())
+            .ok_or_else(|| Error::new("SOURCE_FORMAT_ERROR", "分析索引缺少水位"))?;
+        if sequence != catalog.sequence.to_string() {
+            return Err(Error::new(
+                "SOURCE_CHANGED",
+                "存储与分析索引版本不同，请稍后读取身份",
+            ));
+        }
+        let version = format!(
+            "metadata-v1:{}:{}:{sequence}",
+            source.id, catalog.generation
+        );
+        let ids = asset_ids
+            .iter()
+            .map(|id| quote(id))
+            .collect::<Vec<_>>()
+            .join(",");
+        // Filter identities before aggregation; output is at most eight posts per
+        // requested image. The count remains exact when more links are present.
+        let sql = format!(
+            "WITH linked AS (SELECT sha256,post_id FROM assets WHERE sha256 IN ({ids}) AND post_id IS NOT NULL GROUP BY sha256,post_id), ranked AS (SELECT sha256,post_id,row_number() OVER (PARTITION BY sha256 ORDER BY post_id) AS ordinal,count(*) OVER (PARTITION BY sha256) AS linked_count FROM linked) SELECT sha256,CAST(post_id AS VARCHAR),CAST(linked_count AS VARCHAR) FROM ranked WHERE ordinal<=8 ORDER BY sha256,post_id LIMIT 1024"
+        );
+        let rows = db.query_bounded(&sql, 1024)?;
+        let mut summaries = asset_ids
+            .iter()
+            .map(|id| {
+                (
+                    id.clone(),
+                    AssetSummary {
+                        asset_id: id.clone(),
+                        post_ids: Vec::new(),
+                        post_count: 0,
+                        version: version.clone(),
+                    },
+                )
+            })
+            .collect::<std::collections::BTreeMap<_, _>>();
+        for row in rows {
+            let id = required(&row, 0)?;
+            let summary = summaries
+                .get_mut(&id)
+                .ok_or_else(|| Error::new("SOURCE_FORMAT_ERROR", "身份摘要超出请求范围"))?;
+            summary.post_ids.push(required(&row, 1)?);
+            summary.post_count = required(&row, 2)?
+                .parse()
+                .map_err(|_| Error::new("SOURCE_FORMAT_ERROR", "帖子关联数量无效"))?;
+        }
+        catalog.verify_unchanged(source)?;
+        Ok(summaries.into_values().collect())
+    }
     fn metadata(
         &self,
         source: &Source,

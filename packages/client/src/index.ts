@@ -272,6 +272,7 @@ export class StudioClient {
       sourceId?: string;
       collectionId?: string;
       selection?: boolean;
+      order?: Schema["QueryOrder"];
       cursor?: string;
       limit?: number;
       signal?: AbortSignal;
@@ -283,6 +284,7 @@ export class StudioClient {
     if (options.collectionId) query.set("collection_id", options.collectionId);
     if (options.selection) query.set("selection", "true");
     if (options.cursor) query.set("cursor", options.cursor);
+    if (options.order) query.set("order", options.order);
     return this.request<Schema["AssetPage"]>(
       "/v1/projects/" + id + "/assets?" + query,
       {

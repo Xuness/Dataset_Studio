@@ -1,4 +1,4 @@
-//! Manifest v1 supports database v1 through v4. Only project.sqlite is migrated;
+//! Manifest v1 supports database v1 through v6. Only project.sqlite is migrated;
 //! artifacts and the manifest are immutable during this upgrade.
 use crate::{atomic_json, db_error, now};
 use rusqlite::{
@@ -12,12 +12,14 @@ use std::{
 };
 use studio_domain::{Error, Result, new_id};
 
-const VERSION: u32 = 4;
+const VERSION: u32 = 6;
 const V2: &str = "CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL, backup_directory TEXT);";
 const STEPS: &[(u32, &str)] = &[
     (2, V2),
     (3, include_str!("schema_v3.sql")),
     (4, include_str!("schema_v4.sql")),
+    (5, include_str!("schema_v5.sql")),
+    (6, include_str!("schema_v6.sql")),
 ];
 
 fn version(db: &Connection) -> Result<u32> {
@@ -39,13 +41,17 @@ pub(super) fn check_supported(path: &Path) -> Result<()> {
     supported(version(&db)?)
 }
 pub(super) fn initialize(db: &mut Connection) -> Result<()> {
+    db.execute_batch("PRAGMA auto_vacuum=INCREMENTAL;")
+        .map_err(db_error)?;
     let tx = db.transaction().map_err(db_error)?;
     tx.execute_batch(include_str!("schema.sql"))
         .map_err(db_error)?;
     apply_steps(&tx, 1, STEPS, None)?;
     tx.pragma_update(None, "user_version", VERSION)
         .map_err(db_error)?;
-    tx.commit().map_err(db_error)
+    tx.commit().map_err(db_error)?;
+    db.execute_batch("PRAGMA auto_vacuum=INCREMENTAL; VACUUM;")
+        .map_err(db_error)
 }
 pub(super) fn upgrade(db: &mut Connection, directory: &Path) -> Result<()> {
     upgrade_with(db, directory, STEPS)
@@ -158,7 +164,14 @@ fn upgrade_with(db: &mut Connection, directory: &Path, steps: &[(u32, &str)]) ->
                 backup_dir.display()
             ),
         )
-    })
+    })?;
+    // Repack once while this project is exclusively owned and its pre-upgrade
+    // backup is already durable. Subsequent cache eviction can return free pages
+    // in small batches instead of preserving a file high-water mark forever.
+    if let Err(error) = db.execute_batch("PRAGMA auto_vacuum=INCREMENTAL; VACUUM;") {
+        tracing::warn!(%error,"project free-page reclamation setup deferred");
+    }
+    Ok(())
 }
 
 #[cfg(test)]

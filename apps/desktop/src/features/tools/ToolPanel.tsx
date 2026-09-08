@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Play, Calculator, RotateCw } from "lucide-react";
-import { Button, Field, useDraft, DraftStatus } from "@studio/ui";
+import { Button, Field, useDraft, DraftStatus, ErrorDetails } from "@studio/ui";
 import type { ModuleContext } from "@studio/ui";
 import type {
   Artifact,
@@ -289,9 +289,9 @@ export default function ToolPanel(context: ModuleContext) {
         <Calculator size={16} />
         <strong>计算工具</strong>
         <span className="grow" />
-        <span className="subtle">项目范围与参数分别保存</span>
+        <span className="subtle">选择输入并设置计算参数</span>
       </div>
-      <DraftStatus controller={draft.controller} />
+      <DraftStatus controller={draft.controller} quiet />
       <form onSubmit={(event) => void submit(event)}>
         <fieldset disabled={!draft.editable || pending}>
           <Field label="工具">
@@ -333,10 +333,13 @@ export default function ToolPanel(context: ModuleContext) {
             }}
           />
           {value.scope?.target.kind === "selection" && (
-            <p className="tool-hint">
-              已绑定选择修订 {value.scope.target.revision}
-              。选择变化后需要重新绑定。
-            </p>
+            <details className="tool-input-details">
+              <summary>输入范围说明</summary>
+              <p className="tool-hint">
+                已使用选择版本 {value.scope.target.revision}
+                。选择变化后，可重新使用当前范围。
+              </p>
+            </details>
           )}
           {stale && (
             <div className="tool-notice" role="alert">
@@ -451,7 +454,7 @@ export default function ToolPanel(context: ModuleContext) {
             缺失、失败和未计算状态保留；字段值与观察依据随任务固定。
           </p>
           {scopeCheck.error && (
-            <p className="tool-notice">{scopeCheck.error.message}</p>
+            <ErrorDetails compact error={scopeCheck.error} />
           )}
           <Button
             type="submit"
@@ -470,9 +473,7 @@ export default function ToolPanel(context: ModuleContext) {
         </fieldset>
       </form>
       {(error || operators.error || artifacts.error) && (
-        <p className="tool-notice" role="alert">
-          {error || operators.error?.message || artifacts.error?.message}
-        </p>
+        <ErrorDetails error={error || operators.error || artifacts.error} />
       )}
       {value.lastJob && (
         <p className="tool-hint">

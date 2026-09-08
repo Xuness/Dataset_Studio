@@ -18,6 +18,14 @@ fn v2_upgrade_keeps_earlier_migration_ledger_and_every_relationship() {
 fn v3_upgrade_preserves_query_members_scopes_and_legacy_artifact_paths() {
     upgrade_preserves_every_relationship(3);
 }
+#[test]
+fn v4_upgrade_preserves_tools_and_drafts_before_query_v2_use() {
+    upgrade_preserves_every_relationship(4);
+}
+#[test]
+fn v5_upgrade_preserves_original_query_columns_and_members() {
+    upgrade_preserves_every_relationship(5);
+}
 fn upgrade_preserves_every_relationship(from: u32) {
     let root = tempfile::tempdir().unwrap();
     let dir = root.path().join("中文旧项目");
@@ -103,6 +111,14 @@ fn upgrade_preserves_every_relationship(from: u32) {
         )
         .unwrap();
     }
+    if from >= 4 {
+        db.execute_batch(include_str!("../src/schema_v4.sql"))
+            .unwrap();
+        db.execute_batch("INSERT INTO schema_migrations VALUES (4,'earlier-tools-migration','tools-backup'); INSERT INTO tool_drafts VALUES ('core.query','default',1,17,'kept-time','{\"name\":\"kept draft\"}'); PRAGMA user_version=4;").unwrap();
+    }
+    if from >= 5 {
+        db.execute_batch("INSERT INTO schema_migrations VALUES(5,'query-v2-migration','v5-backup'); PRAGMA user_version=5;").unwrap();
+    }
     // Last committed page remains in WAL while the upgrade takes its consistent backup.
     db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; INSERT INTO events VALUES (43,'fixture.wal','kept');").unwrap();
     let store = SqliteStore::new(root.path().join("runtime")).unwrap();
@@ -160,7 +176,7 @@ fn upgrade_preserves_every_relationship(from: u32) {
         after
             .query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0))
             .unwrap(),
-        4
+        6
     );
     // Exact rows, including drafts, idempotency keys, event sequences and artifact references.
     if from >= 2 {
@@ -198,8 +214,22 @@ fn upgrade_preserves_every_relationship(from: u32) {
             "collection_scopes",
         ]);
     }
+    if from >= 4 {
+        tables.extend([
+            "tool_drafts",
+            "job_runs",
+            "artifacts",
+            "artifact_rows",
+            "artifact_references",
+        ]);
+    }
     for table in tables {
-        let sql = format!("SELECT * FROM {table} ORDER BY 1");
+        let columns = if table == "query_results" {
+            "id,definition_id,definition_revision,spec_json,versions_json,status,processed,count,created_at,error"
+        } else {
+            "*"
+        };
+        let sql = format!("SELECT {columns} FROM {table} ORDER BY 1");
         fn rows(db: &Connection, sql: &str) -> Vec<Vec<rusqlite::types::Value>> {
             let mut stmt = db.prepare(sql).unwrap();
             let n = stmt.column_count();

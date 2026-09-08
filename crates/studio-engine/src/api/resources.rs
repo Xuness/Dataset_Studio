@@ -21,11 +21,15 @@ fn cache_status(m: studio_resources::CacheMetrics) -> PreviewCacheStatus {
 #[utoipa::path(get,path="/v1/resources",responses((status=200,body=ReadServiceStatus)))]
 pub(super) async fn status(State(s): State<AppState>) -> ApiResult<ReadServiceStatus> {
     let m = s.previews.metrics();
+    let state = s.clone();
+    let query_cache = blocking(move || query_cache_status(&state)).await?;
     Ok(Json(ReadServiceStatus {
         protocol_version: 1,
         resources: s.resources.metrics().into_iter().map(Into::into).collect(),
         cache: cache_status(s.previews.cache.metrics()),
         process_memory: process_memory(),
+        query_limits: query_limits(&s)?,
+        query_cache,
         previews: PreviewActivity {
             shared: m.shared,
             queued: m.queued,
@@ -46,6 +50,87 @@ pub(super) async fn status(State(s): State<AppState>) -> ApiResult<ReadServiceSt
             max_cancel_latency_ms: m.max_cancel_latency_ms,
         },
     }))
+}
+pub(super) fn query_cache_status(s: &AppState) -> domain::Result<QueryCacheStatus> {
+    use std::sync::atomic::Ordering;
+    let config = s.queries.cache.config()?;
+    for pid in s.store.owned_projects()? {
+        s.queries.cache.track(&s.store, &pid)?;
+    }
+    let records = s.queries.cache.projects()?;
+    let (index_bytes, index_count) = s.queries.browse_index.storage()?;
+    Ok(QueryCacheStatus {
+        quota_bytes: (u64::from(config.quota_mib) << 20).to_string(),
+        max_age_days: config.max_age_days,
+        retained_queries: records.iter().map(|p| p.retained).sum(),
+        member_versions: records.iter().map(|p| p.members).sum(),
+        result_storage_bytes: records.iter().map(|p| p.bytes).sum::<u64>().to_string(),
+        database_free_bytes: records
+            .iter()
+            .map(|p| p.free_bytes)
+            .sum::<u64>()
+            .to_string(),
+        protected_results: records.iter().map(|p| p.protected).sum(),
+        active_views: records
+            .iter()
+            .map(|p| s.queries.cache.live(&p.id).len() as u64)
+            .sum(),
+        reused_results: records.iter().map(|p| p.reused).sum(),
+        incremental_results: records.iter().map(|p| p.incremental).sum(),
+        source_index_bytes: index_bytes.to_string(),
+        source_indexes: index_count,
+        cleanup_pending: s.queries.cache.busy.load(Ordering::Acquire)
+            || s.queries.cache.requested.load(Ordering::Acquire),
+        reclaimed_queries: s.queries.cache.reclaimed.load(Ordering::Relaxed),
+    })
+}
+#[utoipa::path(put,path="/v1/resources/query-cache",request_body=SetQueryCache,responses((status=200,body=QueryCacheStatus)))]
+pub(super) async fn configure_query_cache(
+    State(s): State<AppState>,
+    Body(body): Body<SetQueryCache>,
+) -> ApiResult<QueryCacheStatus> {
+    Ok(Json(
+        blocking(move || {
+            s.queries.cache.configure(crate::query_cache::CacheConfig {
+                quota_mib: body.quota_mib,
+                max_age_days: body.max_age_days,
+            })?;
+            query_cache_status(&s)
+        })
+        .await?,
+    ))
+}
+#[utoipa::path(post,path="/v1/resources/query-cache/clear",responses((status=200,body=QueryCacheStatus)))]
+pub(super) async fn clear_query_cache(State(s): State<AppState>) -> ApiResult<QueryCacheStatus> {
+    s.queries.cache.clear();
+    Ok(Json(blocking(move || query_cache_status(&s)).await?))
+}
+fn query_limits(s: &AppState) -> domain::Result<QueryResourceLimits> {
+    let (configured, active) = s.queries.budget.status()?;
+    Ok(QueryResourceLimits {
+        metadata_memory_bytes: domain::METADATA_MEMORY_BYTES.to_string(),
+        query_memory_bytes: configured.to_string(),
+        native_query_memory_bytes: (configured
+            - crate::query_budget::result_work_memory(configured))
+        .to_string(),
+        result_work_memory_bytes: crate::query_budget::result_work_memory(configured).to_string(),
+        active_query_memory_bytes: active.map(|n| n.to_string()),
+        temporary_disk_bytes: domain::QUERY_TEMP_BYTES.to_string(),
+        result_staging_disk_bytes: domain::QUERY_STAGE_BYTES.to_string(),
+    })
+}
+#[utoipa::path(put,path="/v1/resources/query",request_body=SetQueryMemory,responses((status=200,body=QueryResourceLimits)))]
+pub(super) async fn configure_query(
+    State(s): State<AppState>,
+    Body(body): Body<SetQueryMemory>,
+) -> ApiResult<QueryResourceLimits> {
+    Ok(Json(
+        blocking(move || {
+            s.queries.budget.configure(body.memory_gib)?;
+            query_limits(&s)
+        })
+        .await?,
+    ))
 }
 #[cfg(windows)]
 fn process_memory() -> Option<ReadProcessMemory> {

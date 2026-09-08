@@ -17,6 +17,8 @@ export function AssetImage({
   className?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const assetRef = useRef(asset);
+  assetRef.current = asset;
   const [url, setUrl] = useState<string>();
   const [error, setError] = useState<string | null>(null);
   const [offline, setOffline] = useState(false);
@@ -34,7 +36,9 @@ export function AssetImage({
       if (started) return;
       started = true;
       void client
-        .acquireMedia(projectId, asset, edge, { signal: abort.signal })
+        .acquireMedia(projectId, assetRef.current, edge, {
+          signal: abort.signal,
+        })
         .then((value) => {
           if (live) {
             release = value.release;
@@ -64,7 +68,7 @@ export function AssetImage({
       observer.disconnect();
       release?.();
     };
-  }, [client, projectId, asset.key.source_id, asset.key.asset_id, edge, asset]);
+  }, [client, projectId, asset.key.source_id, asset.key.asset_id, edge]);
   return (
     <div
       ref={ref}

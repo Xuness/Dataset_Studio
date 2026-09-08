@@ -1,4 +1,4 @@
-use crate::{AssetKey, Error, Result, validate_id};
+use crate::{AssetKey, Error, Result, ScopeRef, ScopeTarget, validate_id};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -18,6 +18,10 @@ pub enum QueryOperator {
     Gte,
     Lte,
     HasTag,
+    In,
+    HasAllTags,
+    HasAnyTags,
+    HasNoTags,
     IsMissing,
     IsPresent,
 }
@@ -33,6 +37,7 @@ pub enum QueryValue {
     Text(String),
     Integer(String),
     Boolean(bool),
+    TextList(Vec<String>),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -57,6 +62,16 @@ pub enum ObservationRule {
 pub enum QueryOrder {
     AssetKeyAsc,
     AssetKeyDesc,
+    PostIdAsc,
+    PostIdDesc,
+}
+impl QueryOrder {
+    pub fn by_post(self) -> bool {
+        matches!(self, Self::PostIdAsc | Self::PostIdDesc)
+    }
+    pub fn descending(self) -> bool {
+        matches!(self, Self::AssetKeyDesc | Self::PostIdDesc)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -67,13 +82,21 @@ pub struct QuerySpec {
     pub conditions: Vec<QueryCondition>,
     pub observation_rule: ObservationRule,
     pub order: QueryOrder,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub input_scope: Option<ScopeRef>,
 }
 impl QuerySpec {
     pub fn normalize(mut self) -> Result<Self> {
-        if self.version != 1 {
+        if !matches!(self.version, 1..=3) {
             return Err(Error::new(
                 "QUERY_VERSION_UNSUPPORTED",
                 "查询协议版本不兼容",
+            ));
+        }
+        if self.order.by_post() && self.version < 3 {
+            return Err(Error::new(
+                "QUERY_VERSION_UNSUPPORTED",
+                "帖子 ID 排序需要查询版本 3",
             ));
         }
         if self.source_ids.is_empty() || self.source_ids.len() > 8 || self.conditions.len() > 12 {
@@ -81,6 +104,39 @@ impl QuerySpec {
         }
         for id in &self.source_ids {
             validate_id(id)?;
+        }
+        let extended = self.input_scope.is_some()
+            || self.conditions.iter().any(|c| {
+                matches!(
+                    c.operator,
+                    QueryOperator::In
+                        | QueryOperator::HasAllTags
+                        | QueryOperator::HasAnyTags
+                        | QueryOperator::HasNoTags
+                ) || matches!(c.value, Some(QueryValue::TextList(_)))
+            });
+        if extended && self.version < 2 {
+            return Err(Error::new(
+                "QUERY_VERSION_UNSUPPORTED",
+                "集合与范围筛选需要查询版本 2",
+            ));
+        }
+        if let Some(scope) = &self.input_scope {
+            scope.validate_project(&scope.project_id)?;
+            if let ScopeTarget::Source { source_id, .. } = &scope.target
+                && self.source_ids != [source_id.clone()]
+            {
+                return Err(Error::invalid("查询来源与输入数据湖不一致"));
+            }
+        }
+        for condition in &mut self.conditions {
+            if let Some(QueryValue::TextList(values)) = &mut condition.value {
+                if values.is_empty() || values.len() > 64 {
+                    return Err(Error::invalid("集合条件需要 1–64 个值"));
+                }
+                values.sort();
+                values.dedup();
+            }
         }
         self.source_ids.sort();
         self.source_ids.dedup();
@@ -157,8 +213,37 @@ impl FieldDirectory {
                 continue;
             }
             let valid = match (&field.field_type, &condition.value) {
+                (FieldType::Text, Some(QueryValue::TextList(values))) => {
+                    condition.operator == QueryOperator::In
+                        && !values.is_empty()
+                        && values.len() <= 64
+                        && values
+                            .iter()
+                            .all(|value| value.len() <= 256 && !value.chars().any(char::is_control))
+                }
+                (FieldType::Tags, Some(QueryValue::TextList(values))) => {
+                    matches!(
+                        condition.operator,
+                        QueryOperator::HasAllTags
+                            | QueryOperator::HasAnyTags
+                            | QueryOperator::HasNoTags
+                    ) && !values.is_empty()
+                        && values.len() <= 64
+                        && values.iter().all(|value| {
+                            !value.is_empty()
+                                && value.len() <= 256
+                                && !value.chars().any(char::is_whitespace)
+                                && !value.chars().any(char::is_control)
+                        })
+                }
                 (FieldType::Text | FieldType::Tags, Some(QueryValue::Text(value))) => {
-                    value.len() <= 256
+                    !matches!(
+                        condition.operator,
+                        QueryOperator::In
+                            | QueryOperator::HasAllTags
+                            | QueryOperator::HasAnyTags
+                            | QueryOperator::HasNoTags
+                    ) && value.len() <= 256
                         && !value.chars().any(char::is_control)
                         && (condition.operator != QueryOperator::HasTag
                             || (!value.is_empty() && !value.chars().any(char::is_whitespace)))
@@ -225,6 +310,15 @@ pub struct QueryResult {
     pub count: Option<u64>,
     pub created_at: String,
     pub error: Option<String>,
+    #[serde(default)]
+    pub cache: QueryCacheInfo,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct QueryCacheInfo {
+    pub mode: String,
+    pub evaluated_objects: u64,
+    pub changed_members: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -47,7 +47,7 @@ registry.register({
     {
       kind: "command",
       id: "query.open",
-      execute: (context) => context.togglePanel("core.query"),
+      execute: (context) => context.openPanel("core.query"),
     },
   ],
 });

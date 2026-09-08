@@ -3,6 +3,32 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 #[derive(Serialize, ToSchema)]
+pub struct AssetSummary {
+    /// available, unlinked, unavailable, or unsupported; unavailable is not unlinked.
+    pub status: String,
+    pub post_ids: Vec<String>,
+    pub post_count: Option<String>,
+    pub version: Option<String>,
+    pub issue: Option<String>,
+}
+impl From<domain::AssetSummary> for AssetSummary {
+    fn from(value: domain::AssetSummary) -> Self {
+        Self {
+            status: if value.post_count == 0 {
+                "unlinked"
+            } else {
+                "available"
+            }
+            .into(),
+            post_ids: value.post_ids,
+            post_count: Some(value.post_count.to_string()),
+            version: Some(value.version),
+            issue: None,
+        }
+    }
+}
+
+#[derive(Serialize, ToSchema)]
 pub struct ReadVersion {
     pub token: String,
     pub library_id: String,

@@ -19,6 +19,7 @@ fn spec(sid: &str, order: QueryOrder) -> QuerySpec {
         conditions: vec![],
         observation_rule: ObservationRule::AnyObservation,
         order,
+        input_scope: None,
     }
 }
 fn versions(sid: &str) -> Vec<QuerySourceVersion> {
@@ -81,6 +82,81 @@ fn result_scope(pid: &str, rid: &str) -> ScopeRef {
             result_id: rid.into(),
         },
     }
+}
+
+#[test]
+fn scoped_queries_pin_inputs_and_fence_changed_selections_before_publication() {
+    let root = tempfile::tempdir().unwrap();
+    let store = SqliteStore::new(root.path().join("runtime")).unwrap();
+    let project = store.create("范围筛选", None).unwrap();
+    let sid = new_id();
+    store.attach(&project.id, source(&sid)).unwrap();
+    let base = build(&store, &project.id, &sid, 0, 12, QueryOrder::AssetKeyAsc);
+    let selected = store
+        .change_selection_scope(
+            &project.id,
+            0,
+            &result_scope(&project.id, &base.id),
+            ScopeOperation::Replace,
+        )
+        .unwrap();
+    let mut scoped = spec(&sid, QueryOrder::AssetKeyAsc);
+    scoped.version = 2;
+    scoped.input_scope = Some(ScopeRef {
+        project_id: project.id.clone(),
+        target: ScopeTarget::Selection {
+            revision: selected.revision,
+        },
+    });
+    let result = store
+        .create_result(&project.id, None, scoped.clone(), versions(&sid))
+        .unwrap();
+    store.start_result(&project.id, &result.id).unwrap();
+    assert_eq!(
+        store
+            .query_input_keys(&project.id, &scoped, &sid, None)
+            .unwrap(),
+        keys(&sid, 0, 12)
+    );
+    assert_eq!(
+        store
+            .filter_query_input(&project.id, &scoped, &keys(&sid, 10, 5))
+            .unwrap(),
+        keys(&sid, 10, 2)
+    );
+    store
+        .append_result(&project.id, &result.id, &keys(&sid, 0, 1), 1)
+        .unwrap();
+    store
+        .change_selection(&project.id, selected.revision, &[], &[], true)
+        .unwrap();
+    assert_eq!(
+        store
+            .release_result(&project.id, &base.id)
+            .unwrap_err()
+            .code,
+        "RESULT_IN_USE"
+    );
+    let failed = store.finish_result(&project.id, &result.id, None).unwrap();
+    assert_eq!(failed.state, ResultState::Failed);
+    assert!(failed.error.unwrap().contains("REVISION_CONFLICT"));
+    assert!(failed.count.is_none());
+    assert_eq!(
+        store.release_result(&project.id, &base.id).unwrap().state,
+        ResultState::Released
+    );
+    let other = store.create("其他项目", None).unwrap();
+    scoped.input_scope = Some(ScopeRef {
+        project_id: other.id,
+        target: ScopeTarget::Selection { revision: 0 },
+    });
+    assert_eq!(
+        store
+            .create_result(&project.id, None, scoped, versions(&sid))
+            .unwrap_err()
+            .code,
+        "SCOPE_PROJECT_MISMATCH"
+    );
 }
 #[test]
 fn backend_all_selection_is_sparse_and_fixed_inputs_survive_set_changes_and_restart() {

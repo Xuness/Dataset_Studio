@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Database, RotateCw } from "lucide-react";
-import { Button } from "@studio/ui";
+import { Button, ErrorDetails } from "@studio/ui";
 import type { ModuleContext } from "@studio/ui";
 import "./resources.css";
 const mib = (value: string) => (Number(value) / 1048576).toFixed(2) + " MiB";
+const gib = (value: string) => (Number(value) / 1073741824).toFixed(0) + " GiB";
 const labels: Record<string, string> = {
   index: "索引与项目数据",
   media: "源图片读取",
@@ -18,6 +19,9 @@ export default function ResourcePanel({ client }: ModuleContext) {
     refetchInterval: 2000,
   });
   const [quota, setQuota] = useState<string | null>(null);
+  const [queryMemory, setQueryMemory] = useState<string | null>(null);
+  const [queryQuota, setQueryQuota] = useState<string | null>(null);
+  const [queryAge, setQueryAge] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
@@ -30,7 +34,7 @@ export default function ResourcePanel({ client }: ModuleContext) {
       await run();
       await status.refetch();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "缓存操作失败");
+      setError(e instanceof Error ? e.message : "资源设置操作失败");
     } finally {
       setBusy(false);
     }
@@ -48,11 +52,173 @@ export default function ResourcePanel({ client }: ModuleContext) {
       </div>
       <main>
         {(error || status.error) && (
-          <p role="alert">{error || status.error?.message}</p>
+          <ErrorDetails error={error || status.error} />
         )}
         {notice && <p role="status">{notice}</p>}
         {data && (
           <>
+            <section className="query-resource-summary">
+              <h2>查询资源</h2>
+              <p>
+                单图元数据：{mib(data.query_limits.metadata_memory_bytes)}
+                ；范围查询：{gib(data.query_limits.query_memory_bytes)}。
+                其中原生查询 {mib(data.query_limits.native_query_memory_bytes)}
+                ，结果暂存 {mib(data.query_limits.result_work_memory_bytes)}。
+              </p>
+              <p>
+                原生查询临时空间上限为{" "}
+                {gib(data.query_limits.temporary_disk_bytes)} ，成员暂存另有{" "}
+                {gib(data.query_limits.result_staging_disk_bytes)}{" "}
+                上限，结束后自动清理。共享索引与保留结果单独计量。
+              </p>
+              <div className="resource-controls">
+                <label>
+                  查询内存上限（GiB）
+                  <input
+                    aria-label="查询内存上限 GiB"
+                    type="number"
+                    min={1}
+                    max={64}
+                    step={1}
+                    value={
+                      queryMemory ??
+                      String(
+                        Number(data.query_limits.query_memory_bytes) /
+                          1073741824,
+                      )
+                    }
+                    onChange={(e) => setQueryMemory(e.target.value)}
+                  />
+                </label>
+                <Button
+                  disabled={
+                    busy ||
+                    queryMemory === null ||
+                    !/^\d+$/.test(queryMemory) ||
+                    Number(queryMemory) < 1 ||
+                    Number(queryMemory) > 64
+                  }
+                  onClick={() =>
+                    void action(async () => {
+                      await client.resources.configureQuery(
+                        Number(queryMemory),
+                      );
+                      setQueryMemory(null);
+                      setNotice(
+                        "查询预算已保存，将用于下一次查询；正在运行的查询保持原预算。",
+                      );
+                    })
+                  }
+                >
+                  保存查询预算
+                </Button>
+              </div>
+              <p className="subtle">
+                上限按需使用，不会预先占满内存。它约束查询工作内存，整个引擎还需要元数据、图像解码和结果存储等内存。默认
+                12 GiB，可设为 1 至 64 GiB。
+              </p>
+              {data.query_limits.active_query_memory_bytes && (
+                <p>
+                  当前查询使用{" "}
+                  {gib(data.query_limits.active_query_memory_bytes)} 上限。
+                </p>
+              )}
+            </section>
+            <h2>查询结果复用</h2>
+            <p>
+              保留 {data.query_cache.retained_queries} 组结果 · 成员存储{" "}
+              {mib(data.query_cache.result_storage_bytes)} ·{" "}
+              {data.query_cache.active_views} 个浏览占用
+            </p>
+            <div className="resource-controls">
+              <label>
+                保留容量（MiB）
+                <input
+                  aria-label="查询缓存容量 MiB"
+                  type="number"
+                  min={0}
+                  max={65536}
+                  value={
+                    queryQuota ??
+                    String(Number(data.query_cache.quota_bytes) / 1048576)
+                  }
+                  onChange={(e) => setQueryQuota(e.target.value)}
+                />
+              </label>
+              <label>
+                最长未使用时间（天）
+                <input
+                  aria-label="查询缓存保留天数"
+                  type="number"
+                  min={1}
+                  max={90}
+                  value={queryAge ?? String(data.query_cache.max_age_days)}
+                  onChange={(e) => setQueryAge(e.target.value)}
+                />
+              </label>
+              <Button
+                disabled={
+                  busy ||
+                  (queryQuota === null && queryAge === null) ||
+                  (queryQuota !== null &&
+                    (!/^\d+$/.test(queryQuota) ||
+                      Number(queryQuota) > 65536)) ||
+                  (queryAge !== null &&
+                    (!/^\d+$/.test(queryAge) ||
+                      Number(queryAge) < 1 ||
+                      Number(queryAge) > 90))
+                }
+                onClick={() =>
+                  void action(async () => {
+                    await client.resources.configureQueryCache(
+                      queryQuota === null
+                        ? Number(data.query_cache.quota_bytes) / 1048576
+                        : Number(queryQuota),
+                      queryAge === null
+                        ? data.query_cache.max_age_days
+                        : Number(queryAge),
+                    );
+                    setQueryQuota(null);
+                    setQueryAge(null);
+                    setNotice("查询缓存设置已保存，后台分批回收未使用的结果。");
+                  })
+                }
+              >
+                保存复用设置
+              </Button>
+              <Button
+                disabled={busy || data.query_cache.cleanup_pending}
+                onClick={() =>
+                  void action(async () => {
+                    await client.resources.clearQueryCache();
+                    setNotice(
+                      "已开始清理未使用的查询结果，正在浏览和已被引用的成员会保留。",
+                    );
+                  })
+                }
+              >
+                清理未使用结果
+              </Button>
+            </div>
+            <p className="subtle">
+              相同条件复用成员；来源更新后按需检查变化。保留容量设为 0
+              可关闭后续复用。选择、工作集和任务引用的{" "}
+              {data.query_cache.protected_results}{" "}
+              个结果受保护，连同浏览占用可使成员存储暂时超过保留容量。
+            </p>
+            <p className="subtle">
+              共享排序索引 {data.query_cache.source_indexes} 个 ·{" "}
+              {mib(data.query_cache.source_index_bytes)}
+              ，每个来源维护一份并独立计量。项目数据库有{" "}
+              {mib(data.query_cache.database_free_bytes)}{" "}
+              空闲页可供下次写入，并会分批归还磁盘。
+            </p>
+            <p className="subtle">
+              已复用 {data.query_cache.reused_results} 次 · 增量刷新{" "}
+              {data.query_cache.incremental_results} 次 · 本次运行回收{" "}
+              {data.query_cache.reclaimed_queries} 组{" "}
+              {data.query_cache.cleanup_pending ? "· 正在清理…" : ""}
+            </p>
             <h2>缩略图磁盘缓存</h2>
             {data.cache.index_rebuilt && (
               <p role="status">

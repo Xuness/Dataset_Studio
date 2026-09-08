@@ -7,6 +7,7 @@ import type {
   ScopeRef,
   ScopeOperation,
   QueryResult,
+  QuerySpec,
   Job,
 } from "@studio/contracts";
 
@@ -21,6 +22,13 @@ export type BrowserPosition = {
   pageSize: number;
   anchor: AssetKey | null;
   version: string | null;
+  history?: BrowserHistory;
+  scrollTop?: number;
+};
+export type BrowserHistory = {
+  cursors: (string | null)[];
+  index: number;
+  firstPage: number;
 };
 export type ModuleScopeOption = {
   value: string;
@@ -29,9 +37,14 @@ export type ModuleScopeOption = {
   count: number | null;
 };
 export type BrowseViewProps = {
+  order: QuerySpec["order"];
+  onOrder: (order: QuerySpec["order"]) => void;
   scope: BrowseScope;
   focus: Asset | null;
+  focusPending: boolean;
   onFocus: (asset: Asset) => void;
+  onInspect: (asset: Asset) => void;
+  onScope: (scope: BrowseScope) => void;
   onPick: (keys: AssetKey[], remove?: boolean) => void;
   onScopeOperation: (operation: ScopeOperation) => void;
   selectionRevision: number;
@@ -54,8 +67,12 @@ export type ModuleContext = {
   onSelect: (result: QueryResult, operation: ScopeOperation) => void;
   onJob: (job: Job) => void;
   activateView: (id: string, args?: Record<string, string>) => void;
+  openPanel: (id: string) => void;
   togglePanel: (id: string) => void;
   closePanel: (id: string) => void;
+  panels: string[];
+  panelHeight: (id: string) => number;
+  resizePanel: (id: string, height: number) => void;
   invocation: { sequence: number; args: Record<string, string> } | null;
 };
 export type ModuleContribution =

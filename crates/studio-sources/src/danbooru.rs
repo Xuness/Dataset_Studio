@@ -119,7 +119,7 @@ impl Catalog {
         .map_err(err)?;
         db.busy_timeout(std::time::Duration::from_millis(400))
             .map_err(err)?;
-        db.execute_batch("PRAGMA query_only=ON; BEGIN;")
+        db.execute_batch("PRAGMA query_only=ON; PRAGMA mmap_size=2147483648; BEGIN;")
             .map_err(err)?;
         let seq: u64 = db
             .query_row("SELECT value FROM state WHERE key='seq'", [], |r| {
@@ -180,27 +180,45 @@ impl Catalog {
         limit: usize,
         revision: Option<&str>,
     ) -> Result<AssetPage> {
+        self.page_ordered(source, after, limit, revision, false)
+    }
+    pub fn page_ordered(
+        &self,
+        source: &Source,
+        after: Option<&str>,
+        limit: usize,
+        revision: Option<&str>,
+        descending: bool,
+    ) -> Result<AssetPage> {
         if revision.is_some_and(|r| r != self.revision) {
             return Err(Error::new(
                 "SOURCE_CHANGED",
                 "索引版本已变化，请刷新结果范围",
             ));
         }
-        let mut stmt=self.db.prepare("SELECT sha256,length,stored_ext FROM objects WHERE sha256>?1 ORDER BY sha256 LIMIT ?2").map_err(err)?;
+        let op = if descending { "<" } else { ">" };
+        let direction = if descending { "DESC" } else { "ASC" };
+        let mut stmt=self.db.prepare(&format!("SELECT sha256,length,stored_ext FROM objects WHERE sha256{op}?1 ORDER BY sha256 {direction} LIMIT ?2")).map_err(err)?;
         let mut items = stmt
-            .query_map(params![after.unwrap_or(""), (limit + 1) as i64], |r| {
-                let id: String = r.get(0)?;
-                Ok(Asset {
-                    key: AssetKey {
-                        source_id: source.id.clone(),
-                        asset_id: id.clone(),
-                    },
-                    name: id,
-                    bytes: unsigned(r, 1)?,
-                    extension: r.get::<_, Option<String>>(2)?.unwrap_or_default(),
-                    source_name: source.name.clone(),
-                })
-            })
+            .query_map(
+                params![
+                    after.unwrap_or(if descending { "z" } else { "" }),
+                    (limit + 1) as i64
+                ],
+                |r| {
+                    let id: String = r.get(0)?;
+                    Ok(Asset {
+                        key: AssetKey {
+                            source_id: source.id.clone(),
+                            asset_id: id.clone(),
+                        },
+                        name: id,
+                        bytes: unsigned(r, 1)?,
+                        extension: r.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                        source_name: source.name.clone(),
+                    })
+                },
+            )
             .map_err(err)?
             .collect::<std::result::Result<Vec<_>, _>>()
             .map_err(err)?;

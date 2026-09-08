@@ -6,7 +6,9 @@
   background: var(--panel, #25292e);
 }
 .tool-view form {
-  max-width: 740px;
+  max-width: 1280px;
+  width: 100%;
+  margin: 0 auto;
   padding: 12px 22px 20px;
 }
 .tool-view fieldset {
@@ -69,4 +71,45 @@ form .tool-hint {
 }
 .field-list select {
   flex: 1;
+}
+
+.tool-view form {
+  padding: 22px 24px 28px;
+}
+.tool-view fieldset {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(260px, 1fr));
+  gap: 14px 22px;
+  align-items: start;
+}
+.tool-view .field {
+  margin-bottom: 0;
+}
+.tool-view fieldset > :not(.field) {
+  grid-column: 1/-1;
+}
+.tool-input-details {
+  font-size: 12px;
+  color: #aaa;
+}
+.tool-input-details summary {
+  cursor: pointer;
+}
+.tool-view fieldset > .button[type="submit"] {
+  justify-self: start;
+  min-width: 120px;
+}
+.tool-view .error-details {
+  max-width: 1280px;
+}
+.tool-view > .error-details {
+  margin: 12px auto;
+}
+@media (max-width: 1200px) {
+  .tool-view fieldset {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .tool-view form {
+    padding: 16px;
+  }
 }

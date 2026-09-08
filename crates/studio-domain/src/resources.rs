@@ -1,5 +1,11 @@
 use serde::{Deserialize, Serialize};
 
+/// Shared admission and native execution limits, in bytes.
+pub const METADATA_MEMORY_BYTES: u64 = 256 << 20;
+pub const QUERY_MEMORY_BYTES: u64 = 12 << 30;
+pub const QUERY_TEMP_BYTES: u64 = 8 << 30;
+pub const QUERY_STAGE_BYTES: u64 = 8 << 30;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ReadClass {

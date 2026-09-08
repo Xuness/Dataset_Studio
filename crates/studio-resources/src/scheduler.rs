@@ -52,12 +52,29 @@ impl Default for ReadCoordinator {
                 class: ReadClass::NativeQuery,
                 concurrency: 2,
                 queue_limit: 32,
-                bytes: 512 << 20,
+                bytes: QUERY_MEMORY_BYTES + METADATA_MEMORY_BYTES,
             },
         ])
     }
 }
 impl ReadCoordinator {
+    /// Called between range queries. In-flight metadata reservations remain valid
+    /// because the minimum range-query budget is larger than two metadata reads.
+    pub fn set_query_memory(&self, bytes: u64) -> Result<()> {
+        if !(1 << 30..=64 << 30).contains(&bytes) {
+            return Err(Error::invalid("范围查询内存须为 1 至 64 GiB"));
+        }
+        let mut state = self.inner.state.lock().map_err(|_| lock_error())?;
+        let class = state
+            .classes
+            .iter_mut()
+            .find(|c| c.metrics.budget.class == ReadClass::NativeQuery)
+            .ok_or_else(|| Error::invalid("未配置原生查询资源"))?;
+        class.metrics.budget.bytes = bytes + METADATA_MEMORY_BYTES;
+        self.inner.changed.notify_all();
+        Ok(())
+    }
+
     pub fn new(budgets: Vec<ReadBudget>) -> Self {
         assert!(
             budgets
