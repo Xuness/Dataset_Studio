@@ -1,4 +1,68 @@
 export interface paths {
+    "/v1/cache/rating-bases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_rating_bases"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/cache/rating-bases/{source_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["cancel_rating_basis_build"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/cache/rating-bases/{source_id}/{rating}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["set_rating_basis_retention"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/cache/rating-bases/{source_id}/{rating}/release": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["release_rating_basis"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/health": {
         parameters: {
             query?: never;
@@ -185,6 +249,38 @@ export interface paths {
         get: operations["assets"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/cache-entries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_cache_entries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/cache-session": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["keep_cache_session"];
         delete?: never;
         options?: never;
         head?: never;
@@ -447,6 +543,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{project_id}/query-results/{result_id}/cache-release": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["release_cache_entry"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects/{project_id}/query-results/{result_id}/cancel": {
         parameters: {
             query?: never;
@@ -505,6 +617,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["release"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/query-results/{result_id}/retention": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["set_result_retention"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -703,6 +831,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{project_id}/sources/{source_id}/rating-bases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["prebuild_rating_bases"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects/{project_id}/sources/{source_id}/relink": {
         parameters: {
             query?: never;
@@ -847,6 +991,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["read_settings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/settings/cache": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["configure_cache_settings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/settings/cache/clear": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["clear_cache_tier"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/shutdown": {
         parameters: {
             query?: never;
@@ -968,6 +1160,61 @@ export interface components {
             /** Format: int64 */
             expected_revision: number;
         };
+        CacheEntries: {
+            items: components["schemas"]["CacheEntry"][];
+            next_cursor?: string | null;
+        };
+        CacheEntry: {
+            estimated_bytes: string;
+            family_id: string;
+            fixed: boolean;
+            last_used_millis: string;
+            /** Format: int64 */
+            members: number;
+            project_id: string;
+            /** Format: int64 */
+            protected_results: number;
+            result_id: string;
+            session_only: boolean;
+            spec: components["schemas"]["QuerySpec"];
+            tier: string;
+        };
+        CacheSettings: {
+            /** Format: int32 */
+            long_term_idle_days?: number | null;
+            /** Format: int32 */
+            long_term_mib: number;
+            /** Format: int32 */
+            preview_mib: number;
+            /** Format: int32 */
+            temporary_idle_hours: number;
+            /** Format: int32 */
+            temporary_mib: number;
+            temporary_session_only: boolean;
+            /** Format: int32 */
+            total_mib: number;
+        };
+        CacheStorageOverview: {
+            /** Format: int64 */
+            active_views: number;
+            cleanup_pending: boolean;
+            fixed_member_bytes: string;
+            long_term_bytes: string;
+            /** Format: int64 */
+            long_term_results: number;
+            preview_bytes: string;
+            project_member_bytes: string;
+            /** Format: int64 */
+            protected_results: number;
+            rating_basis_bytes: string;
+            source_index_bytes: string;
+            temporary_bytes: string;
+            /** Format: int64 */
+            temporary_results: number;
+            total_bytes: string;
+            total_quota_bytes: string;
+            working_temporary_bytes: string;
+        };
         CaptureScope: {
             scope: components["schemas"]["ScopeRef"];
         };
@@ -983,6 +1230,9 @@ export interface components {
             expected_revision: number;
             operation: components["schemas"]["ScopeOperation"];
             scope: components["schemas"]["ScopeRef"];
+        };
+        ClearCacheTier: {
+            tier?: string | null;
         };
         Collection: {
             /** Format: int64 */
@@ -1304,11 +1554,17 @@ export interface components {
             items: components["schemas"]["ProjectSummary"][];
         };
         QueryCacheInfo: {
+            basis_ratings: string[];
+            /** Format: int64 */
+            candidate_records: number;
             /** Format: int64 */
             changed_members: number;
             /** Format: int64 */
             evaluated_objects: number;
+            fixed: boolean;
             mode: string;
+            session_only: boolean;
+            tier: string;
         };
         QueryCacheStatus: {
             /** Format: int64 */
@@ -1418,6 +1674,31 @@ export interface components {
             /** @enum {string} */
             type: "text_list";
             value: string[];
+        };
+        RatingBases: {
+            builds: components["schemas"]["RatingBuild"][];
+            items: components["schemas"]["RatingBasis"][];
+        };
+        RatingBasis: {
+            active: boolean;
+            bytes: string;
+            fixed: boolean;
+            generation: string;
+            incremental: boolean;
+            last_used_millis: string;
+            rating: string;
+            /** Format: int64 */
+            records: number;
+            /** Format: int64 */
+            sequence: number;
+            source_id: string;
+        };
+        RatingBuild: {
+            completed: string[];
+            current_rating?: string | null;
+            error?: string | null;
+            source_id: string;
+            state: string;
         };
         RawMetadata: {
             bytes?: string | null;
@@ -1596,6 +1877,18 @@ export interface components {
             /** Format: int32 */
             memory_gib: number;
         };
+        SetRatingRetention: {
+            fixed: boolean;
+        };
+        SetResultRetention: {
+            fixed: boolean;
+            tier: string;
+        };
+        SettingsStatus: {
+            cache: components["schemas"]["CacheSettings"];
+            query_limits: components["schemas"]["QueryResourceLimits"];
+            storage: components["schemas"]["CacheStorageOverview"];
+        };
         Source: {
             available: boolean;
             /** Format: int64 */
@@ -1639,6 +1932,94 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    list_rating_bases: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RatingBases"];
+                };
+            };
+        };
+    };
+    cancel_rating_basis_build: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                source_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+        };
+    };
+    set_rating_basis_retention: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                source_id: string;
+                rating: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetRatingRetention"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+        };
+    };
+    release_rating_basis: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                source_id: string;
+                rating: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+        };
+    };
     health: {
         parameters: {
             query?: never;
@@ -1956,6 +2337,51 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AssetPage"];
+                };
+            };
+        };
+    };
+    list_cache_entries: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CacheEntries"];
+                };
+            };
+        };
+    };
+    keep_cache_session: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
                 };
             };
         };
@@ -2476,6 +2902,28 @@ export interface operations {
             };
         };
     };
+    release_cache_entry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                result_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueryResult"];
+                };
+            };
+        };
+    };
     cancel: {
         parameters: {
             query?: never;
@@ -2555,6 +3003,32 @@ export interface operations {
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueryResult"];
+                };
+            };
+        };
+    };
+    set_result_retention: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                result_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetResultRetention"];
+            };
+        };
         responses: {
             200: {
                 headers: {
@@ -2958,6 +3432,28 @@ export interface operations {
             };
         };
     };
+    prebuild_rating_bases: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                source_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RatingBuild"];
+                };
+            };
+        };
+    };
     relink: {
         parameters: {
             query?: never;
@@ -3156,6 +3652,71 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["QueryCacheStatus"];
+                };
+            };
+        };
+    };
+    read_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettingsStatus"];
+                };
+            };
+        };
+    };
+    configure_cache_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CacheSettings"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettingsStatus"];
+                };
+            };
+        };
+    };
+    clear_cache_tier: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClearCacheTier"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SettingsStatus"];
                 };
             };
         };

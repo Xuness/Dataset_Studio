@@ -6,6 +6,8 @@ mod query;
 pub use query::{ChangeAnchor, QueryReader};
 mod browse_index;
 pub use browse_index::{BrowseIndex, BrowseIndexReader, BrowseIndexStamp};
+mod rating_cache;
+pub use rating_cache::{RATINGS, RatingCache, RatingCacheEntry, RatingCachePin, rating_candidates};
 pub mod duckdb_probe;
 use image::{ImageEncoder, ImageReader};
 use std::io::Cursor;

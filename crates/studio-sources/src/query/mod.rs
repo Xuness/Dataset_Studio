@@ -11,8 +11,8 @@ pub use changes::ChangeAnchor;
 use std::{
     path::PathBuf,
     sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -22,6 +22,9 @@ use studio_domain::*;
 #[derive(Default)]
 pub struct QueryReader {
     runtime: Runtime,
+    rating_cache: Option<Arc<crate::RatingCache>>,
+    candidate_rows: AtomicU64,
+    candidate_ratings: Mutex<Vec<String>>,
 }
 impl QueryReader {
     #[allow(
@@ -76,16 +79,31 @@ impl QueryReader {
     pub fn new(dll: PathBuf) -> Self {
         Self {
             runtime: Runtime::new(dll),
+            ..Self::default()
         }
     }
     pub fn with_query_directory(path: PathBuf) -> Self {
         Self {
             runtime: Runtime::default().with_query_directory(path),
+            ..Self::default()
         }
     }
     pub fn with_query_memory(mut self, bytes: u64) -> Self {
         self.runtime = self.runtime.with_query_memory(bytes);
         self
+    }
+    pub fn with_rating_cache(mut self, cache: Arc<crate::RatingCache>) -> Self {
+        self.rating_cache = Some(cache);
+        self
+    }
+    pub fn rating_usage(&self) -> Result<(Vec<String>, u64)> {
+        Ok((
+            self.candidate_ratings
+                .lock()
+                .map_err(|_| Error::new("INTERNAL_ERROR", "分级复用状态不可用"))?
+                .clone(),
+            self.candidate_rows.load(Ordering::Relaxed),
+        ))
     }
     /// Diagnostic only: explain the same controlled compiler used by the worker.
     pub fn explain(&self, source: &Source, spec: QuerySpec) -> Result<serde_json::Value> {
@@ -286,15 +304,36 @@ impl QueryReader {
                 .open_query(&catalog.analysis_path()?, cancelled.clone())?;
             let sequence = analysis_sequence(&db, &catalog)?;
             assert_version(&version(source, &catalog, Some(sequence)), expected)?;
-            stream_native(
-                &db,
-                &catalog,
-                source,
-                spec,
-                &compiler::metadata_sql_for_assets(spec, only_ids.as_deref())?,
-                &cancelled,
-                sink,
-            )?;
+            let sql = if keys.is_none()
+                && let Some(cache) = &self.rating_cache
+                && let Some(ratings) = crate::rating_candidates(spec)
+            {
+                let count = cache.import(
+                    source,
+                    &ratings,
+                    &db,
+                    &catalog.generation,
+                    catalog.sequence,
+                    spec,
+                )?;
+                self.candidate_rows.fetch_add(count, Ordering::Relaxed);
+                let mut used = self
+                    .candidate_ratings
+                    .lock()
+                    .map_err(|_| Error::new("INTERNAL_ERROR", "分级复用状态不可用"))?;
+                used.extend(ratings);
+                used.sort();
+                used.dedup();
+                if !crate::RatingCache::filters_metadata(spec) {
+                    db.query(&compiler::prepare_rating_observations(spec)?)?;
+                    compiler::metadata_sql_for_rating_candidates(spec)?
+                } else {
+                    "SELECT lower(hex(sha256)) FROM studio_rating_candidates ORDER BY sha256".into()
+                }
+            } else {
+                compiler::metadata_sql_for_assets(spec, only_ids.as_deref())?
+            };
+            stream_native(&db, &catalog, source, spec, &sql, &cancelled, sink)?;
         } else {
             assert_version(&version(source, &catalog, None), expected)?;
             let cancel = cancelled.clone();

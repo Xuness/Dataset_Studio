@@ -1,7 +1,14 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { copyFile, mkdir, readFile, writeFile, unlink } from "node:fs/promises";
+import {
+  copyFile,
+  mkdir,
+  readFile,
+  writeFile,
+  unlink,
+  readdir,
+} from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -37,12 +44,12 @@ for (const path of [
 await writeFile(resolve(fixture, "package.json"), '{"type":"module"}\n');
 await writeFile(
   resolve(fixture, "bin/pnpm.cmd"),
-  "@echo fixture dependency check\r\n@exit /b 0\r\n",
+  '@echo fixture dependency check\r\n@pwsh -NoProfile -Command "Start-Sleep -Milliseconds 600"\r\n@exit /b 0\r\n',
 );
 await writeFile(resolve(fixture, "bin/cargo.cmd"), "@exit /b 0\r\n");
 await writeFile(
   resolve(fixture, "tooling/setup-duckdb.ps1"),
-  "Write-Output 'fixture runtime ready'\n",
+  "Write-Output 'fixture runtime ready'; Start-Sleep -Milliseconds 300\n",
 );
 await writeFile(
   resolve(fixture, ".local/development-session.json"),
@@ -171,6 +178,24 @@ try {
   checks.push(
     "Repeated invocation reaches the existing desktop instance without terminating it",
   );
+  assert.deepEqual(
+    await Promise.all([
+      wrapper("parallel-web-a", true),
+      wrapper("parallel-web-b", true),
+    ]),
+    [0, 0],
+  );
+  const startupLogs = (await readdir(resolve(fixture, ".local/logs"))).filter(
+    (name) => name.startsWith("startup-dev-"),
+  );
+  assert.equal(
+    startupLogs.length,
+    4,
+    "Concurrent and sequential launches each retain their own diagnostic log",
+  );
+  checks.push(
+    "Concurrent launches keep independent dependency, runtime and development logs without writer-lock failures",
+  );
   assert.equal(await wrapper("web", true), 0);
   assert.equal(
     (await readFile(resolve(fixture, "launches.log"), "utf8"))
@@ -189,7 +214,15 @@ try {
   await removeNative();
   assert.notEqual(await wrapper("missing"), 0);
   assert.match(
-    await readFile(resolve(fixture, ".local/logs/startup-dev.log"), "utf8"),
+    (
+      await Promise.all(
+        (await readdir(resolve(fixture, ".local/logs")))
+          .filter((name) => name.startsWith("startup-dev-"))
+          .map((name) =>
+            readFile(resolve(fixture, ".local/logs", name), "utf8"),
+          ),
+      )
+    ).join("\n"),
     /未找到桌面程序/,
   );
   checks.push(

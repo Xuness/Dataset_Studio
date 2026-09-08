@@ -7,6 +7,7 @@ export function queryCacheLabel(result: QueryResult) {
       (
         {
           index: "正在更新排序索引…",
+          rating_basis: "正在准备分级基础缓存…",
           publishing: "正在保存查询结果…",
           incremental: "正在检查来源变更…",
           refresh: "等待增量刷新…",
@@ -15,13 +16,29 @@ export function queryCacheLabel(result: QueryResult) {
       )[mode] ?? "正在查询…"
     );
   }
+  if (result.state === "released")
+    return "筛选缓存已结束，应用当前条件可重新计算。";
   if (result.state !== "ready") return "";
-  if (mode === "reused") return "已复用现有结果，无需重新扫描";
+  const retention = result.cache.fixed
+    ? "固定保留"
+    : result.cache.tier === "long_term"
+      ? "长期缓存"
+      : result.cache.session_only
+        ? "仅本次会话"
+        : "临时缓存";
+  if (mode === "reused") return "已复用现有结果 · " + retention;
   if (mode === "incremental")
     return `已增量刷新 · 检查 ${result.cache.evaluated_objects.toLocaleString()} 个图像 · 变更 ${result.cache.changed_members.toLocaleString()} 项`;
   if (mode === "rebuilt")
     return "来源记录不足以增量更新，已重新计算并复用未变化的成员";
-  return "查询已完成，结果可复用";
+  if (result.cache.basis_ratings?.length)
+    return (
+      "已使用 " +
+      result.cache.basis_ratings.map((r) => r.toUpperCase()).join(" / ") +
+      " 分级基础缓存 · " +
+      retention
+    );
+  return "查询已完成 · " + retention;
 }
 
 /** Compare query meaning without treating clause/set order as an edit. */

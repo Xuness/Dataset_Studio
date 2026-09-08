@@ -29,6 +29,7 @@ fn validate_input(
 #[utoipa::path(post,path="/v1/projects/{project_id}/query-results",operation_id="run_query",params(("project_id"=String,Path)),request_body=RunQuery,responses((status=200,body=QueryResult)))]
 pub(super) async fn run(
     State(s): State<AppState>,
+    Extension(session): Extension<ClientSession>,
     Path(pid): Path<String>,
     Body(body): Body<RunQuery>,
 ) -> ApiResult<QueryResult> {
@@ -43,12 +44,12 @@ pub(super) async fn run(
                 .gate
                 .lock()
                 .map_err(|_| domain::Error::new("INTERNAL_ERROR", "查询缓存锁不可用"))?;
-            let result = s.store.create_cached_result(
+            let result = s.store.create_result_with_cache(
                 &pid,
                 None,
                 spec,
                 versions,
-                s.queries.cache.config()?.quota_mib > 0,
+                &s.queries.cache.request(&pid, session.0.as_deref())?,
             )?;
             s.queries.cache.recent(&pid, &result.id);
             s.queries.cache.track_committed(&s.store, &pid);
@@ -167,6 +168,7 @@ pub(super) async fn update_definition(
 #[utoipa::path(post,path="/v1/projects/{project_id}/queries/{query_id}/results",params(("project_id"=String,Path),("query_id"=String,Path)),request_body=BuildQuery,responses((status=200,body=QueryResult)))]
 pub(super) async fn build(
     State(s): State<AppState>,
+    Extension(session): Extension<ClientSession>,
     Extension(read_context): Extension<RequestReadContext>,
     Path((pid, qid)): Path<(String, String)>,
     Body(body): Body<BuildQuery>,
@@ -186,12 +188,12 @@ pub(super) async fn build(
                 .gate
                 .lock()
                 .map_err(|_| domain::Error::new("INTERNAL_ERROR", "查询缓存锁不可用"))?;
-            let result = s.store.create_cached_result(
+            let result = s.store.create_result_with_cache(
                 &pid,
                 Some((&qid, query.revision)),
                 query.spec,
                 versions,
-                s.queries.cache.config()?.quota_mib > 0,
+                &s.queries.cache.request(&pid, session.0.as_deref())?,
             )?;
             s.queries.cache.recent(&pid, &result.id);
             s.queries.cache.track_committed(&s.store, &pid);
@@ -229,22 +231,35 @@ pub(super) async fn results(
 #[utoipa::path(get,path="/v1/projects/{project_id}/query-results/{result_id}",params(("project_id"=String,Path),("result_id"=String,Path)),responses((status=200,body=QueryResult)))]
 pub(super) async fn result(
     State(s): State<AppState>,
+    Extension(session): Extension<ClientSession>,
     Path((pid, rid)): Path<(String, String)>,
 ) -> ApiResult<QueryResult> {
     Ok(Json(
-        blocking(move || s.store.query_result(&pid, &rid).map(Into::into)).await?,
+        blocking(move || session_result(&s, &pid, &rid, session.0.as_deref()).map(Into::into))
+            .await?,
     ))
+}
+fn session_result(
+    s: &AppState,
+    pid: &str,
+    rid: &str,
+    session: Option<&str>,
+) -> domain::Result<domain::QueryResult> {
+    s.queries.cache.session(pid, session)?;
+    s.store
+        .query_result_for_session(pid, rid, &s.queries.cache.live_sessions(pid)?)
 }
 #[utoipa::path(get,path="/v1/projects/{project_id}/query-results/{result_id}/validity",params(("project_id"=String,Path),("result_id"=String,Path)),responses((status=200,body=ResultValidity)))]
 pub(super) async fn validity(
     State(s): State<AppState>,
+    Extension(session): Extension<ClientSession>,
     Extension(read_context): Extension<RequestReadContext>,
     Path((pid, rid)): Path<(String, String)>,
 ) -> ApiResult<ResultValidity> {
     Ok(Json(
         blocking(move || {
             let _permit = read_permit(&s, domain::ReadClass::Index, &read_context)?;
-            let result = s.store.query_result(&pid, &rid)?;
+            let result = session_result(&s, &pid, &rid, session.0.as_deref())?;
             let issue = s
                 .queries
                 .validate_result(&s.store, &result)
@@ -285,6 +300,7 @@ pub(super) async fn release(
 #[utoipa::path(post,path="/v1/projects/{project_id}/query-results/{result_id}/leases/{lease_id}",params(("project_id"=String,Path),("result_id"=String,Path),("lease_id"=String,Path)),responses((status=200,body=OkResponse)))]
 pub(super) async fn lease_result(
     State(s): State<AppState>,
+    Extension(session): Extension<ClientSession>,
     Path((pid, rid, lid)): Path<(String, String, String)>,
 ) -> ApiResult<OkResponse> {
     Ok(Json(
@@ -295,14 +311,21 @@ pub(super) async fn lease_result(
                 .gate
                 .lock()
                 .map_err(|_| domain::Error::new("INTERNAL_ERROR", "查询缓存锁不可用"))?;
-            let result = s.store.query_result(&pid, &rid)?;
+            let result = session_result(&s, &pid, &rid, session.0.as_deref())?;
             if result.state != domain::ResultState::Ready {
                 return Err(domain::Error::new(
                     "RESULT_NOT_READY",
                     "查询结果已回收或尚未完成",
                 ));
             }
-            s.queries.cache.lease(&pid, &rid, &lid)?;
+            let session_id = s.queries.cache.session(&pid, session.0.as_deref())?;
+            s.queries.cache.lease(&pid, &rid, &lid, &session_id)?;
+            s.store.bind_cache_session(
+                &pid,
+                &rid,
+                &session_id,
+                s.queries.cache.config()?.temporary_session_only,
+            )?;
             s.store.touch_query_cache(&pid, &rid)?;
             Ok(OkResponse { ok: true })
         })
@@ -332,6 +355,7 @@ struct ResultCursor {
 #[utoipa::path(get,path="/v1/projects/{project_id}/query-results/{result_id}/assets",params(("project_id"=String,Path),("result_id"=String,Path),("cursor"=Option<String>,Query),("order"=Option<QueryOrder>,Query),("limit"=Option<usize>,Query)),responses((status=200,body=ResultAssets)))]
 pub(super) async fn result_assets(
     State(s): State<AppState>,
+    Extension(session): Extension<ClientSession>,
     Extension(read_context): Extension<RequestReadContext>,
     Path((pid, rid)): Path<(String, String)>,
     Query(q): Query<QueryListParams>,
@@ -345,7 +369,7 @@ pub(super) async fn result_assets(
                         s.queries.cache.gate.lock().map_err(|_| {
                             domain::Error::new("INTERNAL_ERROR", "查询缓存锁不可用")
                         })?;
-                    let result = s.store.query_result(&pid, &rid)?;
+                    let result = session_result(&s, &pid, &rid, session.0.as_deref())?;
                     if result.state == domain::ResultState::Ready {
                         s.queries.cache.recent(&pid, &rid);
                     }
@@ -487,6 +511,7 @@ pub(super) fn source_capture(
 #[utoipa::path(post,path="/v1/projects/{project_id}/scopes/capture",params(("project_id"=String,Path)),request_body=CaptureScope,responses((status=200,body=QueryResult)))]
 pub(super) async fn capture(
     State(s): State<AppState>,
+    Extension(session): Extension<ClientSession>,
     Path(pid): Path<String>,
     Body(body): Body<CaptureScope>,
 ) -> ApiResult<QueryResult> {
@@ -499,12 +524,12 @@ pub(super) async fn capture(
                 .gate
                 .lock()
                 .map_err(|_| domain::Error::new("INTERNAL_ERROR", "查询缓存锁不可用"))?;
-            let result = s.store.create_cached_result(
+            let result = s.store.create_result_with_cache(
                 &pid,
                 None,
                 spec,
                 versions,
-                s.queries.cache.config()?.quota_mib > 0,
+                &s.queries.cache.request(&pid, session.0.as_deref())?,
             )?;
             s.queries.cache.recent(&pid, &result.id);
             s.queries.cache.track_committed(&s.store, &pid);

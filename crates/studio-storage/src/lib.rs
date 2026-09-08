@@ -22,7 +22,9 @@ mod lifecycle;
 mod migrations;
 mod query;
 mod query_cache;
-pub use query_cache::{QueryCachePolicy, QueryCacheStats, QueryStage};
+pub use query_cache::{
+    QueryCacheEntry, QueryCachePolicy, QueryCacheRequest, QueryCacheStats, QueryStage,
+};
 mod registry;
 mod scopes;
 mod selection;

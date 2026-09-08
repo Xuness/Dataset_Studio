@@ -22,6 +22,7 @@ use studio_storage::SqliteStore;
 use utoipa::OpenApi;
 mod query;
 mod resources;
+mod settings;
 mod source_locations;
 mod tools;
 
@@ -40,6 +41,8 @@ pub struct RequestReadContext {
     pub cancelled: studio_application::ReadCancellation,
     pub priority: domain::ReadPriority,
 }
+#[derive(Clone)]
+pub struct ClientSession(pub Option<String>);
 pub struct Failure(domain::Error);
 impl From<domain::Error> for Failure {
     fn from(error: domain::Error) -> Self {
@@ -199,6 +202,7 @@ async fn open_recent(State(s): State<AppState>, Path(id): Path<String>) -> ApiRe
 #[utoipa::path(post,path="/v1/projects/{project_id}/close",params(("project_id"=String,Path)),responses((status=200,body=ProjectClose)))]
 async fn close_project(
     State(s): State<AppState>,
+    Extension(session): Extension<ClientSession>,
     Path(id): Path<String>,
 ) -> ApiResult<ProjectClose> {
     Ok(Json(
@@ -212,7 +216,17 @@ async fn close_project(
             if s.store.directory(&id).is_ok() {
                 s.queries.cache.track_committed(&s.store, &id);
             }
-            s.store.close(&id)
+            s.queries.cache.end_session(&id, session.0.as_deref());
+            let result =
+                if s.store.view_is_open(&id) && !s.queries.cache.live_sessions(&id)?.is_empty() {
+                    domain::ProjectClose {
+                        project_id: id,
+                        state: domain::ProjectState::Open,
+                    }
+                } else {
+                    s.store.close(&id)?
+                };
+            Ok(result)
         })
         .await?
         .into(),
@@ -593,7 +607,7 @@ fn browse_sync(s: &AppState, id: &str, query: BrowseQuery) -> domain::Result<Ass
                             id,
                             spec,
                             versions,
-                            s.queries.cache.config()?.quota_mib > 0,
+                            s.queries.cache.config()?.query_enabled(),
                         )?
                     };
                     s.queries.cache.recent(id, &result.id);
@@ -1182,7 +1196,19 @@ async fn shutdown(State(s): State<AppState>) -> Json<OkResponse> {
         resources::configure_query_cache,
         resources::clear_query_cache,
         resources::clear,
-        resources::cancel
+        resources::cancel,
+        settings::read,
+        settings::configure,
+        settings::clear,
+        settings::entries,
+        settings::retention,
+        settings::release_entry,
+        settings::heartbeat,
+        settings::bases,
+        settings::prebuild,
+        settings::cancel_build,
+        settings::fix_basis,
+        settings::release_basis
     ),
     components(schemas(
         EngineConnection,
@@ -1197,6 +1223,45 @@ async fn shutdown(State(s): State<AppState>) -> Json<OkResponse> {
 pub struct ApiDoc;
 pub fn routes() -> axum::Router<AppState> {
     axum::Router::new()
+        .route("/v1/settings", get(settings::read))
+        .route(
+            "/v1/projects/{project_id}/query-results/{result_id}/cache-release",
+            post(settings::release_entry),
+        )
+        .route(
+            "/v1/settings/cache",
+            axum::routing::put(settings::configure),
+        )
+        .route("/v1/settings/cache/clear", post(settings::clear))
+        .route(
+            "/v1/projects/{project_id}/cache-entries",
+            get(settings::entries),
+        )
+        .route(
+            "/v1/projects/{project_id}/query-results/{result_id}/retention",
+            axum::routing::put(settings::retention),
+        )
+        .route(
+            "/v1/projects/{project_id}/cache-session",
+            post(settings::heartbeat),
+        )
+        .route("/v1/cache/rating-bases", get(settings::bases))
+        .route(
+            "/v1/projects/{project_id}/sources/{source_id}/rating-bases",
+            post(settings::prebuild),
+        )
+        .route(
+            "/v1/cache/rating-bases/{source_id}/cancel",
+            post(settings::cancel_build),
+        )
+        .route(
+            "/v1/cache/rating-bases/{source_id}/{rating}",
+            axum::routing::put(settings::fix_basis),
+        )
+        .route(
+            "/v1/cache/rating-bases/{source_id}/{rating}/release",
+            post(settings::release_basis),
+        )
         .route("/v1/resources", get(resources::status))
         .route(
             "/v1/resources/query-cache",

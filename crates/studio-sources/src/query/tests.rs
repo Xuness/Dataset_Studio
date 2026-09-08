@@ -146,6 +146,221 @@ fn enable_commit_history(f: &Fixture) {
         .unwrap();
     }
 }
+
+#[test]
+fn shared_rating_candidates_preserve_same_observation_and_incremental_changes() {
+    let f = fixture();
+    enable_commit_history(&f);
+    let dll = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/duckdb/duckdb.dll");
+    let generation = f
+        .source
+        .index_root
+        .as_ref()
+        .unwrap()
+        .join("indexes/gen-query");
+    {
+        let db = Session::fixture(&dll, &generation.join("analysis.duckdb")).unwrap();
+        db.query(&format!("INSERT INTO observations(observation_id,row_id,post_id,rating,tag_string,commit_seq) VALUES ('{}',900,900,'g','only_g literal space namespace:one quote''tag 東京',1); INSERT INTO assets VALUES('{}','{}',900,'{}',1); INSERT INTO current_posts VALUES(900,900,'{}');",hex(900),hex(901),hex(900),hex(1),hex(901))).unwrap();
+    }
+    let root = tempfile::tempdir().unwrap();
+    let cache = Arc::new(crate::RatingCache::new(root.path().join("bases")));
+    let cancelled = || Arc::new(AtomicBool::new(false));
+    for rating in crate::RATINGS {
+        cache
+            .ensure(&f.source, rating, 1 << 30, root.path(), cancelled())
+            .unwrap();
+    }
+    assert_eq!(cache.entries().unwrap().len(), 4);
+    let mut other_project_source = f.source.clone();
+    other_project_source.name = "另一个项目的同一数据湖".into();
+    cache
+        .ensure(
+            &other_project_source,
+            "g",
+            1 << 30,
+            root.path(),
+            cancelled(),
+        )
+        .unwrap();
+    assert_eq!(
+        cache.entries().unwrap().len(),
+        4,
+        "A second project shares the existing library basis"
+    );
+    let reader = QueryReader::new(dll.clone()).with_rating_cache(cache.clone());
+    let evaluate = |query: &QuerySpec| {
+        let version = reader.query_version(&f.source, query).unwrap();
+        let mut ids = BTreeSet::new();
+        reader
+            .execute_query(&f.source, query, &version, cancelled(), &mut |keys, _| {
+                ids.extend(keys.iter().map(|k| k.asset_id.clone()));
+                Ok(())
+            })
+            .unwrap();
+        ids
+    };
+    let query = |rating: &str, tag: &str| {
+        spec(
+            &f,
+            vec![
+                condition(
+                    "rating",
+                    QueryOperator::Eq,
+                    Some(QueryValue::Text(rating.into())),
+                ),
+                condition(
+                    "tags",
+                    QueryOperator::HasTag,
+                    Some(QueryValue::Text(tag.into())),
+                ),
+            ],
+            ObservationRule::CurrentPost,
+        )
+    };
+    assert_eq!(evaluate(&query("g", "only_g")), BTreeSet::from([hex(1)]));
+    for rating in ["g", "e"] {
+        for (operator, value) in [
+            (
+                QueryOperator::HasAllTags,
+                Some(QueryValue::TextList(vec![
+                    "namespace:one".into(),
+                    "quote'tag".into(),
+                    "東京".into(),
+                ])),
+            ),
+            (
+                QueryOperator::HasAnyTags,
+                Some(QueryValue::TextList(vec!["only_g".into(), "solo".into()])),
+            ),
+            (
+                QueryOperator::HasNoTags,
+                Some(QueryValue::TextList(vec!["only_g".into(), "solo".into()])),
+            ),
+            (QueryOperator::IsMissing, None),
+            (QueryOperator::IsPresent, None),
+        ] {
+            let combined = QuerySpec {
+                version: 2,
+                conditions: vec![
+                    condition(
+                        "rating",
+                        QueryOperator::Eq,
+                        Some(QueryValue::Text(rating.into())),
+                    ),
+                    condition("tags", operator, value),
+                ],
+                ..spec(&f, vec![], ObservationRule::CurrentPost)
+            };
+            assert_eq!(
+                evaluate(&combined),
+                run(&f, &combined),
+                "Cached Tag operations retain source SQL semantics, including NULLs and token boundaries"
+            );
+        }
+    }
+    let pure = spec(
+        &f,
+        vec![condition(
+            "rating",
+            QueryOperator::Eq,
+            Some(QueryValue::Text("g".into())),
+        )],
+        ObservationRule::CurrentPost,
+    );
+    assert_eq!(
+        evaluate(&pure),
+        run(&f, &pure),
+        "Pure ratings use the cached asset identities directly"
+    );
+    let mut identity = pure.clone();
+    identity.conditions.push(condition(
+        "asset.id",
+        QueryOperator::Eq,
+        Some(QueryValue::Text(hex(1))),
+    ));
+    assert_eq!(
+        evaluate(&identity),
+        BTreeSet::from([hex(1)]),
+        "Binary cached identities retain text identity predicate semantics"
+    );
+    assert!(
+        evaluate(&query("e", "only_g")).is_empty(),
+        "Tags on a different post for the same image cannot satisfy the conjunction"
+    );
+    assert!(
+        reader.rating_usage().unwrap().1 > 0,
+        "The native query imported the saved candidate rows"
+    );
+    advance_day(&f);
+    let previous = cache
+        .entries()
+        .unwrap()
+        .into_iter()
+        .find(|entry| entry.rating == "e")
+        .unwrap();
+    assert_eq!(
+        cache
+            .ensure(
+                &f.source,
+                "e",
+                1 << 30,
+                root.path(),
+                Arc::new(AtomicBool::new(true))
+            )
+            .unwrap_err()
+            .code,
+        "CANCELLED"
+    );
+    let retained = cache
+        .entries()
+        .unwrap()
+        .into_iter()
+        .find(|entry| entry.rating == "e")
+        .unwrap();
+    assert_eq!(
+        (retained.sequence, retained.records),
+        (previous.sequence, previous.records)
+    );
+    let refreshed = cache
+        .ensure(&f.source, "e", 1 << 30, root.path(), cancelled())
+        .unwrap();
+    assert!(refreshed.incremental);
+    assert_eq!(refreshed.sequence, 2);
+    assert_eq!(
+        evaluate(&query("e", "daily")),
+        run(&f, &query("e", "daily"))
+    );
+    {
+        let db = Session::fixture(&dll, &generation.join("analysis.duckdb")).unwrap();
+        db.query("DELETE FROM applied WHERE seq=2; INSERT INTO applied VALUES(3,'third')")
+            .unwrap();
+        let catalog = rusqlite::Connection::open(generation.join("catalog.sqlite")).unwrap();
+        catalog
+            .execute("UPDATE state SET value=3 WHERE key='seq'", [])
+            .unwrap();
+    }
+    let rebuilt = cache
+        .ensure(&f.source, "e", 1 << 30, root.path(), cancelled())
+        .unwrap();
+    assert!(
+        !rebuilt.incremental,
+        "Missing anchor history requires a complete basis rebuild"
+    );
+    assert_eq!(
+        evaluate(&query("e", "daily")),
+        run(&f, &query("e", "daily"))
+    );
+    cache.set_fixed(&f.source.id, "e", true).unwrap();
+    assert!(
+        !cache.remove(&f.source.id, "e", false).unwrap(),
+        "Explicitly fixed bases cannot be reclaimed"
+    );
+    cache.set_fixed(&f.source.id, "e", false).unwrap();
+    let pin = cache.pin(&f.source.id, &["e".into()]).unwrap();
+    assert!(!cache.remove(&f.source.id, "e", false).unwrap());
+    drop(pin);
+    assert!(cache.remove(&f.source.id, "e", false).unwrap());
+}
 fn advance_day(f: &Fixture) {
     let root = f
         .source

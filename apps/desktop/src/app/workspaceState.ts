@@ -79,7 +79,12 @@ function decode(value: unknown): WorkspaceState | null {
     ].includes(String(value.order))
   )
     return null;
-  return { ...value, order: value.order ?? "post_id_desc" } as WorkspaceState;
+  return {
+    ...value,
+    moduleId:
+      value.moduleId === "core.resources" ? "core.browser" : value.moduleId,
+    order: value.order ?? "post_id_desc",
+  } as WorkspaceState;
 }
 export function useWorkspaceState(client: StudioClient, projectId: string) {
   const controller = useMemo(

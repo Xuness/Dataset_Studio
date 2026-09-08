@@ -10,6 +10,8 @@ mod tools;
 pub use tools::*;
 mod resources;
 pub use resources::*;
+mod settings;
+pub use settings::*;
 use utoipa::ToSchema;
 pub const API_VERSION: u32 = 1;
 

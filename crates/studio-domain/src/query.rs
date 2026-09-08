@@ -319,6 +319,47 @@ pub struct QueryCacheInfo {
     pub mode: String,
     pub evaluated_objects: u64,
     pub changed_members: u64,
+    #[serde(default)]
+    pub tier: QueryCacheTier,
+    #[serde(default)]
+    pub fixed: bool,
+    #[serde(default)]
+    pub session_only: bool,
+    #[serde(default)]
+    pub basis_ratings: Vec<String>,
+    #[serde(default)]
+    pub candidate_records: u64,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum QueryCacheTier {
+    LongTerm,
+    #[default]
+    Temporary,
+}
+impl QueryCacheTier {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::LongTerm => "long_term",
+            Self::Temporary => "temporary",
+        }
+    }
+    pub fn for_spec(spec: &QuerySpec) -> Self {
+        let lake = spec
+            .input_scope
+            .as_ref()
+            .is_none_or(|s| matches!(s.target, ScopeTarget::Source { .. }));
+        if lake
+            && spec.observation_rule == ObservationRule::CurrentPost
+            && !spec.conditions.is_empty()
+            && spec.conditions.iter().all(|c| c.field == "rating")
+        {
+            Self::LongTerm
+        } else {
+            Self::Temporary
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

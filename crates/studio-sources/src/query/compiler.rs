@@ -90,16 +90,59 @@ pub(super) fn metadata_sql_for_assets(
     spec: &QuerySpec,
     assets: Option<&[String]>,
 ) -> Result<String> {
-    metadata_sql_filtered(spec, assets, false)
+    metadata_sql_filtered(spec, assets, false, false)
 }
 pub(super) fn metadata_sql_for_changed(spec: &QuerySpec) -> Result<String> {
-    metadata_sql_filtered(spec, None, true)
+    metadata_sql_filtered(spec, None, true, false)
+}
+pub(super) fn metadata_sql_for_rating_candidates(spec: &QuerySpec) -> Result<String> {
+    if spec
+        .conditions
+        .iter()
+        .all(|condition| condition.field == "rating")
+    {
+        // Intersection of supported rating clauses is already encoded by the
+        // imported, watermark-fenced bases; no source columns remain to inspect.
+        return Ok("SELECT lower(hex(sha256)) FROM studio_rating_candidates".into());
+    }
+    metadata_sql_filtered(spec, None, false, true)
+}
+pub(super) fn prepare_rating_observations(spec: &QuerySpec) -> Result<String> {
+    let mut columns = std::collections::BTreeSet::from(["row_id"]);
+    for condition in &spec.conditions {
+        let column = match condition.field.as_str() {
+            "asset.id" | "stored.bytes" | "stored.extension" => continue,
+            "post.id" => "post_id",
+            "source.width" => "image_width",
+            "source.height" => "image_height",
+            "source.extension" => "file_ext",
+            "score" => "score",
+            "fav_count" => "fav_count",
+            "rating" => "rating",
+            "tags" => "tag_string",
+            "is_deleted" => "is_deleted",
+            _ => return Err(Error::new("QUERY_UNSUPPORTED", "字段没有查询实现")),
+        };
+        columns.insert(column);
+    }
+    // A separate statement makes the candidate boundary explicit: tag predicates
+    // cannot be pushed below the candidate semi-join by the native optimizer.
+    Ok(format!(
+        "CREATE TEMP TABLE studio_rating_observations AS SELECT {} FROM observations WHERE row_id IN (SELECT row_id FROM studio_rating_candidates)",
+        columns.into_iter().collect::<Vec<_>>().join(",")
+    ))
 }
 fn metadata_sql_filtered(
     spec: &QuerySpec,
     assets: Option<&[String]>,
     changed: bool,
+    rating_candidates: bool,
 ) -> Result<String> {
+    let identity = if rating_candidates {
+        "lower(hex(a.sha256))"
+    } else {
+        "a.sha256"
+    };
     let mut predicates = vec!["a.sha256 IS NOT NULL".to_owned()];
     if changed {
         predicates.push("a.sha256 IN (SELECT sha256 FROM studio_changed)".into());
@@ -109,7 +152,7 @@ fn metadata_sql_filtered(
     }
     for condition in &spec.conditions {
         let column = match condition.field.as_str() {
-            "asset.id" => "a.sha256",
+            "asset.id" => identity,
             "stored.bytes" | "stored.extension" => continue,
             "post.id" => "o.post_id",
             "source.width" => "o.image_width",
@@ -125,11 +168,23 @@ fn metadata_sql_filtered(
         predicates.push(predicate(column, condition)?);
     }
     let predicate = predicates.join(" AND ");
+    if rating_candidates {
+        // The base already establishes the current-post to asset association.
+        // Rejoining the full source identity tables would discard that benefit.
+        return Ok(format!(
+            "SELECT {identity} FROM studio_rating_candidates a JOIN studio_rating_observations o ON o.row_id=a.row_id WHERE {predicate}"
+        ));
+    }
+    let observations = if rating_candidates {
+        "studio_rating_observations"
+    } else {
+        "observations"
+    };
     // No DISTINCT or global sort here: the project-owned SQLite sink handles both,
     // so the C API can stream identities instead of materializing the whole result.
     Ok(match spec.observation_rule {
         ObservationRule::CurrentPost => format!(
-            "SELECT a.sha256 FROM current_posts cp JOIN assets a ON a.asset_id=cp.asset_id JOIN observations o ON o.row_id=cp.row_id WHERE {predicate}"
+            "SELECT a.sha256 FROM current_posts cp JOIN assets a ON a.asset_id=cp.asset_id JOIN {observations} o ON o.row_id=cp.row_id WHERE {predicate}"
         ),
         ObservationRule::AnyObservation => format!(
             "SELECT a.sha256 FROM assets a JOIN observations o ON o.post_id=a.post_id WHERE {predicate} UNION ALL SELECT a.sha256 FROM assets a JOIN observations o ON o.observation_id=a.observation_id WHERE (a.post_id IS NULL OR o.post_id IS DISTINCT FROM a.post_id) AND {predicate}"

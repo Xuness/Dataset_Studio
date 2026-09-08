@@ -1,5 +1,6 @@
 mod api;
 mod artifacts;
+mod cache_config;
 mod jobs;
 mod previews;
 mod query_budget;
@@ -144,9 +145,15 @@ async fn serve(root: PathBuf, port: u16, cache_dir: Option<PathBuf>) -> Result<(
         resources.clone(),
         root.join("query-temp"),
         query_budget,
-        query_cache::CacheControl::open(root.join("query-cache.json"))?,
+        query_cache::CacheControl::open(
+            root.join("query-cache.json"),
+            (previews.cache.metrics().quota_bytes >> 20) as u32,
+        )?,
         root.join("browse-index"),
     ));
+    previews
+        .cache
+        .set_quota(u64::from(queries.cache.config()?.preview_mib) << 20)?;
     let state = api::AppState {
         store: store.clone(),
         connection: connection.clone(),
@@ -175,6 +182,17 @@ async fn serve(root: PathBuf, port: u16, cache_dir: Option<PathBuf>) -> Result<(
                     return api::Failure::from(Error::new("UNAUTHORIZED", "引擎连接凭据无效"))
                         .into_response();
                 }
+                let session = request
+                    .headers()
+                    .get("x-studio-session")
+                    .and_then(|v| v.to_str().ok())
+                    .map(str::to_owned);
+                if let Some(id) = &session
+                    && let Err(error) = studio_domain::validate_id(id)
+                {
+                    return api::Failure::from(error).into_response();
+                }
+                request.extensions_mut().insert(api::ClientSession(session));
                 let segments = request.uri().path().split('/').collect::<Vec<_>>();
                 let _project_lease = if segments.len() >= 4
                     && segments[1..3] == ["v1", "projects"]
@@ -249,6 +267,7 @@ async fn serve(root: PathBuf, port: u16, cache_dir: Option<PathBuf>) -> Result<(
             axum::http::header::CONTENT_TYPE,
             axum::http::HeaderName::from_static("x-studio-read-id"),
             axum::http::HeaderName::from_static("x-studio-read-priority"),
+            axum::http::HeaderName::from_static("x-studio-session"),
         ])
         .expose_headers(
             [
@@ -268,6 +287,7 @@ async fn serve(root: PathBuf, port: u16, cache_dir: Option<PathBuf>) -> Result<(
     let cache_maintenance = tokio::spawn(query_jobs::cache_maintenance(
         store.clone(),
         queries.clone(),
+        previews.cache.clone(),
     ));
     let recovery_store = store.clone();
     let recovery = tokio::task::spawn_blocking(move || match recovery_store.recover_jobs() {

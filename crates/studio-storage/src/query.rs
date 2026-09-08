@@ -37,19 +37,25 @@ pub(super) fn read_result(db: &Connection, pid: &str, id: &str) -> Result<QueryR
     let row = db.query_row("SELECT definition_id,definition_revision,spec_json,versions_json,status,processed,count,created_at,error FROM query_results WHERE id=?1",[id],|r| Ok((r.get(0)?,r.get::<_,Option<i64>>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?,r.get::<_,String>(4)?,unsigned(r,5)?,r.get::<_,Option<i64>>(6)?,r.get(7)?,r.get(8)?)))
         .optional().map_err(db_error)?.ok_or_else(|| Error::new("NOT_FOUND", "查询结果不属于当前项目"))?;
     let state: ResultState = decode(format!("\"{}\"", row.4))?;
-    let cache = db
+    let raw_cache = db
         .query_row(
-            "SELECT cache_mode,evaluated_count,changed_members FROM query_results WHERE id=?1",
+            "SELECT r.cache_mode,r.evaluated_count,r.changed_members,f.tier,f.fixed,f.session_only,r.basis_ratings_json,r.candidate_records FROM query_results r JOIN query_families f ON f.id=r.family_id WHERE r.id=?1",
             [id],
             |r| {
-                Ok(QueryCacheInfo {
-                    mode: r.get(0)?,
-                    evaluated_objects: unsigned(r, 1)?,
-                    changed_members: unsigned(r, 2)?,
-                })
+                Ok((r.get::<_,String>(0)?,unsigned(r,1)?,unsigned(r,2)?,r.get::<_,String>(3)?,r.get::<_,bool>(4)?,r.get::<_,bool>(5)?,r.get::<_,String>(6)?,unsigned(r,7)?))
             },
         )
         .map_err(db_error)?;
+    let cache = QueryCacheInfo {
+        mode: raw_cache.0,
+        evaluated_objects: raw_cache.1,
+        changed_members: raw_cache.2,
+        tier: decode(format!("\"{}\"", raw_cache.3))?,
+        fixed: raw_cache.4,
+        session_only: raw_cache.5,
+        basis_ratings: decode(raw_cache.6)?,
+        candidate_records: raw_cache.7,
+    };
     Ok(QueryResult {
         id: id.into(),
         project_id: pid.into(),
@@ -511,6 +517,7 @@ impl SqliteStore {
             params![id, processed as i64, added as i64],
         )
         .map_err(db_error)?;
+        tx.execute("UPDATE query_families SET stored_members=stored_members+?2 WHERE id=(SELECT family_id FROM query_results WHERE id=?1)",params![id,added as i64]).map_err(db_error)?;
         tx.commit().map_err(db_error)
     }
     pub fn finish_result(&self, pid: &str, id: &str, error: Option<&Error>) -> Result<QueryResult> {

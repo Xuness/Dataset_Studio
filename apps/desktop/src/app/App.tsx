@@ -67,6 +67,9 @@ import { useWorkspaceState, useLayoutState } from "./workspaceState.js";
 import { AssetImage } from "../features/browser/AssetImage.js";
 import { Tasks } from "../features/tasks/Tasks.js";
 import { MetadataInspector } from "../features/metadata/MetadataInspector.js";
+import { SettingsDialog } from "../features/settings/SettingsDialog.js";
+import { settingsPages } from "../features/settings/pages.js";
+import type { SettingsPageId } from "../features/settings/pages.js";
 
 type ViewState = {
   scope: BrowseScope;
@@ -170,6 +173,7 @@ function Studio({
     }
   }, [health.isError, health.errorUpdatedAt, onReconnect]);
   const [dialog, setDialog] = useState<DialogKind>(null);
+  const [settingsPage, setSettingsPage] = useState<SettingsPageId | null>(null);
   const [error, setError] = useState("");
   const [saving, setBusy] = useState(false);
   const session = useProjectSession(client, setError);
@@ -233,6 +237,10 @@ function Studio({
       }));
   }
   function activateView(id: string, args: Record<string, string> = {}) {
+    if (id === "core.resources") {
+      setSettingsPage("cache");
+      return;
+    }
     if (!workspace.editable) return;
     if (moduleViews.get(id)?.kind !== "view") {
       setError("该功能视图尚不可用。");
@@ -640,6 +648,10 @@ function Studio({
         disabled: !project,
       },
     ],
+    设置: settingsPages.map(({ id, title }) => ({
+      label: title + "…",
+      action: () => setSettingsPage(id),
+    })),
     帮助: [{ label: "关于 Dataset Studio", action: () => setDialog("about") }],
   };
   return (
@@ -1159,6 +1171,16 @@ function Studio({
           </button>
         )}
       </footer>
+      {settingsPage && (
+        <SettingsDialog
+          client={client}
+          initialPage={settingsPage}
+          project={project ?? null}
+          sources={sources.data?.items ?? []}
+          activeResultId={activeResultId || null}
+          onClose={() => setSettingsPage(null)}
+        />
+      )}
       {dialog && (
         <ProjectDialog
           pickDirectory={chooseDirectory}

@@ -286,6 +286,11 @@ pub struct QueryCacheInfo {
     pub mode: String,
     pub evaluated_objects: u64,
     pub changed_members: u64,
+    pub tier: String,
+    pub fixed: bool,
+    pub session_only: bool,
+    pub basis_ratings: Vec<String>,
+    pub candidate_records: u64,
 }
 impl From<domain::QueryResult> for QueryResult {
     fn from(r: domain::QueryResult) -> Self {
@@ -305,6 +310,11 @@ impl From<domain::QueryResult> for QueryResult {
                 mode: r.cache.mode,
                 evaluated_objects: r.cache.evaluated_objects,
                 changed_members: r.cache.changed_members,
+                tier: r.cache.tier.as_str().into(),
+                fixed: r.cache.fixed,
+                session_only: r.cache.session_only,
+                basis_ratings: r.cache.basis_ratings,
+                candidate_records: r.cache.candidate_records,
             },
         }
     }

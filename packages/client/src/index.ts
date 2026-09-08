@@ -9,6 +9,7 @@ import { QueryClient } from "./queries.js";
 import { ToolClient, DraftClient } from "./tools.js";
 import { DraftCoordinator } from "./drafts.js";
 import { MediaClient, ResourceClient } from "./media.js";
+import { SettingsClient } from "./settings.js";
 import type { MediaOptions, MediaHandle } from "./media.js";
 export { DraftController, DraftCoordinator } from "./drafts.js";
 export type { DraftSnapshot, DraftStatus } from "./drafts.js";
@@ -73,6 +74,12 @@ function metadataQuery(options: MetadataOptions) {
   return query;
 }
 export class StudioClient {
+  private sessionId = crypto.randomUUID();
+  private projectSessions = new Map<string, string>();
+  private sessionTimer: ReturnType<typeof setInterval> | null = null;
+  readonly settings = new SettingsClient(
+    <T>(path: string, init?: RequestInit) => this.request<T>(path, init),
+  );
   readonly tools = new ToolClient(<T>(path: string, init?: RequestInit) =>
     this.request<T>(path, init),
   );
@@ -83,6 +90,10 @@ export class StudioClient {
   preserveEdits(previous: StudioClient) {
     this.edits = previous.edits;
     this.edits.rebind(this.drafts);
+    this.sessionId = previous.sessionId;
+    this.projectSessions = new Map(previous.projectSessions);
+    this.openedProjects = new Set(previous.openedProjects);
+    this.startSessionHeartbeat();
   }
   private openedProjects = new Set<string>();
   private openingProjects = new Set<Promise<Schema["Project"]>>();
@@ -95,6 +106,10 @@ export class StudioClient {
     const pending = request()
       .then((project) => {
         this.openedProjects.add(project.id);
+        if (!this.projectSessions.has(project.id))
+          this.projectSessions.set(project.id, crypto.randomUUID());
+        this.startSessionHeartbeat();
+        void this.heartbeat(project.id);
         void this.edits.flush(project.id).catch(() => {});
         return project;
       })
@@ -121,7 +136,27 @@ export class StudioClient {
   private mediaClient: MediaClient;
   readonly resources: ResourceClient;
   dispose() {
+    if (this.sessionTimer !== null) clearInterval(this.sessionTimer);
+    this.sessionTimer = null;
     this.mediaClient.dispose();
+  }
+  private async heartbeat(projectId: string) {
+    try {
+      await this.request("/v1/projects/" + projectId + "/cache-session", {
+        method: "POST",
+      });
+    } catch {
+      /* Reconnection renews the same live client session. */
+    }
+  }
+  private startSessionHeartbeat() {
+    if (this.sessionTimer !== null || !this.openedProjects.size) return;
+    this.sessionTimer = setInterval(() => {
+      for (const id of this.openedProjects) void this.heartbeat(id);
+    }, 20000);
+    // SDK scripts must not be kept alive solely by an idle desktop heartbeat.
+    if (typeof this.sessionTimer === "object" && "unref" in this.sessionTimer)
+      this.sessionTimer.unref();
   }
   constructor(readonly connection: EngineConnection) {
     validateConnection(connection);
@@ -137,9 +172,13 @@ export class StudioClient {
     const headers = new Headers(init.headers);
     headers.set("Authorization", "Bearer " + this.connection.token);
     if (init.body) headers.set("Content-Type", "application/json");
-    const projectId = /^\/v1\/projects\/([0-9a-f-]{36})(?:\/|\?)/i.exec(
+    const projectId = /^\/v1\/projects\/([0-9a-f-]{36})(?:\/|\?|$)/i.exec(
       path,
     )?.[1];
+    headers.set(
+      "x-studio-session",
+      (projectId && this.projectSessions.get(projectId)) || this.sessionId,
+    );
     const readId =
       (!init.method || init.method === "GET") && projectId && init.signal
         ? crypto.randomUUID()
@@ -236,6 +275,11 @@ export class StudioClient {
       { method: "POST" },
     );
     this.openedProjects.delete(id);
+    this.projectSessions.delete(id);
+    if (!this.openedProjects.size && this.sessionTimer !== null) {
+      clearInterval(this.sessionTimer);
+      this.sessionTimer = null;
+    }
     return result;
   }
   project(id: string) {

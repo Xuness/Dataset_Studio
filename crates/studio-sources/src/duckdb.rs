@@ -67,7 +67,40 @@ api! {
     validity_row_is_valid:unsafe extern "C" fn(*mut u64,u64)->bool,
     string_t_length:unsafe extern "C" fn(RawString)->u32,
     string_t_data:unsafe extern "C" fn(*mut RawString)->*const c_char,
+    appender_create_ext:unsafe extern "C" fn(Handle,*const c_char,*const c_char,*const c_char,*mut Handle)->u32,
+    append_int64:unsafe extern "C" fn(Handle,i64)->u32,
+    append_blob:unsafe extern "C" fn(Handle,*const c_void,u64)->u32,
+    appender_end_row:unsafe extern "C" fn(Handle)->u32,
+    appender_close:unsafe extern "C" fn(Handle)->u32,
+    appender_error:unsafe extern "C" fn(Handle)->*const c_char,
+    appender_destroy:unsafe extern "C" fn(*mut Handle)->u32,
     free:unsafe extern "C" fn(Handle),
+}
+struct Appender<'a> {
+    raw: Handle,
+    api: &'a Api,
+}
+impl Appender<'_> {
+    fn error(&self) -> Error {
+        let message = unsafe { (self.api.appender_error)(self.raw) };
+        Error::new(
+            "QUERY_CANDIDATE_ERROR",
+            if message.is_null() {
+                "无法写入查询候选集合".into()
+            } else {
+                unsafe { CStr::from_ptr(message) }
+                    .to_string_lossy()
+                    .into_owned()
+            },
+        )
+    }
+}
+impl Drop for Appender<'_> {
+    fn drop(&mut self) {
+        if !self.raw.is_null() {
+            unsafe { (self.api.appender_destroy)(&mut self.raw) };
+        }
+    }
 }
 struct QueryResult<'a> {
     raw: RawResult,
@@ -192,6 +225,59 @@ impl Runtime {
     }
 }
 impl Session {
+    /// Import immutable observation and asset identities into request-local memory.
+    /// This keeps external access disabled and never attaches a writable archive.
+    pub(crate) fn import_candidates(
+        &self,
+        produce: impl FnOnce(&mut dyn FnMut(i64, &[u8]) -> Result<()>) -> Result<()>,
+    ) -> Result<u64> {
+        self.query("CREATE TEMP TABLE studio_rating_candidates(row_id BIGINT,sha256 BLOB)")?;
+        let mut appender = Appender {
+            raw: std::ptr::null_mut(),
+            api: &self.api,
+        };
+        let status = unsafe {
+            (self.api.appender_create_ext)(
+                self.connection,
+                c"temp".as_ptr(),
+                c"main".as_ptr(),
+                c"studio_rating_candidates".as_ptr(),
+                &mut appender.raw,
+            )
+        };
+        if status != 0 {
+            return Err(if appender.raw.is_null() {
+                Error::new("QUERY_CANDIDATE_ERROR", "无法创建查询候选集合")
+            } else {
+                appender.error()
+            });
+        }
+        let mut count = 0u64;
+        produce(&mut |row, sha| {
+            if count.is_multiple_of(512) {
+                self.check_cancelled()?;
+            }
+            if sha.len() != 32 {
+                return Err(Error::new("SOURCE_FORMAT_ERROR", "分级候选图片身份无效"));
+            }
+            if unsafe { (self.api.append_int64)(appender.raw, row) } != 0
+                || unsafe {
+                    (self.api.append_blob)(appender.raw, sha.as_ptr().cast(), sha.len() as u64)
+                } != 0
+                || unsafe { (self.api.appender_end_row)(appender.raw) } != 0
+            {
+                return Err(appender.error());
+            }
+            count += 1;
+            Ok(())
+        })?;
+        if unsafe { (self.api.appender_close)(appender.raw) } != 0 {
+            return Err(appender.error());
+        }
+        self.check_cancelled()?;
+        Ok(count)
+    }
+
     pub fn open(dll: &Path, path: &Path) -> Result<Self> {
         Self::configured(dll, path, true, Duration::from_secs(8))
     }
@@ -430,7 +516,17 @@ impl Session {
             Ok(output)
         }
     }
-    fn check_cancelled(&self) -> Result<()> {
+    pub(crate) fn cancellation_probe(&self) -> impl FnMut() -> bool + Send + 'static {
+        let cancelled = self.cancelled.clone();
+        let expired = self.expired.clone();
+        move || {
+            expired.load(Ordering::Acquire)
+                || cancelled
+                    .as_ref()
+                    .is_some_and(|flag| flag.load(Ordering::Acquire))
+        }
+    }
+    pub(crate) fn check_cancelled(&self) -> Result<()> {
         if self
             .cancelled
             .as_ref()
@@ -459,7 +555,7 @@ impl Session {
         max_value_bytes: usize,
         sink: &mut dyn FnMut(&[String]) -> Result<()>,
     ) -> Result<()> {
-        if max_value_bytes == 0 || max_value_bytes > 8192 {
+        if max_value_bytes == 0 || max_value_bytes > 128 * 1024 {
             return Err(Error::invalid("流式字段大小超出边界"));
         }
         self.check_cancelled()?;
@@ -587,6 +683,35 @@ impl Drop for Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn candidate_appender_is_bounded_and_only_writes_the_temporary_catalog() {
+        let dll = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/duckdb/duckdb.dll");
+        let root = tempfile::tempdir().unwrap();
+        let path = root.path().join("source.duckdb");
+        drop(Session::fixture(&dll, &path).unwrap());
+        let runtime = Runtime::new(dll);
+        let db = runtime
+            .open_query(&path, Arc::new(AtomicBool::new(false)))
+            .unwrap();
+        assert_eq!(
+            db.import_candidates(|append| {
+                for n in 0..25000 {
+                    append(n, &[42; 32])?;
+                }
+                Ok(())
+            })
+            .unwrap(),
+            25000
+        );
+        assert_eq!(
+            db.query("SELECT count(*),sum(row_id),count(DISTINCT sha256),min(octet_length(sha256)) FROM studio_rating_candidates")
+                .unwrap()[0],
+            vec![Some("25000".into()), Some("312487500".into()),Some("1".into()),Some("32".into())]
+        );
+        drop(db);
+        let db = runtime.open(&path).unwrap();
+        assert_eq!(db.query("SELECT count(*) FROM information_schema.tables WHERE table_name='studio_rating_candidates'").unwrap()[0][0].as_deref(),Some("0"));
+    }
     #[test]
     fn external_query_work_uses_owned_disk_space_and_cleans_it() {
         let dll = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/duckdb/duckdb.dll");

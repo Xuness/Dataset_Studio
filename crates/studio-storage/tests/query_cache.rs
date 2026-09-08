@@ -1,7 +1,7 @@
 use std::{collections::HashSet, sync::atomic::AtomicBool};
 use studio_application::{ProjectRepository, QueryRepository, ScopeRepository};
 use studio_domain::*;
-use studio_storage::{QueryCachePolicy, QueryStage, SqliteStore};
+use studio_storage::{QueryCachePolicy, QueryCacheRequest, QueryStage, SqliteStore};
 
 struct Fixture {
     root: tempfile::TempDir,
@@ -83,6 +83,185 @@ fn full(f: &Fixture) -> QueryResult {
 }
 
 #[test]
+fn tier_promotion_shares_members_and_temporary_expiry_preserves_long_term_and_fixed_results() {
+    let f = fixture();
+    let first = full(&f);
+    assert_eq!(first.cache.tier, QueryCacheTier::Temporary);
+    let promoted = f
+        .store
+        .set_cache_retention(&f.pid, &first.id, QueryCacheTier::LongTerm, false, false)
+        .unwrap();
+    assert_eq!(promoted.cache.tier, QueryCacheTier::LongTerm);
+    assert_eq!(
+        f.store.query_cache_stats(&f.pid).unwrap().member_versions,
+        100,
+        "Promotion does not copy members"
+    );
+    let mut other_spec = spec(&f);
+    other_spec.conditions.push(QueryCondition {
+        field: "stored.bytes".into(),
+        operator: QueryOperator::Gte,
+        value: Some(QueryValue::Integer("100".into())),
+    });
+    let other = f
+        .store
+        .create_cached_result(&f.pid, None, other_spec, version(&f, 1), true)
+        .unwrap();
+    f.store.start_result(&f.pid, &other.id).unwrap();
+    let mut stage = QueryStage::new(f.root.path()).unwrap();
+    stage.full_source(&f.sid);
+    stage.append(&[key(&f, 200)], &[Some(200)], 1).unwrap();
+    let other = publish(&f, &other, &stage, "full");
+    let db = rusqlite::Connection::open(f.store.directory(&f.pid).unwrap().join("project.sqlite"))
+        .unwrap();
+    let old = studio_storage::now().parse::<u64>().unwrap() - 25 * 3600 * 1000;
+    db.execute("UPDATE query_families SET touched_at=?1", [old as i64])
+        .unwrap();
+    drop(db);
+    f.store
+        .maintain_query_cache(&f.pid, &QueryCachePolicy::default(), &HashSet::new(), false)
+        .unwrap();
+    assert_eq!(
+        f.store.query_result(&f.pid, &other.id).unwrap().state,
+        ResultState::Released
+    );
+    assert_eq!(
+        f.store.query_result(&f.pid, &first.id).unwrap().state,
+        ResultState::Ready
+    );
+    f.store
+        .set_cache_retention(&f.pid, &first.id, QueryCacheTier::LongTerm, true, false)
+        .unwrap();
+    let zero = QueryCachePolicy {
+        quota_bytes: 0,
+        long_term_quota_bytes: 0,
+        temporary_quota_bytes: 0,
+        ..QueryCachePolicy::default()
+    };
+    f.store
+        .maintain_query_cache(&f.pid, &zero, &HashSet::new(), true)
+        .unwrap();
+    assert_eq!(
+        f.store.query_result(&f.pid, &first.id).unwrap().state,
+        ResultState::Ready,
+        "Fixed membership survives explicit ordinary cache cleanup"
+    );
+    f.store
+        .set_cache_retention(&f.pid, &first.id, QueryCacheTier::Temporary, false, false)
+        .unwrap();
+    f.store
+        .maintain_query_cache(&f.pid, &zero, &HashSet::new(), false)
+        .unwrap();
+    assert_eq!(
+        f.store.query_result(&f.pid, &first.id).unwrap().state,
+        ResultState::Released
+    );
+}
+
+#[test]
+fn session_results_do_not_resurrect_after_restart_and_active_view_delays_cleanup() {
+    let f = fixture();
+    let a = new_id();
+    let b = new_id();
+    let request = |session: &str| QueryCacheRequest {
+        enabled: true,
+        session_id: Some(session.into()),
+        session_only: true,
+        live_sessions: HashSet::from([session.into()]),
+    };
+    let build = |session: &str| {
+        let result = f
+            .store
+            .create_result_with_cache(&f.pid, None, spec(&f), version(&f, 1), &request(session))
+            .unwrap();
+        if result.state == ResultState::Ready {
+            return result;
+        }
+        f.store.start_result(&f.pid, &result.id).unwrap();
+        let mut stage = QueryStage::new(f.root.path()).unwrap();
+        stage.full_source(&f.sid);
+        stage.append(&[key(&f, 1)], &[Some(1)], 1).unwrap();
+        publish(&f, &result, &stage, "full")
+    };
+    let first = build(&a);
+    let reused = build(&a);
+    assert_eq!(reused.cache.mode, "reused");
+    assert!(
+        f.store
+            .cache_session_valid(&f.pid, &first.id, &HashSet::from([a.clone()]))
+            .unwrap()
+    );
+    assert!(
+        !f.store
+            .cache_session_valid(&f.pid, &first.id, &HashSet::from([b.clone()]))
+            .unwrap(),
+        "A saved result must be invalid before garbage collection when its original session has ended"
+    );
+    let db = rusqlite::Connection::open(f.store.directory(&f.pid).unwrap().join("project.sqlite"))
+        .unwrap();
+    db.execute("UPDATE query_families SET touched_at=0", [])
+        .unwrap();
+    drop(db);
+    let same_session = QueryCachePolicy {
+        session_only: true,
+        live_sessions: HashSet::from([a.clone()]),
+        ..QueryCachePolicy::default()
+    };
+    f.store
+        .maintain_query_cache(&f.pid, &same_session, &HashSet::new(), false)
+        .unwrap();
+    assert_eq!(
+        f.store.query_result(&f.pid, &first.id).unwrap().state,
+        ResultState::Ready,
+        "Session mode does not also impose the hidden 24-hour idle deadline"
+    );
+    assert_eq!(
+        f.store.query_cache_stats(&f.pid).unwrap().member_versions,
+        1
+    );
+    let next = build(&b);
+    assert_ne!(
+        next.cache.mode, "reused",
+        "A new client session cannot revive the previous session's cache before GC runs"
+    );
+    let mut policy = QueryCachePolicy {
+        session_only: true,
+        live_sessions: HashSet::from([b]),
+        ..QueryCachePolicy::default()
+    };
+    f.store
+        .maintain_query_cache(&f.pid, &policy, &HashSet::from([first.id.clone()]), false)
+        .unwrap();
+    assert_eq!(
+        f.store.query_result(&f.pid, &first.id).unwrap().state,
+        ResultState::Ready
+    );
+    f.store
+        .maintain_query_cache(&f.pid, &policy, &HashSet::new(), false)
+        .unwrap();
+    assert_eq!(
+        f.store.query_result(&f.pid, &first.id).unwrap().state,
+        ResultState::Released
+    );
+    assert_eq!(
+        f.store.query_result(&f.pid, &next.id).unwrap().state,
+        ResultState::Ready
+    );
+    policy.live_sessions.clear();
+    f.store
+        .maintain_query_cache(&f.pid, &policy, &HashSet::new(), false)
+        .unwrap();
+    assert_eq!(
+        f.store.query_result(&f.pid, &next.id).unwrap().state,
+        ResultState::Released
+    );
+    assert_eq!(
+        f.store.query_cache_stats(&f.pid).unwrap().member_versions,
+        0
+    );
+}
+
+#[test]
 fn equivalent_queries_share_members_but_keep_request_order_and_metadata() {
     let f = fixture();
     let first = full(&f);
@@ -161,6 +340,7 @@ fn incremental_versions_change_only_affected_members_and_keep_pinned_snapshots()
     let policy = QueryCachePolicy {
         quota_bytes: 0,
         max_age_seconds: 0,
+        ..QueryCachePolicy::default()
     };
     f.store
         .maintain_query_cache(&f.pid, &policy, &HashSet::from([next.id.clone()]), true)
@@ -299,6 +479,7 @@ fn closed_project_cleanup_keeps_daily_registry_and_authoritative_state_unchanged
     let policy = QueryCachePolicy {
         quota_bytes: 0,
         max_age_seconds: 0,
+        ..QueryCachePolicy::default()
     };
     let stats =
         SqliteStore::maintain_closed_cache(f.store.root(), &f.pid, &directory, &policy, true)

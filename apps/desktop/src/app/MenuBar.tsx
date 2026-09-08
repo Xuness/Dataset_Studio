@@ -73,6 +73,7 @@ export function MenuBar({
             v: "视图",
             t: "工具",
             w: "窗口",
+            s: "设置",
             h: "帮助",
           } as Record<string, string>
         )[key];
@@ -218,7 +219,7 @@ export function MenuBar({
           <span data-tauri-drag-region>{title}</span>
         </div>
         <span className="version-label" data-tauri-drag-region>
-          0.6
+          0.7
         </span>
         {nativeWindow && (
           <div className="window-controls">

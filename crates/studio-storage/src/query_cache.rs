@@ -2,16 +2,36 @@ use crate::*;
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 
+#[derive(Debug, Clone, Default)]
+pub struct QueryCacheRequest {
+    pub enabled: bool,
+    pub session_id: Option<String>,
+    pub session_only: bool,
+    pub live_sessions: HashSet<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueryCachePolicy {
     pub quota_bytes: u64,
     pub max_age_seconds: u64,
+    pub long_term_quota_bytes: u64,
+    pub temporary_quota_bytes: u64,
+    pub long_term_max_age_seconds: Option<u64>,
+    pub session_only: bool,
+    pub live_sessions: HashSet<String>,
+    pub clear_tier: Option<QueryCacheTier>,
 }
 impl Default for QueryCachePolicy {
     fn default() -> Self {
         Self {
-            quota_bytes: 4 << 30,
-            max_age_seconds: 7 * 24 * 3600,
+            quota_bytes: 64 << 30,
+            max_age_seconds: 24 * 3600,
+            long_term_quota_bytes: 48 << 30,
+            temporary_quota_bytes: 8 << 30,
+            long_term_max_age_seconds: None,
+            session_only: false,
+            live_sessions: HashSet::new(),
+            clear_tier: None,
         }
     }
 }
@@ -26,6 +46,30 @@ pub struct QueryCacheStats {
     pub reused_results: u64,
     pub incremental_results: u64,
     pub reclaimed_families: u64,
+    pub long_term_families: u64,
+    pub temporary_families: u64,
+    pub long_term_bytes: u64,
+    pub temporary_bytes: u64,
+    pub fixed_bytes: u64,
+    pub session_families: u64,
+    pub oldest_long_term_millis: u64,
+    pub oldest_temporary_millis: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct QueryCacheEntry {
+    pub project_id: String,
+    pub family_id: String,
+    pub result_id: String,
+    pub spec: QuerySpec,
+    pub tier: QueryCacheTier,
+    pub fixed: bool,
+    pub session_only: bool,
+    pub last_used_millis: u64,
+    pub members: u64,
+    /// Shared SQLite pages are apportioned by stored member counts.
+    pub estimated_bytes: u64,
+    pub protected_results: u64,
 }
 
 /// Durable result metadata stays in the project. This independently bounded,
@@ -143,7 +187,7 @@ impl SqliteStore {
             let version: u32 = db
                 .query_row("PRAGMA user_version", [], |r| r.get(0))
                 .map_err(db_error)?;
-            if version != 6 {
+            if !(6..=7).contains(&version) {
                 return Ok(None);
             }
             let active:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM query_results WHERE status IN ('queued','running')) OR EXISTS(SELECT 1 FROM jobs WHERE status IN ('queued','preparing','running','waiting_input'))",[],|r|r.get(0)).map_err(db_error)?;
@@ -247,7 +291,26 @@ impl SqliteStore {
         enabled: bool,
     ) -> Result<QueryResult> {
         versions.sort_by(|a, b| a.source_id.cmp(&b.source_id));
-        self.create_cached_result_kind(pid, definition, spec, versions, enabled, false)
+        self.create_result_with_cache(
+            pid,
+            definition,
+            spec,
+            versions,
+            &QueryCacheRequest {
+                enabled,
+                ..QueryCacheRequest::default()
+            },
+        )
+    }
+    pub fn create_result_with_cache(
+        &self,
+        pid: &str,
+        definition: Option<(&str, u64)>,
+        spec: QuerySpec,
+        versions: Vec<QuerySourceVersion>,
+        cache: &QueryCacheRequest,
+    ) -> Result<QueryResult> {
+        self.create_cached_result_kind(pid, definition, spec, versions, cache, false)
     }
     pub fn browse_result(
         &self,
@@ -266,7 +329,17 @@ impl SqliteStore {
                 return query::read_result(&db, pid, &id);
             }
         }
-        self.create_cached_result_kind(pid, None, spec, versions, enabled, true)
+        self.create_cached_result_kind(
+            pid,
+            None,
+            spec,
+            versions,
+            &QueryCacheRequest {
+                enabled,
+                ..QueryCacheRequest::default()
+            },
+            true,
+        )
     }
     #[allow(
         clippy::too_many_arguments,
@@ -278,7 +351,7 @@ impl SqliteStore {
         definition: Option<(&str, u64)>,
         spec: QuerySpec,
         mut versions: Vec<QuerySourceVersion>,
-        enabled: bool,
+        cache: &QueryCacheRequest,
         internal: bool,
     ) -> Result<QueryResult> {
         let spec = spec.normalize()?;
@@ -302,8 +375,9 @@ impl SqliteStore {
             }
         }
         let key = fingerprint(&spec)?;
-        let previous: Option<(String, String, i64, i64)> = if enabled {
-            tx.query_row("SELECT id,latest_result_id,latest_revision,latest_count FROM query_families WHERE fingerprint=?1 AND cached=1 AND latest_result_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM query_results r WHERE r.family_id=query_families.id AND r.status IN ('queued','running')) ORDER BY touched_at DESC LIMIT 1",[&key],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional().map_err(db_error)?
+        let session_ids = checked_ids(&cache.live_sessions)?;
+        let previous: Option<(String, String, i64, i64)> = if cache.enabled {
+            tx.query_row(&format!("SELECT id,latest_result_id,latest_revision,latest_count FROM query_families WHERE fingerprint=?1 AND cached=1 AND latest_result_id IS NOT NULL AND (session_only=0 OR fixed=1 OR EXISTS(SELECT 1 FROM query_cache_sessions s WHERE s.family_id=query_families.id AND s.session_id IN ({session_ids}))) AND NOT EXISTS(SELECT 1 FROM query_results r WHERE r.family_id=query_families.id AND r.status IN ('queued','running')) ORDER BY touched_at DESC LIMIT 1"),[&key],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).optional().map_err(db_error)?
         } else {
             None
         };
@@ -338,10 +412,25 @@ impl SqliteStore {
             }
         } else {
             tx.execute(
-                "UPDATE query_families SET fingerprint=?2,cached=?3 WHERE id=?1",
-                params![result.id, key, enabled],
+                "UPDATE query_families SET fingerprint=?2,cached=?3,tier=?4 WHERE id=?1",
+                params![
+                    result.id,
+                    key,
+                    cache.enabled,
+                    if internal {
+                        QueryCacheTier::Temporary
+                    } else {
+                        QueryCacheTier::for_spec(&spec)
+                    }
+                    .as_str()
+                ],
             )
             .map_err(db_error)?;
+        }
+        if let Some(session) = &cache.session_id {
+            validate_id(session)?;
+            tx.execute("UPDATE query_families SET session_only=?2 WHERE tier='temporary' AND id=(SELECT family_id FROM query_results WHERE id=?1)",params![result.id,cache.session_only]).map_err(db_error)?;
+            tx.execute("INSERT OR IGNORE INTO query_cache_sessions SELECT family_id,?2 FROM query_results WHERE id=?1",params![result.id,session]).map_err(db_error)?;
         }
         let result = query::read_result(&tx, pid, &result.id)?;
         tx.commit().map_err(db_error)?;
@@ -398,6 +487,190 @@ impl SqliteStore {
         db.execute("UPDATE query_families SET touched_at=?2 WHERE id=(SELECT family_id FROM query_results WHERE id=?1) AND touched_at<?2-60000",params![rid,time]).map_err(db_error)?;
         Ok(())
     }
+    pub fn bind_cache_session(
+        &self,
+        pid: &str,
+        rid: &str,
+        session: &str,
+        session_only: bool,
+    ) -> Result<()> {
+        validate_id(session)?;
+        let p = self.handle(pid)?;
+        let db = p.db.lock().map_err(lock_error)?;
+        db.execute("UPDATE query_families SET session_only=?2 WHERE id=(SELECT family_id FROM query_results WHERE id=?1) AND tier='temporary'",params![rid,session_only]).map_err(db_error)?;
+        db.execute("INSERT OR IGNORE INTO query_cache_sessions SELECT family_id,?2 FROM query_results WHERE id=?1",params![rid,session]).map_err(db_error)?;
+        Ok(())
+    }
+    pub fn cache_session_valid(
+        &self,
+        pid: &str,
+        rid: &str,
+        sessions: &HashSet<String>,
+    ) -> Result<bool> {
+        let p = self.handle(pid)?;
+        let db = p.db.lock().map_err(lock_error)?;
+        session_valid(&db, rid, sessions)
+    }
+    pub fn query_result_for_session(
+        &self,
+        pid: &str,
+        rid: &str,
+        sessions: &HashSet<String>,
+    ) -> Result<QueryResult> {
+        let project = self.handle(pid)?;
+        let read = |db: &Connection| -> Result<QueryResult> {
+            let mut result = query::read_result(db, pid, rid)?;
+            if !session_valid(db, rid, sessions)? {
+                result.state = ResultState::Released;
+                result.count = None;
+                result.error = Some("上次会话的临时缓存已结束，请重新应用筛选".into());
+            }
+            Ok(result)
+        };
+        match project.db.try_lock() {
+            Ok(db) => read(&db),
+            Err(std::sync::TryLockError::Poisoned(error)) => Err(lock_error(error)),
+            Err(std::sync::TryLockError::WouldBlock) => {
+                // Publishing millions of members holds the writer for a long time.
+                // WAL readers see one committed metadata snapshot, including its
+                // session references, without delaying progress polling behind it.
+                let db = Connection::open_with_flags(
+                    project.project.directory.join("project.sqlite"),
+                    rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+                )
+                .map_err(db_error)?;
+                db.busy_timeout(std::time::Duration::from_secs(1))
+                    .map_err(db_error)?;
+                db.execute_batch("BEGIN").map_err(db_error)?;
+                read(&db)
+            }
+        }
+    }
+    pub fn set_cache_retention(
+        &self,
+        pid: &str,
+        rid: &str,
+        tier: QueryCacheTier,
+        fixed: bool,
+        session_only: bool,
+    ) -> Result<QueryResult> {
+        let p = self.handle(pid)?;
+        let db = p.db.lock().map_err(lock_error)?;
+        let result = query::read_result(&db, pid, rid)?;
+        if result.state != ResultState::Ready {
+            return Err(Error::new(
+                "RESULT_NOT_READY",
+                "请先重新计算已释放或未完成的结果",
+            ));
+        }
+        db.execute("UPDATE query_families SET tier=?2,fixed=?3,session_only=?4,cached=1,touched_at=CAST(?5 AS INTEGER) WHERE id=(SELECT family_id FROM query_results WHERE id=?1)",params![rid,tier.as_str(),fixed,tier==QueryCacheTier::Temporary && session_only,now()]).map_err(db_error)?;
+        event(&db, "result.changed", rid)?;
+        query::read_result(&db, pid, rid)
+    }
+    pub fn query_basis_usage(
+        &self,
+        pid: &str,
+        rid: &str,
+        ratings: &[String],
+        candidates: u64,
+    ) -> Result<()> {
+        let p = self.handle(pid)?;
+        let db = p.db.lock().map_err(lock_error)?;
+        db.execute(
+            "UPDATE query_results SET basis_ratings_json=?2,candidate_records=?3 WHERE id=?1",
+            params![
+                rid,
+                serde_json::to_string(ratings).map_err(Error::io)?,
+                candidates as i64
+            ],
+        )
+        .map_err(db_error)?;
+        Ok(())
+    }
+    pub fn release_cache_entry(
+        &self,
+        pid: &str,
+        rid: &str,
+        live: &HashSet<String>,
+    ) -> Result<QueryResult> {
+        let p = self.handle(pid)?;
+        let mut db = p.db.lock().map_err(lock_error)?;
+        let result = query::read_result(&db, pid, rid)?;
+        let ids = checked_ids(live)?;
+        let family: String = db
+            .query_row(
+                "SELECT family_id FROM query_results WHERE id=?1",
+                [rid],
+                |r| r.get(0),
+            )
+            .map_err(db_error)?;
+        let in_use:bool=db.query_row(&format!("SELECT EXISTS(SELECT 1 FROM query_results r WHERE r.family_id=?1 AND (r.status IN ('queued','running') OR r.id IN ({ids}) OR EXISTS(SELECT 1 FROM result_references x WHERE x.result_id=r.id)))"),[&family],|r|r.get(0)).map_err(db_error)?;
+        if result.cache.fixed || in_use {
+            return Err(Error::new(
+                "CACHE_IN_USE",
+                "结果正在使用、被项目引用或已固定，暂时不能清理",
+            ));
+        }
+        let tx = db.transaction().map_err(db_error)?;
+        tx.execute(
+            "UPDATE query_families SET cached=0,latest_count=0 WHERE id=?1",
+            [&family],
+        )
+        .map_err(db_error)?;
+        tx.execute("UPDATE query_results SET status='released',count=NULL,error='查询缓存已手动清理' WHERE family_id=?1 AND status='ready'",[&family]).map_err(db_error)?;
+        tx.execute(
+            "DELETE FROM query_cache_sessions WHERE family_id=?1",
+            [&family],
+        )
+        .map_err(db_error)?;
+        prune(&tx, &family, live)?;
+        event(&tx, "result.changed", rid)?;
+        tx.commit().map_err(db_error)?;
+        self.invalidate_query_sizes(pid);
+        query::read_result(&db, pid, rid)
+    }
+    pub fn query_cache_entries(
+        &self,
+        pid: &str,
+        after: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<QueryCacheEntry>> {
+        let p = self.handle(pid)?;
+        let db = p.db.lock().map_err(lock_error)?;
+        let sizes = self.query_sizes(pid, &db)?;
+        let mut statement = db.prepare("SELECT f.id,f.latest_result_id,f.touched_at,f.stored_members,(SELECT count(DISTINCT x.result_id) FROM result_references x JOIN query_results r ON r.id=x.result_id WHERE r.family_id=f.id) FROM query_families f WHERE f.cached=1 AND f.latest_result_id IS NOT NULL AND (?1 IS NULL OR f.id>?1) ORDER BY f.id LIMIT ?2").map_err(db_error)?;
+        let rows = statement
+            .query_map(params![after, limit.clamp(1, 128) as i64], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    unsigned(r, 2)?,
+                    unsigned(r, 3)?,
+                    unsigned(r, 4)?,
+                ))
+            })
+            .map_err(db_error)?
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(db_error)?;
+        rows.into_iter()
+            .map(|(family, rid, used, count, protected)| {
+                let result = query::read_result(&db, pid, &rid)?;
+                Ok(QueryCacheEntry {
+                    project_id: pid.into(),
+                    family_id: family,
+                    result_id: rid,
+                    spec: result.spec,
+                    tier: result.cache.tier,
+                    fixed: result.cache.fixed,
+                    session_only: result.cache.session_only,
+                    last_used_millis: used,
+                    members: count,
+                    estimated_bytes: apportion(sizes.0, count, sizes.1),
+                    protected_results: protected,
+                })
+            })
+            .collect()
+    }
     pub fn publish_stage(
         &self,
         pid: &str,
@@ -451,6 +724,7 @@ impl SqliteStore {
         .map_err(db_error)?;
         let outcome = (|| {
             let mut changed = 0u64;
+            let mut inserted = 0u64;
             let tx = db.transaction().map_err(db_error)?;
             for source in &result.spec.source_ids {
                 studio_application::read_cancelled(cancelled)?;
@@ -475,11 +749,18 @@ impl SqliteStore {
                     .map_err(db_error)?
                 };
                 let Some(last) = last else { break };
-                changed+=tx.execute("INSERT INTO query_member_data(family_id,source_id,asset_id,valid_from,post_id) SELECT ?1,s.source_id,s.asset_id,?2,s.post_id FROM query_stage.matches s WHERE (s.source_id,s.asset_id)>(?3,?4) AND (s.source_id,s.asset_id)<=(?5,?6) AND NOT EXISTS(SELECT 1 FROM query_member_data m WHERE m.family_id=?1 AND m.source_id=s.source_id AND m.asset_id=s.asset_id AND m.valid_until IS NULL) ORDER BY s.source_id,s.asset_id",params![family,revision,after.0,after.1,last.0,last.1]).map_err(db_error)? as u64;
+                let added=tx.execute("INSERT INTO query_member_data(family_id,source_id,asset_id,valid_from,post_id) SELECT ?1,s.source_id,s.asset_id,?2,s.post_id FROM query_stage.matches s WHERE (s.source_id,s.asset_id)>(?3,?4) AND (s.source_id,s.asset_id)<=(?5,?6) AND NOT EXISTS(SELECT 1 FROM query_member_data m WHERE m.family_id=?1 AND m.source_id=s.source_id AND m.asset_id=s.asset_id AND m.valid_until IS NULL) ORDER BY s.source_id,s.asset_id",params![family,revision,after.0,after.1,last.0,last.1]).map_err(db_error)? as u64;
+                changed += added;
+                inserted += added;
                 after = last;
             }
             studio_application::read_cancelled(cancelled)?;
             let count:i64=tx.query_row("SELECT count(*) FROM query_member_data WHERE family_id=?1 AND valid_from<=?2 AND (valid_until IS NULL OR valid_until>?2)",params![family,revision],|r|r.get(0)).map_err(db_error)?;
+            tx.execute(
+                "UPDATE query_families SET stored_members=stored_members+?2 WHERE id=?1",
+                params![family, inserted as i64],
+            )
+            .map_err(db_error)?;
             tx.execute("UPDATE query_results SET count=?2,processed=?3,cache_mode=?4,evaluated_count=?5,changed_members=?6,post_ready=?7 WHERE id=?1",params![rid,count,stage.processed as i64,mode,stage.evaluated as i64,changed as i64,stage.post_ready]).map_err(db_error)?;
             tx.commit().map_err(db_error)?;
             Ok(())
@@ -499,6 +780,15 @@ impl SqliteStore {
         let db = p.db.lock().map_err(lock_error)?;
         stats(&db, self.query_sizes(pid, &db)?)
     }
+    pub fn try_query_cache_stats(&self, pid: &str) -> Result<Option<QueryCacheStats>> {
+        let p = self.handle(pid)?;
+        let db = match p.db.try_lock() {
+            Ok(db) => db,
+            Err(std::sync::TryLockError::WouldBlock) => return Ok(None),
+            Err(std::sync::TryLockError::Poisoned(error)) => return Err(lock_error(error)),
+        };
+        stats(&db, self.query_sizes(pid, &db)?).map(Some)
+    }
     pub fn maintain_query_cache(
         &self,
         pid: &str,
@@ -508,26 +798,31 @@ impl SqliteStore {
     ) -> Result<QueryCacheStats> {
         let p = self.handle(pid)?;
         let mut db = p.db.lock().map_err(lock_error)?;
-        let cutoff = now()
-            .parse::<u64>()
-            .unwrap_or(0)
-            .saturating_sub(policy.max_age_seconds.saturating_mul(1000))
-            as i64;
+        let current_time = now().parse::<u64>().unwrap_or(0);
         let mut reclaimed = 0;
+        let session_ids = checked_ids(&policy.live_sessions)?;
+        db.execute(
+            &format!("DELETE FROM query_cache_sessions WHERE session_id NOT IN ({session_ids})"),
+            [],
+        )
+        .map_err(db_error)?;
         let candidates = {
-            let mut stmt=db.prepare("SELECT f.id,f.touched_at,f.cached FROM query_families f WHERE (cached=1 OR latest_count>0) AND NOT EXISTS(SELECT 1 FROM query_results r WHERE r.family_id=f.id AND r.status IN ('queued','running')) ORDER BY touched_at,id").map_err(db_error)?;
+            let mut stmt=db.prepare("SELECT f.id,f.touched_at,f.cached,f.tier,f.fixed,f.session_only FROM query_families f WHERE (cached=1 OR latest_count>0) AND NOT EXISTS(SELECT 1 FROM query_results r WHERE r.family_id=f.id AND r.status IN ('queued','running')) ORDER BY CASE tier WHEN 'temporary' THEN 0 ELSE 1 END,touched_at,id").map_err(db_error)?;
             stmt.query_map([], |r| {
                 Ok((
                     r.get::<_, String>(0)?,
                     r.get::<_, i64>(1)?,
                     r.get::<_, bool>(2)?,
+                    r.get::<_, String>(3)?,
+                    r.get::<_, bool>(4)?,
+                    r.get::<_, bool>(5)?,
                 ))
             })
             .map_err(db_error)?
             .collect::<std::result::Result<Vec<_>, _>>()
             .map_err(db_error)?
         };
-        let mut bytes = self.query_sizes(pid, &db)?.0;
+        let mut usage = stats(&db, self.query_sizes(pid, &db)?)?;
         let mut retained: u64 = db
             .query_row(
                 "SELECT count(*) FROM query_families WHERE cached=1",
@@ -535,7 +830,15 @@ impl SqliteStore {
                 |r| unsigned(r, 0),
             )
             .map_err(db_error)?;
-        for (family, touched, cached) in candidates {
+        for (family, touched, cached, tier_name, fixed, session_only) in candidates {
+            let tier = if tier_name == "long_term" {
+                QueryCacheTier::LongTerm
+            } else {
+                QueryCacheTier::Temporary
+            };
+            if fixed || (force && policy.clear_tier.is_some_and(|wanted| wanted != tier)) {
+                continue;
+            }
             let ids = {
                 let mut stmt = db
                     .prepare("SELECT id FROM query_results WHERE family_id=?1")
@@ -548,11 +851,38 @@ impl SqliteStore {
             if ids.iter().any(|id| live.contains(id)) {
                 continue;
             }
+            let mut sessions = db
+                .prepare("SELECT session_id FROM query_cache_sessions WHERE family_id=?1")
+                .map_err(db_error)?;
+            let current_session = sessions
+                .query_map([&family], |r| r.get::<_, String>(0))
+                .map_err(db_error)?
+                .any(|row| row.is_ok_and(|id| policy.live_sessions.contains(&id)));
+            drop(sessions);
+            let in_session_mode =
+                tier == QueryCacheTier::Temporary && (session_only || policy.session_only);
+            let expires = if tier == QueryCacheTier::LongTerm {
+                policy.long_term_max_age_seconds
+            } else if in_session_mode {
+                None
+            } else {
+                Some(policy.max_age_seconds)
+            };
+            let expired = expires.is_some_and(|age| {
+                touched as u64 <= current_time.saturating_sub(age.saturating_mul(1000))
+            });
+            let session_expired = in_session_mode && !current_session;
+            let tier_fits = match tier {
+                QueryCacheTier::LongTerm => usage.long_term_bytes <= policy.long_term_quota_bytes,
+                QueryCacheTier::Temporary => usage.temporary_bytes <= policy.temporary_quota_bytes,
+            };
             if cached
                 && !force
-                && bytes <= policy.quota_bytes
+                && (tier == QueryCacheTier::LongTerm || usage.storage_bytes <= policy.quota_bytes)
+                && tier_fits
                 && retained <= 256
-                && touched >= cutoff
+                && !expired
+                && !session_expired
             {
                 continue;
             }
@@ -563,13 +893,18 @@ impl SqliteStore {
             )
             .map_err(db_error)?;
             tx.execute("UPDATE query_results SET status='released',count=NULL,error='查询缓存已回收，可重新计算' WHERE family_id=?1 AND status='ready' AND NOT EXISTS(SELECT 1 FROM result_references x WHERE x.result_id=query_results.id)",[&family]).map_err(db_error)?;
+            tx.execute(
+                "DELETE FROM query_cache_sessions WHERE family_id=?1",
+                [&family],
+            )
+            .map_err(db_error)?;
             prune(&tx, &family, live)?;
             event(&tx, "result.changed", &family)?;
             tx.commit().map_err(db_error)?;
             reclaimed += 1;
             retained = retained.saturating_sub(u64::from(cached));
             self.invalidate_query_sizes(pid);
-            bytes = self.query_sizes(pid, &db)?.0;
+            usage = stats(&db, self.query_sizes(pid, &db)?)?;
             if reclaimed >= 2 {
                 break;
             }
@@ -611,8 +946,41 @@ impl SqliteStore {
 fn member_bytes(db: &Connection) -> Result<u64> {
     db.query_row("SELECT COALESCE(SUM(pgsize),0) FROM dbstat WHERE name IN ('query_member_data','query_members_post','query_members_expired')",[],|r|unsigned(r,0)).map_err(db_error)
 }
+fn session_valid(db: &Connection, rid: &str, sessions: &HashSet<String>) -> Result<bool> {
+    let sessions = checked_ids(sessions)?;
+    db.query_row(&format!("SELECT f.session_only=0 OR f.fixed=1 OR EXISTS(SELECT 1 FROM result_references x WHERE x.result_id=r.id) OR EXISTS(SELECT 1 FROM query_cache_sessions s WHERE s.family_id=f.id AND s.session_id IN ({sessions})) FROM query_results r JOIN query_families f ON f.id=r.family_id WHERE r.id=?1"),[rid],|r|r.get(0)).map_err(db_error)
+}
+fn checked_ids(ids: &HashSet<String>) -> Result<String> {
+    if ids.len() > 1024 {
+        return Err(Error::new("RESOURCE_LIMIT", "缓存会话数量超过上限"));
+    }
+    let mut values = Vec::with_capacity(ids.len());
+    for id in ids {
+        validate_id(id)?;
+        values.push(format!("'{id}'"));
+    }
+    Ok(if values.is_empty() {
+        "''".into()
+    } else {
+        values.join(",")
+    })
+}
+fn apportion(bytes: u64, members: u64, total: u64) -> u64 {
+    if total == 0 {
+        0
+    } else {
+        ((bytes as u128 * members as u128) / total as u128) as u64
+    }
+}
 fn stats(db: &Connection, sizes: (u64, u64)) -> Result<QueryCacheStats> {
     let scalar = |sql: &str| db.query_row(sql, [], |r| unsigned(r, 0)).map_err(db_error);
+    let long_term_bytes = apportion(
+        sizes.0,
+        scalar(
+            "SELECT COALESCE(SUM(stored_members),0) FROM query_families WHERE tier='long_term'",
+        )?,
+        sizes.1,
+    );
     Ok(QueryCacheStats {
         last_used_millis: scalar(
             "SELECT COALESCE(MAX(touched_at),0) FROM query_families WHERE cached=1",
@@ -627,6 +995,28 @@ fn stats(db: &Connection, sizes: (u64, u64)) -> Result<QueryCacheStats> {
             "SELECT count(*) FROM query_results WHERE cache_mode='incremental'",
         )?,
         reclaimed_families: 0,
+        long_term_families: scalar(
+            "SELECT count(*) FROM query_families WHERE cached=1 AND tier='long_term'",
+        )?,
+        temporary_families: scalar(
+            "SELECT count(*) FROM query_families WHERE cached=1 AND tier='temporary'",
+        )?,
+        long_term_bytes,
+        temporary_bytes: sizes.0.saturating_sub(long_term_bytes),
+        fixed_bytes: apportion(
+            sizes.0,
+            scalar("SELECT COALESCE(SUM(stored_members),0) FROM query_families WHERE fixed=1")?,
+            sizes.1,
+        ),
+        session_families: scalar(
+            "SELECT count(*) FROM query_families WHERE cached=1 AND session_only=1 AND fixed=0",
+        )?,
+        oldest_long_term_millis: scalar(
+            "SELECT COALESCE(MIN(touched_at),0) FROM query_families WHERE cached=1 AND tier='long_term' AND fixed=0",
+        )?,
+        oldest_temporary_millis: scalar(
+            "SELECT COALESCE(MIN(touched_at),0) FROM query_families WHERE cached=1 AND tier='temporary' AND fixed=0",
+        )?,
     })
 }
 fn prune(db: &Connection, family: &str, live: &HashSet<String>) -> Result<usize> {
@@ -659,7 +1049,15 @@ fn prune(db: &Connection, family: &str, live: &HashSet<String>) -> Result<usize>
     } else {
         ""
     };
-    db.execute(&format!("WITH kept(revision) AS MATERIALIZED (SELECT DISTINCT r.member_revision FROM query_results r WHERE r.family_id=?1 AND (r.status IN ('queued','running') OR r.id IN ({alive}) OR EXISTS(SELECT 1 FROM result_references x WHERE x.result_id=r.id)) UNION SELECT latest_revision FROM query_families WHERE id=?1 AND cached=1) DELETE FROM query_member_data AS m {index} WHERE family_id=?1 {candidate} AND NOT EXISTS(SELECT 1 FROM kept WHERE revision>=m.valid_from AND (m.valid_until IS NULL OR revision<m.valid_until))"),[family]).map_err(db_error)
+    let removed=db.execute(&format!("WITH kept(revision) AS MATERIALIZED (SELECT DISTINCT r.member_revision FROM query_results r WHERE r.family_id=?1 AND (r.status IN ('queued','running') OR r.id IN ({alive}) OR EXISTS(SELECT 1 FROM result_references x WHERE x.result_id=r.id)) UNION SELECT latest_revision FROM query_families WHERE id=?1 AND cached=1) DELETE FROM query_member_data AS m {index} WHERE family_id=?1 {candidate} AND NOT EXISTS(SELECT 1 FROM kept WHERE revision>=m.valid_from AND (m.valid_until IS NULL OR revision<m.valid_until))"),[family]).map_err(db_error)?;
+    if removed > 0 {
+        db.execute(
+            "UPDATE query_families SET stored_members=MAX(0,stored_members-?2) WHERE id=?1",
+            params![family, removed as i64],
+        )
+        .map_err(db_error)?;
+    }
+    Ok(removed)
 }
 pub(super) fn collect_family(db: &Connection, rid: &str) -> Result<()> {
     let family: String = db
@@ -698,9 +1096,15 @@ pub(super) fn rollback_revision(db: &Connection, rid: &str) -> Result<()> {
         )
         .map_err(db_error)?;
     if revision > latest {
+        let removed = db
+            .execute(
+                "DELETE FROM query_member_data WHERE family_id=?1 AND valid_from=?2",
+                params![family, revision],
+            )
+            .map_err(db_error)?;
         db.execute(
-            "DELETE FROM query_member_data WHERE family_id=?1 AND valid_from=?2",
-            params![family, revision],
+            "UPDATE query_families SET stored_members=MAX(0,stored_members-?2) WHERE id=?1",
+            params![family, removed as i64],
         )
         .map_err(db_error)?;
         db.execute(
@@ -728,6 +1132,65 @@ pub(super) fn recover(db: &Connection) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn session_progress_reads_committed_wal_state_while_publisher_holds_the_writer() {
+        let root = tempfile::tempdir().unwrap();
+        let store = SqliteStore::new(root.path().join("state")).unwrap();
+        let project = store.create("进度快照", None).unwrap();
+        let handle = store.handle(&project.id).unwrap();
+        let rid = new_id();
+        let sid = new_id();
+        let session = new_id();
+        let spec = QuerySpec {
+            version: 1,
+            source_ids: vec![sid],
+            conditions: vec![],
+            observation_rule: ObservationRule::CurrentPost,
+            order: QueryOrder::AssetKeyAsc,
+            input_scope: None,
+        };
+        let db = handle.db.lock().unwrap();
+        db.execute("INSERT INTO query_results(id,spec_json,versions_json,status,created_at,cache_mode) VALUES(?1,?2,'[]','running','1','publishing')",params![rid,serde_json::to_string(&spec).unwrap()]).unwrap();
+        db.execute(
+            "UPDATE query_families SET session_only=1 WHERE id=?1",
+            [&rid],
+        )
+        .unwrap();
+        db.execute(
+            "INSERT INTO query_cache_sessions VALUES(?1,?2)",
+            params![rid, session],
+        )
+        .unwrap();
+        db.execute_batch("BEGIN IMMEDIATE").unwrap();
+        db.execute(
+            "UPDATE query_results SET status='ready',count=12 WHERE id=?1",
+            [&rid],
+        )
+        .unwrap();
+        let sessions = HashSet::from([session]);
+        let progress = store
+            .query_result_for_session(&project.id, &rid, &sessions)
+            .unwrap();
+        assert_eq!(progress.state, ResultState::Running);
+        assert_eq!(progress.cache.mode, "publishing");
+        assert_eq!(progress.count, None);
+        assert_eq!(
+            store
+                .query_result_for_session(&project.id, &rid, &HashSet::new())
+                .unwrap()
+                .state,
+            ResultState::Released
+        );
+        db.execute_batch("COMMIT").unwrap();
+        drop(db);
+        assert_eq!(
+            store
+                .query_result_for_session(&project.id, &rid, &sessions)
+                .unwrap()
+                .count,
+            Some(12)
+        );
+    }
     #[test]
     fn pruning_seeks_only_expired_members_after_many_reused_results() {
         let mut db = Connection::open_in_memory().unwrap();

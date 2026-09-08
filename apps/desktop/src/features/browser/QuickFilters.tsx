@@ -324,7 +324,7 @@ export function QuickFilters({ context }: { context: ModuleContext }) {
             />
             <div className="quick-filter-actions">
               <span className="subtle">
-                分级任一满足；排除包含任一指定标签的图片。
+                各组条件同时满足；分级多选为任一满足。
               </span>
               <span className="grow" />
               {value.resultId && signature !== value.submitted && (
@@ -385,7 +385,11 @@ export function QuickFilters({ context }: { context: ModuleContext }) {
           {queryCacheLabel(result.data)}
         </p>
       )}
-      {!!(error || result.error || result.data?.error) && (
+      {!!(
+        error ||
+        result.error ||
+        (result.data?.state !== "released" && result.data?.error)
+      ) && (
         <ErrorDetails
           compact
           error={error || result.error || result.data?.error}

@@ -60,8 +60,8 @@ pub(super) fn query_cache_status(s: &AppState) -> domain::Result<QueryCacheStatu
     let records = s.queries.cache.projects()?;
     let (index_bytes, index_count) = s.queries.browse_index.storage()?;
     Ok(QueryCacheStatus {
-        quota_bytes: (u64::from(config.quota_mib) << 20).to_string(),
-        max_age_days: config.max_age_days,
+        quota_bytes: (u64::from(config.query_mib()) << 20).to_string(),
+        max_age_days: config.temporary_idle_hours.div_ceil(24),
         retained_queries: records.iter().map(|p| p.retained).sum(),
         member_versions: records.iter().map(|p| p.members).sum(),
         result_storage_bytes: records.iter().map(|p| p.bytes).sum::<u64>().to_string(),
@@ -91,10 +91,13 @@ pub(super) async fn configure_query_cache(
 ) -> ApiResult<QueryCacheStatus> {
     Ok(Json(
         blocking(move || {
-            s.queries.cache.configure(crate::query_cache::CacheConfig {
-                quota_mib: body.quota_mib,
-                max_age_days: body.max_age_days,
-            })?;
+            s.queries
+                .cache
+                .configure(crate::query_cache::CacheConfig::legacy(
+                    body.quota_mib,
+                    body.max_age_days,
+                    s.queries.cache.config()?.preview_mib,
+                )?)?;
             query_cache_status(&s)
         })
         .await?,
@@ -105,7 +108,7 @@ pub(super) async fn clear_query_cache(State(s): State<AppState>) -> ApiResult<Qu
     s.queries.cache.clear();
     Ok(Json(blocking(move || query_cache_status(&s)).await?))
 }
-fn query_limits(s: &AppState) -> domain::Result<QueryResourceLimits> {
+pub(super) fn query_limits(s: &AppState) -> domain::Result<QueryResourceLimits> {
     let (configured, active) = s.queries.budget.status()?;
     Ok(QueryResourceLimits {
         metadata_memory_bytes: domain::METADATA_MEMORY_BYTES.to_string(),
@@ -167,7 +170,29 @@ pub(super) async fn configure(
     Body(body): Body<SetCacheQuota>,
 ) -> ApiResult<PreviewCacheStatus> {
     Ok(Json(cache_status(
-        blocking(move || s.previews.cache.set_quota(u64::from(body.quota_mib) << 20)).await?,
+        blocking(move || {
+            let _gate = s
+                .queries
+                .cache
+                .gate
+                .lock()
+                .map_err(|_| domain::Error::new("INTERNAL_ERROR", "缓存设置锁不可用"))?;
+            let previous = s.queries.cache.config()?;
+            let mut next = previous.clone();
+            next.preview_mib = body.quota_mib;
+            next.total_mib = next
+                .total_mib
+                .max(next.query_mib().saturating_add(next.preview_mib));
+            s.queries.cache.configure(next)?;
+            match s.previews.cache.set_quota(u64::from(body.quota_mib) << 20) {
+                Ok(metrics) => Ok(metrics),
+                Err(error) => {
+                    let _ = s.queries.cache.configure(previous);
+                    Err(error)
+                }
+            }
+        })
+        .await?,
     )))
 }
 #[utoipa::path(post,path="/v1/resources/cache/clear",responses((status=200,body=PreviewCacheStatus)))]

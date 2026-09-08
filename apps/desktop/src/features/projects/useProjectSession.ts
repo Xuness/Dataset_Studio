@@ -54,6 +54,7 @@ export function useProjectSession(
       if (old && old.id !== next?.id) {
         await client.closeProject(old.id);
         await cache.cancelQueries({ queryKey: ["project", old.id] });
+        cache.removeQueries({ queryKey: ["project", old.id] });
       }
       current.current = next;
       setProject(next);

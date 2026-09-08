@@ -108,13 +108,6 @@ registry.register({
   draftSchema: { version: 1 },
   contributions: [
     {
-      kind: "entry",
-      id: "resources",
-      label: "读取与缓存",
-      icon: "database",
-      command: "resources.open",
-    },
-    {
       kind: "view",
       id: "core.resources",
       load: () => import("../features/resources/ResourcePanel.js"),

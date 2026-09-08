@@ -11,19 +11,30 @@ use std::{
 };
 use studio_application::{QueryAdapter, ReadResources};
 use studio_domain::*;
-use studio_sources::{BrowseIndex, BrowseIndexStamp, QueryReader};
+use studio_sources::{BrowseIndex, BrowseIndexStamp, QueryReader, RatingCache, rating_candidates};
 use studio_storage::{QueryStage, SqliteStore};
 
 type IndexJobs = HashMap<String, (Arc<AtomicBool>, Option<Error>)>;
+#[derive(Debug, Clone)]
+pub struct RatingBuildStatus {
+    pub source_id: String,
+    pub state: String,
+    pub current_rating: Option<String>,
+    pub completed: Vec<String>,
+    pub error: Option<String>,
+}
+type RatingBuilds = HashMap<String, (Arc<AtomicBool>, RatingBuildStatus)>;
 pub struct QueryRunner {
     pub reader: QueryReader,
     running: Mutex<HashMap<String, Arc<AtomicBool>>>,
     indexes: Mutex<IndexJobs>,
+    rating_builds: Mutex<RatingBuilds>,
     stopping: AtomicBool,
     resources: Arc<dyn ReadResources>,
     pub budget: crate::query_budget::QueryBudget,
     pub cache: crate::query_cache::CacheControl,
     pub browse_index: BrowseIndex,
+    pub rating_cache: Arc<RatingCache>,
     query_directory: std::path::PathBuf,
 }
 impl QueryRunner {
@@ -38,10 +49,14 @@ impl QueryRunner {
             reader: QueryReader::with_query_directory(query_directory.clone()),
             running: Mutex::new(HashMap::new()),
             indexes: Mutex::new(HashMap::new()),
+            rating_builds: Mutex::new(HashMap::new()),
             stopping: AtomicBool::new(false),
             resources,
             budget,
             cache,
+            rating_cache: Arc::new(RatingCache::new(
+                index_directory.with_file_name("rating-cache"),
+            )),
             browse_index: BrowseIndex::new(index_directory),
             query_directory,
         }
@@ -117,8 +132,126 @@ impl QueryRunner {
             cancel.store(true, Ordering::Release);
         }
     }
+    pub fn rating_builds(&self) -> Result<Vec<RatingBuildStatus>> {
+        self.rating_builds
+            .lock()
+            .map(|jobs| jobs.values().map(|(_, status)| status.clone()).collect())
+            .map_err(|_| Error::new("INTERNAL_ERROR", "基础缓存任务状态不可用"))
+    }
+    pub fn cancel_rating_build(&self, source: &str) -> Result<()> {
+        validate_id(source)?;
+        if let Some((cancelled, _)) = self
+            .rating_builds
+            .lock()
+            .map_err(|_| Error::new("INTERNAL_ERROR", "基础缓存任务状态不可用"))?
+            .get(source)
+        {
+            cancelled.store(true, Ordering::Release);
+        }
+        Ok(())
+    }
+    pub fn start_rating_build(self: &Arc<Self>, source: &Source) -> Result<RatingBuildStatus> {
+        if source.kind != "danbooru" {
+            return Err(Error::new(
+                "QUERY_UNSUPPORTED",
+                "分级基础缓存用于 Danbooru 数据湖",
+            ));
+        }
+        if self.cache.config()?.long_term_mib == 0 {
+            return Err(Error::invalid("请先为长期缓存配置容量"));
+        }
+        let initial = RatingBuildStatus {
+            source_id: source.id.clone(),
+            state: "queued".into(),
+            current_rating: None,
+            completed: Vec::new(),
+            error: None,
+        };
+        let cancelled = Arc::new(AtomicBool::new(false));
+        {
+            let mut jobs = self
+                .rating_builds
+                .lock()
+                .map_err(|_| Error::new("INTERNAL_ERROR", "基础缓存任务状态不可用"))?;
+            if let Some((_, status)) = jobs.get(&source.id)
+                && matches!(status.state.as_str(), "queued" | "running")
+            {
+                return Ok(status.clone());
+            }
+            if jobs.len() >= 64 {
+                jobs.retain(|_, (_, status)| matches!(status.state.as_str(), "queued" | "running"));
+            }
+            if jobs.len() >= 64 {
+                return Err(Error::new("RESOURCE_LIMIT", "基础缓存构建任务过多"));
+            }
+            jobs.insert(source.id.clone(), (cancelled.clone(), initial.clone()));
+        }
+        let runner = self.clone();
+        let source = source.clone();
+        tokio::task::spawn_blocking(move || {
+            let outcome = (|| -> Result<()> {
+                let ratings = studio_sources::RATINGS.map(str::to_owned);
+                let _pins = runner.rating_cache.pin(&source.id, &ratings)?;
+                for rating in ratings {
+                    studio_application::read_cancelled(&cancelled)?;
+                    if let Ok(mut jobs) = runner.rating_builds.lock()
+                        && let Some((_, status)) = jobs.get_mut(&source.id)
+                    {
+                        status.state = "running".into();
+                        status.current_rating = Some(rating.clone());
+                    }
+                    let budget = runner.budget.wait(&cancelled)?;
+                    let _permit = runner.resources.acquire(
+                        ReadRequest {
+                            class: ReadClass::NativeQuery,
+                            priority: ReadPriority::Background,
+                            bytes: budget.memory_bytes,
+                        },
+                        &cancelled,
+                    )?;
+                    runner.rating_cache.ensure(
+                        &source,
+                        &rating,
+                        budget.memory_bytes,
+                        &runner.query_directory,
+                        cancelled.clone(),
+                    )?;
+                    if let Ok(mut jobs) = runner.rating_builds.lock()
+                        && let Some((_, status)) = jobs.get_mut(&source.id)
+                    {
+                        status.completed.push(rating);
+                    }
+                }
+                Ok(())
+            })();
+            if let Ok(mut jobs) = runner.rating_builds.lock()
+                && let Some((_, status)) = jobs.get_mut(&source.id)
+            {
+                status.current_rating = None;
+                match outcome {
+                    Ok(()) => status.state = "ready".into(),
+                    Err(error) => {
+                        status.state = if error.code == "CANCELLED" {
+                            "cancelled"
+                        } else {
+                            "failed"
+                        }
+                        .into();
+                        status.error = Some(error.message);
+                    }
+                }
+            }
+            runner.cache.requested.store(true, Ordering::Release);
+        });
+        Ok(initial)
+    }
     pub fn shutdown(&self) {
         self.stopping.store(true, Ordering::Release);
+        if let Ok(jobs) = self.rating_builds.lock() {
+            for (cancelled, _) in jobs.values() {
+                cancelled.store(true, Ordering::Release);
+            }
+        }
         if let Ok(running) = self.running.lock() {
             for cancelled in running.values() {
                 cancelled.store(true, Ordering::Release);
@@ -183,6 +316,12 @@ impl QueryRunner {
         let work_memory = crate::query_budget::result_work_memory(budget.memory_bytes);
         let reader = QueryReader::with_query_directory(self.query_directory.clone())
             .with_query_memory(budget.memory_bytes - work_memory);
+        let retain_bases = self.cache.config()?.long_term_mib > 0;
+        let reader = if retain_bases {
+            reader.with_rating_cache(self.rating_cache.clone())
+        } else {
+            reader
+        };
         let basis = store.cached_basis(&result.project_id, &result.id)?;
         let post_refresh = basis
             .as_ref()
@@ -206,7 +345,25 @@ impl QueryRunner {
             },
             &cancelled,
         )?;
+        let mut basis_pins = Vec::new();
         for (expected, source) in result.source_versions.iter().zip(&sources) {
+            if retain_bases
+                && source.kind == "danbooru"
+                && let Some(ratings) = rating_candidates(&studio_storage::native_spec(&result.spec))
+            {
+                basis_pins.push(self.rating_cache.pin(&source.id, &ratings)?);
+                store.query_build_phase(&result.project_id, &result.id, "rating_basis")?;
+                for rating in ratings {
+                    self.rating_cache.ensure(
+                        source,
+                        &rating,
+                        budget.memory_bytes,
+                        &self.query_directory,
+                        cancelled.clone(),
+                    )?;
+                }
+                store.query_build_phase(&result.project_id, &result.id, mode)?;
+            }
             let previous = basis
                 .as_ref()
                 .and_then(|b| b.source_versions.iter().find(|v| v.source_id == source.id));
@@ -325,6 +482,8 @@ impl QueryRunner {
         }
         let stage = stage.into_inner();
         stage.seal()?;
+        let (ratings, candidates) = reader.rating_usage()?;
+        store.query_basis_usage(&result.project_id, &result.id, &ratings, candidates)?;
         store.query_build_phase(&result.project_id, &result.id, "publishing")?;
         store.publish_stage_with_budget(
             &result.project_id,
@@ -399,7 +558,11 @@ pub async fn scheduler(store: Arc<SqliteStore>, runner: Arc<QueryRunner>) {
     }
 }
 
-pub async fn cache_maintenance(store: Arc<SqliteStore>, runner: Arc<QueryRunner>) {
+pub async fn cache_maintenance(
+    store: Arc<SqliteStore>,
+    runner: Arc<QueryRunner>,
+    previews: studio_resources::PreviewCache,
+) {
     let mut last = Instant::now();
     while !runner.stopping.load(Ordering::Acquire) {
         if runner.cache.requested.swap(false, Ordering::AcqRel)
@@ -408,25 +571,61 @@ pub async fn cache_maintenance(store: Arc<SqliteStore>, runner: Arc<QueryRunner>
             last = Instant::now();
             let s = store.clone();
             let r = runner.clone();
+            let preview = previews.clone();
             let force = runner.cache.force.swap(false, Ordering::AcqRel);
             runner.cache.busy.store(true, Ordering::Release);
             let result=tokio::task::spawn_blocking(move||->Result<u64>{
                 let _gate=r.cache.gate.lock().map_err(|_|Error::new("INTERNAL_ERROR","查询缓存锁不可用"))?;
-                let policy=r.cache.config()?.policy();
+                let config=r.cache.config()?;
+                let policy=config.policy();
                 let owned=s.owned_projects()?;
                 for id in &owned {if let Err(e)=r.cache.track(&s,id){tracing::warn!(%e,"query cache inspection deferred");}}
                 let mut projects=r.cache.projects()?;
-                projects.sort_by_key(|p|p.touched);
-                let mut total=projects.iter().filter(|p|p.retained>0).map(|p|p.bytes).sum::<u64>();
-                let cutoff=studio_storage::now().parse::<u64>().unwrap_or(0).saturating_sub(policy.max_age_seconds*1000);
+                projects.sort_by_key(|p|(p.temporary_families==0,p.touched));
+                let source_indexes=r.browse_index.storage()?.0;
+                let basis_bytes=r.rating_cache.storage_bytes()?;
+                let preview_bytes=preview.metrics().bytes;
+                let query_quota=(u64::from(config.total_mib)<<20).saturating_sub(source_indexes+basis_bytes+preview_bytes).min(policy.quota_bytes);
+                let long_quota=policy.long_term_quota_bytes.saturating_sub(source_indexes+basis_bytes);
+                let mut total=projects.iter().map(|p|p.bytes).sum::<u64>();
+                let mut long_bytes=projects.iter().map(|p|p.long_term_bytes).sum::<u64>();
+                let mut temporary_bytes=projects.iter().map(|p|p.temporary_bytes).sum::<u64>();
+                let now=studio_storage::now().parse::<u64>().unwrap_or(0);
+                let clear_tier=r.cache.clear_target()?;
                 let mut reclaimed=0;
                 for project in projects {
                     if project.retained==0 && project.members==0 && project.free_bytes==0 && !owned.contains(&project.id){continue;}
-                    if !owned.contains(&project.id) && !force && total<=policy.quota_bytes && project.touched>=cutoff {continue;}
-                    let local=studio_storage::QueryCachePolicy{quota_bytes:policy.quota_bytes.saturating_sub(total.saturating_sub(project.bytes)),..policy.clone()};
+                    let expired_temporary=project.temporary_families>0 && project.oldest_temporary_millis<=now.saturating_sub(policy.max_age_seconds*1000);
+                    let expired_long=project.long_term_families>0 && policy.long_term_max_age_seconds.is_some_and(|age|project.oldest_long_term_millis<=now.saturating_sub(age*1000));
+                    let session_cleanup=project.session_families>0 || (policy.session_only && project.temporary_families>0);
+                    let legacy=project.retained>0 && project.long_term_families+project.temporary_families==0;
+                    if !owned.contains(&project.id) && !force && !legacy && !session_cleanup && !expired_temporary && !expired_long && project.free_bytes==0 && total<=query_quota && long_bytes<=long_quota && temporary_bytes<=policy.temporary_quota_bytes {continue;}
+                    let local=studio_storage::QueryCachePolicy{
+                        quota_bytes:query_quota.saturating_sub(total.saturating_sub(project.bytes)),
+                        long_term_quota_bytes:long_quota.saturating_sub(long_bytes.saturating_sub(project.long_term_bytes)),
+                        temporary_quota_bytes:policy.temporary_quota_bytes.saturating_sub(temporary_bytes.saturating_sub(project.temporary_bytes)),
+                        live_sessions:r.cache.live_sessions(&project.id)?,clear_tier,..policy.clone()
+                    };
                     let stats=if owned.contains(&project.id){Some(s.maintain_query_cache(&project.id,&local,&r.cache.live(&project.id),force)?)}else{match SqliteStore::maintain_closed_cache(s.root(),&project.id,&project.directory,&local,force){Ok(value)=>value,Err(e)=>{tracing::warn!(project_id=%project.id,%e,"closed query cache maintenance deferred");None}}};
-                    if let Some(stats)=stats {total=total.saturating_sub(if project.retained>0{project.bytes}else{0}).saturating_add(if stats.retained_families>0{stats.storage_bytes}else{0});reclaimed+=stats.reclaimed_families;r.cache.record(&project.id,project.directory,stats)?;}
+                    if let Some(stats)=stats {
+                        total=total.saturating_sub(project.bytes).saturating_add(stats.storage_bytes);
+                        long_bytes=long_bytes.saturating_sub(project.long_term_bytes).saturating_add(stats.long_term_bytes);
+                        temporary_bytes=temporary_bytes.saturating_sub(project.temporary_bytes).saturating_add(stats.temporary_bytes);
+                        reclaimed+=stats.reclaimed_families;r.cache.record(&project.id,project.directory,stats)?;
+                    }
                     if reclaimed>=2 {break;}
+                }
+                let mut bases=r.rating_cache.entries()?;
+                bases.sort_by_key(|b|b.last_used_millis);
+                let mut retained_basis=basis_bytes;
+                for basis in bases {
+                    if reclaimed>=2 {break;}
+                    let expired=policy.long_term_max_age_seconds.is_some_and(|age|basis.last_used_millis<=now.saturating_sub(age*1000));
+                    let clear=force && clear_tier.is_none_or(|v|v==QueryCacheTier::LongTerm);
+                    let excess=long_bytes+source_indexes+retained_basis>policy.long_term_quota_bytes;
+                    if !basis.fixed && !basis.active && (expired || clear || excess)
+                        && r.rating_cache.remove(&basis.source_id,&basis.rating,false)?
+                    { retained_basis=retained_basis.saturating_sub(basis.bytes);reclaimed+=1; }
                 }
                 Ok(reclaimed)
             }).await;
