@@ -1,4 +1,5 @@
 $ErrorActionPreference = 'Stop'
+$studioArguments = @($args)
 $studioRoot = Split-Path -Parent $PSScriptRoot
 Set-Location -LiteralPath $studioRoot
 foreach ($toolName in @('node','pnpm','cargo')) {
@@ -18,5 +19,5 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-Host '检查元数据运行库…'
 & (Join-Path $studioRoot 'tooling\setup-duckdb.ps1') *> (Join-Path $studioLogDirectory 'startup-duckdb.log')
-& node (Join-Path $studioRoot 'tooling\dev.mjs')
+& node (Join-Path $studioRoot 'tooling\dev.mjs') @studioArguments 2>&1 | Tee-Object -FilePath (Join-Path $studioLogDirectory 'startup-dev.log')
 exit $LASTEXITCODE

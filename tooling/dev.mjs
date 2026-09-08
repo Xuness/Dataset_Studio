@@ -9,6 +9,7 @@ import {
 import { watch, existsSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
+import { once } from "node:events";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { finished } from "./cargo.mjs";
@@ -68,16 +69,34 @@ if (prior?.workspace === root && Number.isInteger(prior.pid)) {
     /* Stale development session. */
   }
   if (running) {
-    const native = resolve(root, "target/debug/studio-desktop.exe");
-    if (existsSync(native) && !process.argv.includes("--web")) {
-      const focus = spawn(native, [], {
-        env,
-        stdio: "ignore",
-        windowsHide: true,
-      });
-      focus.unref();
+    if (process.argv.includes("--web")) {
+      console.log("已有开发环境，浏览器入口：http://127.0.0.1:1420");
+    } else {
+      const native = resolve(root, "target/debug/studio-desktop.exe");
+      if (!existsSync(native))
+        throw new Error(
+          "未找到桌面程序。请先运行 node tooling/cargo-run.mjs build -p studio-desktop，再重新启动。",
+        );
+      const logDirectory = resolve(local, "logs");
+      await mkdir(logDirectory, { recursive: true });
+      const log = await open(resolve(logDirectory, "desktop-startup.log"), "a");
+      try {
+        const focus = spawn(native, [], {
+          cwd: root,
+          env,
+          stdio: ["ignore", log.fd, log.fd],
+          windowsHide: true,
+          // Debug desktop builds use the console subsystem on Windows. Keep
+          // them independent of the short-lived double-click launcher console.
+          detached: true,
+        });
+        await once(focus, "spawn");
+        focus.unref();
+      } finally {
+        await log.close();
+      }
+      console.log("已复用开发环境，正在打开桌面窗口。");
     }
-    console.log("开发环境已在运行，请使用已有窗口或开发控制台。");
     process.exit(0);
   }
 }

@@ -12,7 +12,9 @@
 
 在 Windows 上双击仓库根目录的 **启动开发版.bat**。
 
-脚本会检查锁文件、依赖与固定版本的元数据运行库，增量编译 Debug 引擎，启动前端开发服务和 Tauri 桌面窗口。再次启动时会使用已有开发环境。开发控制台可查看编译结果。
+脚本会检查锁文件、依赖与固定版本的元数据运行库，增量编译 Debug 引擎，启动前端开发服务和 Tauri 桌面窗口。再次启动时会复用已有开发环境，并重新打开或激活桌面窗口。已有后台时，启动控制台结束后桌面窗口仍保持运行。
+
+启动诊断保存在 `.local/logs/startup-dev.log`，复用后台时的桌面进程输出保存在 `.local/logs/desktop-startup.log`。启动失败会保留错误退出码并暂停控制台，方便查看原因。
 
 命令行完整入口：
 
@@ -20,6 +22,8 @@
 Set-Location 'D:\Dataset\Dataset_Studio'
 pwsh -File tooling/start-dev.ps1
 ```
+
+只启动浏览器开发环境时，可运行 `启动开发版.bat --web`。Windows 启动包装器回归检查使用 `pnpm test:launcher`。
 
 - 修改前端和 CSS：Vite 热更新。
 - 修改 crates 下的 Rust：自动增量编译、重新生成契约、重启开发引擎。已确认的任务检查点保留，界面重新连接。
