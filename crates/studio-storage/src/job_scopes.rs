@@ -18,6 +18,8 @@ impl SqliteStore {
             [id],
         )
         .map_err(db_error)?;
+        tx.execute("DELETE FROM job_progress WHERE job_id=?1", [id])
+            .map_err(db_error)?;
         event(&tx, "job.changed", id)?;
         let job = read_job(&tx, pid, id)?;
         tx.commit().map_err(db_error)?;
@@ -32,10 +34,22 @@ impl SqliteStore {
         let p = self.handle(pid)?;
         let db = p.db.lock().map_err(lock_error)?;
         let resolved = scopes::resolve(&db, pid, scope)?;
+        if resolved.count == 0 {
+            return Ok(Vec::new());
+        }
+        // Project sources are small; probe each source's first matching member.
+        // DISTINCT over members would revisit every image on every browse poll.
+        let predicate = if matches!(scope.target, ScopeTarget::Selection { .. }) {
+            "EXISTS(SELECT 1 FROM selection WHERE source_id=s.id) OR EXISTS(SELECT 1 FROM result_members m WHERE m.result_id=(SELECT result_id FROM selection_base WHERE singleton=1) AND m.source_id=s.id AND NOT EXISTS(SELECT 1 FROM selection_exclusions e WHERE e.source_id=m.source_id AND e.asset_id=m.asset_id))".to_owned()
+        } else {
+            format!(
+                "EXISTS(SELECT 1 FROM ({}) m WHERE m.source_id=s.id)",
+                resolved.sql
+            )
+        };
         let mut stmt = db
             .prepare(&format!(
-                "SELECT DISTINCT source_id FROM ({}) ORDER BY source_id",
-                resolved.sql
+                "SELECT s.id FROM sources s WHERE {predicate} ORDER BY s.id"
             ))
             .map_err(db_error)?;
         stmt.query_map([], |r| r.get(0))
@@ -317,6 +331,7 @@ impl SqliteStore {
         for (id, rid) in pending {
             let tx = db.transaction().map_err(db_error)?;
             let result = query::read_result(&tx, pid, &rid)?;
+            job_telemetry::waiting(&tx, &id, result.processed)?;
             if result.state == ResultState::Ready && result.count.is_some_and(|n| n > 0) {
                 tx.execute("INSERT INTO job_inputs SELECT ?1,source_id,asset_id FROM result_members WHERE result_id=?2",params![id,rid]).map_err(db_error)?;
                 tx.execute(
@@ -336,6 +351,7 @@ impl SqliteStore {
                     ],
                 )
                 .map_err(db_error)?;
+                job_telemetry::finish(&tx, &id)?;
                 event(&tx, "job.changed", &id)?;
             }
             tx.commit().map_err(db_error)?;

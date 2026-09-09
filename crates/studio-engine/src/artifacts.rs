@@ -89,11 +89,21 @@ fn index(store: &SqliteStore, item: &Artifact, path: &Path) -> Result<()> {
     }
     Ok(())
 }
-pub fn publish(store: &SqliteStore, job: &Job, plan: &WorkerPlan, primary: &Path) -> Result<()> {
+pub fn publish(
+    store: &SqliteStore,
+    job: &Job,
+    plan: &WorkerPlan,
+    primary: &Path,
+    validated: Option<worker::ValidatedOutput>,
+) -> Result<()> {
     if plan.version == 2 {
-        return crate::ranking::publish(store, job, plan, primary);
+        return crate::ranking::publish(store, job, plan, primary, validated);
     }
-    let hash = worker::validate_output(primary, plan)?;
+    let mut checked = match validated {
+        Some(checked) => checked,
+        None => worker::validate_once(primary, plan, &mut |_, _, _| Ok(()))?,
+    };
+    let hash = checked.digest(primary, plan)?.to_owned();
     let run = store.job_run(&job.project_id, &job.id)?;
     let operator = studio_operators::registry()?.resolve(&plan.run)?;
     let descriptor = operator.descriptor();

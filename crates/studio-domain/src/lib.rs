@@ -118,11 +118,29 @@ pub struct Job {
     pub stage: Option<JobStage>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct JobStage {
     pub name: String,
     pub completed: u64,
     pub total: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rating: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub telemetry: Option<JobTelemetry>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JobTelemetry {
+    pub started_at: String,
+    pub updated_at: String,
+    pub heartbeat_at: String,
+    pub finished_at: Option<String>,
+    pub phases: Vec<JobPhaseTiming>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JobPhaseTiming {
+    pub name: String,
+    pub rating: Option<String>,
+    pub elapsed_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

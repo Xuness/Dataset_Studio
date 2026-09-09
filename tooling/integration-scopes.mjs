@@ -406,7 +406,7 @@ try {
     path + "/query-results/" + cancelled.result.id + "/assets",
     "GET",
     undefined,
-    "RESULT_NOT_READY",
+    "CANCELLED",
   );
   assert.equal(
     (

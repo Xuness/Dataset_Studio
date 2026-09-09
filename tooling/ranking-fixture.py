@@ -158,8 +158,9 @@ for image in images[:N]:
     if n == 10:
         tags += ' jpeg_artifacts scan_artifacts'
     add(image, n + 1, 10000 + n, 'gsqe'[n % 4], tags, make_current=n != 3)
-add(images[1], N + 1, 20001, 'e', 'common beta', observed=dt.datetime(2040, 1, 1, tzinfo=dt.timezone.utc), fav=999, up=800)
-add(images[2], N + 2, 20002, 'e', 'common beta', observed=dt.datetime(2040, 1, 1, tzinfo=dt.timezone.utc), fav=777, up=700)
+extra_post_base = max(20001, 10000 + N)
+add(images[1], N + 1, extra_post_base, 'e', 'common beta', observed=dt.datetime(2040, 1, 1, tzinfo=dt.timezone.utc), fav=999, up=800)
+add(images[2], N + 2, extra_post_base + 1, 'e', 'common beta', observed=dt.datetime(2040, 1, 1, tzinfo=dt.timezone.utc), fav=777, up=700)
 add(images[N], N + 3, 10003, 'e', 'common replacement', observed=dt.datetime(2040, 1, 1, tzinfo=dt.timezone.utc))
 
 try:

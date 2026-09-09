@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, HashMap},
     fs::{self, File},
-    io::Write,
     path::{Path, PathBuf},
     sync::{Arc, atomic::AtomicBool},
     time::{Duration, Instant},
@@ -54,6 +53,15 @@ pub fn prepare(
     let p = parameters(&frozen.run)?;
     crate::tool_inputs::validate_versions(store, &job.project_id, &frozen)?;
     store.update_job(&job.project_id, &job.id, "preparing", 0, None, None)?;
+    store.job_stage(
+        &job.project_id,
+        &job.id,
+        &JobStage {
+            name: "scope_basis".into(),
+            total: job.total,
+            ..Default::default()
+        },
+    )?;
     let memory = resources
         .metrics()
         .into_iter()
@@ -100,6 +108,7 @@ pub fn prepare(
                     name: "scope_basis".into(),
                     completed: count,
                     total: job.total,
+                    ..Default::default()
                 },
             )?;
             last_progress = Instant::now();
@@ -109,6 +118,7 @@ pub fn prepare(
     if count != job.total {
         return Err(Error::new("INPUT_CHANGED", "排名任务的固定成员数量不一致"));
     }
+    table.flush()?;
     let members = RankingInputTable::open(&input_path)?;
     let reader = RankingReader::configured(staging.join("native"), memory);
     let mut completed = 0u64;
@@ -130,6 +140,7 @@ pub fn prepare(
                 name: "metadata_snapshot".into(),
                 completed,
                 total: job.total,
+                ..Default::default()
             },
         )?;
         reader.project(
@@ -167,6 +178,7 @@ pub fn prepare(
                             name: "metadata_snapshot".into(),
                             completed,
                             total: job.total,
+                            ..Default::default()
                         },
                     )?;
                     store.update_job(
@@ -184,6 +196,14 @@ pub fn prepare(
             },
         )?;
     }
+    store.job_stage(
+        &job.project_id,
+        &job.id,
+        &JobStage {
+            name: "snapshot_index".into(),
+            ..Default::default()
+        },
+    )?;
     table.verify_members(job.total)?;
     table.finalize(&p.ratings)?;
     crate::tool_inputs::validate_versions(store, &job.project_id, &frozen)?;
@@ -197,11 +217,23 @@ pub fn prepare(
         .map_err(Error::io)?
         .sync_all()
         .map_err(Error::io)?;
-    let plan = WorkerPlan {
+    let mut plan = WorkerPlan {
         version: 2,
         job_id: job.id.clone(),
         input_path: "input.sqlite".into(),
-        input_sha256: worker::hash_file(&input_path)?,
+        input_sha256: worker::hash_file_progress(&input_path, &mut |completed, total| {
+            read_cancelled(&cancelled)?;
+            store.job_stage(
+                &job.project_id,
+                &job.id,
+                &JobStage {
+                    name: "input_checksum".into(),
+                    completed,
+                    total,
+                    ..Default::default()
+                },
+            )
+        })?,
         output_path: "output.sqlite".into(),
         checkpoint_path: "checkpoint.json".into(),
         total: job.total,
@@ -210,7 +242,12 @@ pub fn prepare(
     };
     let plan_path = staging.join("plan.json");
     atomic_json(&plan_path, &plan)?;
-    Ok((plan_path.clone(), worker::load_plan(&plan_path)?))
+    // These paths and the hash were constructed here; the worker will independently
+    // validate the persisted plan and input before reading the snapshot.
+    plan.input_path = input_path;
+    plan.output_path = staging.join("output.sqlite");
+    plan.checkpoint_path = staging.join("checkpoint.json");
+    Ok((plan_path, plan))
 }
 
 #[derive(Default, Serialize, Deserialize)]
@@ -229,24 +266,19 @@ fn emit(
     name: &str,
     stage_completed: u64,
     stage_total: u64,
+    rating: Option<&str>,
 ) -> Result<()> {
-    let mut out = std::io::stdout().lock();
-    serde_json::to_writer(
-        &mut out,
-        &worker::Progress {
-            version: 1,
-            completed,
-            total: plan.total,
-            stage: Some(JobStage {
-                name: name.into(),
-                completed: stage_completed,
-                total: stage_total,
-            }),
-        },
+    worker::report_progress(
+        completed,
+        plan.total,
+        Some(JobStage {
+            name: name.into(),
+            completed: stage_completed,
+            total: stage_total,
+            rating: rating.map(str::to_owned),
+            ..Default::default()
+        }),
     )
-    .map_err(Error::io)?;
-    out.write_all(b"\n").map_err(Error::io)?;
-    out.flush().map_err(Error::io)
 }
 fn ineligible(input: &RankingInput, p: &RankingParameters) -> RankingScores {
     RankingScores {
@@ -301,6 +333,7 @@ pub fn run(plan: &WorkerPlan) -> Result<()> {
         RankingResultTable::create(&plan.output_path)?
     };
     if !state.initialized {
+        emit(plan, 0, "eligibility", 0, plan.total, None)?;
         output.reset()?;
         state.finished.clear();
         state.eligible.clear();
@@ -331,11 +364,19 @@ pub fn run(plan: &WorkerPlan) -> Result<()> {
             visited += page.len() as u64;
             after = page.last().map(|r| r.ordinal);
             if last.elapsed() >= Duration::from_millis(500) {
-                emit(plan, state.ineligible, "eligibility", visited, plan.total)?;
+                emit(
+                    plan,
+                    state.ineligible,
+                    "eligibility",
+                    visited,
+                    plan.total,
+                    None,
+                )?;
                 last = Instant::now();
                 check_stage(&plan.output_path)?;
             }
         }
+        output.flush()?;
         state.initialized = true;
         atomic_json(&plan.checkpoint_path, &state)?;
     }
@@ -368,6 +409,7 @@ pub fn run(plan: &WorkerPlan) -> Result<()> {
         let mut after = None;
         let base = state.ineligible + state.finished.iter().map(|s| s.eligible).sum::<u64>();
         let mut last = Instant::now() - Duration::from_secs(1);
+        emit(plan, base, "loading_rating", 0, count, Some(rating))?;
         loop {
             let page = input.page(after, Some(rating))?;
             if page.is_empty() {
@@ -391,7 +433,14 @@ pub fn run(plan: &WorkerPlan) -> Result<()> {
             }
             after = page.last().map(|r| r.ordinal);
             if last.elapsed() >= Duration::from_millis(500) {
-                emit(plan, base, "loading_rating", samples.len() as u64, count)?;
+                emit(
+                    plan,
+                    base,
+                    "loading_rating",
+                    samples.len() as u64,
+                    count,
+                    Some(rating),
+                )?;
                 last = Instant::now();
             }
         }
@@ -416,7 +465,7 @@ pub fn run(plan: &WorkerPlan) -> Result<()> {
             &mut works,
             &mut |phase, completed, total| {
                 if current_phase != phase || last.elapsed() >= Duration::from_millis(500) {
-                    emit(plan, base, phase, completed, total)?;
+                    emit(plan, base, phase, completed, total, Some(rating))?;
                     last = Instant::now();
                     current_phase = phase.into();
                 }
@@ -425,6 +474,7 @@ pub fn run(plan: &WorkerPlan) -> Result<()> {
         )?;
         drop(works);
         let mut written = 0u64;
+        emit(plan, base, "writing", 0, count, Some(rating))?;
         for batch in samples.chunks(512) {
             output.append(&batch.iter().map(|s| s.scores(rating)).collect::<Vec<_>>())?;
             written += batch.len() as u64;
@@ -432,11 +482,19 @@ pub fn run(plan: &WorkerPlan) -> Result<()> {
                 std::thread::sleep(Duration::from_millis(plan.delay_ms.min(1000)));
             }
             if last.elapsed() >= Duration::from_millis(500) {
-                emit(plan, base + written, "writing", written, count)?;
+                emit(
+                    plan,
+                    base + written,
+                    "writing",
+                    written,
+                    count,
+                    Some(rating),
+                )?;
                 last = Instant::now();
                 check_stage(&plan.output_path)?;
             }
         }
+        output.flush()?;
         state.finished.push(summary);
         state.working = None;
         atomic_json(&plan.checkpoint_path, &state)?;
@@ -444,7 +502,7 @@ pub fn run(plan: &WorkerPlan) -> Result<()> {
     if output.count()? != plan.total {
         return Err(Error::new("RANKING_INVALID", "排名结果行数不完整"));
     }
-    emit(plan, plan.total, "indexing", 0, 1)?;
+    emit(plan, plan.total, "indexing", 0, 1, None)?;
     let summary = RankingSummary {
         schema_version: 1,
         input_count: plan.total,
@@ -464,11 +522,21 @@ pub fn run(plan: &WorkerPlan) -> Result<()> {
         .map_err(Error::io)?
         .sync_all()
         .map_err(Error::io)?;
-    emit(plan, plan.total, "complete", 1, 1)
+    emit(plan, plan.total, "complete", 1, 1, None)
 }
 
 pub fn validate_output(path: &Path, plan: &WorkerPlan) -> Result<String> {
-    if worker::hash_file(&plan.input_path)? != plan.input_sha256 {
+    validate_output_progress(path, plan, &mut |_, _, _| Ok(()))
+}
+pub fn validate_output_progress(
+    path: &Path,
+    plan: &WorkerPlan,
+    progress: &mut dyn FnMut(&str, u64, u64) -> Result<()>,
+) -> Result<String> {
+    if worker::hash_file_progress(&plan.input_path, &mut |completed, total| {
+        progress("validating_input", completed, total)
+    })? != plan.input_sha256
+    {
         return Err(Error::new("INPUT_CHANGED", "固定排名输入校验失败"));
     }
     let input = RankingInputTable::open(&plan.input_path)?;
@@ -485,6 +553,8 @@ pub fn validate_output(path: &Path, plan: &WorkerPlan) -> Result<String> {
         return Err(Error::new("RANKING_INVALID", "排名成果与固定任务不一致"));
     }
     let (mut after, mut count) = (None, 0u64);
+    let mut last_progress = Instant::now();
+    progress("validating", 0, plan.total)?;
     let mut counts = BTreeMap::<String, (u64, [u64; 3])>::new();
     let mut rank_seen = HashMap::<String, (Vec<bool>, Vec<bool>)>::new();
     for s in &summary.ratings {
@@ -570,6 +640,10 @@ pub fn validate_output(path: &Path, plan: &WorkerPlan) -> Result<String> {
             count += 1;
         }
         after = a.last().map(|r| r.ordinal);
+        if last_progress.elapsed() >= Duration::from_millis(500) {
+            progress("validating", count, plan.total)?;
+            last_progress = Instant::now();
+        }
     }
     for s in &summary.ratings {
         let actual = counts.get(&s.rating).copied().unwrap_or_default();
@@ -585,7 +659,10 @@ pub fn validate_output(path: &Path, plan: &WorkerPlan) -> Result<String> {
     if count != plan.total || counts.values().map(|s| s.0).sum::<u64>() != summary.eligible_count {
         return Err(Error::new("RANKING_INVALID", "排名总数不一致"));
     }
-    worker::hash_file(path)
+    progress("validating", count, plan.total)?;
+    worker::hash_file_progress(path, &mut |completed, total| {
+        progress("output_checksum", completed, total)
+    })
 }
 
 pub fn paths(store: &SqliteStore, pid: &str, aid: &str) -> Result<(Artifact, PathBuf, PathBuf)> {
@@ -606,17 +683,41 @@ pub fn paths(store: &SqliteStore, pid: &str, aid: &str) -> Result<(Artifact, Pat
         crate::artifacts::controlled_path(store, pid, &input)?,
     ))
 }
-pub fn publish(store: &SqliteStore, job: &Job, plan: &WorkerPlan, primary: &Path) -> Result<()> {
+pub fn publish(
+    store: &SqliteStore,
+    job: &Job,
+    plan: &WorkerPlan,
+    primary: &Path,
+    validated: Option<worker::ValidatedOutput>,
+) -> Result<()> {
+    let mut checked = match validated {
+        Some(checked) => checked,
+        None => worker::validate_once(primary, plan, &mut |name, completed, total| {
+            if store.job(&job.project_id, &job.id)?.status == "cancelled" {
+                return Err(Error::new("CANCELLED", "任务已取消"));
+            }
+            store.job_stage(
+                &job.project_id,
+                &job.id,
+                &JobStage {
+                    name: name.into(),
+                    completed,
+                    total,
+                    ..Default::default()
+                },
+            )
+        })?,
+    };
+    let table_sha = checked.digest(primary, plan)?.to_owned();
     store.job_stage(
         &job.project_id,
         &job.id,
         &JobStage {
             name: "publishing".into(),
-            completed: 0,
             total: 1,
+            ..Default::default()
         },
     )?;
-    let table_sha = validate_output(primary, plan)?;
     let table = RankingResultTable::open(primary)?;
     let summary: RankingSummary = table.meta("summary")?;
     drop(table);
@@ -688,9 +789,11 @@ pub fn publish(store: &SqliteStore, job: &Job, plan: &WorkerPlan, primary: &Path
             name: "complete".into(),
             completed: 1,
             total: 1,
+            ..Default::default()
         },
     )?;
     // The registered immutable input is now authoritative; successful tasks cannot be retried.
+    drop(checked);
     if let Err(error) = fs::remove_file(&plan.input_path) {
         tracing::warn!(%error,"ranking staging input cleanup deferred");
     }

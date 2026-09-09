@@ -23,6 +23,7 @@ use utoipa::OpenApi;
 mod query;
 mod ranking;
 mod resources;
+mod scoped_browse;
 mod settings;
 mod source_locations;
 mod tools;
@@ -478,6 +479,10 @@ struct Cursor {
     source_afters: BTreeMap<String, String>,
     #[serde(default)]
     sorted_result_id: Option<String>,
+    #[serde(default)]
+    scope_scan: bool,
+    #[serde(default)]
+    scope_scanned: u64,
 }
 fn encode_cursor(cursor: &Cursor) -> domain::Result<String> {
     Ok(URL_SAFE_NO_PAD.encode(serde_json::to_vec(cursor).map_err(domain::Error::io)?))
@@ -550,19 +555,41 @@ fn browse_sync(s: &AppState, id: &str, query: BrowseQuery) -> domain::Result<Ass
         {
             return Err(domain::Error::new("NOT_FOUND", "工作集不存在"));
         }
-        let sorted = if order != domain::QueryOrder::AssetKeyAsc {
-            let input_scope = domain::ScopeRef {
-                project_id: id.into(),
-                target: if let Some(collection) = &query.collection_id {
-                    domain::ScopeTarget::Workset {
-                        collection_id: collection.clone(),
-                    }
-                } else {
-                    domain::ScopeTarget::Selection {
-                        revision: selection_revision.unwrap_or(0),
-                    }
-                },
-            };
+        let input_scope = domain::ScopeRef {
+            project_id: id.into(),
+            target: if let Some(collection) = &query.collection_id {
+                domain::ScopeTarget::Workset {
+                    collection_id: collection.clone(),
+                }
+            } else {
+                domain::ScopeTarget::Selection {
+                    revision: selection_revision.unwrap_or(0),
+                }
+            },
+        };
+        let indexed = if cursor.sorted_result_id.is_none() {
+            scoped_browse::page(s, id, &input_scope, &mut cursor, order, limit)?
+        } else {
+            None
+        };
+        let sorted = if let Some(page) = indexed {
+            if page.preparing.is_some() {
+                return Ok(AssetPage {
+                    items: Vec::new(),
+                    next_cursor: if page.more {
+                        Some(encode_cursor(&cursor)?)
+                    } else {
+                        None
+                    },
+                    revision: cursor.scope,
+                    preparing: page.preparing,
+                    result_id: None,
+                    scan: page.scan,
+                });
+            }
+            has_more = page.more;
+            Some(page.keys)
+        } else if order != domain::QueryOrder::AssetKeyAsc {
             let prepared = cursor
                 .sorted_result_id
                 .as_ref()
@@ -585,6 +612,7 @@ fn browse_sync(s: &AppState, id: &str, query: BrowseQuery) -> domain::Result<Ass
                     revision: cursor.scope,
                     preparing: None,
                     result_id: None,
+                    scan: None,
                 });
             }
             let spec = domain::QuerySpec {
@@ -620,12 +648,14 @@ fn browse_sync(s: &AppState, id: &str, query: BrowseQuery) -> domain::Result<Ass
                 result.state,
                 domain::ResultState::Queued | domain::ResultState::Running
             ) {
+                cursor.sorted_result_id = Some(result.id.clone());
                 return Ok(AssetPage {
                     items: vec![],
-                    next_cursor: None,
+                    next_cursor: Some(encode_cursor(&cursor)?),
                     revision: cursor.scope,
                     preparing: Some("正在准备范围排序".into()),
                     result_id: Some(result.id),
+                    scan: None,
                 });
             }
             s.queries.validate_result(store, &result)?;
@@ -655,9 +685,17 @@ fn browse_sync(s: &AppState, id: &str, query: BrowseQuery) -> domain::Result<Ass
         }
         keys.truncate(limit);
         cursor.last_key = keys.last().cloned();
-        for key in keys {
-            let source = store.source(id, &key.source_id)?;
-            let frozen = SourceRouter.freeze(&source, &[key])?;
+        let mut resolved = std::collections::HashMap::new();
+        for source in &sources {
+            let grouped = keys
+                .iter()
+                .filter(|key| key.source_id == source.id)
+                .cloned()
+                .collect::<Vec<_>>();
+            if grouped.is_empty() {
+                continue;
+            }
+            let frozen = SourceRouter.freeze(source, &grouped)?;
             for item in frozen {
                 if let Some(old) = cursor.revisions.get(&source.id)
                     && old != &item.source_revision
@@ -670,8 +708,21 @@ fn browse_sync(s: &AppState, id: &str, query: BrowseQuery) -> domain::Result<Ass
                 cursor
                     .revisions
                     .insert(source.id.clone(), item.source_revision);
-                items.push(item.asset);
+                resolved.insert(item.asset.key.clone(), item.asset);
             }
+            if source.kind == "danbooru" {
+                studio_sources::BrowseIndex::verify_revision(
+                    source,
+                    &cursor.revisions[&source.id],
+                )?;
+            }
+        }
+        for key in keys {
+            items.push(
+                resolved
+                    .remove(&key)
+                    .ok_or_else(|| domain::Error::new("SOURCE_CHANGED", "范围成员已不可用"))?,
+            );
         }
     } else if order != domain::QueryOrder::AssetKeyAsc {
         if sources.len() > 8 {
@@ -691,6 +742,7 @@ fn browse_sync(s: &AppState, id: &str, query: BrowseQuery) -> domain::Result<Ass
                     revision: cursor.scope,
                     preparing: Some("正在更新帖子排序索引".into()),
                     result_id: None,
+                    scan: None,
                 });
             }
         }
@@ -840,6 +892,7 @@ fn browse_sync(s: &AppState, id: &str, query: BrowseQuery) -> domain::Result<Ass
         revision,
         preparing: None,
         result_id: cursor.sorted_result_id,
+        scan: None,
     })
 }
 #[utoipa::path(get,path="/v1/projects/{project_id}/assets",params(("project_id"=String,Path),("source_id"=Option<String>,Query),("collection_id"=Option<String>,Query),("selection"=Option<bool>,Query),("cursor"=Option<String>,Query),("order"=Option<QueryOrder>,Query),("limit"=Option<usize>,Query)),responses((status=200,body=AssetPage)))]

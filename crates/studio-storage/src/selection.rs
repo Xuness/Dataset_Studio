@@ -9,21 +9,33 @@ pub(super) fn keys(
     after: Option<&AssetKey>,
     limit: usize,
 ) -> Result<Vec<AssetKey>> {
+    keys_ordered(db, after, limit, false)
+}
+
+pub(super) fn keys_ordered(
+    db: &Connection,
+    after: Option<&AssetKey>,
+    limit: usize,
+    descending: bool,
+) -> Result<Vec<AssetKey>> {
+    let end = if descending { "\u{10ffff}" } else { "" };
     let (source, asset) = after
         .map(|key| (key.source_id.as_str(), key.asset_id.as_str()))
-        .unwrap_or(("", ""));
+        .unwrap_or((end, end));
     // ORDER BY belongs to the compound query so SQLite can merge two ordered
     // index ranges. Wrapping MEMBERS would sort all remaining members per page.
-    let mut stmt = db.prepare(
-        "SELECT source_id,asset_id FROM selection WHERE (source_id,asset_id)>(?1,?2)
+    let op = if descending { "<" } else { ">" };
+    let direction = if descending { "DESC" } else { "ASC" };
+    let mut stmt = db.prepare(&format!(
+        "SELECT source_id,asset_id FROM selection WHERE (source_id,asset_id){op}(?1,?2)
          UNION
          SELECT m.source_id,m.asset_id FROM result_members m
          WHERE m.result_id=(SELECT result_id FROM selection_base WHERE singleton=1)
-         AND (m.source_id,m.asset_id)>(?1,?2)
+         AND (m.source_id,m.asset_id){op}(?1,?2)
          AND NOT EXISTS(SELECT 1 FROM selection_exclusions e WHERE e.source_id=m.source_id AND e.asset_id=m.asset_id)
-         ORDER BY source_id,asset_id LIMIT ?3",
-    ).map_err(db_error)?;
-    stmt.query_map(params![source, asset, limit.clamp(1, 1000) as u32], |r| {
+         ORDER BY source_id {direction},asset_id {direction} LIMIT ?3",
+    )).map_err(db_error)?;
+    stmt.query_map(params![source, asset, limit.clamp(1, 4097) as u32], |r| {
         Ok(AssetKey {
             source_id: r.get(0)?,
             asset_id: r.get(1)?,

@@ -8,6 +8,16 @@ export {
   errorSummary,
 } from "./ErrorDetails.js";
 export { ResizeGrip } from "./ResizeGrip.js";
+export { JobProgress } from "./JobProgress.js";
+export {
+  isJobActive,
+  jobPresentation,
+  jobStatusNames,
+  jobSubmittedAt,
+  jobPhaseLabel,
+  jobDuration,
+  rankingPhases,
+} from "./jobPresentation.js";
 export {
   RatingPicker,
   FiltersEditor,

@@ -14,10 +14,12 @@ use std::{
 use studio_application::ProjectRepository;
 use studio_domain::*;
 mod artifacts;
+mod browse_scopes;
 mod derived_fields;
 mod drafts;
 pub use derived_fields::{artifact_field_id, native_spec};
 mod job_scopes;
+mod job_telemetry;
 mod lifecycle;
 mod migrations;
 mod query;
@@ -310,6 +312,9 @@ impl SqliteStore {
             return Ok(old);
         }
         tx.execute("UPDATE jobs SET status=?2,completed=?3,error=?4,artifact=?5,attempt=attempt+CASE WHEN ?2='running' AND status!='running' THEN 1 ELSE 0 END WHERE id=?1",params![id,status,completed as i64,error,artifact]).map_err(db_error)?;
+        if ["succeeded", "failed", "cancelled"].contains(&status) {
+            job_telemetry::finish(&tx, id)?;
+        }
         event(&tx, "job.changed", id)?;
         let job = read_job(&tx, project_id, id)?;
         tx.commit().map_err(db_error)?;

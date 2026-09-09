@@ -1214,6 +1214,7 @@ export interface components {
             preparing?: string | null;
             result_id?: string | null;
             revision: string;
+            scan?: null | components["schemas"]["BrowseScan"];
         };
         AssetRecord: {
             origin_observation_id?: string | null;
@@ -1235,6 +1236,12 @@ export interface components {
             kind: string;
             media_root?: string | null;
             name: string;
+        };
+        BrowseScan: {
+            /** Format: int64 */
+            scanned: number;
+            /** Format: int64 */
+            total: number;
         };
         BuildQuery: {
             /** Format: int64 */
@@ -1398,6 +1405,12 @@ export interface components {
             /** Format: int64 */
             total: number;
         };
+        JobPhaseTiming: {
+            /** Format: int64 */
+            elapsed_ms: number;
+            name: string;
+            rating?: string | null;
+        };
         JobRun: {
             fields: components["schemas"]["ScalarInput"][];
             run: components["schemas"]["OperatorRun"];
@@ -1407,8 +1420,17 @@ export interface components {
             /** Format: int64 */
             completed: number;
             name: string;
+            rating?: string | null;
+            telemetry?: null | components["schemas"]["JobTelemetry"];
             /** Format: int64 */
             total: number;
+        };
+        JobTelemetry: {
+            finished_at?: string | null;
+            heartbeat_at: string;
+            phases: components["schemas"]["JobPhaseTiming"][];
+            started_at: string;
+            updated_at: string;
         };
         Jobs: {
             items: components["schemas"]["Job"][];

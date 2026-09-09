@@ -85,6 +85,22 @@ async function complete(job, timeout = 90000) {
     throw new Error(JSON.stringify(current) + "\n" + logs.slice(-6000));
   }
   const artifact = await engine.api(base + "/jobs/" + job.id + "/ranking");
+  assert.ok(
+    current.stage.telemetry?.finished_at,
+    "Completed rankings expose actual execution timing",
+  );
+  assert.ok(
+    Number(current.stage.telemetry.finished_at) >=
+      Number(current.stage.telemetry.started_at),
+  );
+  assert.ok(
+    current.stage.telemetry.phases.some((p) => p.name === "validating"),
+  );
+  assert.ok(
+    current.stage.telemetry.phases.some(
+      (p) => p.name === "writing" && p.rating,
+    ),
+  );
   const summary = await engine.api(
     base + "/artifacts/" + artifact.id + "/ranking",
   );

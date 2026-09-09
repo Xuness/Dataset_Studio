@@ -4,7 +4,7 @@ import { spawn, execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdir, readFile, writeFile, open } from "node:fs/promises";
 import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, URL } from "node:url";
 import { chromium, expect } from "@playwright/test";
 import { EngineFixture, sleep } from "./engine-fixture.mjs";
 
@@ -34,6 +34,14 @@ const engine = new EngineFixture(root, state);
 const checks = [],
   errors = [];
 let browser, page, vite;
+let holdSubmission = false,
+  releaseSubmission;
+let jobOverride = null,
+  jobsOffline = false;
+let holdAction = false,
+  releaseAction;
+const actionRequests = { submit: 0, cancel: 0, retry: 0 };
+let browseReplay = null;
 const url = "http://127.0.0.1:1428";
 try {
   await engine.start();
@@ -96,6 +104,101 @@ try {
     };
     if (request.method() === "OPTIONS")
       return route.fulfill({ status: 204, headers: cors });
+    if (browseReplay) {
+      const replay = browseReplay;
+      const parsed = new URL(request.url());
+      if (
+        parsed.pathname === base + "/assets" &&
+        parsed.searchParams.get("collection_id") === replay.collectionId
+      ) {
+        const cursor = parsed.searchParams.get("cursor");
+        replay.cursors.push(cursor);
+        if (replay.released || cursor === "ui-ready")
+          return route.fulfill({ headers: cors, json: replay.ready });
+        return route.fulfill({
+          headers: cors,
+          json: {
+            ...replay.ready,
+            items: [],
+            next_cursor:
+              replay.mode === "scan" && !cursor ? "ui-scan" : "ui-ready",
+            preparing: "正在准备范围排序",
+            result_id: replay.mode === "scan" ? null : replay.result.id,
+            scan: { scanned: cursor ? 16384 : 8192, total: 20000 },
+          },
+        });
+      }
+      if (parsed.pathname === base + "/query-results/" + replay.result.id) {
+        replay.polls++;
+        return route.fulfill({
+          headers: cors,
+          json: {
+            ...replay.result,
+            state:
+              replay.mode === "failure"
+                ? "failed"
+                : replay.polls < 3
+                  ? "running"
+                  : "ready",
+            error:
+              replay.mode === "failure" ? "SOURCE_TIMEOUT：范围排序超时" : null,
+            processed: 16384,
+          },
+        });
+      }
+      if (
+        parsed.pathname ===
+        base + "/query-results/" + replay.result.id + "/release"
+      ) {
+        replay.released = true;
+        return route.fulfill({
+          headers: cors,
+          json: { ...replay.result, state: "released" },
+        });
+      }
+    }
+    if (path === base + "/tools/jobs" && request.method() === "POST") {
+      actionRequests.submit++;
+      if (holdSubmission)
+        await new Promise((done) => {
+          releaseSubmission = done;
+        });
+    }
+    // Deterministic presentation states, confined to this browser's fixture traffic.
+    // The actual engine job and published artifact remain unchanged.
+    if (path === base + "/jobs" && request.method() === "GET") {
+      if (jobsOffline)
+        return route.fulfill({
+          status: 503,
+          headers: cors,
+          json: {
+            code: "TEST_OFFLINE",
+            message: "任务状态接口暂时不可用（界面验收）",
+          },
+        });
+      if (jobOverride)
+        return route.fulfill({ headers: cors, json: { items: [jobOverride] } });
+    }
+    for (const action of ["cancel", "retry"]) {
+      if (
+        jobOverride &&
+        path === base + "/jobs/" + jobOverride.id + "/" + action &&
+        request.method() === "POST"
+      ) {
+        actionRequests[action]++;
+        if (holdAction)
+          await new Promise((done) => {
+            releaseAction = done;
+          });
+        jobOverride = {
+          ...jobOverride,
+          status: action === "cancel" ? "cancelled" : "queued",
+          error: null,
+          ...(action === "retry" ? { stage: undefined, completed: 0 } : {}),
+        };
+        return route.fulfill({ headers: cors, json: jobOverride });
+      }
+    }
     const response = await fetch(engine.connection.endpoint + path, {
       method: request.method(),
       headers,
@@ -124,11 +227,33 @@ try {
     page.getByRole("button", { name: "生成候选集", exact: true }),
   ).toBeEnabled();
   await page.screenshot({ path: resolve(run, "01-config-wide.png") });
+  holdSubmission = true;
   await page.getByRole("button", { name: "生成候选集", exact: true }).click();
-  await expect(page.getByText("本次排名已完成", { exact: true })).toBeVisible({
+  await expect(
+    page.getByRole("button", { name: "正在提交…", exact: true }),
+  ).toBeDisabled();
+  await expect(
+    page.getByText("正在提交排名任务…", { exact: true }),
+  ).toBeVisible();
+  await expect.poll(() => typeof releaseSubmission).toBe("function");
+  assert.equal(actionRequests.submit, 1);
+  await page.screenshot({ path: resolve(run, "09-submitting.png") });
+  holdSubmission = false;
+  releaseSubmission();
+  releaseSubmission = null;
+  await expect(
+    page.locator(".ranking-job").getByText("本次排名已完成", { exact: true }),
+  ).toBeVisible({
     timeout: 90000,
   });
   await expect(page.locator(".tasks-panel")).toHaveCount(0);
+  await expect(page.locator(".ranking-job-meta")).toContainText("本次执行");
+  await page.locator(".ranking-job-timings summary").click();
+  await expect(page.locator(".ranking-job-timings")).toContainText(
+    "校验评分与名次",
+  );
+  await expect(page.locator(".ranking-job-timings")).toContainText("G");
+  await page.screenshot({ path: resolve(run, "15-phase-timings.png") });
   await page.getByRole("button", { name: "结果榜单", exact: true }).click();
   await expect(
     page.getByRole("table", { name: "元数据排名榜单" }).locator("tbody tr"),
@@ -176,9 +301,11 @@ try {
   );
   await page
     .locator(".ranking-view")
-    .getByRole("button", { name: "存为工作集", exact: true })
+    .getByRole("button", { name: "保存筛选为工作集", exact: true })
     .click();
   await page.getByLabel("工作集名称", { exact: true }).fill("界面导出的前75名");
+  await expect(page.getByRole("dialog")).toContainText("G 分级");
+  await expect(page.getByRole("dialog")).toContainText("前 75 名");
   await page.getByRole("button", { name: "保存工作集", exact: true }).click();
   await expect(page.locator(".ranking-saved")).toContainText("75 项");
   const collections = (await engine.api(base + "/collections")).items;
@@ -188,6 +315,80 @@ try {
   );
   checks.push(
     "save workset includes all 75 matches across unloaded pages and creates an ordinary project collection",
+  );
+  await page.getByRole("button", { name: "打开工作集", exact: true }).click();
+  await expect(page.locator(".asset-card")).toHaveCount(48, { timeout: 30000 });
+  await expect(
+    page.getByRole("button", { name: "保存当前范围", exact: true }),
+  ).toBeVisible();
+  const savedCollection = collections.find(
+    (c) => c.name === "界面导出的前75名",
+  );
+  const realPage = await engine.api(
+    base +
+      "/assets?collection_id=" +
+      savedCollection.id +
+      "&order=post_id_desc&limit=48",
+  );
+  const replayResult = {
+    id: crypto.randomUUID(),
+    project_id: project.id,
+    state: "queued",
+    processed: 0,
+    count: 75,
+    created_at: String(Date.now()),
+    error: null,
+  };
+  for (const mode of ["scan", "query", "failure"]) {
+    browseReplay = {
+      mode,
+      collectionId: savedCollection.id,
+      ready: realPage,
+      result: replayResult,
+      cursors: [],
+      polls: 0,
+      released: false,
+    };
+    await page.getByTitle("刷新当前范围", { exact: true }).click();
+    if (mode === "failure") {
+      await expect(
+        page.getByText("读取超时，可缩小查询范围后重试。", { exact: true }),
+      ).toBeVisible({ timeout: 15000 });
+      await page.locator(".error-details summary").click();
+      await expect(page.locator(".error-details pre")).toContainText(
+        "SOURCE_TIMEOUT：范围排序超时",
+      );
+      assert.deepEqual(browseReplay.cursors, [null]);
+      await page.getByRole("button", { name: "重新读取", exact: true }).click();
+      await expect(page.locator(".asset-card")).toHaveCount(48, {
+        timeout: 15000,
+      });
+      assert.equal(browseReplay.released, true);
+      assert.deepEqual(browseReplay.cursors, [null, null]);
+    } else {
+      await expect(
+        page.getByRole("progressbar", { name: "范围成员定位进度" }),
+      ).toBeVisible();
+      await expect(page.locator(".asset-card")).toHaveCount(48, {
+        timeout: 15000,
+      });
+      assert.deepEqual(
+        browseReplay.cursors,
+        mode === "scan" ? [null, "ui-scan", "ui-ready"] : [null, "ui-ready"],
+      );
+      assert.equal(browseReplay.polls, mode === "scan" ? 0 : 3);
+    }
+    browseReplay = null;
+  }
+  checks.push(
+    "scope preparation follows bounded scan cursors; fallback polls only its result ID; failure preserves the timeout reason and retry releases the failed result (fixture presentation replay)",
+  );
+  await page.getByRole("button", { name: "计算工具", exact: true }).click();
+  await expect(
+    page.getByRole("table", { name: "元数据排名榜单" }),
+  ).toBeVisible();
+  checks.push(
+    "a saved ranking filter opens as a browsable workset and the global range-save action is clearly separate",
   );
   await page.setViewportSize({ width: 1000, height: 760 });
   await page.screenshot({ path: resolve(run, "05-results-narrow.png") });
@@ -250,6 +451,137 @@ try {
   checks.push(
     "Photoshop-style dock owns the property area, obeys the shared visibility setting, resizes by keyboard, and keeps configuration groups collapsible at 2560x1440",
   );
+  const finished = (await engine.api(base + "/jobs")).items.find(
+    (j) => j.operator === "danbooru.metarecall",
+  );
+  assert.equal(finished.status, "succeeded");
+  jobOverride = {
+    ...finished,
+    status: "preparing",
+    total: 11493687,
+    completed: 11493687,
+    stage: { name: "metadata_snapshot", completed: 7629312, total: 11493687 },
+  };
+  await page.setViewportSize({ width: 1540, height: 1000 });
+  const progressCard = page.getByRole("region", {
+    name: "排名任务进度",
+    exact: true,
+  });
+  await expect(progressCard).toContainText("66.4%", { timeout: 15000 });
+  await expect(
+    page.getByRole("button", { name: "排名任务执行中", exact: true }),
+  ).toBeDisabled();
+  await expect(page.getByLabel("输入范围", { exact: true })).toBeDisabled();
+  await expect(
+    page.getByLabel("输入范围", { exact: true }).locator("option:checked"),
+  ).toContainText("11,493,687");
+  await expect(progressCard.getByRole("progressbar")).toHaveAttribute(
+    "aria-valuenow",
+    /^66\./,
+  );
+  await page.screenshot({ path: resolve(run, "10-progress-wide.png") });
+  await page.getByRole("button", { name: "项目成果", exact: true }).click();
+  await expect(page.locator(".task-activity")).toContainText("66.4%");
+  await sleep(1100);
+  await page.reload();
+  await expect(page.locator(".task-activity")).toContainText("66.4%", {
+    timeout: 15000,
+  });
+  await page.getByRole("button", { name: "计算工具", exact: true }).click();
+  await expect(progressCard).toContainText("66.4%");
+  checks.push(
+    "submission acknowledges immediately and only once; current-stage progress, frozen count and duplicate prevention survive module switching and reconnect",
+  );
+  jobsOffline = true;
+  await expect(progressCard).toContainText("状态同步中断", { timeout: 20000 });
+  await expect(progressCard).toContainText("66.4%");
+  await expect(
+    progressCard.getByRole("button", { name: "取消任务", exact: true }),
+  ).toBeDisabled();
+  await page.screenshot({ path: resolve(run, "11-progress-disconnected.png") });
+  jobsOffline = false;
+  await expect(progressCard.getByText(/状态同步中断/)).toHaveCount(0, {
+    timeout: 15000,
+  });
+  jobOverride = {
+    ...jobOverride,
+    status: "running",
+    completed: 11493687,
+    stage: { name: "publishing", completed: 0, total: 1 },
+  };
+  await expect(progressCard).toContainText("保存项目成果", {
+    timeout: 15000,
+  });
+  await expect(progressCard.getByRole("progressbar")).not.toHaveAttribute(
+    "aria-valuenow",
+    /.+/,
+  );
+  await expect(progressCard).not.toContainText("100.0%");
+  await page.locator(".task-activity").click();
+  await expect(page.locator(".task-row")).toContainText("保存项目成果");
+  await expect(
+    page.locator(".task-row").getByRole("progressbar"),
+  ).not.toHaveAttribute("aria-valuenow", /.+/);
+  await page.screenshot({ path: resolve(run, "12-finalizing-tasks.png") });
+  await page.getByRole("button", { name: "查看任务", exact: true }).click();
+  await expect(page.locator(".tasks-panel")).toHaveCount(0);
+  holdAction = true;
+  await progressCard
+    .getByRole("button", { name: "取消任务", exact: true })
+    .click();
+  await expect(
+    progressCard.getByRole("button", { name: "正在取消…", exact: true }),
+  ).toBeDisabled();
+  await expect.poll(() => typeof releaseAction).toBe("function");
+  assert.equal(actionRequests.cancel, 1);
+  holdAction = false;
+  releaseAction();
+  releaseAction = null;
+  await expect(progressCard).toContainText("排名已取消");
+  await progressCard
+    .getByRole("button", { name: "重试固定输入", exact: true })
+    .click();
+  await expect(progressCard).toContainText("排队中");
+  assert.equal(actionRequests.retry, 1);
+  jobOverride = {
+    ...jobOverride,
+    status: "failed",
+    error: "RANKING_MEMORY_LIMIT：测试内存预算不足（界面验收）",
+  };
+  await expect(progressCard).toContainText("排名失败", { timeout: 15000 });
+  await expect(progressCard).toContainText("测试内存预算不足");
+  await expect(progressCard.locator(".job-progress-track > span")).toHaveCSS(
+    "width",
+    "0px",
+  );
+  await expect(page.locator(".ranking-inspector")).not.toContainText(
+    "本成果的范围与参数已固定",
+  );
+  await page.setViewportSize({ width: 1000, height: 760 });
+  await page.screenshot({ path: resolve(run, "13-failed-narrow.png") });
+  assert.ok(
+    await page.locator("html").evaluate((e) => e.scrollWidth <= e.clientWidth),
+  );
+  jobOverride = finished;
+  await expect(progressCard).toContainText("本次排名已完成", {
+    timeout: 15000,
+  });
+  await expect(
+    progressCard.getByRole("button", { name: "查看结果", exact: true }),
+  ).toBeEnabled();
+  await progressCard
+    .getByRole("button", { name: "查看结果", exact: true })
+    .click();
+  await expect(
+    page.getByRole("table", { name: "元数据排名榜单" }),
+  ).toBeVisible();
+  await page.screenshot({ path: resolve(run, "14-complete-narrow.png") });
+  const actualJobs = (await engine.api(base + "/jobs")).items;
+  assert.equal(actualJobs.length, 1);
+  assert.equal(actualJobs[0].status, "succeeded");
+  checks.push(
+    "offline state preserves the last progress; finalization never reports whole-job completion; cancel/retry acknowledge once; failure and completion have working actions at narrow width (fixture presentation replay)",
+  );
   assert.deepEqual(errors, []);
   await writeFile(
     resolve(run, "report.json"),
@@ -276,6 +608,8 @@ try {
   );
   throw error;
 } finally {
+  releaseSubmission?.();
+  releaseAction?.();
   await browser?.close();
   vite?.kill();
   await engine.stop();

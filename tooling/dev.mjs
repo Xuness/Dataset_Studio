@@ -13,17 +13,25 @@ import { once } from "node:events";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { finished } from "./cargo.mjs";
+import { engineProfile, engineExecutable } from "./engine-profile.mjs";
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const dataDir = resolve(
   process.env.STUDIO_DATA_DIR ?? resolve(root, ".local/dev"),
 );
 const local = resolve(root, ".local");
+const profile = engineProfile();
+let prebuilt = process.argv
+  .find((arg) => arg.startsWith("--prebuilt-engine="))
+  ?.slice("--prebuilt-engine=".length);
+if (prebuilt && !existsSync(resolve(prebuilt)))
+  throw new Error("指定的已验证引擎不存在。");
 await mkdir(local, { recursive: true });
 await mkdir(dataDir, { recursive: true });
 const env = {
   ...process.env,
   STUDIO_DATA_DIR: dataDir,
   STUDIO_DEVELOPMENT: "1",
+  STUDIO_ENGINE_PROFILE: profile,
   STUDIO_DUCKDB_DLL:
     process.env.STUDIO_DUCKDB_DLL ?? resolve(root, "vendor/duckdb/duckdb.dll"),
 };
@@ -121,30 +129,41 @@ async function buildAndConnect() {
     do {
       dirty = false;
       console.log("检查本机引擎与接口契约…");
+      const supplied = prebuilt ? resolve(prebuilt) : null;
+      prebuilt = undefined;
+      if (!supplied)
+        await finished(
+          spawn(
+            process.execPath,
+            [
+              resolve(root, "tooling/prepare-sidecar.mjs"),
+              `--engine-profile=${profile}`,
+            ],
+            { cwd: root, env, stdio: "inherit", windowsHide: true },
+          ),
+        );
       await finished(
         spawn(
           process.execPath,
-          [resolve(root, "tooling/prepare-sidecar.mjs")],
-          { cwd: root, env, stdio: "inherit", windowsHide: true },
+          [
+            resolve(root, "tooling/contracts.mjs"),
+            ...(supplied ? [`--engine=${supplied}`, "--check"] : []),
+          ],
+          {
+            cwd: root,
+            env,
+            stdio: "inherit",
+            windowsHide: true,
+          },
         ),
       );
-      await finished(
-        spawn(process.execPath, [resolve(root, "tooling/contracts.mjs")], {
-          cwd: root,
-          env,
-          stdio: "inherit",
-          windowsHide: true,
-        }),
-      );
-      const bytes = await readFile(
-        resolve(root, "target/debug/studio-engine.exe"),
-      );
+      const executable = supplied ?? engineExecutable(root, profile);
+      const bytes = await readFile(executable);
       const fingerprint = createHash("sha256").update(bytes).digest("hex");
       const folder = resolve(local, "engine-binaries", fingerprint);
       await mkdir(folder, { recursive: true });
       const binary = resolve(folder, "studio-engine.exe");
-      if (!existsSync(binary))
-        await copyFile(resolve(root, "target/debug/studio-engine.exe"), binary);
+      if (!existsSync(binary)) await copyFile(executable, binary);
       env.STUDIO_ENGINE_PATH = binary;
       const current = await live();
       const built = await json(resolve(dataDir, "development-build.json"));
@@ -191,7 +210,11 @@ async function buildAndConnect() {
         );
       await writeFile(
         resolve(dataDir, "development-build.json"),
-        JSON.stringify({ fingerprint, instance_id: ready.instance_id }),
+        JSON.stringify({
+          fingerprint,
+          instance_id: ready.instance_id,
+          profile,
+        }),
       );
       console.log("本机引擎就绪。");
     } while (dirty && !stopped);

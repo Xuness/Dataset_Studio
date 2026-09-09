@@ -250,6 +250,7 @@ impl SqliteStore {
         }
         if let Some(path) = job_path {
             tx.execute("UPDATE jobs SET status='succeeded',completed=total,error=NULL,artifact=?2 WHERE id=?1",params![job_id,path]).map_err(db_error)?;
+            job_telemetry::finish(&tx, job_id)?;
             event(&tx, "job.changed", job_id)?;
         }
         // Lazy legacy registration leaves pre-existing project revisions/events intact.

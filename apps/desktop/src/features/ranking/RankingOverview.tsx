@@ -85,7 +85,9 @@ export function RankingOverview({
           </dl>
           <p className="ranking-hint">
             {configuration
-              ? "资格与准确数量在元数据准备后确定。"
+              ? count == null
+                ? "输入数量在固定范围后确定，合格候选数在评分后确定。"
+                : "此处为输入图片数量；合格候选数在评分后确定。"
               : "本成果的范围与参数已固定。"}
           </p>
         </section>

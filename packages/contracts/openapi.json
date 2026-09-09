@@ -3543,6 +3543,16 @@
           },
           "revision": {
             "type": "string"
+          },
+          "scan": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/BrowseScan"
+              }
+            ]
           }
         }
       },
@@ -3645,6 +3655,25 @@
           }
         },
         "additionalProperties": false
+      },
+      "BrowseScan": {
+        "type": "object",
+        "required": [
+          "scanned",
+          "total"
+        ],
+        "properties": {
+          "scanned": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
       },
       "BuildQuery": {
         "type": "object",
@@ -4286,6 +4315,29 @@
           }
         }
       },
+      "JobPhaseTiming": {
+        "type": "object",
+        "required": [
+          "name",
+          "elapsed_ms"
+        ],
+        "properties": {
+          "elapsed_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string"
+          },
+          "rating": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "JobRun": {
         "type": "object",
         "required": [
@@ -4327,10 +4379,58 @@
           "name": {
             "type": "string"
           },
+          "rating": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "telemetry": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JobTelemetry"
+              }
+            ]
+          },
           "total": {
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          }
+        }
+      },
+      "JobTelemetry": {
+        "type": "object",
+        "required": [
+          "started_at",
+          "updated_at",
+          "heartbeat_at",
+          "phases"
+        ],
+        "properties": {
+          "finished_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "heartbeat_at": {
+            "type": "string"
+          },
+          "phases": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JobPhaseTiming"
+            }
+          },
+          "started_at": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
           }
         }
       },

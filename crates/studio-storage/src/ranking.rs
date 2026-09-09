@@ -21,8 +21,7 @@ impl SqliteStore {
     pub fn job_stage(&self, pid: &str, jid: &str, stage: &JobStage) -> Result<()> {
         let p = self.handle(pid)?;
         let db = p.db.lock().map_err(lock_error)?;
-        db.execute("INSERT INTO job_progress VALUES (?1,?2) ON CONFLICT(job_id) DO UPDATE SET stage_json=excluded.stage_json",params![jid,serde_json::to_string(stage).map_err(Error::io)?]).map_err(db_error)?;
-        Ok(())
+        job_telemetry::record(&db, jid, stage)
     }
     pub fn ranking_job_bases(&self, pid: &str, jid: &str) -> Result<Vec<RankingBasis>> {
         let p = self.handle(pid)?;

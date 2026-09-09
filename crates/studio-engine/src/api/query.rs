@@ -458,6 +458,7 @@ pub(super) async fn result_assets(
                     revision: rid,
                     preparing: None,
                     result_id: None,
+                    scan: None,
                 },
             })
         })

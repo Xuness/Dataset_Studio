@@ -2,13 +2,55 @@
 use crate::{db_error, unsigned};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, params, types::Value as SqlValue};
 use serde::{Serialize, de::DeserializeOwned};
-use std::{fs, path::Path};
+use std::{cell::Cell, fs, path::Path};
 use studio_domain::*;
 
 const INPUT_ID: i64 = 0x4d524931;
 const SCORE_ID: i64 = 0x4d525331;
+const COMMIT_ROWS: usize = 8192;
+
+#[derive(Default)]
+struct WriteBatch {
+    rows: Cell<usize>,
+}
+impl WriteBatch {
+    fn begin(&self, db: &Connection) -> Result<()> {
+        if db.is_autocommit() {
+            db.execute_batch("BEGIN IMMEDIATE;").map_err(db_error)?;
+        }
+        Ok(())
+    }
+    fn finish(&self, db: &Connection, count: usize, result: Result<()>) -> Result<()> {
+        if result.is_err() {
+            let _ = db.execute_batch("ROLLBACK;");
+            self.rows.set(0);
+            return result;
+        }
+        self.rows.set(self.rows.get() + count);
+        if self.rows.get() >= COMMIT_ROWS {
+            self.flush(db)?;
+        }
+        Ok(())
+    }
+    fn flush(&self, db: &Connection) -> Result<()> {
+        if !db.is_autocommit() {
+            db.execute_batch("COMMIT;").map_err(db_error)?;
+        }
+        self.rows.set(0);
+        Ok(())
+    }
+}
 const INPUT_COLUMNS: &str = "ordinal,source_id,asset_id,record_id,observation_id,post_id,rating,created_at_us,observed_at_us,updated_at_us,time_quality,source_priority,fav_count,up_score,down_score,score,artists,parent_id,stored_width,stored_height,dimension_basis,stored_extension,stored_bytes,is_banned,is_deleted,is_pending,is_flagged,damage_classes,tags_known,record_count,rating_conflict,basis_ids,source_issues";
 const SCORE_COLUMNS: &str = "ordinal,rating,eligibility,missing_flags,g,c,a,v,t,local_percentile,local_count,support_k,cohort_level,time_reason,artist_support,main_score,rescue_score,main_rank,rescue_rank,selected_route,duplicate_of";
+fn score_index(filter: &RankingFilter, order: RankingOrder) -> &'static str {
+    match order {
+        RankingOrder::Input => "scores_rating",
+        RankingOrder::Rescue => "scores_rescue",
+        RankingOrder::Main if filter.route.is_some() => "scores_route_main",
+        RankingOrder::Main if filter.eligibility.is_some() => "scores_eligibility_main",
+        RankingOrder::Main => "scores_main",
+    }
+}
 fn input_columns() -> String {
     INPUT_COLUMNS
         .split(',')
@@ -178,22 +220,32 @@ fn read_scores(r: &rusqlite::Row<'_>, o: usize) -> rusqlite::Result<RankingScore
 
 pub struct RankingInputTable {
     db: Connection,
+    batch: WriteBatch,
 }
 impl RankingInputTable {
     pub fn create(path: &Path) -> Result<Self> {
         let db = connect(path, INPUT_ID, true, true)?;
         db.execute_batch("CREATE TABLE input_rows(ordinal INTEGER PRIMARY KEY,source_id TEXT NOT NULL,asset_id BLOB NOT NULL,record_id BLOB,observation_id BLOB,post_id INTEGER,rating TEXT,created_at_us INTEGER,observed_at_us INTEGER,updated_at_us INTEGER,time_quality TEXT NOT NULL,source_priority INTEGER,fav_count INTEGER,up_score INTEGER,down_score INTEGER,score INTEGER,artists TEXT NOT NULL,parent_id INTEGER,stored_width INTEGER,stored_height INTEGER,dimension_basis TEXT NOT NULL,stored_extension TEXT NOT NULL,stored_bytes INTEGER NOT NULL,is_banned INTEGER,is_deleted INTEGER,is_pending INTEGER,is_flagged INTEGER,damage_classes INTEGER NOT NULL,tags_known INTEGER NOT NULL,record_count INTEGER NOT NULL,rating_conflict INTEGER NOT NULL,basis_ids TEXT NOT NULL,source_issues TEXT); CREATE UNIQUE INDEX input_identity ON input_rows(source_id,asset_id); CREATE INDEX input_rating ON input_rows(rating,ordinal); CREATE TABLE members(ordinal INTEGER PRIMARY KEY,source_id TEXT NOT NULL,asset_id BLOB NOT NULL,bases TEXT NOT NULL); CREATE INDEX members_source ON members(source_id,ordinal);").map_err(db_error)?;
-        Ok(Self { db })
+        Ok(Self {
+            db,
+            batch: WriteBatch::default(),
+        })
     }
     pub fn open(path: &Path) -> Result<Self> {
         Ok(Self {
             db: connect(path, INPUT_ID, false, false)?,
+            batch: WriteBatch::default(),
         })
     }
     pub fn set_meta(&self, key: &str, value: &impl Serialize) -> Result<()> {
+        self.flush()?;
         put_meta(&self.db, key, value)
     }
+    pub fn flush(&self) -> Result<()> {
+        self.batch.flush(&self.db)
+    }
     pub fn finalize(&self, ratings: &[String]) -> Result<()> {
+        self.flush()?;
         // At most one source identity represents the same bytes across a multi-source scope.
         let wanted = ratings
             .iter()
@@ -211,9 +263,13 @@ impl RankingInputTable {
         if rows.len() > 512 {
             return Err(Error::invalid("排名成员批次超出范围"));
         }
-        let tx = self.db.transaction().map_err(db_error)?;
-        {
-            let mut stmt = tx
+        if rows.is_empty() {
+            return Ok(());
+        }
+        self.batch.begin(&self.db)?;
+        let result = (|| -> Result<()> {
+            let mut stmt = self
+                .db
                 .prepare_cached("INSERT INTO members VALUES (?1,?2,?3,?4)")
                 .map_err(db_error)?;
             for (ordinal, key, basis) in rows {
@@ -225,8 +281,9 @@ impl RankingInputTable {
                 ])
                 .map_err(db_error)?;
             }
-        }
-        tx.commit().map_err(db_error)
+            Ok(())
+        })();
+        self.batch.finish(&self.db, rows.len(), result)
     }
     pub fn members(
         &self,
@@ -255,9 +312,12 @@ impl RankingInputTable {
         if rows.len() > 512 {
             return Err(Error::invalid("排名字段批次超出范围"));
         }
-        let tx = self.db.transaction().map_err(db_error)?;
-        {
-            let mut stmt=tx.prepare_cached("INSERT INTO input_rows VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31,?32,?33)").map_err(db_error)?;
+        if rows.is_empty() {
+            return Ok(());
+        }
+        self.batch.begin(&self.db)?;
+        let result = (|| -> Result<()> {
+            let mut stmt=self.db.prepare_cached("INSERT INTO input_rows VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31,?32,?33)").map_err(db_error)?;
             for v in rows {
                 let asset = bytes(&v.asset_id)?;
                 let record = v.record_id.as_deref().map(bytes).transpose()?;
@@ -300,8 +360,9 @@ impl RankingInputTable {
                 ])
                 .map_err(db_error)?;
             }
-        }
-        tx.commit().map_err(db_error)
+            Ok(())
+        })();
+        self.batch.finish(&self.db, rows.len(), result)
     }
     pub fn count(&self) -> Result<u64> {
         self.db
@@ -376,25 +437,35 @@ pub struct RankingPosition {
 }
 pub struct RankingResultTable {
     db: Connection,
+    batch: WriteBatch,
 }
 impl RankingResultTable {
     pub fn create(path: &Path) -> Result<Self> {
         let db = connect(path, SCORE_ID, true, true)?;
         db.execute_batch("CREATE TABLE scores(ordinal INTEGER PRIMARY KEY,rating TEXT,eligibility TEXT NOT NULL,missing_flags TEXT NOT NULL,g REAL,c REAL,a REAL,v REAL,t REAL,local_percentile REAL,local_count INTEGER NOT NULL,support_k REAL,cohort_level INTEGER,time_reason TEXT NOT NULL,artist_support INTEGER NOT NULL,main_score REAL,rescue_score REAL,main_rank INTEGER,rescue_rank INTEGER,selected_route TEXT NOT NULL,duplicate_of INTEGER); CREATE INDEX scores_rating ON scores(rating,ordinal);").map_err(db_error)?;
-        Ok(Self { db })
+        Ok(Self {
+            db,
+            batch: WriteBatch::default(),
+        })
     }
     pub fn resume(path: &Path) -> Result<Self> {
         Ok(Self {
             db: connect(path, SCORE_ID, false, true)?,
+            batch: WriteBatch::default(),
         })
     }
     pub fn open(path: &Path) -> Result<Self> {
         Ok(Self {
             db: connect(path, SCORE_ID, false, false)?,
+            batch: WriteBatch::default(),
         })
     }
     pub fn set_meta(&self, key: &str, value: &impl Serialize) -> Result<()> {
+        self.flush()?;
         put_meta(&self.db, key, value)
+    }
+    pub fn flush(&self) -> Result<()> {
+        self.batch.flush(&self.db)
     }
     pub fn meta<T: DeserializeOwned>(&self, key: &str) -> Result<T> {
         get_meta(&self.db, key)
@@ -403,9 +474,12 @@ impl RankingResultTable {
         if rows.len() > 512 {
             return Err(Error::invalid("排名成果批次超出范围"));
         }
-        let tx = self.db.transaction().map_err(db_error)?;
-        {
-            let mut stmt=tx.prepare_cached("INSERT INTO scores VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21)").map_err(db_error)?;
+        if rows.is_empty() {
+            return Ok(());
+        }
+        self.batch.begin(&self.db)?;
+        let result = (|| -> Result<()> {
+            let mut stmt=self.db.prepare_cached("INSERT INTO scores VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21)").map_err(db_error)?;
             for v in rows {
                 for x in [
                     v.g,
@@ -450,16 +524,19 @@ impl RankingResultTable {
                 ])
                 .map_err(db_error)?;
             }
-        }
-        tx.commit().map_err(db_error)
+            Ok(())
+        })();
+        self.batch.finish(&self.db, rows.len(), result)
     }
     pub fn delete_rating(&self, rating: &str) -> Result<()> {
+        self.flush()?;
         self.db
             .execute("DELETE FROM scores WHERE rating=?1", [rating])
             .map_err(db_error)?;
         Ok(())
     }
     pub fn delete_eligible_rating(&self, rating: &str) -> Result<()> {
+        self.flush()?;
         self.db
             .execute(
                 "DELETE FROM scores WHERE rating=?1 AND eligibility='eligible'",
@@ -469,6 +546,7 @@ impl RankingResultTable {
         Ok(())
     }
     pub fn reset(&self) -> Result<()> {
+        self.flush()?;
         self.db
             .execute("DELETE FROM scores", [])
             .map_err(db_error)?;
@@ -480,6 +558,7 @@ impl RankingResultTable {
             .map_err(db_error)
     }
     pub fn finish(&self, summary: &RankingSummary) -> Result<()> {
+        self.flush()?;
         self.db.execute_batch("CREATE INDEX IF NOT EXISTS scores_main ON scores(rating,coalesce(main_rank,9223372036854775807),ordinal); CREATE INDEX IF NOT EXISTS scores_rescue ON scores(rating,coalesce(rescue_rank,9223372036854775807),ordinal); CREATE INDEX IF NOT EXISTS scores_route_main ON scores(rating,selected_route,coalesce(main_rank,9223372036854775807),ordinal); CREATE INDEX IF NOT EXISTS scores_eligibility_main ON scores(rating,eligibility,coalesce(main_rank,9223372036854775807),ordinal);").map_err(db_error)?;
         put_meta(&self.db, "summary", summary)?;
         put_meta(&self.db, "complete", &true)?;
@@ -537,40 +616,80 @@ impl RankingResultTable {
         limit: usize,
     ) -> Result<(Vec<RankingScores>, Option<RankingPosition>)> {
         filter.validate()?;
-        let (predicate, mut values) = filter_sql(filter)?;
+        let (predicate, values) = filter_sql(filter)?;
         let position = match filter.order {
             RankingOrder::Main => "coalesce(main_rank,9223372036854775807)",
             RankingOrder::Rescue => "coalesce(rescue_rank,9223372036854775807)",
             RankingOrder::Input => "ordinal",
         };
-        let mut cursor = String::new();
-        if let Some(after) = after {
-            cursor = format!(
-                " AND (coalesce(rating,'z'),{position},ordinal)>(?{},?{},?{})",
-                values.len() + 1,
-                values.len() + 2,
-                values.len() + 3
-            );
-            values.extend([
-                SqlValue::Text(after.group.clone()),
-                SqlValue::Integer(after.position),
-                SqlValue::Integer(after.ordinal as i64),
-            ]);
-        }
         let limit = limit.clamp(1, 128);
-        values.push(SqlValue::Integer(limit as i64 + 1));
-        let sql = format!(
-            "SELECT {SCORE_COLUMNS},{position} FROM scores WHERE {predicate}{cursor} ORDER BY coalesce(rating,'z'),{position},ordinal LIMIT ?{}",
-            values.len()
-        );
-        let mut stmt = self.db.prepare(&sql).map_err(db_error)?;
-        let mut rows = stmt
-            .query_map(rusqlite::params_from_iter(values), |r| {
-                Ok((read_scores(r, 0)?, r.get::<_, i64>(21)?))
-            })
-            .map_err(db_error)?
-            .collect::<std::result::Result<Vec<_>, _>>()
-            .map_err(db_error)?;
+        let mut rows = Vec::new();
+        // Preserve coalesce(rating,'z') ordering while using the existing raw-rating
+        // indexes: later non-null groups, the cursor's group, and the null group
+        // each contribute at most one page. Only this bounded union is merged.
+        let mut segment = |extra: String, appended: Vec<SqlValue>| -> Result<()> {
+            let mut params = values.clone();
+            params.extend(appended);
+            params.push(SqlValue::Integer(limit as i64 + 1));
+            let sql = format!(
+                "SELECT {SCORE_COLUMNS},{position} FROM scores INDEXED BY {} WHERE {predicate} AND {extra} ORDER BY rating,{position},ordinal LIMIT ?{}",
+                score_index(filter, filter.order),
+                params.len()
+            );
+            let mut statement = self.db.prepare(&sql).map_err(db_error)?;
+            let page = statement
+                .query_map(rusqlite::params_from_iter(params), |r| {
+                    Ok((read_scores(r, 0)?, r.get::<_, i64>(21)?))
+                })
+                .map_err(db_error)?
+                .collect::<std::result::Result<Vec<_>, _>>()
+                .map_err(db_error)?;
+            rows.extend(page);
+            Ok(())
+        };
+        let parameter = values.len() + 1;
+        let seek = |parameter| {
+            format!(
+                "{position}>=?{parameter} AND ({position}>?{parameter} OR ordinal>?{})",
+                parameter + 1
+            )
+        };
+        if let Some(after) = after {
+            segment(
+                format!("rating>?{parameter}"),
+                vec![SqlValue::Text(after.group.clone())],
+            )?;
+            segment(
+                format!("rating=?{parameter} AND {}", seek(parameter + 1)),
+                vec![
+                    SqlValue::Text(after.group.clone()),
+                    SqlValue::Integer(after.position),
+                    SqlValue::Integer(after.ordinal as i64),
+                ],
+            )?;
+        } else {
+            segment("rating IS NOT NULL".into(), vec![])?;
+        }
+        if after.is_none_or(|a| a.group.as_str() <= "z") {
+            if let Some(after) = after.filter(|a| a.group == "z") {
+                segment(
+                    format!("rating IS NULL AND {}", seek(parameter)),
+                    vec![
+                        SqlValue::Integer(after.position),
+                        SqlValue::Integer(after.ordinal as i64),
+                    ],
+                )?;
+            } else {
+                segment("rating IS NULL".into(), vec![])?;
+            }
+        }
+        rows.sort_by(|(a, ap), (b, bp)| {
+            (a.rating.as_deref().unwrap_or("z"), ap, a.ordinal).cmp(&(
+                b.rating.as_deref().unwrap_or("z"),
+                bp,
+                b.ordinal,
+            ))
+        });
         let more = rows.len() > limit;
         rows.truncate(limit);
         let next = if more {
@@ -585,10 +704,65 @@ impl RankingResultTable {
         Ok((rows.into_iter().map(|(s, _)| s).collect(), next))
     }
     pub fn filtered_count(&self, filter: &RankingFilter) -> Result<u64> {
+        filter.validate()?;
+        let summary = self.meta::<RankingSummary>("summary")?;
+        if filter.top.is_none()
+            && filter.route.is_none()
+            && !filter.missing_only
+            && !filter.selected_only
+        {
+            if filter.eligibility == Some(RankingEligibility::Eligible) {
+                return Ok(summary
+                    .ratings
+                    .iter()
+                    .filter(|r| {
+                        filter
+                            .rating
+                            .as_ref()
+                            .is_none_or(|rating| rating == &r.rating)
+                    })
+                    .map(|r| r.eligible)
+                    .sum());
+            }
+            if filter.rating.is_none() {
+                return match &filter.eligibility {
+                    None => Ok(summary.input_count),
+                    Some(eligibility) => Ok(summary
+                        .eligibility_counts
+                        .get(&enum_text(eligibility)?)
+                        .copied()
+                        .unwrap_or(0)),
+                };
+            }
+        }
+        if filter.top.is_some() && filter.rating.is_none() {
+            // Ranks exist only in the summary's eligible rating populations.
+            // Constrain each rating so the expression index can seek to top N.
+            return summary.ratings.iter().try_fold(0, |count, rating| {
+                let mut part = filter.clone();
+                part.rating = Some(rating.rating.clone());
+                self.filtered_count(&part).map(|n| count + n)
+            });
+        }
         let (sql, values) = filter_sql(filter)?;
+        let index = if filter.top.is_some() {
+            format!(
+                " INDEXED BY {}",
+                score_index(
+                    filter,
+                    if filter.order == RankingOrder::Rescue {
+                        RankingOrder::Rescue
+                    } else {
+                        RankingOrder::Main
+                    }
+                )
+            )
+        } else {
+            String::new()
+        };
         self.db
             .query_row(
-                &format!("SELECT count(*) FROM scores WHERE {sql}"),
+                &format!("SELECT count(*) FROM scores{index} WHERE {sql}"),
                 rusqlite::params_from_iter(values),
                 |r| unsigned(r, 0),
             )
@@ -622,14 +796,19 @@ pub(crate) fn filter_sql(f: &RankingFilter) -> Result<(String, Vec<SqlValue>)> {
         clauses.push("selected_route IN ('main','rescue','audit')".into());
     }
     if let Some(top) = f.top {
+        if f.rating.is_none() {
+            // Only these eligible populations receive ranks. Explicit alternatives
+            // let SQLite seek each rating prefix in pre-existing expression indexes.
+            clauses.push("rating IN ('e','g','q','s')".into());
+        }
+        let rank = if f.order == RankingOrder::Rescue {
+            "rescue_rank"
+        } else {
+            "main_rank"
+        };
         values.push(SqlValue::Integer(top as i64));
         clauses.push(format!(
-            "{}<=?{}",
-            if f.order == RankingOrder::Rescue {
-                "rescue_rank"
-            } else {
-                "main_rank"
-            },
+            "{rank} IS NOT NULL AND coalesce({rank},9223372036854775807)<=?{}",
             values.len()
         ));
     }
@@ -639,6 +818,206 @@ pub(crate) fn filter_sql(f: &RankingFilter) -> Result<(String, Vec<SqlValue>)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn indexed_pages_preserve_group_null_tie_filter_and_cursor_semantics() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut table =
+            RankingResultTable::create(&directory.path().join("scores.sqlite")).unwrap();
+        let mut summary = RankingSummary {
+            input_count: 512,
+            ..Default::default()
+        };
+        let ratings = [
+            Some(""),
+            Some("e"),
+            Some("g"),
+            Some("q"),
+            Some("s"),
+            None,
+            Some("z"),
+            Some("zz"),
+        ];
+        let rows = (0..512u64)
+            .map(|ordinal| {
+                let rating = ratings[ordinal as usize % ratings.len()];
+                let eligible = matches!(rating, Some("e" | "g" | "q" | "s")) && ordinal % 11 != 0;
+                let eligibility = if eligible {
+                    RankingEligibility::Eligible
+                } else {
+                    RankingEligibility::RatingUnknown
+                };
+                *summary
+                    .eligibility_counts
+                    .entry(enum_text(&eligibility).unwrap())
+                    .or_default() += 1;
+                if eligible {
+                    summary.eligible_count += 1;
+                    let rating = rating.unwrap();
+                    if let Some(part) = summary
+                        .ratings
+                        .iter_mut()
+                        .find(|part| part.rating == rating)
+                    {
+                        part.eligible += 1;
+                    } else {
+                        summary.ratings.push(RankingRatingSummary {
+                            rating: rating.into(),
+                            eligible: 1,
+                            ..Default::default()
+                        });
+                    }
+                }
+                RankingScores {
+                    ordinal,
+                    rating: rating.map(str::to_owned),
+                    eligibility,
+                    main_rank: eligible.then_some(1 + ordinal % 29),
+                    rescue_rank: eligible.then_some(1 + (ordinal * 7) % 31),
+                    selected_route: if eligible {
+                        [
+                            RankingRoute::Main,
+                            RankingRoute::Rescue,
+                            RankingRoute::Audit,
+                            RankingRoute::BudgetRejected,
+                        ][(ordinal / 8) as usize % 4]
+                    } else {
+                        RankingRoute::Ineligible
+                    },
+                    missing_flags: if ordinal % 3 == 0 {
+                        vec!["artist_unknown".into()]
+                    } else {
+                        vec![]
+                    },
+                    ..Default::default()
+                }
+            })
+            .collect::<Vec<_>>();
+        table.append(&rows).unwrap();
+        table.finish(&summary).unwrap();
+        for order in [
+            RankingOrder::Main,
+            RankingOrder::Rescue,
+            RankingOrder::Input,
+        ] {
+            for rating in [None, Some("g".to_owned())] {
+                for variant in 0..8 {
+                    let filter = RankingFilter {
+                        order,
+                        rating: rating.clone(),
+                        eligibility: (variant == 1)
+                            .then_some(RankingEligibility::Eligible)
+                            .or_else(|| {
+                                (variant == 7).then_some(RankingEligibility::RatingUnknown)
+                            }),
+                        top: if variant == 2 {
+                            Some(3)
+                        } else if variant == 3 {
+                            Some(i64::MAX as u64)
+                        } else {
+                            None
+                        },
+                        route: (variant == 4).then_some(RankingRoute::Main),
+                        selected_only: variant == 5,
+                        missing_only: variant == 6,
+                    };
+                    // Independent historical SQL oracle, including its exact null semantics.
+                    let rank = if order == RankingOrder::Rescue {
+                        "rescue_rank"
+                    } else {
+                        "main_rank"
+                    };
+                    let position = if order == RankingOrder::Input {
+                        "ordinal".into()
+                    } else {
+                        format!("coalesce({rank},9223372036854775807)")
+                    };
+                    let mut predicate = String::from("1=1");
+                    if rating.is_some() {
+                        predicate.push_str(" AND rating='g'");
+                    }
+                    if variant == 1 {
+                        predicate.push_str(" AND eligibility='eligible'");
+                    }
+                    if variant == 7 {
+                        predicate.push_str(" AND eligibility='rating_unknown'");
+                    }
+                    if let Some(top) = filter.top {
+                        predicate.push_str(&format!(" AND {rank}<={top}"));
+                    }
+                    if variant == 4 {
+                        predicate.push_str(" AND selected_route='main'");
+                    }
+                    if variant == 5 {
+                        predicate.push_str(" AND selected_route IN ('main','rescue','audit')");
+                    }
+                    if variant == 6 {
+                        predicate.push_str(" AND missing_flags!='[]'");
+                    }
+                    let expected = table.db.prepare(&format!("SELECT ordinal FROM scores WHERE {predicate} ORDER BY coalesce(rating,'z'),{position},ordinal")).unwrap().query_map([], |r| unsigned(r, 0)).unwrap().collect::<std::result::Result<Vec<_>, _>>().unwrap();
+                    assert_eq!(
+                        table.filtered_count(&filter).unwrap(),
+                        expected.len() as u64
+                    );
+                    let mut actual = Vec::new();
+                    let mut after = None;
+                    loop {
+                        let (page, next) = table.filtered_page(&filter, after.as_ref(), 7).unwrap();
+                        actual.extend(page.iter().map(|row| row.ordinal));
+                        assert!(actual.len() <= 512, "cursor must advance");
+                        after = next;
+                        if after.is_none() {
+                            break;
+                        }
+                    }
+                    assert_eq!(
+                        actual, expected,
+                        "order={order:?}, rating={rating:?}, variant={variant}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn buffered_rows_commit_at_boundaries_and_rollback_unfinished_batches() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("scores.sqlite");
+        let mut table = RankingResultTable::create(&path).unwrap();
+        let rows = |start| {
+            (start..start + 512)
+                .map(|ordinal| RankingScores {
+                    ordinal,
+                    ..Default::default()
+                })
+                .collect::<Vec<_>>()
+        };
+        table.append(&rows(0)).unwrap();
+        assert_eq!(RankingResultTable::open(&path).unwrap().count().unwrap(), 0);
+        table.flush().unwrap();
+        assert_eq!(
+            RankingResultTable::open(&path).unwrap().count().unwrap(),
+            512
+        );
+        table.append(&rows(512)).unwrap();
+        assert!(table.append(&rows(0)).is_err());
+        assert!(table.db.is_autocommit());
+        assert_eq!(table.count().unwrap(), 512);
+        table.append(&rows(512)).unwrap();
+        drop(table);
+        let table = RankingResultTable::resume(&path).unwrap();
+        assert_eq!(table.count().unwrap(), 512);
+        let second = directory.path().join("automatic.sqlite");
+        let mut table = RankingResultTable::create(&second).unwrap();
+        for batch in 0..16 {
+            table.append(&rows(batch * 512)).unwrap();
+        }
+        assert!(table.db.is_autocommit());
+        assert_eq!(
+            RankingResultTable::open(&second).unwrap().count().unwrap(),
+            8192
+        );
+    }
 
     #[test]
     fn cross_source_duplicates_respect_date_precision_and_unknown_time() {

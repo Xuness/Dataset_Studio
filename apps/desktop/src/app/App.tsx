@@ -43,6 +43,7 @@ import {
   CopyButton,
   assetTitle,
   ErrorDetails,
+  isJobActive,
 } from "@studio/ui";
 import type { CSSProperties } from "react";
 import { MenuBar } from "./MenuBar.js";
@@ -66,6 +67,7 @@ import { modules, moduleViews } from "./modules.js";
 import { useWorkspaceState, useLayoutState } from "./workspaceState.js";
 import { AssetImage } from "../features/browser/AssetImage.js";
 import { Tasks } from "../features/tasks/Tasks.js";
+import { TaskActivity } from "../features/tasks/TaskActivity.js";
 import { MetadataInspector } from "../features/metadata/MetadataInspector.js";
 import { SettingsDialog } from "../features/settings/SettingsDialog.js";
 import { settingsPages } from "../features/settings/pages.js";
@@ -276,6 +278,9 @@ function Studio({
     queryKey: ["project", currentId, "jobs"],
     queryFn: () => client.jobs(currentId),
     enabled: !!project,
+    refetchInterval: (query) =>
+      query.state.data?.items.some(isJobActive) ? 2000 : 5000,
+    refetchIntervalInBackground: true,
   });
   const queryModel = useProjectQueries(client, currentId);
   const activeResultId = view.scope.kind === "result" ? view.scope.id : "";
@@ -509,10 +514,6 @@ function Studio({
       }),
     );
   }
-  const activeJobs =
-    jobs.data?.items.filter((j) =>
-      ["waiting_input", "queued", "preparing", "running"].includes(j.status),
-    ).length ?? 0;
   const moduleContext: ModuleContext = {
     client,
     projectId: currentId,
@@ -698,9 +699,10 @@ function Studio({
         <button
           disabled={!hasFixedInput || busy}
           onClick={() => setDialog("collection")}
+          title="将当前浏览范围保存为工作集"
         >
           <FolderPlus size={14} />
-          存为工作集
+          保存当前范围
         </button>
         <button
           disabled={!hasTaskInput || busy}
@@ -1138,12 +1140,13 @@ function Studio({
           projectId={project.id}
           onClose={() => setTasksVisible(false)}
           onError={setError}
-          onOpenRanking={(jobId) =>
+          onOpenRanking={(jobId) => {
+            setTasksVisible(false);
             activateView("core.tools", {
               operatorId: "danbooru.metarecall",
               jobId,
-            })
-          }
+            });
+          }}
         />
       )}
       {error && (
@@ -1188,10 +1191,12 @@ function Studio({
         )}
         <span className="grow" />
         {project && (
-          <button onClick={() => setTasksVisible((v) => !v)}>
-            <ListTodo size={13} />
-            项目任务{activeJobs ? " · " + activeJobs + " 项运行中" : ""}
-          </button>
+          <TaskActivity
+            jobs={jobs.data?.items ?? []}
+            disconnected={jobs.isError || health.isError}
+            expanded={tasksVisible}
+            onOpen={() => setTasksVisible((v) => !v)}
+          />
         )}
       </footer>
       {settingsPage && (

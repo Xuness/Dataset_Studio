@@ -341,7 +341,6 @@
 .ranking-notice .button {
   margin-left: 8px;
 }
-.ranking-job,
 .ranking-saved {
   display: flex;
   align-items: center;
@@ -354,28 +353,129 @@
   border-bottom: 1px solid #1a1a1a;
   font-size: 12px;
 }
-.ranking-job > span:first-child::before {
-  content: "";
-  display: inline-block;
-  width: 5px;
-  height: 5px;
+.ranking-job {
+  flex-shrink: 0;
+  padding: 12px 16px 10px;
+  border-bottom: 1px solid #596773;
+  background: #2b3239;
+  box-shadow: inset 3px 0 #8ab8e4;
+  font-size: 12px;
+}
+.ranking-job-heading {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ranking-job-heading > strong {
+  font-size: 14px;
+  font-weight: 600;
+  color: #e0eaf2;
+}
+.ranking-job-heading > svg {
+  color: #a6c6e3;
+}
+.ranking-job-state {
+  padding: 1px 7px;
+  border: 1px solid #5a6876;
+  border-radius: 3px;
+  color: #c3d3e1;
+}
+.ranking-job-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  margin: 5px 0 9px;
+  color: #bbc3ca;
+  font-variant-numeric: tabular-nums;
+}
+.ranking-job-phases {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  list-style: none;
+  margin: 4px 0 9px;
+  padding: 0;
+  color: #929da7;
+}
+.ranking-job-phases li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.ranking-job-phases li > span {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  width: 19px;
+  height: 19px;
+  border: 1px solid #65717a;
   border-radius: 50%;
-  background: #819485;
-  margin-right: 7px;
-  vertical-align: middle;
+  font-size: 11px;
 }
-.ranking-job[data-status="running"] > span:first-child::before,
-.ranking-job[data-status="preparing"] > span:first-child::before {
-  background: #839fb7;
+.ranking-job-phases [data-phase="current"] {
+  color: #e4eff9;
 }
-.ranking-job[data-status="failed"] > span:first-child::before {
-  background: #bd8983;
+.ranking-job-phases [data-phase="current"] > span {
+  background: #709bc0;
+  border-color: #b6d4ed;
+  color: #0f1d29;
 }
-.ranking-job[data-status="cancelled"] > span:first-child::before,
-.ranking-job[data-status="queued"] > span:first-child::before {
-  background: #929292;
+.ranking-job-phases [data-phase="done"] {
+  color: #b3c9b3;
 }
-.ranking-job .button,
+.ranking-job-note {
+  margin-top: 7px;
+  color: #b4bec7;
+  font-size: 12px;
+}
+.ranking-job-timings {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #b8c5d0;
+}
+.ranking-job-timings summary {
+  cursor: pointer;
+  width: fit-content;
+}
+.ranking-job-timings dl {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 4px 22px;
+  margin: 8px 0 2px;
+  max-height: 150px;
+  overflow: auto;
+}
+.ranking-job-timings dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ranking-job-timings dd {
+  margin: 0;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.ranking-job-sync {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 7px;
+  padding-top: 8px;
+  color: #edc58e;
+}
+.ranking-job[data-status="succeeded"] {
+  box-shadow: inset 3px 0 #a0c7a0;
+  background: #2b342e;
+}
+.ranking-job[data-status="failed"] {
+  box-shadow: inset 3px 0 var(--danger);
+  background: #3a2d2c;
+}
+.ranking-job[data-status="cancelled"] {
+  box-shadow: inset 3px 0 #999;
+  background: #303030;
+}
 .ranking-saved .button {
   min-height: 21px;
   padding: 0 8px;
@@ -384,6 +484,14 @@
 .ranking-job .error-details {
   max-width: 100%;
   flex-basis: 100%;
+}
+@media (max-width: 1100px) {
+  .ranking-job {
+    padding: 10px 12px;
+  }
+  .ranking-job-phases {
+    gap: 7px 12px;
+  }
 }
 .ranking-saved {
   color: #abbcab;

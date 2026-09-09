@@ -18,6 +18,69 @@
   font-synthesis: none;
   text-rendering: optimizeLegibility;
 }
+.job-progress {
+  min-width: 0;
+  width: 100%;
+  font-variant-numeric: tabular-nums;
+}
+.job-progress-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  font-size: 12px;
+  color: #bfc8d0;
+  margin-bottom: 6px;
+}
+.job-progress-label strong {
+  color: #d5e8f8;
+  font-size: 14px;
+  font-weight: 600;
+}
+.job-progress-track {
+  height: 7px;
+  background: #1e252a;
+  border: 1px solid #4a5660;
+  overflow: hidden;
+  border-radius: 2px;
+}
+.job-progress-track > span {
+  display: block;
+  height: 100%;
+  background: #8ab8e4;
+  transition: width 240ms ease;
+}
+.job-progress-track > .indeterminate {
+  width: 28%;
+  animation: job-progress-travel 1.8s ease-in-out infinite alternate;
+}
+.job-progress[data-status="succeeded"] .job-progress-track > span {
+  background: #a0c7a0;
+}
+.job-progress[data-status="failed"] .job-progress-track > span {
+  background: var(--danger);
+}
+.job-progress[data-status="cancelled"] .job-progress-track > span,
+.job-progress[data-disconnected] .job-progress-track > span {
+  background: #888;
+}
+@keyframes job-progress-travel {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(257%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .job-progress-track > .indeterminate {
+    animation: none;
+  }
+  .job-progress-track > span {
+    transition: none;
+  }
+}
 * {
   box-sizing: border-box;
 }

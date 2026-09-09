@@ -4,7 +4,7 @@ members = ["crates/*", "apps/desktop/src-tauri"]
 default-members = ["crates/studio-engine"]
 
 [workspace.package]
-version = "0.8.0"
+version = "0.8.1"
 edition = "2024"
 rust-version = "1.94"
 publish = false

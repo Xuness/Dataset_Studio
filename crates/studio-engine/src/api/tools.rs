@@ -57,9 +57,26 @@ pub(super) async fn submit(
             } else {
                 None
             };
-            s.store
-                .submit_registered_job(&pid, &request, &frozen, capture)
-                .map(Into::into)
+            let job = s
+                .store
+                .submit_registered_job(&pid, &request, &frozen, capture)?;
+            if job.operator == domain::RANKING_OPERATOR && job.stage.is_none() {
+                s.store.job_stage(
+                    &pid,
+                    &job.id,
+                    &domain::JobStage {
+                        name: if job.input_members_frozen {
+                            "queued"
+                        } else {
+                            "waiting_input"
+                        }
+                        .into(),
+                        total: job.total,
+                        ..Default::default()
+                    },
+                )?;
+            }
+            s.store.job(&pid, &job.id).map(Into::into)
         })
         .await?,
     ))

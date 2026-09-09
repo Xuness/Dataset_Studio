@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { mkdir, readFile, writeFile, open, rename } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { engineExecutable, engineProfile } from "./engine-profile.mjs";
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const runDir = resolve(
   root,
@@ -12,7 +13,7 @@ const runDir = resolve(
 );
 await mkdir(runDir, { recursive: true });
 const dataDir = resolve(runDir, "state");
-const binary = resolve(root, "target/debug/studio-engine.exe");
+const binary = engineExecutable(root, engineProfile([], process.env, "debug"));
 let child;
 let connection;
 const checks = [];

@@ -21,6 +21,12 @@ use tokio_util::codec::{FramedRead, LinesCodec};
 static ACTIVE: std::sync::LazyLock<std::sync::Mutex<HashMap<String, Arc<AtomicBool>>>> =
     std::sync::LazyLock::new(Default::default);
 struct ActiveAttempt(String, Arc<AtomicBool>);
+struct AttemptHeartbeat(tokio::task::JoinHandle<()>);
+impl Drop for AttemptHeartbeat {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
 impl ActiveAttempt {
     fn enter(job: &Job) -> Result<Self> {
         let key = format!("{}:{}", job.project_id, job.id);
@@ -136,6 +142,16 @@ fn prepare(
     }
     let path = staging.join("plan.json");
     if path.exists() {
+        if frozen.run.operator_id == RANKING_OPERATOR {
+            store.job_stage(
+                &job.project_id,
+                &job.id,
+                &JobStage {
+                    name: "restoring_input".into(),
+                    ..Default::default()
+                },
+            )?;
+        }
         let plan = worker::load_plan(&path)?;
         if plan.job_id != job.id
             || plan.total != job.total
@@ -263,6 +279,22 @@ async fn execute(
     resources: Arc<dyn ReadResources>,
 ) -> Result<()> {
     let _attempt = ActiveAttempt::enter(&job)?;
+    let _heartbeat = if job.operator == RANKING_OPERATOR {
+        let heartbeat_store = store.clone();
+        let pid = job.project_id.clone();
+        let jid = job.id.clone();
+        Some(AttemptHeartbeat(tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+                let store = heartbeat_store.clone();
+                let pid = pid.clone();
+                let jid = jid.clone();
+                let _ = tokio::task::spawn_blocking(move || store.job_heartbeat(&pid, &jid)).await;
+            }
+        })))
+    } else {
+        None
+    };
     let _project_lease = store.operation_lease(&job.project_id)?;
     let s = store.clone();
     let j = job.clone();
@@ -299,13 +331,21 @@ async fn execute(
     if final_path.exists() {
         let s = store.clone();
         tokio::task::spawn_blocking(move || {
-            crate::artifacts::publish(&s, &job, &plan, &final_path)
+            crate::artifacts::publish(&s, &job, &plan, &final_path, None)
         })
         .await
         .map_err(Error::io)??;
         return Ok(());
     }
     let _computation_lease = if plan.version == 2 {
+        store.job_stage(
+            &job.project_id,
+            &job.id,
+            &JobStage {
+                name: "waiting_resources".into(),
+                ..Default::default()
+            },
+        )?;
         let resources = resources.clone();
         let flag = _attempt.1.clone();
         let input_path = plan.input_path.clone();
@@ -396,9 +436,27 @@ async fn execute(
     let s = store.clone();
     let j = job.clone();
     tokio::task::spawn_blocking(move || -> Result<()> {
-        worker::validate_output(&plan.output_path, &plan)?;
+        let validated =
+            worker::validate_once(&plan.output_path, &plan, &mut |name, completed, total| {
+                if plan.version == 2 {
+                    if s.job(&j.project_id, &j.id)?.status == "cancelled" {
+                        return Err(Error::new("CANCELLED", "任务已取消"));
+                    }
+                    s.job_stage(
+                        &j.project_id,
+                        &j.id,
+                        &JobStage {
+                            name: name.into(),
+                            completed,
+                            total,
+                            ..Default::default()
+                        },
+                    )?;
+                }
+                Ok(())
+            })?;
         fs::rename(&plan.output_path, &final_path).map_err(Error::io)?;
-        crate::artifacts::publish(&s, &j, &plan, &final_path)
+        crate::artifacts::publish(&s, &j, &plan, &final_path, Some(validated))
     })
     .await
     .map_err(Error::io)??;

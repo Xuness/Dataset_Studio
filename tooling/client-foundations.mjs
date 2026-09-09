@@ -4,6 +4,7 @@ import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import ts from "typescript";
 import { setImmediate } from "node:timers";
+import { engineProfile } from "./engine-profile.mjs";
 const structuredClone = globalThis.structuredClone;
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const directory = resolve(root, ".local/test-runs/client-foundations");
@@ -324,6 +325,94 @@ assert.notEqual(
 );
 checks.push(
   "saved query identity follows condition/set semantics while preserving observation rule and scope differences",
+);
+const { jobPresentation, isJobActive } = await compiled(
+  "packages/ui/src/jobPresentation.ts",
+  "jobPresentation",
+);
+const progressJob = {
+  id: "full-lake",
+  project_id: "fixture",
+  operator: "danbooru.metarecall",
+  status: "preparing",
+  input_members_frozen: true,
+  total: 11493687,
+  completed: 11493687,
+  attempt: 0,
+  created_at: "1788961094870",
+  error: null,
+  stage: { name: "metadata_snapshot", completed: 7629312, total: 11493687 },
+};
+assert.equal(jobPresentation(progressJob).percent.toFixed(1), "66.4");
+assert.equal(jobPresentation(progressJob).phase, 1);
+assert.equal(isJobActive(progressJob), true);
+for (const stage of ["indexing", "publishing", "complete"]) {
+  const p = jobPresentation({
+    ...progressJob,
+    status: "running",
+    stage: { name: stage, completed: 1, total: 1 },
+  });
+  assert.equal(
+    p.percent,
+    null,
+    "A complete worker counter must not report published completion",
+  );
+  assert.equal(p.succeeded, false);
+  assert.equal(p.phase, 3);
+}
+const unknown = jobPresentation({
+  ...progressJob,
+  status: "waiting_input",
+  total: 0,
+  input_members_frozen: false,
+});
+assert.equal(unknown.percent, null);
+assert.equal(unknown.phase, 0, "A queued retry ignores an old attempt's stage");
+assert.equal(
+  jobPresentation({ ...progressJob, status: "succeeded" }).percent,
+  100,
+);
+assert.equal(isJobActive({ status: "failed" }), false);
+const generic = jobPresentation({
+  ...progressJob,
+  operator: "core.manifest",
+  status: "running",
+  completed: 25,
+  total: 100,
+  stage: undefined,
+});
+assert.equal(generic.percent, 25);
+assert.equal(generic.progressLabel, "处理进度");
+checks.push(
+  "multi-stage task progress uses the current stage, keeps finalization indeterminate, distinguishes unknown input, and retains item progress for ordinary tools",
+);
+assert.equal(engineProfile([], {}), "release");
+assert.equal(engineProfile(["--engine-profile=debug"], {}), "debug");
+assert.equal(
+  engineProfile(["--release"], { STUDIO_ENGINE_PROFILE: "debug" }),
+  "release",
+);
+assert.equal(engineProfile([], {}, "debug"), "debug");
+assert.throws(() => engineProfile(["--engine-profile"], {}));
+assert.throws(() => engineProfile([], { STUDIO_ENGINE_PROFILE: "other" }));
+assert.equal(
+  jobPresentation({
+    ...progressJob,
+    status: "running",
+    stage: { name: "writing", rating: "q", completed: 50, total: 100 },
+  }).title,
+  "保存评分明细 · Q 分级",
+);
+assert.equal(
+  jobPresentation({
+    ...progressJob,
+    status: "running",
+    stage: { name: "output_checksum", completed: 1048576, total: 2097152 },
+  }).count,
+  "1.0 MiB / 2.0 MiB",
+);
+checks.push(
+  "engine profile defaults to optimized execution with explicit overrides, and ranking stages preserve rating and byte units",
 );
 await writeFile(
   resolve(directory, "report.json"),

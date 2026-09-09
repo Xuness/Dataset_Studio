@@ -278,7 +278,18 @@ impl QueryRunner {
     }
     pub fn validate_result(&self, store: &SqliteStore, result: &QueryResult) -> Result<()> {
         if result.state != ResultState::Ready {
-            return Err(Error::new("RESULT_NOT_READY", "结果尚未完整构建或已释放"));
+            return Err(Error::new(
+                match result.state {
+                    ResultState::Failed => "SCOPE_SORT_FAILED",
+                    ResultState::Cancelled => "CANCELLED",
+                    ResultState::Interrupted => "INTERRUPTED",
+                    _ => "RESULT_NOT_READY",
+                },
+                result
+                    .error
+                    .clone()
+                    .unwrap_or_else(|| "结果尚未完整构建或已释放".into()),
+            ));
         }
         if self.versions(store, &result.project_id, &result.spec)? != result.source_versions {
             return Err(Error::new(

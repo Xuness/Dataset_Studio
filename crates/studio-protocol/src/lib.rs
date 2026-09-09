@@ -90,6 +90,13 @@ pub struct AssetPage {
     pub preparing: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub result_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scan: Option<BrowseScan>,
+}
+#[derive(Serialize, ToSchema)]
+pub struct BrowseScan {
+    pub scanned: u64,
+    pub total: u64,
 }
 #[derive(Serialize, ToSchema)]
 pub struct Project {
@@ -292,6 +299,24 @@ pub struct JobStage {
     pub name: String,
     pub completed: u64,
     pub total: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rating: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub telemetry: Option<JobTelemetry>,
+}
+#[derive(Serialize, ToSchema)]
+pub struct JobTelemetry {
+    pub started_at: String,
+    pub updated_at: String,
+    pub heartbeat_at: String,
+    pub finished_at: Option<String>,
+    pub phases: Vec<JobPhaseTiming>,
+}
+#[derive(Serialize, ToSchema)]
+pub struct JobPhaseTiming {
+    pub name: String,
+    pub rating: Option<String>,
+    pub elapsed_ms: u64,
 }
 impl From<domain::Job> for Job {
     fn from(j: domain::Job) -> Self {
@@ -312,6 +337,22 @@ impl From<domain::Job> for Job {
                 name: s.name,
                 completed: s.completed,
                 total: s.total,
+                rating: s.rating,
+                telemetry: s.telemetry.map(|t| JobTelemetry {
+                    started_at: t.started_at,
+                    updated_at: t.updated_at,
+                    heartbeat_at: t.heartbeat_at,
+                    finished_at: t.finished_at,
+                    phases: t
+                        .phases
+                        .into_iter()
+                        .map(|p| JobPhaseTiming {
+                            name: p.name,
+                            rating: p.rating,
+                            elapsed_ms: p.elapsed_ms,
+                        })
+                        .collect(),
+                }),
             }),
         }
     }

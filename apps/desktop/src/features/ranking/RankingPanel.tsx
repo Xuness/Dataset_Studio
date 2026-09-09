@@ -9,6 +9,7 @@ import {
   ErrorDetails,
   Field,
   ResizeGrip,
+  isJobActive,
   useDraft,
 } from "@studio/ui";
 import type { ModuleContext } from "@studio/ui";
@@ -20,11 +21,13 @@ import type {
   RankingParameters,
   Schema,
   ScopeRef,
+  Job,
 } from "@studio/contracts";
 import { RankingConfig } from "./RankingConfig.js";
 import { RankingDetails } from "./RankingDetails.js";
 import { RankingOverview } from "./RankingOverview.js";
 import { RankingDiagnostics } from "./RankingDiagnostics.js";
+import { RankingJob } from "./RankingJob.js";
 import {
   decode,
   defaultFilter,
@@ -36,7 +39,6 @@ import {
   parameterIssue,
   routeNames,
   score,
-  stageNames,
 } from "./types.js";
 import "./ranking.css";
 
@@ -68,6 +70,8 @@ export default function RankingPanel(context: ModuleContext) {
   const d = draft.value;
   const applied = useRef<number | null>(null);
   const [pending, setPending] = useState(false);
+  const submissionLock = useRef(false);
+  const [jobAction, setJobAction] = useState<"cancel" | "retry" | null>(null);
   const [error, setError] = useState("");
   const [cursor, setCursor] = useState<string | null>(null);
   const [history, setHistory] = useState<(string | null)[]>([]);
@@ -92,15 +96,21 @@ export default function RankingPanel(context: ModuleContext) {
   const jobs = useQuery({
     queryKey: ["project", projectId, "jobs"],
     queryFn: () => client.jobs(projectId),
-    enabled: !!d.lastJob,
-    refetchInterval: d.lastJob ? 2000 : false,
+    enabled: draft.editable,
+    refetchInterval: 2000,
+    refetchIntervalInBackground: true,
   });
-  const job = jobs.data?.items.find((j) => j.id === d.lastJob);
+  const runningJob = jobs.data?.items.find(
+    (j) => j.operator === operatorId && isJobActive(j),
+  );
+  const job = runningJob ?? jobs.data?.items.find((j) => j.id === d.lastJob);
+  const trackedJobId = job?.id ?? d.lastJob;
+  const active = isJobActive(runningJob);
   const jobArtifact = useQuery({
-    queryKey: ["project", projectId, "ranking-job-artifact", d.lastJob],
+    queryKey: ["project", projectId, "ranking-job-artifact", trackedJobId],
     queryFn: ({ signal }) =>
-      client.ranking.jobResult(projectId, d.lastJob!, signal),
-    enabled: !!d.lastJob && job?.status === "succeeded",
+      client.ranking.jobResult(projectId, trackedJobId!, signal),
+    enabled: !!trackedJobId && job?.status === "succeeded",
     retry: false,
   });
   const artifact = useQuery({
@@ -155,6 +165,10 @@ export default function RankingPanel(context: ModuleContext) {
       ),
   });
   useEffect(() => {
+    if (draft.editable && runningJob && d.lastJob !== runningJob.id)
+      draft.controller.set((v) => ({ ...v, lastJob: runningJob.id }));
+  }, [draft.editable, draft.controller, d.lastJob, runningJob]);
+  useEffect(() => {
     if (!draft.editable || d.scope || d.scopeId || !context.inputOptions.length)
       return;
     const initialOption =
@@ -200,12 +214,7 @@ export default function RankingPanel(context: ModuleContext) {
   }, [context.invocation, draft.controller, draft.editable]);
   useEffect(() => {
     const item = jobArtifact.data;
-    if (
-      draft.editable &&
-      item &&
-      d.lastJob === item.job_id &&
-      d.artifactId !== item.id
-    )
+    if (draft.editable && item && d.lastJob === item.job_id && !d.artifactId)
       draft.controller.set((v) => ({ ...v, artifactId: item.id }));
   }, [
     jobArtifact.data,
@@ -289,8 +298,16 @@ export default function RankingPanel(context: ModuleContext) {
     context.inspector?.setVisible(true);
   }
   async function submit() {
-    if (!d.scope || stale || !draft.editable || parameterIssue(d.parameters))
+    if (
+      submissionLock.current ||
+      active ||
+      !d.scope ||
+      stale ||
+      !draft.editable ||
+      parameterIssue(d.parameters)
+    )
       return;
+    submissionLock.current = true;
     setPending(true);
     setError("");
     try {
@@ -313,12 +330,15 @@ export default function RankingPanel(context: ModuleContext) {
         idempotency_key: key,
         delay_ms: 0,
       });
+      rememberJob(accepted);
       draft.controller.set((v) => ({
         ...v,
         lastJob: accepted.id,
         submission: null,
+        artifactId: "",
       }));
-      await cache.invalidateQueries({
+      await draft.controller.flush();
+      void cache.invalidateQueries({
         queryKey: ["project", projectId, "jobs"],
       });
       context.onJob(accepted, { revealTasks: false });
@@ -326,6 +346,41 @@ export default function RankingPanel(context: ModuleContext) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setPending(false);
+      submissionLock.current = false;
+    }
+  }
+  function rememberJob(accepted: Job) {
+    cache.setQueryData<Schema["Jobs"]>(
+      ["project", projectId, "jobs"],
+      (data) => ({
+        items: [
+          accepted,
+          ...(data?.items ?? []).filter((j) => j.id !== accepted.id),
+        ],
+      }),
+    );
+  }
+  async function changeJob(action: "cancel" | "retry") {
+    if (!job || jobAction) return;
+    setJobAction(action);
+    setError("");
+    try {
+      const updated =
+        action === "cancel"
+          ? await client.cancelJob(projectId, job.id)
+          : await client.tools.retry(projectId, job.id);
+      rememberJob(updated);
+      if (action === "retry")
+        draft.controller.set((v) => ({
+          ...v,
+          lastJob: updated.id,
+          artifactId: "",
+        }));
+      void jobs.refetch();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setJobAction(null);
     }
   }
   async function saveWorkset() {
@@ -365,7 +420,7 @@ export default function RankingPanel(context: ModuleContext) {
     }
   }
   const issue = parameterIssue(d.parameters);
-  const options =
+  const options = (
     d.scope && !option
       ? [
           {
@@ -376,7 +431,14 @@ export default function RankingPanel(context: ModuleContext) {
           },
           ...context.inputOptions,
         ]
-      : context.inputOptions;
+      : context.inputOptions
+  ).map((o) =>
+    o.count == null &&
+    job?.input_members_frozen &&
+    scopeEqual(job.input_scope ?? null, o.scope)
+      ? { ...o, count: job.total }
+      : o,
+  );
   const errorMessage =
     error ||
     artifact.error?.message ||
@@ -386,6 +448,18 @@ export default function RankingPanel(context: ModuleContext) {
   const available: Artifact[] = [...(artifacts.data ?? [])];
   if (artifact.data && !available.some((a) => a.id === artifact.data!.id))
     available.unshift(artifact.data);
+  const filterDescription = [
+    d.filter.rating ? `${d.filter.rating.toUpperCase()} 分级` : "全部分级",
+    d.filter.eligibility ? eligibilityNames[d.filter.eligibility] : "全部资格",
+    d.filter.route ? routeNames[d.filter.route] : null,
+    d.filter.selected_only ? "仅已入选" : null,
+    d.filter.missing_only ? "仅有字段提示" : null,
+    d.filter.top
+      ? `${d.filter.order === "rescue" ? "补救排名" : "主排名"}每分级前 ${number(d.filter.top)} 名`
+      : "不限名次",
+  ]
+    .filter(Boolean)
+    .join(" · ");
   return (
     <section className="ranking-view" aria-label="Danbooru 元数据排名">
       <header className="ranking-header">
@@ -396,6 +470,19 @@ export default function RankingPanel(context: ModuleContext) {
           </h2>
         </div>
         <span className="grow" />
+        {d.tab === "config" && available.length > 0 && (
+          <Button
+            onClick={() =>
+              draft.controller.set((v) => ({
+                ...v,
+                tab: "results",
+                artifactId: v.artifactId || available[0]!.id,
+              }))
+            }
+          >
+            查看已有排名
+          </Button>
+        )}
         {d.tab === "config" ? (
           <Button
             type="submit"
@@ -404,6 +491,9 @@ export default function RankingPanel(context: ModuleContext) {
             disabled={
               !draft.editable ||
               pending ||
+              active ||
+              jobs.isPending ||
+              jobs.isError ||
               !hasDanbooru ||
               !d.scope ||
               stale ||
@@ -414,9 +504,11 @@ export default function RankingPanel(context: ModuleContext) {
             <Play size={13} />
             {pending
               ? "正在提交…"
-              : d.parameters.mode === "rank"
-                ? "计算排名"
-                : "生成候选集"}
+              : active
+                ? "排名任务执行中"
+                : d.parameters.mode === "rank"
+                  ? "计算排名"
+                  : "生成候选集"}
           </Button>
         ) : (
           <Button
@@ -424,7 +516,7 @@ export default function RankingPanel(context: ModuleContext) {
               draft.controller.set((v) => ({ ...v, tab: "config" }))
             }
           >
-            配置新任务
+            {active ? "查看计算参数" : "配置新任务"}
           </Button>
         )}
       </header>
@@ -454,7 +546,7 @@ export default function RankingPanel(context: ModuleContext) {
             draft.controller.set((v) => ({
               ...v,
               artifactId: e.target.value,
-              lastJob: null,
+              tab: "results",
             }))
           }
         >
@@ -467,65 +559,29 @@ export default function RankingPanel(context: ModuleContext) {
           ))}
         </select>
       </nav>
-      {job && (
-        <div className="ranking-job" data-status={job.status}>
-          <span>
-            {job.status === "succeeded"
-              ? "本次排名已完成"
-              : job.status === "failed"
-                ? "排名失败"
-                : job.status === "cancelled"
-                  ? "排名已取消"
-                  : job.stage
-                    ? (stageNames[job.stage.name] ?? job.stage.name)
-                    : "等待排名任务"}
-            {job.stage &&
-            !["succeeded", "failed", "cancelled"].includes(job.status)
-              ? ` · ${number(job.stage.completed)} / ${number(job.stage.total)}`
-              : ""}
-          </span>
-          <span className="grow" />
-          {job.status === "succeeded" && (
-            <Button
-              onClick={() =>
-                draft.controller.set((v) => ({
-                  ...v,
-                  tab: "results",
-                  artifactId: jobArtifact.data?.id ?? v.artifactId,
-                }))
-              }
-            >
-              查看结果
-            </Button>
-          )}
-          {["queued", "preparing", "running", "waiting_input"].includes(
-            job.status,
-          ) && (
-            <Button
-              onClick={() =>
-                void client
-                  .cancelJob(projectId, job.id)
-                  .then(() => jobs.refetch())
-                  .catch((e) => setError(String(e)))
-              }
-            >
-              取消
-            </Button>
-          )}
-          {["failed", "cancelled"].includes(job.status) && (
-            <Button
-              onClick={() =>
-                void client.tools
-                  .retry(projectId, job.id)
-                  .then(() => jobs.refetch())
-                  .catch((e) => setError(String(e)))
-              }
-            >
-              重试固定输入
-            </Button>
-          )}
-          {job.error && <ErrorDetails error={job.error} compact />}
-        </div>
+      {(job || trackedJobId || pending || jobs.isError) && (
+        <RankingJob
+          job={pending ? undefined : job}
+          submitting={pending}
+          loading={jobs.isPending}
+          syncError={jobs.error?.message}
+          action={jobAction}
+          resultReady={!!jobArtifact.data}
+          resultError={jobArtifact.isError}
+          onCancel={() => void changeJob("cancel")}
+          onRetry={() => void changeJob("retry")}
+          onRefresh={() => {
+            void jobs.refetch();
+            if (job?.status === "succeeded") void jobArtifact.refetch();
+          }}
+          onResult={() =>
+            draft.controller.set((v) => ({
+              ...v,
+              tab: "results",
+              artifactId: jobArtifact.data?.id ?? v.artifactId,
+            }))
+          }
+        />
       )}
       {errorMessage && (
         <div className="ranking-error">
@@ -585,7 +641,7 @@ export default function RankingPanel(context: ModuleContext) {
                 options={options}
                 scopeId={d.scopeId}
                 onScope={changeScope}
-                disabled={!draft.editable || pending || !hasDanbooru}
+                disabled={!draft.editable || pending || active || !hasDanbooru}
                 onSubmit={(e) => {
                   e.preventDefault();
                   void submit();
@@ -605,9 +661,23 @@ export default function RankingPanel(context: ModuleContext) {
               <h3>
                 {summary.isFetching
                   ? "正在加载排名成果…"
-                  : "尚未选择可用的排名成果"}
+                  : active || pending
+                    ? "排名计算正在进行"
+                    : job?.status === "failed"
+                      ? "本次排名未完成"
+                      : job?.status === "cancelled"
+                        ? "本次排名已取消"
+                        : job?.status === "succeeded"
+                          ? "正在准备排名结果…"
+                          : "尚未选择可用的排名成果"}
               </h3>
-              <p>运行工具后可在这里查看榜单与诊断，也可以选择已有成果。</p>
+              <p>
+                {active || pending
+                  ? "进度显示在上方。任务完成后，榜单与统计诊断会自动载入。"
+                  : job?.status === "failed" || job?.status === "cancelled"
+                    ? "执行状态与后续操作显示在上方。也可以选择已有成果查看。"
+                    : "运行工具后可在这里查看榜单与诊断，也可以选择已有成果。"}
+              </p>
               <Button
                 onClick={() =>
                   draft.controller.set((v) => ({ ...v, tab: "config" }))
@@ -743,9 +813,15 @@ export default function RankingPanel(context: ModuleContext) {
                 <span className="grow" />
                 <Button
                   onClick={() => setWorksetOpen(true)}
-                  disabled={savingWorkset || count === 0 || results.isFetching}
+                  disabled={
+                    savingWorkset ||
+                    count == null ||
+                    count === 0 ||
+                    results.isFetching ||
+                    results.isError
+                  }
                 >
-                  存为工作集
+                  保存筛选为工作集
                 </Button>
               </div>
               <div className="ranking-result-description">
@@ -887,8 +963,14 @@ export default function RankingPanel(context: ModuleContext) {
                 parameters={d.parameters}
                 summary={summary.data}
                 scopeName={option?.label ?? "已保存的输入范围"}
-                count={option?.count ?? null}
-                configuration={d.tab === "config"}
+                count={
+                  option?.count ??
+                  (job?.input_members_frozen &&
+                  scopeEqual(d.scope, job.input_scope ?? undefined)
+                    ? job.total
+                    : null)
+                }
+                configuration={d.tab === "config" || !summary.data}
               />
             )}
             {context.inspector && (
@@ -908,8 +990,10 @@ export default function RankingPanel(context: ModuleContext) {
       </div>
       {worksetOpen && (
         <Dialog
-          title="保存排名结果为工作集"
-          onClose={() => setWorksetOpen(false)}
+          title="保存榜单筛选为工作集"
+          onClose={() => {
+            if (!savingWorkset) setWorksetOpen(false);
+          }}
           className="ranking-workset-dialog"
         >
           <form
@@ -933,7 +1017,10 @@ export default function RankingPanel(context: ModuleContext) {
                 }
               />
             </Field>
-            <p>保存全部匹配结果，共 {number(count)} 项，包含尚未加载的页面。</p>
+            <p>当前榜单条件：{filterDescription}。</p>
+            <p>
+              将保存全部匹配结果，共 {number(count)} 项，包含尚未加载的页面。
+            </p>
             <div className="ranking-dialog-actions">
               <Button type="button" onClick={() => setWorksetOpen(false)}>
                 取消

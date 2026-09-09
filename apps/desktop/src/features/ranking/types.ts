@@ -166,22 +166,6 @@ export const flagNames: Record<string, string> = {
   source_issues: "来源字段提示",
   cohort_insufficient: "比较群体不足",
 };
-export const stageNames: Record<string, string> = {
-  scope_basis: "固定范围依据",
-  metadata_snapshot: "读取元数据快照",
-  eligibility: "检查候选资格",
-  loading_rating: "准备分级数据",
-  heat: "计算热度位置",
-  time: "计算时间补救",
-  time_window: "计算时间邻域",
-  artists: "计算画师先验",
-  scores: "计算分数",
-  ranks: "排序与分配名额",
-  writing: "保存评分明细",
-  indexing: "建立榜单索引",
-  publishing: "发布项目成果",
-  complete: "已完成",
-};
 export const number = (n: number | null | undefined) =>
   n == null ? "待计算" : n.toLocaleString("zh-CN");
 export const score = (n: number | null | undefined) =>

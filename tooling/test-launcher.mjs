@@ -38,6 +38,7 @@ for (const path of [
   "tooling/start-dev.ps1",
   "tooling/dev.mjs",
   "tooling/cargo.mjs",
+  "tooling/engine-profile.mjs",
 ]) {
   await copyFile(resolve(root, path), resolve(fixture, path));
 }

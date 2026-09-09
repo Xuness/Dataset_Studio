@@ -8,6 +8,107 @@ use std::{
 use studio_domain::*;
 use studio_storage::atomic_json;
 
+/// A process-local proof for the exact output just validated before atomic rename.
+/// Recovery has no proof and must perform validation again.
+pub struct ValidatedOutput {
+    file: File,
+    input: File,
+    digest: String,
+    bytes: u64,
+    modified: std::time::SystemTime,
+    job_id: String,
+    input_sha256: String,
+    total: u64,
+    run: OperatorRun,
+}
+impl ValidatedOutput {
+    pub fn digest(&mut self, path: &Path, plan: &WorkerPlan) -> Result<&str> {
+        let published = protected_read(path, false)?;
+        let metadata = published.metadata().map_err(Error::io)?;
+        if self.job_id != plan.job_id
+            || self.input_sha256 != plan.input_sha256
+            || self.total != plan.total
+            || self.run != plan.run
+            || metadata.len() != self.bytes
+            || metadata.modified().map_err(Error::io)? != self.modified
+            || file_identity(&self.file)? != file_identity(&published)?
+            || file_identity(&self.input)?
+                != file_identity(&File::open(&plan.input_path).map_err(Error::io)?)?
+        {
+            return Err(Error::new("OUTPUT_CHANGED", "校验后的成果或执行计划已变化"));
+        }
+        self.file = published;
+        Ok(&self.digest)
+    }
+}
+fn protected_read(path: &Path, allow_rename: bool) -> Result<File> {
+    let mut options = OpenOptions::new();
+    options.read(true);
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        use windows_sys::Win32::Storage::FileSystem::{FILE_SHARE_DELETE, FILE_SHARE_READ};
+        options.share_mode(FILE_SHARE_READ | if allow_rename { FILE_SHARE_DELETE } else { 0 });
+    }
+    #[cfg(not(windows))]
+    let _ = allow_rename;
+    options.open(path).map_err(Error::io)
+}
+#[cfg(windows)]
+fn file_identity(file: &File) -> Result<(u64, u64)> {
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        BY_HANDLE_FILE_INFORMATION, GetFileInformationByHandle,
+    };
+    // The handle belongs to a live File; the output structure is initialized by Win32.
+    let mut info: BY_HANDLE_FILE_INFORMATION = unsafe { std::mem::zeroed() };
+    if unsafe { GetFileInformationByHandle(file.as_raw_handle(), &mut info) } == 0 {
+        return Err(Error::io(std::io::Error::last_os_error()));
+    }
+    Ok((
+        info.dwVolumeSerialNumber as u64,
+        ((info.nFileIndexHigh as u64) << 32) | info.nFileIndexLow as u64,
+    ))
+}
+#[cfg(unix)]
+fn file_identity(file: &File) -> Result<(u64, u64)> {
+    use std::os::unix::fs::MetadataExt;
+    let metadata = file.metadata().map_err(Error::io)?;
+    Ok((metadata.dev(), metadata.ino()))
+}
+pub fn validate_once(
+    path: &Path,
+    plan: &WorkerPlan,
+    progress: &mut dyn FnMut(&str, u64, u64) -> Result<()>,
+) -> Result<ValidatedOutput> {
+    let file = protected_read(path, true)?;
+    let input = protected_read(&plan.input_path, false)?;
+    let before = file.metadata().map_err(Error::io)?;
+    let digest = if plan.version == 2 {
+        crate::ranking::validate_output_progress(path, plan, progress)?
+    } else {
+        validate_output(path, plan)?
+    };
+    let after = fs::metadata(path).map_err(Error::io)?;
+    if before.len() != after.len()
+        || before.modified().map_err(Error::io)? != after.modified().map_err(Error::io)?
+        || file_identity(&file)? != file_identity(&File::open(path).map_err(Error::io)?)?
+    {
+        return Err(Error::new("OUTPUT_CHANGED", "成果在校验期间被修改"));
+    }
+    Ok(ValidatedOutput {
+        file,
+        input,
+        digest,
+        bytes: after.len(),
+        modified: after.modified().map_err(Error::io)?,
+        job_id: plan.job_id.clone(),
+        input_sha256: plan.input_sha256.clone(),
+        total: plan.total,
+        run: plan.run.clone(),
+    })
+}
+
 #[derive(Serialize, Deserialize, Default)]
 struct Checkpoint {
     job_id: String,
@@ -22,6 +123,21 @@ pub struct Progress {
     pub total: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stage: Option<JobStage>,
+}
+pub fn report_progress(completed: u64, total: u64, stage: Option<JobStage>) -> Result<()> {
+    let mut output = std::io::stdout().lock();
+    serde_json::to_writer(
+        &mut output,
+        &Progress {
+            version: 1,
+            completed,
+            total,
+            stage,
+        },
+    )
+    .map_err(Error::io)?;
+    output.write_all(b"\n").map_err(Error::io)?;
+    output.flush().map_err(Error::io)
 }
 
 #[derive(Serialize, Deserialize)]
@@ -44,7 +160,17 @@ pub fn run_reported(plan: &Path) -> Result<()> {
     result
 }
 pub fn hash_file(path: &Path) -> Result<String> {
+    hash_file_progress(path, &mut |_, _| Ok(()))
+}
+pub fn hash_file_progress(
+    path: &Path,
+    progress: &mut dyn FnMut(u64, u64) -> Result<()>,
+) -> Result<String> {
     let mut file = File::open(path).map_err(Error::io)?;
+    let total = file.metadata().map_err(Error::io)?.len();
+    let mut read = 0;
+    let mut last = std::time::Instant::now();
+    progress(0, total)?;
     let mut hash = Sha256::new();
     let mut buffer = [0u8; 65536];
     loop {
@@ -53,10 +179,22 @@ pub fn hash_file(path: &Path) -> Result<String> {
             break;
         }
         hash.update(&buffer[..n]);
+        read += n as u64;
+        if last.elapsed() >= std::time::Duration::from_millis(500) {
+            progress(read, total)?;
+            last = std::time::Instant::now();
+        }
     }
+    progress(read, total)?;
     Ok(hex::encode(hash.finalize()))
 }
 pub fn load_plan(path: &Path) -> Result<WorkerPlan> {
+    load_plan_progress(path, &mut |_, _, _| Ok(()))
+}
+fn load_plan_progress(
+    path: &Path,
+    progress: &mut dyn FnMut(&WorkerPlan, u64, u64) -> Result<()>,
+) -> Result<WorkerPlan> {
     if fs::metadata(path).map_err(Error::io)?.len() > 1024 * 1024 {
         return Err(Error::new("WORKER_PROTOCOL_ERROR", "执行计划超过 1 MiB"));
     }
@@ -114,14 +252,31 @@ pub fn load_plan(path: &Path) -> Result<WorkerPlan> {
         }
         *field = resolved;
     }
-    if hash_file(&plan.input_path)? != plan.input_sha256 {
+    if hash_file_progress(&plan.input_path, &mut |completed, total| {
+        progress(&plan, completed, total)
+    })? != plan.input_sha256
+    {
         return Err(Error::new("INPUT_CHANGED", "固定输入内容已改变"));
     }
     Ok(plan)
 }
 
 pub fn run(plan_path: &Path) -> Result<()> {
-    let plan = load_plan(plan_path)?;
+    let plan = load_plan_progress(plan_path, &mut |plan, completed, total| {
+        if plan.version == 2 {
+            report_progress(
+                0,
+                plan.total,
+                Some(JobStage {
+                    name: "input_checksum".into(),
+                    completed,
+                    total,
+                    ..Default::default()
+                }),
+            )?;
+        }
+        Ok(())
+    })?;
     let operator = studio_operators::registry()?.resolve(&plan.run)?;
     if operator.population() {
         return crate::ranking::run(&plan);
@@ -268,4 +423,90 @@ fn bounded_line(reader: &mut impl BufRead, line: &mut String) -> Result<usize> {
         ));
     }
     Ok(count)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn validation_proof_survives_rename_but_rejects_other_files_and_plans() {
+        let directory = tempfile::tempdir().unwrap();
+        let input_path = directory.path().join("input.jsonl");
+        let output_path = directory.path().join("output.jsonl");
+        let published = directory.path().join("published.jsonl");
+        let frozen: FrozenInput = serde_json::from_value(serde_json::json!({
+            "asset": {"key":{"source_id":new_id(),"asset_id":"00".repeat(32)},"name":"fixture","bytes":123,"extension":"png","source_name":"fixture"},
+            "source_revision":"fixture-v1","fields":[]
+        })).unwrap();
+        let run = OperatorRun {
+            operator_id: "core.manifest".into(),
+            operator_version: 1,
+            parameters_version: 1,
+            parameters: serde_json::json!({}),
+        };
+        let value = studio_operators::registry()
+            .unwrap()
+            .resolve(&run)
+            .unwrap()
+            .row(&frozen, 0, &run.parameters)
+            .unwrap();
+        fs::write(
+            &input_path,
+            format!("{}\n", serde_json::to_string(&frozen).unwrap()),
+        )
+        .unwrap();
+        fs::write(
+            &output_path,
+            format!("{}\n", serde_json::to_string(&value).unwrap()),
+        )
+        .unwrap();
+        let plan = WorkerPlan {
+            version: 1,
+            job_id: new_id(),
+            input_path: input_path.clone(),
+            input_sha256: hash_file(&input_path).unwrap(),
+            output_path: output_path.clone(),
+            checkpoint_path: directory.path().join("checkpoint.json"),
+            total: 1,
+            delay_ms: 0,
+            run,
+        };
+        let mut proof = validate_once(&output_path, &plan, &mut |_, _, _| Ok(())).unwrap();
+        fs::rename(&output_path, &published).unwrap();
+        assert_eq!(
+            proof.digest(&published, &plan).unwrap(),
+            hash_file(&published).unwrap()
+        );
+        #[cfg(windows)]
+        {
+            assert!(fs::write(&input_path, b"changed").is_err());
+            assert!(fs::write(&published, b"changed").is_err());
+        }
+        let mut wrong_plan = plan.clone();
+        wrong_plan.total = 2;
+        assert_eq!(
+            proof.digest(&published, &wrong_plan).unwrap_err().code,
+            "OUTPUT_CHANGED"
+        );
+        let other = directory.path().join("other.jsonl");
+        fs::copy(&published, &other).unwrap();
+        {
+            let file = OpenOptions::new().write(true).open(&other).unwrap();
+            file.set_times(std::fs::FileTimes::new().set_modified(proof.modified))
+                .unwrap();
+        }
+        assert_eq!(
+            proof.digest(&other, &plan).unwrap_err().code,
+            "OUTPUT_CHANGED"
+        );
+        drop(proof);
+        let mut corrupt = value;
+        corrupt["ordinal"] = serde_json::json!(99);
+        fs::write(
+            &published,
+            format!("{}\n", serde_json::to_string(&corrupt).unwrap()),
+        )
+        .unwrap();
+        assert!(validate_once(&published, &plan, &mut |_, _, _| Ok(())).is_err());
+    }
 }

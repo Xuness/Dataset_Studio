@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { mkdir, readFile, open } from "node:fs/promises";
 import { resolve, sep } from "node:path";
+import { engineExecutable, engineProfile } from "./engine-profile.mjs";
 
 export const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 export function within(root, path) {
@@ -24,7 +25,7 @@ export class EngineFixture {
     await mkdir(this.logDir, { recursive: true });
     const log = await open(resolve(this.logDir, "engine.log"), "a");
     this.child = spawn(
-      resolve(this.root, "target/debug/studio-engine.exe"),
+      engineExecutable(this.root, engineProfile([], process.env, "debug")),
       [
         "serve",
         "--data-dir",
@@ -32,7 +33,16 @@ export class EngineFixture {
         "--cache-dir",
         resolve(this.dataDir, "preview-cache"),
       ],
-      { stdio: ["ignore", log.fd, log.fd], windowsHide: true },
+      {
+        stdio: ["ignore", log.fd, log.fd],
+        windowsHide: true,
+        env: {
+          ...process.env,
+          STUDIO_DUCKDB_DLL:
+            process.env.STUDIO_DUCKDB_DLL ??
+            resolve(this.root, "vendor/duckdb/duckdb.dll"),
+        },
+      },
     );
     await log.close();
     for (let attempt = 0; attempt < 150; attempt++) {

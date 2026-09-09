@@ -26,7 +26,12 @@ import {
 import type { ModuleContext, BrowseScope, BrowseViewProps } from "@studio/ui";
 import { assetIdentity } from "@studio/client";
 import type { StudioClient } from "@studio/client";
-import type { Asset, ScopeOperation, QueryResult } from "@studio/contracts";
+import type {
+  Asset,
+  AssetPage,
+  ScopeOperation,
+  QueryResult,
+} from "@studio/contracts";
 import { AssetImage } from "./AssetImage.js";
 import { QuickFilters, adoptRefreshedFilter } from "./QuickFilters.js";
 export type Scope = BrowseScope;
@@ -133,27 +138,58 @@ function BrowserContent({
   positionCallback.current = onPosition;
   const cursor = history.cursors[history.index] ?? null;
   const pageNumber = history.firstPage + history.index;
+  const preparation = useRef<{ key: string; page: AssetPage } | null>(null);
+  const requestKey = JSON.stringify([scopeKey, cursor]);
   const query = useQuery({
     queryKey: ["project", projectId, "assets", scopeKey, cursor],
-    queryFn: async ({ signal }) =>
-      scope.kind === "result"
-        ? (
-            await client.queries.assets(projectId, scope.id, {
-              ...(cursor ? { cursor } : {}),
-              limit: pageSize,
-              order,
-              signal,
-            })
-          ).page
-        : client.assets(projectId, {
-            ...(scope.kind === "source" ? { sourceId: scope.id } : {}),
-            ...(scope.kind === "collection" ? { collectionId: scope.id } : {}),
-            ...(scope.kind === "selection" ? { selection: true } : {}),
+    queryFn: async ({ signal }) => {
+      if (scope.kind === "result")
+        return (
+          await client.queries.assets(projectId, scope.id, {
             ...(cursor ? { cursor } : {}),
             limit: pageSize,
             order,
             signal,
-          }),
+          })
+        ).page;
+      const pending =
+        preparation.current?.key === requestKey
+          ? preparation.current.page
+          : null;
+      if (pending?.result_id) {
+        const result = await client.queries.result(
+          projectId,
+          pending.result_id,
+          signal,
+        );
+        if (["queued", "running"].includes(result.state)) {
+          return {
+            ...pending,
+            ...(pending.scan
+              ? { scan: { ...pending.scan, scanned: result.processed } }
+              : {}),
+          };
+        }
+        if (result.state !== "ready")
+          throw Object.assign(
+            new Error(result.error ?? `范围排序未完成（${result.state}）`),
+            { code: "SCOPE_SORT_FAILED" },
+          );
+      }
+      const continuation = pending?.next_cursor ?? cursor;
+      const page = await client.assets(projectId, {
+        ...(scope.kind === "source" ? { sourceId: scope.id } : {}),
+        ...(scope.kind === "collection" ? { collectionId: scope.id } : {}),
+        ...(scope.kind === "selection" ? { selection: true } : {}),
+        ...(continuation ? { cursor: continuation } : {}),
+        limit: pageSize,
+        order,
+        signal,
+      });
+      if (!signal.aborted)
+        preparation.current = page.preparing ? { key: requestKey, page } : null;
+      return page;
+    },
     gcTime: 0,
     retry: 1,
     refetchInterval: (q) =>
@@ -219,6 +255,7 @@ function BrowserContent({
     };
   }, [client, projectId, heldResult]);
   async function refreshResult() {
+    preparation.current = null;
     if (scope.kind !== "result") {
       if (query.error && query.data?.result_id)
         await client.queries
@@ -357,7 +394,14 @@ function BrowserContent({
   );
   useEffect(() => {
     const next = query.data?.next_cursor;
-    if (!next || query.isFetching || view !== "grid") return;
+    if (
+      !next ||
+      query.isFetching ||
+      query.data?.preparing ||
+      query.error ||
+      view !== "grid"
+    )
+      return;
     const abort = new AbortController();
     const timer = setTimeout(() => {
       const options = {
@@ -404,6 +448,8 @@ function BrowserContent({
     projectId,
     scope,
     query.data?.next_cursor,
+    query.data?.preparing,
+    query.error,
     query.isFetching,
     view,
     order,
@@ -627,8 +673,10 @@ function BrowserContent({
           </span>
         )}
         <span className="subtle">
-          {query.data?.preparing ??
-            (query.isFetching ? "读取中…" : items.length + " 张 / 本页")}
+          {query.error
+            ? "读取未完成"
+            : (query.data?.preparing ??
+              (query.isFetching ? "读取中…" : items.length + " 张 / 本页"))}
         </span>
         <span className="grow" />
         <select
@@ -696,6 +744,22 @@ function BrowserContent({
           icon={<LoaderCircle className="loading-icon" size={36} />}
         >
           <p>准备完成后会自动显示图像。</p>
+          {query.data.scan && (
+            <div className="scope-scan-progress">
+              <progress
+                aria-label="范围成员定位进度"
+                value={query.data.scan.scanned}
+                max={Math.max(1, query.data.scan.total)}
+              />
+              <span>
+                已检查 {query.data.scan.scanned.toLocaleString("zh-CN")} /{" "}
+                {query.data.scan.total.toLocaleString("zh-CN")} 项
+              </span>
+            </div>
+          )}
+          <Button onClick={() => onOrder("asset_key_asc")}>
+            先按图像身份浏览
+          </Button>
         </EmptyState>
       ) : !items.length && !query.isFetching ? (
         <EmptyState title={empty.title} icon={<Images size={40} />}>

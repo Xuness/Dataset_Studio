@@ -51,7 +51,7 @@ export function ProjectDialog({
     open: "打开项目",
     source: "添加数据湖",
     relink: "重新关联数据湖位置",
-    collection: "保存工作集",
+    collection: "保存当前范围为工作集",
     about: "关于 Dataset Studio",
   };
   async function submit(e: React.FormEvent) {
@@ -101,7 +101,7 @@ export function ProjectDialog({
         <div className="about-content">
           <Brand size={72} />
           <h2>Dataset Studio</h2>
-          <p>Dataset Studio · 0.8.0</p>
+          <p>Dataset Studio · 0.8.1</p>
           <p>项目、数据湖、工作集与持续保存的工作。</p>
           <Button onClick={onClose}>关闭</Button>
         </div>
@@ -218,7 +218,11 @@ export function ProjectDialog({
           )}
           {kind === "collection" && (
             <p className="dialog-hint">
-              保存所选范围的固定成员。之后修改选择或查询定义不会改变工作集。
+              将保存「{input?.label ?? "尚未选择范围"}」的{" "}
+              {input?.count?.toLocaleString("zh-CN") ?? "待确定数量的"}{" "}
+              项成员。之后修改选择或查询定义不会改变工作集。
+              <br />
+              要保存排名筛选结果，请使用“结果榜单”中的“保存筛选为工作集”。
             </p>
           )}
           {kind === "source" && (
