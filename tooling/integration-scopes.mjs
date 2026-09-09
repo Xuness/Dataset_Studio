@@ -6,7 +6,12 @@ import { DatabaseSync } from "node:sqlite";
 import { EngineFixture, sleep, within } from "./engine-fixture.mjs";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const runDir = resolve(root, ".local", "integration-scopes-" + Date.now());
+const runDir = resolve(
+  root,
+  ".local",
+  "test-runs",
+  "integration-scopes-" + Date.now(),
+);
 await mkdir(runDir, { recursive: true });
 const engine = new EngineFixture(root, resolve(runDir, "state"));
 const other = new EngineFixture(root, resolve(runDir, "other-engine"));

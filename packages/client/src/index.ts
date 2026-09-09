@@ -10,6 +10,7 @@ import { ToolClient, DraftClient } from "./tools.js";
 import { DraftCoordinator } from "./drafts.js";
 import { MediaClient, ResourceClient } from "./media.js";
 import { SettingsClient } from "./settings.js";
+import { RankingClient } from "./ranking.js";
 import type { MediaOptions, MediaHandle } from "./media.js";
 export { DraftController, DraftCoordinator } from "./drafts.js";
 export type { DraftSnapshot, DraftStatus } from "./drafts.js";
@@ -74,6 +75,9 @@ function metadataQuery(options: MetadataOptions) {
   return query;
 }
 export class StudioClient {
+  readonly ranking = new RankingClient(<T>(path: string, init?: RequestInit) =>
+    this.request<T>(path, init),
+  );
   private sessionId = crypto.randomUUID();
   private projectSessions = new Map<string, string>();
   private sessionTimer: ReturnType<typeof setInterval> | null = null;

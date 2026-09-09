@@ -124,7 +124,7 @@ fn prepare(
     store: &SqliteStore,
     job: &Job,
     resources: &dyn ReadResources,
-    cancelled: &AtomicBool,
+    cancelled: &Arc<AtomicBool>,
 ) -> Result<(PathBuf, WorkerPlan)> {
     let frozen = store.job_run(&job.project_id, &job.id)?;
     let directory = store.directory(&job.project_id)?;
@@ -145,6 +145,12 @@ fn prepare(
             return Err(Error::new("CHECKPOINT_INVALID", "任务计划不一致"));
         }
         return Ok((path, plan));
+    }
+    if studio_operators::registry()?
+        .resolve(&frozen.run)?
+        .population()
+    {
+        return crate::ranking::prepare(store, job, &staging, resources, cancelled.clone());
     }
     store.update_job(&job.project_id, &job.id, "preparing", 0, None, None)?;
     crate::tool_inputs::validate_versions(store, &job.project_id, &frozen)?;
@@ -261,17 +267,24 @@ async fn execute(
     let s = store.clone();
     let j = job.clone();
     let cancel = _attempt.1.clone();
-    let (plan_path, plan) =
-        tokio::task::spawn_blocking(move || prepare(&s, &j, resources.as_ref(), &cancel))
-            .await
-            .map_err(Error::io)??;
+    let preparation_resources = resources.clone();
+    let (plan_path, plan) = tokio::task::spawn_blocking(move || {
+        prepare(&s, &j, preparation_resources.as_ref(), &cancel)
+    })
+    .await
+    .map_err(Error::io)??;
     if store.job(&job.project_id, &job.id)?.status == "cancelled" {
         return Ok(());
     }
-    let final_path = store
-        .directory(&job.project_id)?
-        .join("artifacts")
-        .join(format!("{}.jsonl", job.id));
+    let final_path =
+        store
+            .directory(&job.project_id)?
+            .join("artifacts")
+            .join(if plan.version == 2 {
+                format!("{}.ranking.sqlite", job.id)
+            } else {
+                format!("{}.jsonl", job.id)
+            });
     let artifacts = final_path
         .parent()
         .ok_or_else(|| Error::invalid("成果位置无效"))?
@@ -292,6 +305,29 @@ async fn execute(
         .map_err(Error::io)??;
         return Ok(());
     }
+    let _computation_lease = if plan.version == 2 {
+        let resources = resources.clone();
+        let flag = _attempt.1.clone();
+        let input_path = plan.input_path.clone();
+        Some(
+            tokio::task::spawn_blocking(move || {
+                let input = studio_storage::ranking_tables::RankingInputTable::open(&input_path)?;
+                let memory: u64 = input.meta("memory_bytes")?;
+                resources.acquire(
+                    ReadRequest {
+                        class: ReadClass::NativeQuery,
+                        priority: ReadPriority::Background,
+                        bytes: memory,
+                    },
+                    &flag,
+                )
+            })
+            .await
+            .map_err(Error::io)??,
+        )
+    } else {
+        None
+    };
     store.update_job(
         &job.project_id,
         &job.id,
@@ -300,6 +336,10 @@ async fn execute(
         None,
         None,
     )?;
+    let failure_path = plan_path.with_file_name("worker-error.json");
+    if failure_path.exists() {
+        fs::remove_file(&failure_path).map_err(Error::io)?;
+    }
     let stderr = File::create(plan_path.with_file_name(format!(
         "attempt-{}.log",
         store.job(&job.project_id, &job.id)?.attempt
@@ -330,7 +370,7 @@ async fn execute(
     loop {
         tokio::select! {
             line=lines.next()=>{match line{
-                Some(line)=>{let line=line.map_err(|_|Error::new("WORKER_PROTOCOL_ERROR","进度消息无效或超过 4 KiB"))?;let progress:worker::Progress=serde_json::from_str(&line).map_err(Error::io)?;if progress.version!=1||progress.total!=job.total||progress.completed>job.total{return Err(Error::new("WORKER_PROTOCOL_ERROR","无效的任务进度"));}store.update_job(&job.project_id,&job.id,"running",progress.completed,None,None)?;},
+                Some(line)=>{let line=line.map_err(|_|Error::new("WORKER_PROTOCOL_ERROR","进度消息无效或超过 4 KiB"))?;record_progress(&store,&job,&line)?;},
                 None=>break
             }},
             _=interval.tick()=>{if store.job(&job.project_id,&job.id)?.status=="cancelled"{child.kill().await.map_err(Error::io)?;return Ok(());}}
@@ -341,9 +381,16 @@ async fn execute(
         return Ok(());
     }
     if !status.success() {
+        let failure: Option<worker::Failure> = fs::metadata(&failure_path)
+            .ok()
+            .filter(|m| m.len() <= 65_536)
+            .and_then(|_| fs::read(&failure_path).ok())
+            .and_then(|v| serde_json::from_slice(&v).ok());
         return Err(Error::new(
             "WORKER_FAILED",
-            format!("执行器退出码：{status}"),
+            failure
+                .map(|f| format!("{}：{}", f.code, f.message))
+                .unwrap_or_else(|| format!("执行器退出码：{status}")),
         ));
     }
     let s = store.clone();
@@ -360,6 +407,28 @@ async fn execute(
 
 #[cfg(windows)]
 struct ProcessGroup(usize);
+
+fn record_progress(store: &SqliteStore, job: &Job, line: &str) -> Result<()> {
+    let progress: worker::Progress = serde_json::from_str(line).map_err(Error::io)?;
+    if progress.version != 1 || progress.total != job.total || progress.completed > job.total {
+        return Err(Error::new("WORKER_PROTOCOL_ERROR", "无效的任务进度"));
+    }
+    if let Some(stage) = progress.stage {
+        if stage.name.len() > 80 || stage.completed > stage.total {
+            return Err(Error::new("WORKER_PROTOCOL_ERROR", "无效任务阶段"));
+        }
+        store.job_stage(&job.project_id, &job.id, &stage)?;
+    }
+    store.update_job(
+        &job.project_id,
+        &job.id,
+        "running",
+        progress.completed,
+        None,
+        None,
+    )?;
+    Ok(())
+}
 #[cfg(windows)]
 impl ProcessGroup {
     fn attach(child: &tokio::process::Child) -> Result<Self> {

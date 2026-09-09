@@ -187,7 +187,7 @@ impl SqliteStore {
             let version: u32 = db
                 .query_row("PRAGMA user_version", [], |r| r.get(0))
                 .map_err(db_error)?;
-            if !(6..=7).contains(&version) {
+            if !(6..=migrations::VERSION).contains(&version) {
                 return Ok(None);
             }
             let active:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM query_results WHERE status IN ('queued','running')) OR EXISTS(SELECT 1 FROM jobs WHERE status IN ('queued','preparing','running','waiting_input'))",[],|r|r.get(0)).map_err(db_error)?;

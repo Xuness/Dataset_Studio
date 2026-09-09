@@ -64,6 +64,42 @@ fn predicate(column: &str, condition: &QueryCondition) -> Result<String> {
     Ok(format!("{column} {operator} {value}"))
 }
 
+pub(crate) fn ranking_predicate(spec: &QuerySpec) -> Result<String> {
+    let mut clauses = Vec::new();
+    for condition in &spec.conditions {
+        let column = match condition.field.as_str() {
+            "post.id" => "o.post_id",
+            "source.width" => "o.image_width",
+            "source.height" => "o.image_height",
+            "source.extension" => "o.file_ext",
+            "score" => "o.score",
+            "fav_count" => "o.fav_count",
+            "rating" => "o.rating",
+            "tags" => "o.tag_string",
+            "is_deleted" => "o.is_deleted",
+            field
+                if field.starts_with("stored.")
+                    || field.starts_with("project.")
+                    || field == "asset.id" =>
+            {
+                continue;
+            }
+            _ => {
+                return Err(Error::new(
+                    "QUERY_UNSUPPORTED",
+                    "排名输入包含不支持的元数据条件",
+                ));
+            }
+        };
+        clauses.push(predicate(column, condition)?);
+    }
+    Ok(if clauses.is_empty() {
+        "1=1".into()
+    } else {
+        clauses.join(" AND ")
+    })
+}
+
 pub(super) fn storage_predicates(spec: &QuerySpec) -> Result<String> {
     let mut predicates = Vec::new();
     for condition in &spec.conditions {

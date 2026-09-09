@@ -446,6 +446,178 @@
         }
       }
     },
+    "/v1/projects/{project_id}/artifacts/{artifact_id}/ranking": {
+      "get": {
+        "tags": [
+          "ranking"
+        ],
+        "operationId": "ranking_summary",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "artifact_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RankingSummary"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/artifacts/{artifact_id}/ranking/evidence": {
+      "get": {
+        "tags": [
+          "ranking"
+        ],
+        "operationId": "ranking_evidence",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "artifact_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RankingEvidence"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/artifacts/{artifact_id}/ranking/rows": {
+      "post": {
+        "tags": [
+          "ranking"
+        ],
+        "operationId": "ranking_rows",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "artifact_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RankingPageRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RankingPage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/artifacts/{artifact_id}/ranking/worksets": {
+      "post": {
+        "tags": [
+          "ranking"
+        ],
+        "operationId": "ranking_workset",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "artifact_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RankingWorksetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Collection"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/projects/{project_id}/artifacts/{artifact_id}/release": {
       "post": {
         "tags": [
@@ -1086,6 +1258,44 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Job"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/jobs/{job_id}/ranking": {
+      "get": {
+        "tags": [
+          "ranking"
+        ],
+        "operationId": "ranking_job_result",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Artifact"
                 }
               }
             }
@@ -4056,6 +4266,16 @@
           "project_id": {
             "type": "string"
           },
+          "stage": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/JobStage"
+              }
+            ]
+          },
           "status": {
             "type": "string"
           },
@@ -4088,6 +4308,29 @@
             "items": {
               "$ref": "#/components/schemas/QuerySourceVersion"
             }
+          }
+        }
+      },
+      "JobStage": {
+        "type": "object",
+        "required": [
+          "name",
+          "completed",
+          "total"
+        ],
+        "properties": {
+          "completed": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           }
         }
       },
@@ -5524,6 +5767,823 @@
             }
           }
         ]
+      },
+      "RankingBasis": {
+        "type": "object",
+        "required": [
+          "index",
+          "spec"
+        ],
+        "properties": {
+          "index": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "result_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "spec": {
+            "$ref": "#/components/schemas/QuerySpec"
+          }
+        }
+      },
+      "RankingEligibility": {
+        "type": "string",
+        "enum": [
+          "eligible",
+          "metadata_unavailable",
+          "rating_unknown",
+          "rating_excluded",
+          "dimensions_unknown",
+          "dimensions_excluded",
+          "policy_excluded",
+          "duplicate"
+        ]
+      },
+      "RankingEvidence": {
+        "type": "object",
+        "required": [
+          "job_run",
+          "bases",
+          "metadata_fields"
+        ],
+        "properties": {
+          "bases": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RankingBasis"
+            }
+          },
+          "job_run": {
+            "$ref": "#/components/schemas/JobRun"
+          },
+          "metadata_fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "RankingFilter": {
+        "type": "object",
+        "properties": {
+          "eligibility": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RankingEligibility"
+              }
+            ],
+            "default": null
+          },
+          "missing_only": {
+            "type": "boolean",
+            "default": false
+          },
+          "order": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/RankingOrder"
+              }
+            ],
+            "default": "main"
+          },
+          "rating": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          },
+          "route": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RankingRoute"
+              }
+            ],
+            "default": null
+          },
+          "selected_only": {
+            "type": "boolean",
+            "default": false
+          },
+          "top": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "default": null,
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "RankingInput": {
+        "type": "object",
+        "required": [
+          "ordinal",
+          "source_id",
+          "asset_id",
+          "time_quality",
+          "artists",
+          "dimension_basis",
+          "stored_extension",
+          "stored_bytes",
+          "damage_classes",
+          "tags_known",
+          "record_count",
+          "rating_conflict",
+          "basis_ids"
+        ],
+        "properties": {
+          "artists": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "asset_id": {
+            "type": "string"
+          },
+          "basis_ids": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          "created_at_us": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "damage_classes": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "dimension_basis": {
+            "type": "string"
+          },
+          "down_score": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "duplicate_of": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "fav_count": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "is_banned": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "is_deleted": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "is_flagged": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "is_pending": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "observation_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "observed_at_us": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ordinal": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "parent_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "post_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rating": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rating_conflict": {
+            "type": "boolean"
+          },
+          "record_count": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "record_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "score": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source_id": {
+            "type": "string"
+          },
+          "source_issues": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source_priority": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "stored_bytes": {
+            "type": "string"
+          },
+          "stored_extension": {
+            "type": "string"
+          },
+          "stored_height": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "stored_width": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "tags_known": {
+            "type": "boolean"
+          },
+          "time_quality": {
+            "type": "string"
+          },
+          "up_score": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updated_at_us": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "RankingMode": {
+        "type": "string",
+        "enum": [
+          "rank",
+          "select"
+        ]
+      },
+      "RankingOrder": {
+        "type": "string",
+        "enum": [
+          "main",
+          "rescue",
+          "input"
+        ]
+      },
+      "RankingPage": {
+        "type": "object",
+        "required": [
+          "artifact_id",
+          "items"
+        ],
+        "properties": {
+          "artifact_id": {
+            "type": "string"
+          },
+          "count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RankingRow"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "RankingPageRequest": {
+        "type": "object",
+        "properties": {
+          "cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "filter": {
+            "$ref": "#/components/schemas/RankingFilter"
+          },
+          "limit": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "RankingParameters": {
+        "type": "object",
+        "required": [
+          "ratings",
+          "mode",
+          "quotas",
+          "seed",
+          "exclude_banned",
+          "time_enabled",
+          "artist_enabled",
+          "votes_enabled",
+          "damage_enabled",
+          "cohort_minimum",
+          "time_weight",
+          "artist_weight",
+          "vote_weight",
+          "damage_weight"
+        ],
+        "properties": {
+          "artist_enabled": {
+            "type": "boolean"
+          },
+          "artist_weight": {
+            "type": "number",
+            "format": "double"
+          },
+          "cohort_minimum": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "damage_enabled": {
+            "type": "boolean"
+          },
+          "damage_weight": {
+            "type": "number",
+            "format": "double"
+          },
+          "exclude_banned": {
+            "type": "boolean"
+          },
+          "minimum_stored_side": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "mode": {
+            "$ref": "#/components/schemas/RankingMode"
+          },
+          "quotas": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          "ratings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "seed": {
+            "type": "string"
+          },
+          "time_enabled": {
+            "type": "boolean"
+          },
+          "time_weight": {
+            "type": "number",
+            "format": "double"
+          },
+          "vote_weight": {
+            "type": "number",
+            "format": "double"
+          },
+          "votes_enabled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "RankingRatingSummary": {
+        "type": "object",
+        "required": [
+          "rating",
+          "eligible",
+          "valid_heat",
+          "q0",
+          "time_used",
+          "time_fallback",
+          "artist_used",
+          "quotas",
+          "selected",
+          "cohort_counts",
+          "favorite_baseline_overlap"
+        ],
+        "properties": {
+          "artist_used": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "cohort_counts": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          },
+          "eligible": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "favorite_baseline_overlap": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "q0": {
+            "type": "number",
+            "format": "double"
+          },
+          "quotas": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          },
+          "rating": {
+            "type": "string"
+          },
+          "selected": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          },
+          "time_fallback": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "time_used": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "valid_heat": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "RankingRoute": {
+        "type": "string",
+        "enum": [
+          "ineligible",
+          "ranked",
+          "main",
+          "rescue",
+          "audit",
+          "budget_rejected"
+        ]
+      },
+      "RankingRow": {
+        "type": "object",
+        "required": [
+          "input",
+          "scores"
+        ],
+        "properties": {
+          "input": {
+            "$ref": "#/components/schemas/RankingInput"
+          },
+          "scores": {
+            "$ref": "#/components/schemas/RankingScores"
+          }
+        }
+      },
+      "RankingScores": {
+        "type": "object",
+        "required": [
+          "ordinal",
+          "eligibility",
+          "missing_flags",
+          "local_count",
+          "time_reason",
+          "artist_support",
+          "selected_route"
+        ],
+        "properties": {
+          "a": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "artist_support": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "c": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "cohort_level": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "duplicate_of": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "eligibility": {
+            "$ref": "#/components/schemas/RankingEligibility"
+          },
+          "g": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "local_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "local_percentile": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "main_rank": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "main_score": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "missing_flags": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "ordinal": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "rating": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rescue_rank": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "rescue_score": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "selected_route": {
+            "$ref": "#/components/schemas/RankingRoute"
+          },
+          "support_k": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "t": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "time_reason": {
+            "type": "string"
+          },
+          "v": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          }
+        }
+      },
+      "RankingSummary": {
+        "type": "object",
+        "required": [
+          "schema_version",
+          "input_count",
+          "eligible_count",
+          "parameters",
+          "ratings",
+          "eligibility_counts",
+          "missing_counts",
+          "input_sha256",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "eligibility_counts": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "eligible_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "input_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "input_sha256": {
+            "type": "string"
+          },
+          "missing_counts": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "parameters": {
+            "$ref": "#/components/schemas/RankingParameters"
+          },
+          "ratings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RankingRatingSummary"
+            }
+          },
+          "schema_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "RankingWorksetRequest": {
+        "type": "object",
+        "required": [
+          "idempotency_key",
+          "name"
+        ],
+        "properties": {
+          "filter": {
+            "$ref": "#/components/schemas/RankingFilter"
+          },
+          "idempotency_key": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
       },
       "RatingBases": {
         "type": "object",

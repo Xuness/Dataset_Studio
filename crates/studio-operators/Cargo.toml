@@ -9,3 +9,6 @@ studio-domain = { path = "../studio-domain" }
 studio-application = { path = "../studio-application" }
 serde.workspace = true
 serde_json.workspace = true
+sha2.workspace = true
+hex.workspace = true
+chrono = { version = "=0.4.45", default-features = false, features = ["std"] }

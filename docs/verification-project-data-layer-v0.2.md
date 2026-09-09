@@ -70,7 +70,7 @@
 
 这不是 OS 冷缓存测试：未清空系统缓存。SHA 关联计划仍含列扫描，四个位置的正确性与耗时不能证明千万级全量、随机分布或长期运行性能。256 MB 配置是 DuckDB 的内存预算，不是进程 RSS 硬限制。
 
-详细报告：.local/metadata-verification-1788788735236/report.json。最初实验保存在 .local/metadata-verification-1788788418171/report.json。静态审计与初始诊断使用归档自带 Python；产品和上述端到端接口使用应用自己的原生 DLL，不依赖该 Python 环境。
+详细报告：.local/reports/development-cleanup-20260909/historical-evidence/metadata-verification-1788788735236/report.json。最初实验保存在 .local/reports/development-cleanup-20260909/historical-evidence/metadata-verification-1788788418171/report.json。静态审计与初始诊断使用归档自带 Python；产品和上述端到端接口使用应用自己的原生 DLL，不依赖该 Python 环境。
 
 ## 原生窗口
 
@@ -83,8 +83,8 @@
 本机记录与截图：
 
 - .local/reports/phase2-native-ui.json
-- .local/screenshots/phase2-native-metadata.png
-- .local/screenshots/phase2-native-version-changed.png
+- .local/reports/development-cleanup-20260909/historical-evidence/screenshots/phase2-native-metadata.png
+- .local/reports/development-cleanup-20260909/historical-evidence/screenshots/phase2-native-version-changed.png
 - .local/logs/phase2-default-start.log
 - .local/logs/phase2-check-final.log
 - .local/logs/phase2-integration-final.log

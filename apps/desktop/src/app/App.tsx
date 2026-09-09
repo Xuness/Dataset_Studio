@@ -553,8 +553,12 @@ function Studio({
         updateView({ scope: { kind: "result", id: result.id, name } });
     },
     onSelect: selectResult,
-    onJob: (job) => {
-      if (currentIdRef.current === job.project_id) setTasksVisible(true);
+    onJob: (job, options) => {
+      if (
+        currentIdRef.current === job.project_id &&
+        options?.revealTasks !== false
+      )
+        setTasksVisible(true);
     },
     activateView,
     openPanel: (id) => {
@@ -587,12 +591,19 @@ function Studio({
     resizePanel: (id, height) => {
       if (id === "core.query") layout.update({ queryHeight: height });
     },
+    inspector: {
+      visible: propertiesVisible,
+      width: layout.value.propertiesWidth,
+      setVisible: setPropertiesVisible,
+      resize: (propertiesWidth) => layout.update({ propertiesWidth }),
+    },
     invocation:
       invocation?.projectId === currentId
         ? { sequence: invocation.sequence, args: invocation.args }
         : null,
   };
-  const ActiveModule = moduleViews.get(workspace.value.moduleId)?.Component;
+  const activeSurface = moduleViews.get(workspace.value.moduleId);
+  const ActiveModule = activeSurface?.Component;
   const menus: Record<
     string,
     { label: string; action: () => void; disabled?: boolean }[]
@@ -805,7 +816,9 @@ function Studio({
           className={
             "workspace " +
             (!projectsVisible ? "hide-projects " : "") +
-            (!propertiesVisible ? "hide-properties" : "")
+            (!propertiesVisible || activeSurface?.ownsInspector
+              ? "hide-properties"
+              : "")
           }
           style={
             {
@@ -1007,112 +1020,116 @@ function Studio({
               )}
             </Suspense>
           </div>
-          <aside className="properties-panel">
-            <header className="panel-tabs">
-              <strong>属性</strong>
-            </header>
-            {view.focus ? (
-              <div className="properties-scroll">
-                <div className="property-preview">
-                  <AssetImage
-                    client={client}
-                    projectId={project.id}
-                    asset={view.focus}
-                    edge={480}
-                  />
-                </div>
-                <div className="property-section">
-                  <h3 className="property-asset-title">
-                    {assetTitle(view.focus)}
-                  </h3>
-                  <dl>
-                    <dt>来源</dt>
-                    <dd>{view.focus.source_name}</dd>
-                    <dt>格式</dt>
-                    <dd>{view.focus.extension.toUpperCase()}</dd>
-                    <dt>存储大小</dt>
-                    <dd>
-                      {Number(view.focus.bytes)
-                        ? (Number(view.focus.bytes) / 1024).toFixed(1) + " KB"
-                        : "参考样本"}
-                    </dd>
-                  </dl>
-                  <details className="identity-details">
-                    <summary>存储身份与关联</summary>
-                    <code>{view.focus.key.asset_id}</code>
-                    <CopyButton
-                      label="复制图像身份"
-                      text={view.focus.key.asset_id}
+          {!activeSurface?.ownsInspector && (
+            <aside className="properties-panel">
+              <header className="panel-tabs">
+                <strong>属性</strong>
+              </header>
+              {view.focus ? (
+                <div className="properties-scroll">
+                  <div className="property-preview">
+                    <AssetImage
+                      client={client}
+                      projectId={project.id}
+                      asset={view.focus}
+                      edge={480}
                     />
-                    {view.focus.summary?.post_ids.length ? (
-                      <p>
-                        关联帖子：
-                        {view.focus.summary.post_ids
-                          .map((id) => "#" + id)
-                          .join("、")}
-                        {Number(view.focus.summary.post_count) >
-                        view.focus.summary.post_ids.length
-                          ? " 等 " + view.focus.summary.post_count + " 个"
-                          : ""}
-                      </p>
-                    ) : null}
-                  </details>
+                  </div>
+                  <div className="property-section">
+                    <h3 className="property-asset-title">
+                      {assetTitle(view.focus)}
+                    </h3>
+                    <dl>
+                      <dt>来源</dt>
+                      <dd>{view.focus.source_name}</dd>
+                      <dt>格式</dt>
+                      <dd>{view.focus.extension.toUpperCase()}</dd>
+                      <dt>存储大小</dt>
+                      <dd>
+                        {Number(view.focus.bytes)
+                          ? (Number(view.focus.bytes) / 1024).toFixed(1) + " KB"
+                          : "参考样本"}
+                      </dd>
+                    </dl>
+                    <details className="identity-details">
+                      <summary>存储身份与关联</summary>
+                      <code>{view.focus.key.asset_id}</code>
+                      <CopyButton
+                        label="复制图像身份"
+                        text={view.focus.key.asset_id}
+                      />
+                      {view.focus.summary?.post_ids.length ? (
+                        <p>
+                          关联帖子：
+                          {view.focus.summary.post_ids
+                            .map((id) => "#" + id)
+                            .join("、")}
+                          {Number(view.focus.summary.post_count) >
+                          view.focus.summary.post_ids.length
+                            ? " 等 " + view.focus.summary.post_count + " 个"
+                            : ""}
+                        </p>
+                      ) : null}
+                    </details>
+                  </div>
+                  {propertiesVisible && (
+                    <MetadataInspector
+                      key={
+                        project.id +
+                        ":" +
+                        view.focus.key.source_id +
+                        ":" +
+                        view.focus.key.asset_id +
+                        ":" +
+                        client.connection.instance_id
+                      }
+                      client={client}
+                      projectId={project.id}
+                      asset={view.focus}
+                    />
+                  )}
+                  <div className="property-section">
+                    <h3>项目中的选择</h3>
+                    <p>
+                      当前共选择 <strong>{selected}</strong> 项
+                    </p>
+                    <Button
+                      disabled={!selected || busy}
+                      onClick={() => setDialog("collection")}
+                    >
+                      <FolderPlus size={14} />
+                      保存为工作集
+                    </Button>
+                  </div>
                 </div>
-                {propertiesVisible && (
-                  <MetadataInspector
-                    key={
-                      project.id +
-                      ":" +
-                      view.focus.key.source_id +
-                      ":" +
-                      view.focus.key.asset_id +
-                      ":" +
-                      client.connection.instance_id
-                    }
-                    client={client}
-                    projectId={project.id}
-                    asset={view.focus}
-                  />
-                )}
-                <div className="property-section">
-                  <h3>项目中的选择</h3>
+              ) : (
+                <div className="properties-empty">
+                  <MousePointer2 size={25} />
                   <p>
-                    当前共选择 <strong>{selected}</strong> 项
+                    点击一张图片
+                    <br />
+                    在这里查看对象属性
                   </p>
-                  <Button
-                    disabled={!selected || busy}
-                    onClick={() => setDialog("collection")}
-                  >
-                    <FolderPlus size={14} />
-                    保存为工作集
-                  </Button>
                 </div>
+              )}
+              <div className="properties-bottom">
+                <Info size={13} />
+                <span>项目保存选择和成果，数据湖提供来源。</span>
               </div>
-            ) : (
-              <div className="properties-empty">
-                <MousePointer2 size={25} />
-                <p>
-                  点击一张图片
-                  <br />
-                  在这里查看对象属性
-                </p>
-              </div>
-            )}
-            <div className="properties-bottom">
-              <Info size={13} />
-              <span>项目保存选择和成果，数据湖提供来源。</span>
-            </div>
-            <ResizeGrip
-              label="属性面板宽度"
-              orientation="vertical"
-              reverse
-              value={layout.value.propertiesWidth}
-              minimum={260}
-              maximum={600}
-              onChange={(propertiesWidth) => layout.update({ propertiesWidth })}
-              onReset={() => layout.update({ propertiesWidth: 320 })}
-            />
-          </aside>
+              <ResizeGrip
+                label="属性面板宽度"
+                orientation="vertical"
+                reverse
+                value={layout.value.propertiesWidth}
+                minimum={260}
+                maximum={600}
+                onChange={(propertiesWidth) =>
+                  layout.update({ propertiesWidth })
+                }
+                onReset={() => layout.update({ propertiesWidth: 320 })}
+              />
+            </aside>
+          )}
         </div>
       )}
       {project && tasksVisible && (
@@ -1121,6 +1138,12 @@ function Studio({
           projectId={project.id}
           onClose={() => setTasksVisible(false)}
           onError={setError}
+          onOpenRanking={(jobId) =>
+            activateView("core.tools", {
+              operatorId: "danbooru.metarecall",
+              jobId,
+            })
+          }
         />
       )}
       {error && (

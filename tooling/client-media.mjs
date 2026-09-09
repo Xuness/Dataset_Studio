@@ -6,7 +6,7 @@ import ts from "typescript";
 import { setImmediate } from "node:timers";
 const { DOMException, Response, Blob } = globalThis;
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const output = resolve(root, ".local/client-media");
+const output = resolve(root, ".local/test-runs/client-media");
 await mkdir(output, { recursive: true });
 const code = ts.transpileModule(
   await readFile(resolve(root, "packages/client/src/media.ts"), "utf8"),

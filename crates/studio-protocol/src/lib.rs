@@ -12,6 +12,8 @@ mod resources;
 pub use resources::*;
 mod settings;
 pub use settings::*;
+mod ranking;
+pub use ranking::*;
 use utoipa::ToSchema;
 pub const API_VERSION: u32 = 1;
 
@@ -282,6 +284,14 @@ pub struct Job {
     pub artifact: Option<String>,
     pub input_scope: Option<ScopeRef>,
     pub input_members_frozen: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stage: Option<JobStage>,
+}
+#[derive(Serialize, ToSchema)]
+pub struct JobStage {
+    pub name: String,
+    pub completed: u64,
+    pub total: u64,
 }
 impl From<domain::Job> for Job {
     fn from(j: domain::Job) -> Self {
@@ -298,6 +308,11 @@ impl From<domain::Job> for Job {
             artifact: j.artifact,
             input_scope: j.input_scope.map(Into::into),
             input_members_frozen: j.input_members_frozen,
+            stage: j.stage.map(|s| JobStage {
+                name: s.name,
+                completed: s.completed,
+                total: s.total,
+            }),
         }
     }
 }

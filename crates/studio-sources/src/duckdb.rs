@@ -169,6 +169,9 @@ impl Runtime {
     pub fn open_query(&self, path: &Path, cancelled: Arc<AtomicBool>) -> Result<Session> {
         self.open_with(path, Duration::from_secs(600), Some(cancelled), true)
     }
+    pub fn open_population(&self, path: &Path, cancelled: Arc<AtomicBool>) -> Result<Session> {
+        self.open_with(path, Duration::from_secs(3600), Some(cancelled), true)
+    }
     pub fn open_metadata(&self, path: &Path, cancelled: Arc<AtomicBool>) -> Result<Session> {
         self.open_with(path, Duration::from_secs(8), Some(cancelled), false)
     }
@@ -225,6 +228,61 @@ impl Runtime {
     }
 }
 impl Session {
+    pub(crate) fn import_ranking_members(
+        &self,
+        produce: &mut studio_application::RankingMemberProducer<'_>,
+    ) -> Result<u64> {
+        self.query(
+            "CREATE TEMP TABLE studio_ranking_scope(ordinal BIGINT,sha256 BLOB,basis BIGINT)",
+        )?;
+        let mut appender = Appender {
+            raw: std::ptr::null_mut(),
+            api: &self.api,
+        };
+        let status = unsafe {
+            (self.api.appender_create_ext)(
+                self.connection,
+                c"temp".as_ptr(),
+                c"main".as_ptr(),
+                c"studio_ranking_scope".as_ptr(),
+                &mut appender.raw,
+            )
+        };
+        if status != 0 {
+            return Err(if appender.raw.is_null() {
+                Error::new("QUERY_CANDIDATE_ERROR", "无法创建排名输入范围")
+            } else {
+                appender.error()
+            });
+        }
+        let mut count = 0u64;
+        produce(&mut |ordinal, sha, basis| {
+            if count.is_multiple_of(512) {
+                self.check_cancelled()?;
+            }
+            let ordinal =
+                i64::try_from(ordinal).map_err(|_| Error::invalid("排名行身份超出范围"))?;
+            let bytes = hex::decode(sha).map_err(Error::io)?;
+            if bytes.len() != 32 {
+                return Err(Error::invalid("排名需要图片字节哈希"));
+            }
+            let state = unsafe {
+                (self.api.append_int64)(appender.raw, ordinal)
+                    | (self.api.append_blob)(appender.raw, bytes.as_ptr().cast(), 32)
+                    | (self.api.append_int64)(appender.raw, i64::from(basis))
+                    | (self.api.appender_end_row)(appender.raw)
+            };
+            if state != 0 {
+                return Err(appender.error());
+            }
+            count += 1;
+            Ok(())
+        })?;
+        if unsafe { (self.api.appender_close)(appender.raw) } != 0 {
+            return Err(appender.error());
+        }
+        Ok(count)
+    }
     /// Import immutable observation and asset identities into request-local memory.
     /// This keeps external access disabled and never attaches a writable archive.
     pub(crate) fn import_candidates(

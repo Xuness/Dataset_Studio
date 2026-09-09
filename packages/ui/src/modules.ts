@@ -65,7 +65,7 @@ export type ModuleContext = {
   browser: BrowseViewProps;
   onResult: (result: QueryResult, name: string) => void;
   onSelect: (result: QueryResult, operation: ScopeOperation) => void;
-  onJob: (job: Job) => void;
+  onJob: (job: Job, options?: { revealTasks?: boolean }) => void;
   activateView: (id: string, args?: Record<string, string>) => void;
   openPanel: (id: string) => void;
   togglePanel: (id: string) => void;
@@ -73,6 +73,12 @@ export type ModuleContext = {
   panels: string[];
   panelHeight: (id: string) => number;
   resizePanel: (id: string, height: number) => void;
+  inspector?: {
+    visible: boolean;
+    width: number;
+    setVisible: (visible: boolean) => void;
+    resize: (width: number) => void;
+  };
   invocation: { sequence: number; args: Record<string, string> } | null;
 };
 export type ModuleContribution =
@@ -86,6 +92,7 @@ export type ModuleContribution =
   | {
       kind: "view" | "panel";
       id: string;
+      ownsInspector?: boolean;
       load: () => Promise<{ default: ComponentType<ModuleContext> }>;
     }
   | {

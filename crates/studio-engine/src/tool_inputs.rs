@@ -3,11 +3,11 @@ use studio_domain::*;
 use studio_sources::{MetadataReader, QueryReader};
 use studio_storage::SqliteStore;
 
-fn version_spec(source_id: &str, fields: &[ScalarInput]) -> QuerySpec {
+fn version_spec(source_id: &str, fields: &[ScalarInput], population: bool) -> QuerySpec {
     QuerySpec {
         version: 1,
         source_ids: vec![source_id.into()],
-        conditions: if fields.contains(&ScalarInput::OriginWidth) {
+        conditions: if population || fields.contains(&ScalarInput::OriginWidth) {
             vec![QueryCondition {
                 field: "source.width".into(),
                 operator: QueryOperator::IsPresent,
@@ -45,7 +45,19 @@ pub fn capture(
     let source_versions = store
         .scope_source_ids(pid, scope)?
         .into_iter()
-        .map(|id| reader.query_version(&store.source(pid, &id)?, &version_spec(&id, &fields)))
+        .map(|id| {
+            let source = store.source(pid, &id)?;
+            if run.operator_id == RANKING_OPERATOR && source.kind != "danbooru" {
+                return Err(Error::new(
+                    "RANKING_SOURCE_UNSUPPORTED",
+                    "排名输入需要 Danbooru 来源",
+                ));
+            }
+            reader.query_version(
+                &source,
+                &version_spec(&id, &fields, run.operator_id == RANKING_OPERATOR),
+            )
+        })
         .collect::<Result<Vec<_>>>()?;
     Ok(JobRun {
         run,
@@ -58,7 +70,11 @@ pub fn validate_versions(store: &SqliteStore, pid: &str, frozen: &JobRun) -> Res
     for expected in &frozen.source_versions {
         let actual = reader.query_version(
             &store.source(pid, &expected.source_id)?,
-            &version_spec(&expected.source_id, &frozen.fields),
+            &version_spec(
+                &expected.source_id,
+                &frozen.fields,
+                frozen.run.operator_id == RANKING_OPERATOR,
+            ),
         )?;
         if &actual != expected {
             return Err(Error::new(

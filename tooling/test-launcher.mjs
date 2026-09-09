@@ -17,7 +17,7 @@ if (process.platform !== "win32") {
   process.exit(0);
 }
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const run = resolve(root, ".local", "launcher-test-" + Date.now());
+const run = resolve(root, ".local", "test-runs", "launcher-test-" + Date.now());
 const fixture = resolve(run, "工作 副本");
 const native = resolve(fixture, "target/debug/studio-desktop.exe");
 const execute = promisify(execFile);

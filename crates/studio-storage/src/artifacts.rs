@@ -148,7 +148,9 @@ impl SqliteStore {
         tx.execute("DELETE FROM artifact_rows WHERE artifact_id=?1", [&id])
             .map_err(db_error)?;
         for input in &item.provenance.input_artifacts {
-            require_scalar(&tx, pid, input)?;
+            if read(&tx, pid, input)?.state != ArtifactState::Ready {
+                return Err(Error::new("ARTIFACT_NOT_READY", "输入成果已不可用"));
+            }
             tx.execute(
                 "INSERT OR IGNORE INTO artifact_references VALUES ('artifact',?1,?2)",
                 params![id, input],
@@ -222,13 +224,21 @@ impl SqliteStore {
             {
                 return Err(Error::new("ARTIFACT_INVALID", "成果不属于本次发布"));
             }
-            let count: u64 = tx
-                .query_row(
+            let count: u64 = if item.kind == RANKING_KIND {
+                tx.query_row(
+                    "SELECT row_count FROM artifact_tables WHERE artifact_id=?1",
+                    [id],
+                    |r| unsigned(r, 0),
+                )
+                .map_err(db_error)?
+            } else {
+                tx.query_row(
                     "SELECT COUNT(*) FROM artifact_rows WHERE artifact_id=?1",
                     [id],
                     |r| unsigned(r, 0),
                 )
-                .map_err(db_error)?;
+                .map_err(db_error)?
+            };
             if item.count != Some(count) {
                 return Err(Error::new("ARTIFACT_INVALID", "成果索引行数不完整"));
             }
@@ -268,12 +278,14 @@ impl SqliteStore {
         if count > 0 {
             return Err(Error::new(
                 "ARTIFACT_IN_USE",
-                format!("成果仍被 {count} 个任务、查询或成果引用"),
+                format!("成果仍被 {count} 个工作集、任务、查询或成果引用"),
             ));
         }
         tx.execute("UPDATE artifacts SET status='released' WHERE id=?1", [id])
             .map_err(db_error)?;
         tx.execute("DELETE FROM artifact_rows WHERE artifact_id=?1", [id])
+            .map_err(db_error)?;
+        tx.execute("DELETE FROM artifact_tables WHERE artifact_id=?1", [id])
             .map_err(db_error)?;
         tx.execute(
             "DELETE FROM artifact_references WHERE owner_kind='artifact' AND owner_id=?1",

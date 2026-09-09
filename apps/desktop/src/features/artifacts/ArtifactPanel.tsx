@@ -43,6 +43,7 @@ const kinds: Record<string, string> = {
   manifest: "数据清单",
   scalar_columns: "标量字段",
   item_failures: "单项失败",
+  ranking_table: "元数据排名",
 };
 export default function ArtifactPanel(context: ModuleContext) {
   const { client, projectId } = context;
@@ -85,7 +86,9 @@ export default function ArtifactPanel(context: ModuleContext) {
         limit: 32,
         signal,
       }),
-    enabled: artifact.data?.state === "ready",
+    enabled:
+      artifact.data?.state === "ready" &&
+      artifact.data.kind !== "ranking_table",
     gcTime: 0,
   });
   async function act(action: () => Promise<unknown>) {
@@ -207,6 +210,26 @@ export default function ArtifactPanel(context: ModuleContext) {
                 </Button>
               </header>
               {item.issue && <p className="tool-notice">{item.issue}</p>}
+              {item.kind === "ranking_table" && (
+                <div className="derived-field">
+                  <strong>元数据排名与筛选依据</strong>
+                  <p>
+                    包括固定输入、主排名、补救分、入选通道与诊断。可以将过滤后的结果保存为工作集。
+                  </p>
+                  <Button
+                    disabled={item.state !== "ready"}
+                    onClick={() =>
+                      context.activateView("core.tools", {
+                        operatorId: "danbooru.metarecall",
+                        artifactId: item.id,
+                      })
+                    }
+                  >
+                    <Calculator size={12} />
+                    查看排名榜单
+                  </Button>
+                </div>
+              )}
               {item.kind === "scalar_columns" && (
                 <div className="derived-field">
                   <strong>派生字段</strong>
@@ -246,7 +269,7 @@ export default function ArtifactPanel(context: ModuleContext) {
                   )}
                 </pre>
               </details>
-              {item.state === "ready" && (
+              {item.state === "ready" && item.kind !== "ranking_table" && (
                 <>
                   <table className="artifact-table">
                     <thead>

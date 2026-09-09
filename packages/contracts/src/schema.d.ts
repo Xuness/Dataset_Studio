@@ -191,6 +191,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{project_id}/artifacts/{artifact_id}/ranking": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["ranking_summary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/artifacts/{artifact_id}/ranking/evidence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["ranking_evidence"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/artifacts/{artifact_id}/ranking/rows": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["ranking_rows"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/artifacts/{artifact_id}/ranking/worksets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["ranking_workset"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects/{project_id}/artifacts/{artifact_id}/release": {
         parameters: {
             query?: never;
@@ -393,6 +457,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["cancel_job"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/jobs/{job_id}/ranking": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["ranking_job_result"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1313,6 +1393,7 @@ export interface components {
             input_scope?: null | components["schemas"]["ScopeRef"];
             operator: string;
             project_id: string;
+            stage?: null | components["schemas"]["JobStage"];
             status: string;
             /** Format: int64 */
             total: number;
@@ -1321,6 +1402,13 @@ export interface components {
             fields: components["schemas"]["ScalarInput"][];
             run: components["schemas"]["OperatorRun"];
             source_versions: components["schemas"]["QuerySourceVersion"][];
+        };
+        JobStage: {
+            /** Format: int64 */
+            completed: number;
+            name: string;
+            /** Format: int64 */
+            total: number;
         };
         Jobs: {
             items: components["schemas"]["Job"][];
@@ -1674,6 +1762,207 @@ export interface components {
             /** @enum {string} */
             type: "text_list";
             value: string[];
+        };
+        RankingBasis: {
+            /** Format: int32 */
+            index: number;
+            result_id?: string | null;
+            spec: components["schemas"]["QuerySpec"];
+        };
+        /** @enum {string} */
+        RankingEligibility: "eligible" | "metadata_unavailable" | "rating_unknown" | "rating_excluded" | "dimensions_unknown" | "dimensions_excluded" | "policy_excluded" | "duplicate";
+        RankingEvidence: {
+            bases: components["schemas"]["RankingBasis"][];
+            job_run: components["schemas"]["JobRun"];
+            metadata_fields: string[];
+        };
+        RankingFilter: {
+            /** @default null */
+            eligibility: null | components["schemas"]["RankingEligibility"];
+            /** @default false */
+            missing_only: boolean;
+            /** @default main */
+            order: components["schemas"]["RankingOrder"];
+            /** @default null */
+            rating: string | null;
+            /** @default null */
+            route: null | components["schemas"]["RankingRoute"];
+            /** @default false */
+            selected_only: boolean;
+            /**
+             * Format: int64
+             * @default null
+             */
+            top: number | null;
+        };
+        RankingInput: {
+            artists: string[];
+            asset_id: string;
+            basis_ids: number[];
+            created_at_us?: string | null;
+            /** Format: int32 */
+            damage_classes: number;
+            dimension_basis: string;
+            down_score?: string | null;
+            /** Format: int64 */
+            duplicate_of?: number | null;
+            fav_count?: string | null;
+            is_banned?: boolean | null;
+            is_deleted?: boolean | null;
+            is_flagged?: boolean | null;
+            is_pending?: boolean | null;
+            observation_id?: string | null;
+            observed_at_us?: string | null;
+            /** Format: int64 */
+            ordinal: number;
+            parent_id?: string | null;
+            post_id?: string | null;
+            rating?: string | null;
+            rating_conflict: boolean;
+            /** Format: int32 */
+            record_count: number;
+            record_id?: string | null;
+            score?: string | null;
+            source_id: string;
+            source_issues?: string | null;
+            source_priority?: string | null;
+            stored_bytes: string;
+            stored_extension: string;
+            /** Format: int32 */
+            stored_height?: number | null;
+            /** Format: int32 */
+            stored_width?: number | null;
+            tags_known: boolean;
+            time_quality: string;
+            up_score?: string | null;
+            updated_at_us?: string | null;
+        };
+        /** @enum {string} */
+        RankingMode: "rank" | "select";
+        /** @enum {string} */
+        RankingOrder: "main" | "rescue" | "input";
+        RankingPage: {
+            artifact_id: string;
+            /** Format: int64 */
+            count?: number | null;
+            items: components["schemas"]["RankingRow"][];
+            next_cursor?: string | null;
+        };
+        RankingPageRequest: {
+            cursor?: string | null;
+            filter?: components["schemas"]["RankingFilter"];
+            limit?: number | null;
+        };
+        RankingParameters: {
+            artist_enabled: boolean;
+            /** Format: double */
+            artist_weight: number;
+            /** Format: int32 */
+            cohort_minimum: number;
+            damage_enabled: boolean;
+            /** Format: double */
+            damage_weight: number;
+            exclude_banned: boolean;
+            /** Format: int32 */
+            minimum_stored_side?: number | null;
+            mode: components["schemas"]["RankingMode"];
+            quotas: number[];
+            ratings: string[];
+            seed: string;
+            time_enabled: boolean;
+            /** Format: double */
+            time_weight: number;
+            /** Format: double */
+            vote_weight: number;
+            votes_enabled: boolean;
+        };
+        RankingRatingSummary: {
+            /** Format: int64 */
+            artist_used: number;
+            cohort_counts: number[];
+            /** Format: int64 */
+            eligible: number;
+            /** Format: int64 */
+            favorite_baseline_overlap: number;
+            /** Format: double */
+            q0: number;
+            quotas: number[];
+            rating: string;
+            selected: number[];
+            /** Format: int64 */
+            time_fallback: number;
+            /** Format: int64 */
+            time_used: number;
+            /** Format: int64 */
+            valid_heat: number;
+        };
+        /** @enum {string} */
+        RankingRoute: "ineligible" | "ranked" | "main" | "rescue" | "audit" | "budget_rejected";
+        RankingRow: {
+            input: components["schemas"]["RankingInput"];
+            scores: components["schemas"]["RankingScores"];
+        };
+        RankingScores: {
+            /** Format: double */
+            a?: number | null;
+            /** Format: int64 */
+            artist_support: number;
+            /** Format: double */
+            c?: number | null;
+            /** Format: int32 */
+            cohort_level?: number | null;
+            /** Format: int64 */
+            duplicate_of?: number | null;
+            eligibility: components["schemas"]["RankingEligibility"];
+            /** Format: double */
+            g?: number | null;
+            /** Format: int64 */
+            local_count: number;
+            /** Format: double */
+            local_percentile?: number | null;
+            /** Format: int64 */
+            main_rank?: number | null;
+            /** Format: double */
+            main_score?: number | null;
+            missing_flags: string[];
+            /** Format: int64 */
+            ordinal: number;
+            rating?: string | null;
+            /** Format: int64 */
+            rescue_rank?: number | null;
+            /** Format: double */
+            rescue_score?: number | null;
+            selected_route: components["schemas"]["RankingRoute"];
+            /** Format: double */
+            support_k?: number | null;
+            /** Format: double */
+            t?: number | null;
+            time_reason: string;
+            /** Format: double */
+            v?: number | null;
+        };
+        RankingSummary: {
+            created_at: string;
+            eligibility_counts: {
+                [key: string]: number;
+            };
+            /** Format: int64 */
+            eligible_count: number;
+            /** Format: int64 */
+            input_count: number;
+            input_sha256: string;
+            missing_counts: {
+                [key: string]: number;
+            };
+            parameters: components["schemas"]["RankingParameters"];
+            ratings: components["schemas"]["RankingRatingSummary"][];
+            /** Format: int32 */
+            schema_version: number;
+        };
+        RankingWorksetRequest: {
+            filter?: components["schemas"]["RankingFilter"];
+            idempotency_key: string;
+            name: string;
         };
         RatingBases: {
             builds: components["schemas"]["RatingBuild"][];
@@ -2244,6 +2533,102 @@ export interface operations {
             };
         };
     };
+    ranking_summary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RankingSummary"];
+                };
+            };
+        };
+    };
+    ranking_evidence: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RankingEvidence"];
+                };
+            };
+        };
+    };
+    ranking_rows: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RankingPageRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RankingPage"];
+                };
+            };
+        };
+    };
+    ranking_workset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RankingWorksetRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Collection"];
+                };
+            };
+        };
+    };
     release_artifact: {
         parameters: {
             query?: never;
@@ -2613,6 +2998,28 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Job"];
+                };
+            };
+        };
+    };
+    ranking_job_result: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Artifact"];
                 };
             };
         };

@@ -20,6 +20,28 @@ pub struct Progress {
     pub version: u32,
     pub completed: u64,
     pub total: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stage: Option<JobStage>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct Failure {
+    pub code: String,
+    pub message: String,
+}
+pub fn run_reported(plan: &Path) -> Result<()> {
+    let result = run(plan);
+    if let Err(error) = &result {
+        // Separate, bounded status material keeps human-readable failures out of stdout progress.
+        let _ = atomic_json(
+            &plan.with_file_name("worker-error.json"),
+            &Failure {
+                code: error.code.into(),
+                message: error.message.chars().take(4096).collect(),
+            },
+        );
+    }
+    result
 }
 pub fn hash_file(path: &Path) -> Result<String> {
     let mut file = File::open(path).map_err(Error::io)?;
@@ -40,19 +62,41 @@ pub fn load_plan(path: &Path) -> Result<WorkerPlan> {
     }
     let mut plan: WorkerPlan =
         serde_json::from_slice(&fs::read(path).map_err(Error::io)?).map_err(Error::io)?;
-    if plan.version != 1 {
+    if !matches!(plan.version, 1 | 2) {
         return Err(Error::new("WORKER_VERSION_MISMATCH", "执行器协议不兼容"));
     }
     validate_id(&plan.job_id)?;
-    studio_operators::registry()?.resolve(&plan.run)?;
+    let population = studio_operators::registry()?
+        .resolve(&plan.run)?
+        .population();
+    if population != (plan.version == 2) {
+        return Err(Error::new(
+            "WORKER_VERSION_MISMATCH",
+            "执行计划与算子类型不一致",
+        ));
+    }
     let root = path
         .parent()
         .ok_or_else(|| Error::invalid("任务位置无效"))?
         .canonicalize()
         .map_err(Error::io)?;
     for (field, name) in [
-        (&mut plan.input_path, "input.jsonl"),
-        (&mut plan.output_path, "output.jsonl"),
+        (
+            &mut plan.input_path,
+            if population {
+                "input.sqlite"
+            } else {
+                "input.jsonl"
+            },
+        ),
+        (
+            &mut plan.output_path,
+            if population {
+                "output.sqlite"
+            } else {
+                "output.jsonl"
+            },
+        ),
         (&mut plan.checkpoint_path, "checkpoint.json"),
     ] {
         if field.as_path() != Path::new(name) {
@@ -79,6 +123,9 @@ pub fn load_plan(path: &Path) -> Result<WorkerPlan> {
 pub fn run(plan_path: &Path) -> Result<()> {
     let plan = load_plan(plan_path)?;
     let operator = studio_operators::registry()?.resolve(&plan.run)?;
+    if operator.population() {
+        return crate::ranking::run(&plan);
+    }
     if plan.version != 1 {
         return Err(Error::new("WORKER_VERSION_MISMATCH", "执行器协议不兼容"));
     }
@@ -155,6 +202,7 @@ pub fn run(plan_path: &Path) -> Result<()> {
                     version: 1,
                     completed: checkpoint.completed,
                     total: plan.total,
+                    stage: None,
                 },
             )
             .map_err(Error::io)?;
@@ -173,6 +221,9 @@ pub fn run(plan_path: &Path) -> Result<()> {
 
 pub fn validate_output(path: &Path, plan: &WorkerPlan) -> Result<String> {
     let operator = studio_operators::registry()?.resolve(&plan.run)?;
+    if operator.population() {
+        return crate::ranking::validate_output(path, plan);
+    }
     if hash_file(&plan.input_path)? != plan.input_sha256 {
         return Err(Error::new("INPUT_CHANGED", "发布前输入验证失败"));
     }

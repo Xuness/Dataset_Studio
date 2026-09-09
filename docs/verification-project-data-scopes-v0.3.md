@@ -38,7 +38,7 @@
 | 位置重关联 | 错误数据湖身份被拒绝；有效变更更新已有共享引用，保留来源及成员身份 |
 | 模式升级 | 非空 v1/v2 项目顺序升级并保留旧迁移账本；注册表 v0→v1 备份包含已提交 WAL；升级失败回滚并保留备份；未来版本在 journal 变化前拒绝 |
 
-新增进程报告：`.local/integration-scopes-1788801404764/report.json`；原有回归报告：`.local/integration-1788801400198/report.json`。最终合成 catalog 的 20,000 项结果构建耗时 355 ms，全选引用请求耗时 5 ms。该 catalog 不含图片包载荷，这两个数字不代表真实全湖吞吐。
+新增进程报告：`.local/reports/development-cleanup-20260909/historical-evidence/integration-scopes-1788801404764/report.json`；原有回归报告：`.local/reports/development-cleanup-20260909/historical-evidence/integration-1788801400198/report.json`。最终合成 catalog 的 20,000 项结果构建耗时 355 ms，全选引用请求耗时 5 ms。该 catalog 不含图片包载荷，这两个数字不代表真实全湖吞吐。
 
 ## 真实日常项目升级
 
@@ -77,7 +77,7 @@ catalog 使用 SHA 主键查找。DuckDB 的元数据计划仍包含带过滤条
 
 请求后采样的 Working Set 最大值为 32,505,856 字节，Private Bytes 最大值为 8,417,280 字节。记录来自请求间采样，没有连续测量进程峰值。原报告的字段曾命名为 `peak_*`，其文字边界已明确这一点；验证脚本现使用 `max_sampled_*`。
 
-报告位于 `.local/scope-verification-1788797136052/report.json`，同目录保存两份计划。缓存可能已预热；这证明指定条件和实际原生链路可用，未验证冷缓存、全湖查询成本或千万级长期稳定性。
+报告位于 `.local/reports/development-cleanup-20260909/historical-evidence/scope-verification-1788797136052/report.json`，同目录保存两份计划。缓存可能已预热；这证明指定条件和实际原生链路可用，未验证冷缓存、全湖查询成本或千万级长期稳定性。
 
 ## 原生界面验收
 
@@ -93,7 +93,7 @@ catalog 使用 SHA 主键查找。DuckDB 的元数据计划仍包含带过滤条
 
 关闭观察实验只在提交任务请求中注入 250 ms 延迟参数，便于稳定看到后台阶段；API 响应没有模拟，产品界面未增加这个测试控件。修复查询面板与浏览面板重复 React key 后，重新操作没有应用级警告或错误。最后一次故意提交错误湖位置产生的 HTTP 400 控制台记录单独标记为预期错误。
 
-记录：`.local/reports/phase3-native-verification.json`。截图：`.local/screenshots/phase3-query-selection.png`、`phase3-fixed-input-task.png`、`phase3-native-background.png`、`phase3-native-cancel.png`。在 1540×980 的实际窗口尺寸下检查了布局和错误提示。
+记录：`.local/reports/phase3-native-verification.json`。截图：`.local/reports/development-cleanup-20260909/historical-evidence/screenshots/phase3-query-selection.png`、`phase3-fixed-input-task.png`、`phase3-native-background.png`、`phase3-native-cancel.png`。在 1540×980 的实际窗口尺寸下检查了布局和错误提示。
 
 ## 保留的边界
 

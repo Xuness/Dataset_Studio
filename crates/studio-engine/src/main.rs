@@ -6,6 +6,7 @@ mod previews;
 mod query_budget;
 mod query_cache;
 mod query_jobs;
+mod ranking;
 mod tool_inputs;
 mod worker;
 use clap::{Parser, Subcommand};
@@ -73,7 +74,7 @@ async fn main() {
             port,
             cache_dir,
         } => serve(data_dir, port, cache_dir).await,
-        Command::Worker { plan } => worker::run(&plan),
+        Command::Worker { plan } => worker::run_reported(&plan),
         Command::Schema { output } => {
             if let Some(parent) = output.parent() {
                 let _ = fs::create_dir_all(parent);

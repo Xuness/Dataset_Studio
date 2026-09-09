@@ -16,6 +16,8 @@ mod drafts;
 pub use drafts::*;
 mod resources;
 pub use resources::*;
+mod ranking;
+pub use ranking::*;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -112,6 +114,15 @@ pub struct Job {
     pub input_scope: Option<ScopeRef>,
     #[serde(default)]
     pub input_members_frozen: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stage: Option<JobStage>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JobStage {
+    pub name: String,
+    pub completed: u64,
+    pub total: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

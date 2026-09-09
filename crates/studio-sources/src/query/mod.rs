@@ -1,5 +1,5 @@
 pub(crate) mod changes;
-mod compiler;
+pub(crate) mod compiler;
 mod fields;
 use crate::{
     SourceRouter,

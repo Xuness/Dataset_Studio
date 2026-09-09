@@ -90,6 +90,9 @@ fn index(store: &SqliteStore, item: &Artifact, path: &Path) -> Result<()> {
     Ok(())
 }
 pub fn publish(store: &SqliteStore, job: &Job, plan: &WorkerPlan, primary: &Path) -> Result<()> {
+    if plan.version == 2 {
+        return crate::ranking::publish(store, job, plan, primary);
+    }
     let hash = worker::validate_output(primary, plan)?;
     let run = store.job_run(&job.project_id, &job.id)?;
     let operator = studio_operators::registry()?.resolve(&plan.run)?;

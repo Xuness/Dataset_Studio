@@ -44,7 +44,7 @@ pub(super) fn check_revision(db: &Connection, expected: u64) -> Result<()> {
     Ok(())
 }
 pub(super) fn clear(db: &Connection) -> Result<()> {
-    db.execute_batch("DELETE FROM selection; DELETE FROM selection_base; DELETE FROM selection_exclusions; DELETE FROM result_references WHERE owner_kind='selection';").map_err(db_error)
+    db.execute_batch("DELETE FROM selection; DELETE FROM selection_base; DELETE FROM selection_exclusions; DELETE FROM result_references WHERE owner_kind='selection'; DELETE FROM artifact_references WHERE owner_kind='selection';").map_err(db_error)
 }
 pub(super) fn publish(db: &Connection) -> Result<Selection> {
     let count:u64=db.query_row("SELECT (SELECT COUNT(*) FROM selection)+COALESCE((SELECT r.count FROM selection_base b JOIN query_results r ON r.id=b.result_id),0)-(SELECT COUNT(*) FROM selection_exclusions)",[],|r|unsigned(r,0)).map_err(db_error)?;

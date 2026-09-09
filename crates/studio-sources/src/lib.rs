@@ -2,6 +2,8 @@ mod danbooru;
 mod duckdb;
 mod metadata;
 pub use metadata::MetadataReader;
+mod ranking;
+pub use ranking::RankingReader;
 mod query;
 pub use query::{ChangeAnchor, QueryReader};
 mod browse_index;

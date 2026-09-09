@@ -6,7 +6,7 @@ import ts from "typescript";
 import { setImmediate } from "node:timers";
 const structuredClone = globalThis.structuredClone;
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const directory = resolve(root, ".local/client-foundations");
+const directory = resolve(root, ".local/test-runs/client-foundations");
 await mkdir(directory, { recursive: true });
 async function compiled(source, name) {
   const code = ts.transpileModule(

@@ -2,7 +2,9 @@
 
 面向大型图片数据湖的桌面工作环境。项目持续保存来源引用、选择、工作集与处理成果，各工具围绕项目中的数据工作。
 
-当前版本：0.7 缓存分层与设置窗口，继续使用开发模式。
+当前版本：0.8 Danbooru 元数据排名，继续使用开发模式。
+
+“计算工具 → Danbooru 元数据排名”使用所选数据湖、查询结果、工作集或选择，固定元数据后计算 MetaRecall v1。参数配置、结果榜单、统计诊断和单图评分依据已经接入；排名可按精确名额筛选并保存为工作集，支持取消、重试和离线恢复已准备输入。详情见[实施与验证](docs/verification-metarecall-v0.8.md)。
 
 清单与确定性标量算子通过同一注册协议执行，项目成果可分页查看、参与查询和再次消费。工具与查询草稿、查看范围和布局可恢复，正常切换和关闭等待保存。读取服务协调交互和后台工作，提供共享取消、按包偏移批读及 SSD 持久缩略图缓存。
 
@@ -62,7 +64,7 @@ SSD 索引：D:\Dataset\Danbooru
 - `.local/dev/registry.sqlite`：开发环境的项目注册表与本机数据源位置。
 - `.local/dev/projects/`：默认新建项目的位置；也可以在新建时选择其他父目录。
 - 项目内的 project.json、project.sqlite、artifacts 与 .staging 分别保存身份、项目状态、正式成果与恢复所需暂存。
-- 显式打开旧项目时，数据库 v1–v6 按顺序升级至 v7；升级前的一致备份保存在项目内 `.backups/v*-to-v7-*`，包含 WAL 中已提交的数据，保留以前的迁移账本。清单 format_version 仍为 1。关闭项目的缓存维护也可在取得项目锁后升级 v6。
+- 显式打开旧项目时，数据库 v1–v7 按顺序升级至 v8；升级前的一致备份保存在项目内 `.backups/v*-to-v8-*`，包含 WAL 中已提交的数据，保留以前的迁移账本。清单 format_version 仍为 1。关闭项目的缓存维护也可在取得项目锁后升级 v6–v7。
 - 注册表单独使用模式 v2，旧注册表备份位于应用数据目录的 `.backups/registry-v*-to-v2-*`。最近项目列表不隐式打开或升级项目。
 - 查询定义、结果材料、选择基底与排除项、范围依据保存在项目数据库。结果释放前检查引用，已固定的工作集和任务不会随重新查询而变化。
 - 工具草稿和项目会话保存在项目数据库；布局偏好保存在应用注册表。未知草稿版本保留原文，并发冲突需明确选择重新载入或保留本地。
@@ -71,6 +73,7 @@ SSD 索引：D:\Dataset\Danbooru
 - 总缓存默认 64 GiB，可配置至 1024 GiB；初始长期预算 48 GiB、临时 8 GiB，并保留原缩略图预算。长期默认不按时间过期，临时默认最后使用后 24 小时清理，或选择仅本次项目会话。调整类别不复制成员；固定、正在查看和项目引用保护优先于普通清理，因此实际占用可能暂时超过预算。
 - `.local/engine-binaries/`：开发引擎的可重建二进制快照，避免运行中的 EXE 阻止增量链接。
 - `.local/logs/`：构建、检查和临时命令日志；启动依赖检查写入其中的 startup-install-日期时间-进程ID.log。
+- `.local/test-runs/`：自动测试及一次性验证的隔离运行目录。完成后将需要保留的报告、截图归档到 `.local/reports/`，再逐级清理夹具与缓存。
 - `.local/dev/engine.log`：与开发运行环境一起保存的引擎日志。
 
 根目录仅保留工程入口、说明及工具所需配置。首次搭建留下的散落日志已归档至 .local/logs/root-archive-*，后续检查输出也统一放入日志目录。
@@ -99,13 +102,13 @@ pnpm build
 
 接口以 Rust DTO 和 Utoipa 定义为准。生成的 OpenAPI 和 TypeScript 类型纳入 Git，CI 重新生成后检查漂移。前端功能通过 SDK 调用引擎，原生目录选择由应用层注入。
 
-测试覆盖旧项目升级、只读元数据、范围与结果、算子注册和固定字段、成果发布恢复、草稿冲突、读取公平性和取消、持久缓存与引用隔离。`test:integration` 包含 7 组独立引擎脚本，覆盖增量查询、分层预算、每日分级更新和真实 SDK 会话重连。可选的原生窗口检查为 `node tooling/smoke-settings-ui.mjs`，先关闭现有开发窗口与前端服务；它只使用独立的合成图片与项目。
+测试覆盖旧项目升级、只读元数据、范围与结果、算子注册和固定字段、成果发布恢复、草稿冲突、读取公平性和取消、持久缓存与引用隔离。`test:integration` 包含 8 组独立引擎脚本，覆盖增量查询、分层预算、每日分级更新、真实 SDK 会话重连和 MetaRecall 排名。排名界面检查为 `node tooling/smoke-ranking-ui.mjs`，使用独立引擎与 Edge 上下文；真实有界元数据检查为 `tooling/verify-ranking.mjs`。可选的原生设置窗口检查为 `node tooling/smoke-settings-ui.mjs`，先关闭现有开发窗口与前端服务；它只使用独立的合成图片与项目。
 
-真实数据湖可使用 `node tooling/verify-metadata.mjs --index-root <索引根目录> --media-root <图片湖根目录> --asset <SHA256>` 做有界验证，最多传入 8 个 `--asset`。脚本使用隔离运行目录与真实引擎 API，报告写入 `.local/metadata-verification-*`。
+真实数据湖可使用 `node tooling/verify-metadata.mjs --index-root <索引根目录> --media-root <图片湖根目录> --asset <SHA256>` 做有界验证，最多传入 8 个 `--asset`。脚本使用隔离运行目录与真实引擎 API，报告写入 `.local/test-runs/metadata-verification-*`。
 
-查询路径的指定样本检查使用 `node tooling/verify-scopes.mjs --index-root <索引根目录> --media-root <图片湖根目录> --asset-id <SHA256> --post-id <帖子ID>`，先记录同一编译器的查询计划，再通过引擎执行两条身份受限的查询，报告写入 `.local/scope-verification-*`。示例检查要求该对象是 WebP，且关联帖子有来源宽高均不小于 1000 的观察；它不是通用数据质量断言。
+查询路径的指定样本检查使用 `node tooling/verify-scopes.mjs --index-root <索引根目录> --media-root <图片湖根目录> --asset-id <SHA256> --post-id <帖子ID>`，先记录同一编译器的查询计划，再通过引擎执行两条身份受限的查询，报告写入 `.local/test-runs/scope-verification-*`。示例检查要求该对象是 WebP，且关联帖子有来源宽高均不小于 1000 的观察；它不是通用数据质量断言。
 
-读取检查使用 `node tooling/verify-reads.mjs --index-root <索引根目录> --media-root <图片湖根目录> --asset <SHA256> --max-source-bytes 2097152`，最多八个显式对象；在读图前核对总预算，并比较冷应用缓存、暖缓存和引擎重启。报告位于 `.local/read-verification-*`。
+读取检查使用 `node tooling/verify-reads.mjs --index-root <索引根目录> --media-root <图片湖根目录> --asset <SHA256> --max-source-bytes 2097152`，最多八个显式对象；在读图前核对总预算，并比较冷应用缓存、暖缓存和引擎重启。报告位于 `.local/test-runs/read-verification-*`。
 
 目录职责与实现边界见：
 
@@ -121,6 +124,7 @@ pnpm build
 - [读取协调与缓存决策](docs/decisions/0005-read-coordination-cache.md)
 - [增量成员与排序决策](docs/decisions/0007-incremental-query-membership.md)
 - [缓存分层与设置决策](docs/decisions/0008-cache-tiers-settings.md)
+- [总体工具与排名成果决策](docs/decisions/0009-metarecall-population-artifacts.md)
 - [项目数据层计划及验收标准](docs/plans/project-data-layer-v0.2.md)
 - [0.3 项目数据范围层计划](docs/plans/project-data-scopes-v0.3.md)
 - [0.4 工具扩展与成果基础层计划](docs/plans/tool-foundation-v0.4.md)
@@ -131,7 +135,7 @@ pnpm build
 
 结果每页最多 128 项，界面可选 12/48/96 项。单项选择修改每次最多 1000 项；全选结果通过后端引用完成，不枚举全部 ID。查询协议最多 8 个来源、12 个联合条件，界面当前支持单湖编辑。每个引擎同时运行一个结果构建和一个算子执行器。预览单图及单批编码输入上限均为 64 MiB，每批最多 16 项，另有解码及队列预算。
 
-当前标量成果采用有模式的 JSONL 加 SQLite 整数投影，验证范围为单个整数列；宽表、向量和大型多列文件尚未接入。正常关闭等待已接受的草稿保存；强制终止或页面突然重载仅保证此前已落盘的编辑。运行时第三方插件和完整模型环境继续按实际工具需求扩展。
+标量成果采用有模式的 JSONL 加 SQLite 整数投影。MetaRecall 使用独立的固定输入表、浮点评分与排名表和摘要文件，提供多列分页及工作集转换；任意宽表算子、向量成果尚未接入。正常关闭等待已接受的草稿保存；强制终止或页面突然重载仅保证此前已落盘的编辑。运行时第三方插件和完整模型环境继续按实际工具需求扩展。
 
 成果始终保存在项目 artifacts 目录中。界面另存下载目前限制为 64 MiB，较大成果直接使用项目内的原文件，以控制前端内存。
 

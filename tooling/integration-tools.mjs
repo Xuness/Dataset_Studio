@@ -5,7 +5,12 @@ import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import { EngineFixture, within } from "./engine-fixture.mjs";
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const runDir = resolve(root, ".local", "integration-tools-" + Date.now());
+const runDir = resolve(
+  root,
+  ".local",
+  "test-runs",
+  "integration-tools-" + Date.now(),
+);
 await mkdir(runDir, { recursive: true });
 const engine = new EngineFixture(root, resolve(runDir, "state"));
 const checks = [];
@@ -52,7 +57,7 @@ try {
   const operators = await engine.api("/v1/operators");
   assert.deepEqual(
     operators.items.map((o) => o.id),
-    ["core.manifest", "core.scalar"],
+    ["core.manifest", "core.scalar", "danbooru.metarecall"],
   );
   assert.equal(operators.items[1].outputs.length, 2);
   const p = await engine.api("/v1/projects", "POST", {

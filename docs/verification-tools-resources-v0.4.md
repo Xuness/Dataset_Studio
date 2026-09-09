@@ -49,7 +49,7 @@
 
 “读取与缓存”能够保存 16 MiB 配额、清理后重新生成。单图夹具在来源暂不可用时显示“离线缓存”及上次验证时间，源载荷计数不增加。正常关闭后重新打开窗口、再停止并重启引擎，均命中持久缓存；0.4 原生重启后的验证为生成 0、来源载荷读取 0。
 
-本机报告与截图位于 `.local/reports/phase4-native-tools.json`、`.local/reports/phase4-native-resources.json` 和 `.local/screenshots/phase4-*-native.png`，不纳入 Git。
+本机报告与截图位于 `.local/reports/phase4-native-tools.json`、`.local/reports/phase4-native-resources.json` 和 `.local/reports/development-cleanup-20260909/historical-evidence/screenshots/phase4-*-native.png`，不纳入 Git。
 
 ## 日常项目升级
 

@@ -67,6 +67,7 @@ registry.register({
     {
       kind: "view",
       id: "core.tools",
+      ownsInspector: true,
       load: () => import("../features/tools/ToolPanel.js"),
     },
     {
@@ -126,6 +127,10 @@ export const moduleViews = new Map(
     .surfaces()
     .map((surface) => [
       surface.id,
-      { kind: surface.kind, Component: lazy(surface.load) },
+      {
+        kind: surface.kind,
+        ownsInspector: surface.ownsInspector ?? false,
+        Component: lazy(surface.load),
+      },
     ]),
 );

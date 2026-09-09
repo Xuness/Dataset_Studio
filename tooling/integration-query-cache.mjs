@@ -8,7 +8,12 @@ import { DatabaseSync } from "node:sqlite";
 import { EngineFixture, sleep } from "./engine-fixture.mjs";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const runDir = resolve(root, ".local", "integration-query-cache-" + Date.now());
+const runDir = resolve(
+  root,
+  ".local",
+  "test-runs",
+  "integration-query-cache-" + Date.now(),
+);
 await mkdir(runDir, { recursive: true });
 const engine = new EngineFixture(root, resolve(runDir, "state"));
 const execute = promisify(execFile);

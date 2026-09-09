@@ -1,9 +1,13 @@
 {
   "name": "@studio/desktop",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "private": true,
   "type": "module",
-  "scripts": { "dev": "vite --host 127.0.0.1", "build": "vite build", "tauri": "tauri" },
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "tauri": "tauri"
+  },
   "dependencies": {
     "@studio/client": "workspace:*",
     "@studio/contracts": "workspace:*",

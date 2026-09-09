@@ -8,7 +8,12 @@ import { fileURLToPath, URLSearchParams } from "node:url";
 import { performance } from "node:perf_hooks";
 import { EngineFixture, within } from "./engine-fixture.mjs";
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const runDir = resolve(root, ".local", "integration-resources-" + Date.now());
+const runDir = resolve(
+  root,
+  ".local",
+  "test-runs",
+  "integration-resources-" + Date.now(),
+);
 await mkdir(runDir, { recursive: true });
 const engine = new EngineFixture(root, resolve(runDir, "state"));
 const checks = [],

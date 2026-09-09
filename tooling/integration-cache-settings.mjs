@@ -10,7 +10,12 @@ import ts from "typescript";
 import { EngineFixture, sleep } from "./engine-fixture.mjs";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const run = resolve(root, ".local", "integration-cache-settings-" + Date.now());
+const run = resolve(
+  root,
+  ".local",
+  "test-runs",
+  "integration-cache-settings-" + Date.now(),
+);
 await mkdir(run, { recursive: true });
 const execute = promisify(execFile);
 class SessionFixture extends EngineFixture {
@@ -407,6 +412,7 @@ try {
     "drafts",
     "media",
     "settings",
+    "ranking",
   ]) {
     const compiled = ts.transpileModule(
       await readFile(

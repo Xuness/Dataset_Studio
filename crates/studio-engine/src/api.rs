@@ -21,6 +21,7 @@ use studio_sources::SourceRouter;
 use studio_storage::SqliteStore;
 use utoipa::OpenApi;
 mod query;
+mod ranking;
 mod resources;
 mod settings;
 mod source_locations;
@@ -85,6 +86,8 @@ impl IntoResponse for Failure {
             | "METADATA_RUNTIME_UNSUPPORTED"
             | "SOURCE_FORMAT_UNSUPPORTED" => StatusCode::BAD_REQUEST,
             "QUERY_UNSUPPORTED"
+            | "RANKING_SOURCE_UNSUPPORTED"
+            | "RANKING_SCOPE_COMPLEX"
             | "QUERY_VERSION_UNSUPPORTED"
             | "SCOPE_REQUIRES_CAPTURE"
             | "OPERATOR_UNAVAILABLE"
@@ -1177,6 +1180,11 @@ async fn shutdown(State(s): State<AppState>) -> Json<OkResponse> {
         query::select_scope,
         source_locations::relink,
         tools::operators,
+        ranking::summary,
+        ranking::rows,
+        ranking::evidence,
+        ranking::workset,
+        ranking::job_result,
         tools::submit,
         tools::validate_scope,
         tools::run,
@@ -1285,6 +1293,26 @@ pub fn routes() -> axum::Router<AppState> {
             post(resources::cancel),
         )
         .route("/v1/operators", get(tools::operators))
+        .route(
+            "/v1/projects/{pid}/artifacts/{aid}/ranking",
+            get(ranking::summary),
+        )
+        .route(
+            "/v1/projects/{pid}/artifacts/{aid}/ranking/rows",
+            post(ranking::rows),
+        )
+        .route(
+            "/v1/projects/{pid}/artifacts/{aid}/ranking/evidence",
+            get(ranking::evidence),
+        )
+        .route(
+            "/v1/projects/{pid}/artifacts/{aid}/ranking/worksets",
+            post(ranking::workset),
+        )
+        .route(
+            "/v1/projects/{pid}/jobs/{jid}/ranking",
+            get(ranking::job_result),
+        )
         .route(
             "/v1/preferences/{key}",
             get(tools::preference).put(tools::save_preference),

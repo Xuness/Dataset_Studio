@@ -23,7 +23,12 @@ assert.ok(
     values.asset.every((id) => /^[0-9a-f]{64}$/.test(id)),
 );
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const run = resolve(root, ".local", "metadata-verification-" + Date.now());
+const run = resolve(
+  root,
+  ".local",
+  "test-runs",
+  "metadata-verification-" + Date.now(),
+);
 const state = resolve(run, "state");
 await mkdir(state, { recursive: true });
 const log = await open(resolve(run, "engine.log"), "w");

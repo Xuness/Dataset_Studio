@@ -51,7 +51,12 @@ if (
   options.edge > 1600
 )
   throw new Error("Budget must be 1..64 MiB in bytes; edge must be 96..1600");
-const runDir = resolve(root, ".local", "read-verification-" + Date.now());
+const runDir = resolve(
+  root,
+  ".local",
+  "test-runs",
+  "read-verification-" + Date.now(),
+);
 await mkdir(runDir, { recursive: true });
 const engine = new EngineFixture(root, resolve(runDir, "state")),
   checks = [],

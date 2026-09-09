@@ -14,7 +14,12 @@ const post = arg("--post-id");
 assert.match(asset, /^[0-9a-f]{64}$/);
 assert.match(post, /^[1-9][0-9]{0,18}$/);
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const reportDir = resolve(root, ".local", "scope-verification-" + Date.now());
+const reportDir = resolve(
+  root,
+  ".local",
+  "test-runs",
+  "scope-verification-" + Date.now(),
+);
 await mkdir(reportDir, { recursive: true });
 const engine = new EngineFixture(root, resolve(reportDir, "state"));
 const binary = resolve(root, "target/debug/studio-engine.exe");

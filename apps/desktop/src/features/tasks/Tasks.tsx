@@ -3,6 +3,7 @@ import { Download, X, CheckCircle2, LoaderCircle, Clock3 } from "lucide-react";
 import { Button } from "@studio/ui";
 import type { StudioClient } from "@studio/client";
 import { scopeKindLabel } from "../scopes/scopes.js";
+import { stageNames } from "../ranking/types.js";
 export const statusNames: Record<string, string> = {
   waiting_input: "构建输入范围",
   queued: "等待执行",
@@ -17,11 +18,13 @@ export function Tasks({
   projectId,
   onClose,
   onError,
+  onOpenRanking,
 }: {
   client: StudioClient;
   projectId: string;
   onClose: () => void;
   onError: (message: string) => void;
+  onOpenRanking?: (jobId: string) => void;
 }) {
   const query = useQuery({
     queryKey: ["project", projectId, "jobs"],
@@ -75,6 +78,9 @@ export function Tasks({
                     ? "成员范围尚未固定"
                     : "固定输入 " + job.total.toLocaleString() + " 项"}{" "}
                   · 第 {job.attempt} 次执行
+                  {job.stage
+                    ? " · " + (stageNames[job.stage.name] ?? job.stage.name)
+                    : ""}
                   {job.error ? " · " + job.error : ""}
                 </small>
               </div>
@@ -99,7 +105,11 @@ export function Tasks({
               <span className={"task-status " + job.status}>
                 {statusNames[job.status] ?? job.status}
               </span>
-              {job.status === "succeeded" ? (
+              {job.status === "succeeded" &&
+              job.operator === "danbooru.metarecall" &&
+              onOpenRanking ? (
+                <Button onClick={() => onOpenRanking(job.id)}>查看排名</Button>
+              ) : job.status === "succeeded" ? (
                 <Button
                   onClick={() =>
                     void client

@@ -48,7 +48,7 @@
 
 ## 验证边界
 
-验收完成：76 项 Rust 测试、完整静态检查、7 组 HTTP 集成、原生窗口和实际启动器均通过。真实基础含 Tag 共 6.051 GiB；样例 G+Tag 34.449 → 12.160 秒，E+Tag 10.169 → 3.080 秒，直接复用 53–57 毫秒。完整成员与独立来源 SQL 摘要一致。日常项目已升级至 v7，19 张业务表和 4 条原查询记录完全保留，窗口已恢复运行。详细证据位于 `.local/reports/cache-settings-20260909/REPORT.md`，升级前备份位于 `.local/cache-settings-20260909-024604/backup`。
+验收完成：76 项 Rust 测试、完整静态检查、7 组 HTTP 集成、原生窗口和实际启动器均通过。真实基础含 Tag 共 6.051 GiB；样例 G+Tag 34.449 → 12.160 秒，E+Tag 10.169 → 3.080 秒，直接复用 53–57 毫秒。完整成员与独立来源 SQL 摘要一致。日常项目已升级至 v7，19 张业务表和 4 条原查询记录完全保留，窗口已恢复运行。详细证据位于 `.local/reports/cache-settings-20260909/REPORT.md`，升级前备份位于 `.local/reports/development-cleanup-20260909/historical-evidence/cache-settings-20260909-024604/backup`。
 
 所有生产数据湖读取均为只读；不扫描或改写原始图片目录。真实基准优先读取 SSD 元数据，避免对机械盘逐张随机读取。测试与编译日志位于 `.local/logs/`，备份、隔离运行目录和报告位于 `.local/` 的专用目录，均不提交 Git。
 

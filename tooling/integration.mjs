@@ -4,7 +4,12 @@ import { mkdir, readFile, writeFile, open, rename } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const runDir = resolve(root, ".local", "integration-" + Date.now());
+const runDir = resolve(
+  root,
+  ".local",
+  "test-runs",
+  "integration-" + Date.now(),
+);
 await mkdir(runDir, { recursive: true });
 const dataDir = resolve(runDir, "state");
 const binary = resolve(root, "target/debug/studio-engine.exe");

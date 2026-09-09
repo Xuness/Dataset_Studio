@@ -5,6 +5,7 @@ pub(super) struct ResolvedScope {
     pub sql: String,
     pub count: u64,
     pub results: Vec<String>,
+    pub artifacts: Vec<String>,
     pub provenance: serde_json::Value,
 }
 pub(super) fn resolve(db: &Connection, pid: &str, scope: &ScopeRef) -> Result<ResolvedScope> {
@@ -65,11 +66,38 @@ pub(super) fn resolve(db: &Connection, pid: &str, scope: &ScopeRef) -> Result<Re
         .iter()
         .map(|id| query::read_result(db, pid, id))
         .collect::<Result<Vec<_>>>()?;
-    let provenance = serde_json::json!({"version":1,"scope":scope,"queries":basis,"meaning":"fixed_asset_members; metadata_values_are_not_frozen"});
+    let mut artifacts = std::collections::BTreeSet::new();
+    let owner = match &scope.target {
+        ScopeTarget::Workset { collection_id } => Some(("collection", collection_id.as_str())),
+        ScopeTarget::Selection { .. } => Some(("selection", "selection")),
+        _ => None,
+    };
+    let mut stmt = db
+        .prepare("SELECT artifact_id FROM artifact_references WHERE owner_kind=?1 AND owner_id=?2")
+        .map_err(db_error)?;
+    if let Some((kind, id)) = owner {
+        for id in stmt
+            .query_map(params![kind, id], |r| r.get::<_, String>(0))
+            .map_err(db_error)?
+        {
+            artifacts.insert(id.map_err(db_error)?);
+        }
+    }
+    for rid in &results {
+        for id in stmt
+            .query_map(params!["result", rid], |r| r.get::<_, String>(0))
+            .map_err(db_error)?
+        {
+            artifacts.insert(id.map_err(db_error)?);
+        }
+    }
+    let artifacts = artifacts.into_iter().collect::<Vec<_>>();
+    let provenance = serde_json::json!({"version":1,"scope":scope,"queries":basis,"artifacts":artifacts,"meaning":"fixed_asset_members; metadata_values_are_not_frozen"});
     Ok(ResolvedScope {
         sql,
         count,
         results,
+        artifacts,
         provenance,
     })
 }
@@ -78,6 +106,21 @@ pub(super) fn references(db: &Connection, kind: &str, id: &str, results: &[Strin
         db.execute(
             "INSERT OR IGNORE INTO result_references VALUES (?1,?2,?3)",
             params![kind, id, result],
+        )
+        .map_err(db_error)?;
+    }
+    Ok(())
+}
+pub(super) fn artifact_references(
+    db: &Connection,
+    kind: &str,
+    id: &str,
+    artifacts: &[String],
+) -> Result<()> {
+    for artifact in artifacts {
+        db.execute(
+            "INSERT OR IGNORE INTO artifact_references VALUES (?1,?2,?3)",
+            params![kind, id, artifact],
         )
         .map_err(db_error)?;
     }
@@ -133,6 +176,7 @@ impl ScopeRepository for SqliteStore {
             }
         }
         references(&tx, "selection", "selection", &resolved.results)?;
+        artifact_references(&tx, "selection", "selection", &resolved.artifacts)?;
         tx.execute_batch("DROP TABLE temp.scope_members;")
             .map_err(db_error)?;
         let selection = selection::publish(&tx)?;
@@ -163,6 +207,7 @@ impl ScopeRepository for SqliteStore {
         )
         .map_err(db_error)?;
         references(&tx, "collection", &id, &resolved.results)?;
+        artifact_references(&tx, "collection", &id, &resolved.artifacts)?;
         tx.execute(
             "INSERT INTO collection_scopes VALUES (?1,?2,?3)",
             params![

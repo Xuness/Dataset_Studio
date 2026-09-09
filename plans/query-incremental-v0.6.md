@@ -27,7 +27,7 @@ The application must keep this archive read-only, including its journal.
 - [x] Upgrade the daily application after isolated validation; preserve the
   user's current project, drafts, query history and saved members.
 
-Pre-development backup: `.local/query-incremental-1788870146342/backup`.
+Pre-development backup: `.local/reports/development-cleanup-20260909/historical-evidence/query-incremental-1788870146342/backup`.
 Daily native window closed normally before source edits; testing uses isolated
 application directories. No source archive mutation or Git push is included.
 

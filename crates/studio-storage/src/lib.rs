@@ -25,6 +25,8 @@ mod query_cache;
 pub use query_cache::{
     QueryCacheEntry, QueryCachePolicy, QueryCacheRequest, QueryCacheStats, QueryStage,
 };
+mod ranking;
+pub mod ranking_tables;
 mod registry;
 mod scopes;
 mod selection;
@@ -350,11 +352,22 @@ fn read_job(db: &Connection, project_id: &str, id: &str) -> Result<Job> {
                 status:row.get(2)?,total,completed:unsigned(row,4)?,attempt:row.get(5)?,
                 created_at:row.get(6)?,error:row.get(7)?,artifact:row.get(8)?,input_scope:None,
                 input_members_frozen:total>0,
+                stage:None,
             },row.get::<_,Option<String>>(9)?))
         },
     ).optional().map_err(db_error)?.ok_or_else(||Error::new("NOT_FOUND","任务不存在"))?;
     job.input_scope = scope
         .map(|s| serde_json::from_str(&s).map_err(Error::io))
+        .transpose()?;
+    job.stage = db
+        .query_row(
+            "SELECT stage_json FROM job_progress WHERE job_id=?1",
+            [id],
+            |r| r.get::<_, String>(0),
+        )
+        .optional()
+        .map_err(db_error)?
+        .map(|v| serde_json::from_str(&v).map_err(Error::io))
         .transpose()?;
     Ok(job)
 }

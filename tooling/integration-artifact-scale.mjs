@@ -10,6 +10,7 @@ const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const runDir = resolve(
   root,
   ".local",
+  "test-runs",
   "integration-artifact-scale-" + Date.now(),
 );
 const engine = new EngineFixture(root, resolve(runDir, "state"));

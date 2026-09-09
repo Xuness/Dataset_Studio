@@ -5,6 +5,36 @@
   overflow: auto;
   background: var(--panel, #25292e);
 }
+.tools-workspace {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  flex: 1;
+  background: var(--panel);
+}
+.tools-navigation {
+  display: flex;
+  gap: 0;
+  padding: 0;
+  height: 34px;
+  background: #242424;
+  border-bottom: 1px solid #191919;
+  flex-shrink: 0;
+}
+.tools-navigation button {
+  padding: 0 15px;
+  border-radius: 0;
+  border-right: 1px solid #1d1d1d;
+  border-top: 1px solid transparent;
+  font-size: 12px;
+  color: #a4a4a4;
+}
+.tools-navigation button.active {
+  background: #343434;
+  border-top-color: #575757;
+  color: #e1e1e1;
+}
 .tool-view form {
   max-width: 1280px;
   width: 100%;

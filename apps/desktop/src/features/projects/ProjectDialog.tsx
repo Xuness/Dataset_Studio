@@ -101,7 +101,7 @@ export function ProjectDialog({
         <div className="about-content">
           <Brand size={72} />
           <h2>Dataset Studio</h2>
-          <p>Dataset Studio · 0.7.0</p>
+          <p>Dataset Studio · 0.8.0</p>
           <p>项目、数据湖、工作集与持续保存的工作。</p>
           <Button onClick={onClose}>关闭</Button>
         </div>

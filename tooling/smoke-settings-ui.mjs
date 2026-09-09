@@ -9,7 +9,12 @@ import { chromium, expect } from "@playwright/test";
 import { EngineFixture, sleep } from "./engine-fixture.mjs";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const run = resolve(root, ".local", "smoke-settings-ui-" + Date.now());
+const run = resolve(
+  root,
+  ".local",
+  "test-runs",
+  "smoke-settings-ui-" + Date.now(),
+);
 const state = resolve(run, "state");
 const execute = promisify(execFile);
 await mkdir(run, { recursive: true });

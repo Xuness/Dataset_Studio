@@ -270,6 +270,13 @@ impl SqliteStore {
             .map_err(db_error)?;
         }
         scopes::references(&tx, "job", &id, &results)?;
+        let scope_artifacts: Vec<String> = provenance["artifacts"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|v| v.as_str().map(String::from))
+            .collect();
+        scopes::artifact_references(&tx, "job_scope", &id, &scope_artifacts)?;
         tx.execute(
             "INSERT INTO job_scopes VALUES (?1,?2,?3,?4)",
             params![
