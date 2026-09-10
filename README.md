@@ -2,7 +2,9 @@
 
 面向大型图片数据湖的桌面工作环境。项目持续保存来源引用、选择、工作集与处理成果，各工具围绕项目中的数据工作。
 
-当前版本：0.9.0，新增项目对象管理、参数预设和选择撤销，继续使用开发模式。对象条目旁的“⋯”提供快捷操作，右侧相邻的“属性 / 管理”标签提供名称、备注、来源与引用关系、文件位置和删除入口。使用方法与验证记录见[对象管理验收](docs/verification-object-management-v0.9.md)。
+当前版本：0.9.1，接入排名工作集的评分显示、双向浏览与 Danbooru ID 起点，继续使用开发模式。已有排名工作集默认沿用保存时的顺序，可切换主排名、补救排名、升序或降序；输入帖子 ID 可从该图片在排名中的位置继续查看。使用方法与验证记录见[排名浏览验收](docs/verification-ranking-browse-v0.9.1.md)。
+
+对象条目旁的“⋯”提供快捷操作，右侧相邻的“属性 / 管理”标签提供名称、备注、来源与引用关系、文件位置和删除入口。相关行为见[对象管理验收](docs/verification-object-management-v0.9.md)。
 
 Ctrl+Z 撤销图片选择，Ctrl+Y 或 Ctrl+Shift+Z 重做。“设置 → 编辑与撤销”可调整历史上限，默认 50 步，可设 0–200 步；输入框仍使用原生文本撤销。工作集、成果和任务记录支持查找与整理，工具可复用历史参数或保存项目内命名预设。
 
@@ -110,7 +112,7 @@ pnpm build
 
 接口以 Rust DTO 和 Utoipa 定义为准。生成的 OpenAPI 和 TypeScript 类型纳入 Git，CI 重新生成后检查漂移。前端功能通过 SDK 调用引擎，原生目录选择由应用层注入。
 
-测试覆盖旧项目升级、只读元数据、范围与结果、算子注册和固定字段、成果发布恢复、草稿冲突、读取公平性和取消、持久缓存与引用隔离。`test:integration` 包含 10 组独立引擎脚本，覆盖增量查询、分层预算、每日分级更新、真实 SDK 会话重连、MetaRecall 排名、有界范围排序、对象管理及撤销。夹具默认使用 Debug，引擎已构建时可用 `STUDIO_ENGINE_PROFILE=release` 验证优化产物。排名与对象管理界面检查分别为 `node tooling/smoke-ranking-ui.mjs` 和 `node tooling/smoke-management-ui.mjs`，使用独立引擎与无头 Edge 上下文；真实有界元数据检查为 `tooling/verify-ranking.mjs`。可选的原生设置窗口检查为 `node tooling/smoke-settings-ui.mjs`，先关闭现有开发窗口与前端服务；它只使用独立的合成图片与项目。
+测试覆盖旧项目升级、只读元数据、范围与结果、算子注册和固定字段、成果发布恢复、草稿冲突、读取公平性和取消、持久缓存与引用隔离。`test:integration` 包含 11 组独立引擎脚本，覆盖增量查询、分层预算、每日分级更新、真实 SDK 会话重连、MetaRecall 排名、有界范围排序、对象管理、撤销和排名起点浏览。夹具默认使用 Debug，引擎已构建时可用 `STUDIO_ENGINE_PROFILE=release` 验证优化产物。界面检查包括 `node tooling/smoke-ranking-ui.mjs`、`node tooling/smoke-management-ui.mjs` 和 `node tooling/smoke-ranking-browse-ui.mjs`，使用独立引擎与无头 Edge 上下文；真实有界元数据检查为 `tooling/verify-ranking.mjs`。可选的原生设置窗口检查为 `node tooling/smoke-settings-ui.mjs`，先关闭现有开发窗口与前端服务；它只使用独立的合成图片与项目。
 
 真实数据湖可使用 `node tooling/verify-metadata.mjs --index-root <索引根目录> --media-root <图片湖根目录> --asset <SHA256>` 做有界验证，最多传入 8 个 `--asset`。脚本使用隔离运行目录与真实引擎 API，报告写入 `.local/test-runs/metadata-verification-*`。
 
@@ -136,6 +138,8 @@ pnpm build
 - [大型工作集与排名浏览性能验收](docs/verification-performance-v0.8.1.md)
 - [对象管理与选择历史决策](docs/decisions/0011-object-management-and-selection-history.md)
 - [对象管理与选择撤销验收](docs/verification-object-management-v0.9.md)
+- [排名工作集浏览决策](docs/decisions/0012-ranked-workset-browsing.md)
+- [排名工作集浏览验收](docs/verification-ranking-browse-v0.9.1.md)
 - [项目数据层计划及验收标准](docs/plans/project-data-layer-v0.2.md)
 - [0.3 项目数据范围层计划](docs/plans/project-data-scopes-v0.3.md)
 - [0.4 工具扩展与成果基础层计划](docs/plans/tool-foundation-v0.4.md)

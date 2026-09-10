@@ -1,9 +1,14 @@
 import { useMemo, useSyncExternalStore } from "react";
 import type { StudioClient, DraftSnapshot, ObjectTarget } from "@studio/client";
 import type { AssetKey, QuerySpec } from "@studio/contracts";
-import type { BrowseScope, BrowserPosition } from "@studio/ui";
+import type {
+  BrowseScope,
+  BrowserPosition,
+  RankedBrowseSettings,
+} from "@studio/ui";
 export type WorkspaceState = {
   order: QuerySpec["order"];
+  rankedBrowse: RankedBrowseSettings | null;
   moduleId: string;
   panels: string[];
   scope: BrowseScope;
@@ -15,6 +20,7 @@ export type WorkspaceState = {
 };
 const initial: WorkspaceState = {
   order: "post_id_desc",
+  rankedBrowse: null,
   moduleId: "core.browser",
   panels: [],
   scope: { kind: "all" },
@@ -83,11 +89,30 @@ function decode(value: unknown): WorkspaceState | null {
     ].includes(String(value.order))
   )
     return null;
+  const ranked = value.rankedBrowse;
+  if (
+    ranked != null &&
+    (!record(ranked) ||
+      typeof ranked.scopeKey !== "string" ||
+      ranked.scopeKey.length > 512 ||
+      !["saved", "main", "rescue", "input", "off"].includes(
+        String(ranked.sort),
+      ) ||
+      typeof ranked.descending !== "boolean" ||
+      (ranked.startPostId !== null &&
+        (typeof ranked.startPostId !== "string" ||
+          !/^[1-9][0-9]{0,18}$/.test(ranked.startPostId))) ||
+      (ranked.startCursor !== null &&
+        (typeof ranked.startCursor !== "string" ||
+          ranked.startCursor.length > 16384)))
+  )
+    return null;
   return {
     ...value,
     moduleId:
       value.moduleId === "core.resources" ? "core.browser" : value.moduleId,
     order: value.order ?? "post_id_desc",
+    rankedBrowse: ranked ?? null,
     inspectorTab:
       value.inspectorTab === "management" ? "management" : "properties",
     managementTarget:

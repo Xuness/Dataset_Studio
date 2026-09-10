@@ -45,6 +45,7 @@ export type {
   BrowseViewProps,
   BrowserPosition,
   BrowserHistory,
+  RankedBrowseSettings,
 } from "./modules.js";
 export { MoreMenu } from "./MoreMenu.js";
 export type { MoreMenuItem } from "./MoreMenu.js";

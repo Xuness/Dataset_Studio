@@ -2700,6 +2700,92 @@
         }
       }
     },
+    "/v1/projects/{project_id}/ranking-browse": {
+      "get": {
+        "tags": [
+          "ranking_browse"
+        ],
+        "operationId": "ranking_browse_info",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "collection_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "result_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RankingBrowseInfo"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/ranking-browse/assets": {
+      "post": {
+        "tags": [
+          "ranking_browse"
+        ],
+        "operationId": "ranking_browse_assets",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RankingBrowseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssetPage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/projects/{project_id}/read-requests/{request_id}/cancel": {
       "post": {
         "tags": [
@@ -4191,6 +4277,16 @@
           "name": {
             "type": "string"
           },
+          "ranking": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AssetRanking"
+              }
+            ]
+          },
           "selected": {
             "type": "boolean"
           },
@@ -4267,6 +4363,76 @@
                 "$ref": "#/components/schemas/BrowseScan"
               }
             ]
+          },
+          "start_cursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Reusable first-page cursor after a Danbooru ID has been located."
+          }
+        }
+      },
+      "AssetRanking": {
+        "type": "object",
+        "required": [
+          "artifact_id",
+          "ordinal",
+          "eligibility"
+        ],
+        "properties": {
+          "artifact_id": {
+            "type": "string"
+          },
+          "eligibility": {
+            "$ref": "#/components/schemas/RankingEligibility"
+          },
+          "main_rank": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "main_score": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "ordinal": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "post_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rating": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rescue_rank": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "rescue_score": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
           }
         }
       },
@@ -7044,6 +7210,35 @@
           }
         ]
       },
+      "RankedScope": {
+        "type": "object",
+        "required": [
+          "workset_id",
+          "artifact_id",
+          "artifact_name",
+          "count",
+          "saved_filter"
+        ],
+        "properties": {
+          "artifact_id": {
+            "type": "string"
+          },
+          "artifact_name": {
+            "type": "string"
+          },
+          "count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "saved_filter": {
+            "$ref": "#/components/schemas/RankingFilter"
+          },
+          "workset_id": {
+            "type": "string"
+          }
+        }
+      },
       "RankingBasis": {
         "type": "object",
         "required": [
@@ -7066,6 +7261,67 @@
             "$ref": "#/components/schemas/QuerySpec"
           }
         }
+      },
+      "RankingBrowseInfo": {
+        "type": "object",
+        "properties": {
+          "ranking": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RankedScope"
+              }
+            ]
+          }
+        }
+      },
+      "RankingBrowseRequest": {
+        "type": "object",
+        "required": [
+          "scope"
+        ],
+        "properties": {
+          "cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "descending": {
+            "type": "boolean"
+          },
+          "limit": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "order": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RankingOrder",
+                "description": "Omitted means the order saved with the workset. This never changes membership."
+              }
+            ]
+          },
+          "scope": {
+            "$ref": "#/components/schemas/ScopeRef"
+          },
+          "start_post_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Exact frozen Danbooru post ID; the located row is included as the first item."
+          }
+        },
+        "additionalProperties": false
       },
       "RankingEligibility": {
         "type": "string",

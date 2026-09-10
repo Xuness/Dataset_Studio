@@ -436,6 +436,18 @@ pub(super) async fn result_assets(
                 })
                 .collect::<domain::Result<Vec<_>>>()?;
             enrich_summaries(&s, &pid, &read_context, &mut items)?;
+            ranking_browse::annotate(
+                &s,
+                &pid,
+                &domain::ScopeRef {
+                    project_id: pid.clone(),
+                    target: domain::ScopeTarget::QueryResult {
+                        result_id: rid.clone(),
+                    },
+                },
+                &read_context,
+                &mut items,
+            )?;
             let next_cursor = page
                 .next
                 .map(|after| {
@@ -459,6 +471,7 @@ pub(super) async fn result_assets(
                     preparing: None,
                     result_id: None,
                     scan: None,
+                    start_cursor: None,
                 },
             })
         })

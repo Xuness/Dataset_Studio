@@ -4,6 +4,8 @@ use rusqlite::{Connection, OpenFlags, OptionalExtension, params, types::Value as
 use serde::{Serialize, de::DeserializeOwned};
 use std::{cell::Cell, fs, path::Path};
 use studio_domain::*;
+mod browse;
+pub use browse::{PostIdScan, RankingScan};
 
 const INPUT_ID: i64 = 0x4d524931;
 const SCORE_ID: i64 = 0x4d525331;
@@ -252,7 +254,7 @@ impl RankingInputTable {
             .map(|v| format!("'{}'", v.replace('\'', "''")))
             .collect::<Vec<_>>()
             .join(",");
-        self.db.execute_batch("CREATE INDEX IF NOT EXISTS input_hash ON input_rows(asset_id,ordinal); CREATE TABLE IF NOT EXISTS duplicate_members(ordinal INTEGER PRIMARY KEY,duplicate_of INTEGER NOT NULL); DELETE FROM duplicate_members;").map_err(db_error)?;
+        self.db.execute_batch("CREATE INDEX IF NOT EXISTS input_hash ON input_rows(asset_id,ordinal); CREATE INDEX IF NOT EXISTS input_post ON input_rows(post_id,ordinal) WHERE post_id IS NOT NULL; CREATE TABLE IF NOT EXISTS duplicate_members(ordinal INTEGER PRIMARY KEY,duplicate_of INTEGER NOT NULL); DELETE FROM duplicate_members;").map_err(db_error)?;
         self.db.execute_batch(&format!("WITH duplicates AS (SELECT *,CASE WHEN time_quality IN ('exact','date_only') THEN observed_at_us/86400000000 ELSE NULL END AS observed_day FROM input_rows WHERE asset_id IN (SELECT asset_id FROM input_rows GROUP BY asset_id HAVING count(*)>1)),precision AS (SELECT *,max(CASE WHEN time_quality='date_only' THEN 1 ELSE 0 END) OVER (PARTITION BY asset_id,observed_day) AS coarse_day FROM duplicates) INSERT INTO duplicate_members SELECT ordinal,representative FROM (SELECT ordinal,first_value(ordinal) OVER (PARTITION BY asset_id ORDER BY record_id IS NULL,CASE WHEN rating IN ({wanted}) THEN 0 ELSE 1 END,observed_day DESC NULLS LAST,CASE WHEN coarse_day=0 THEN observed_at_us ELSE NULL END DESC NULLS LAST,updated_at_us DESC NULLS LAST,source_priority DESC NULLS LAST,observation_id,record_id,source_id,ordinal) AS representative FROM precision) WHERE ordinal!=representative;")).map_err(db_error)?;
         Ok(())
     }

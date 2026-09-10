@@ -14,6 +14,8 @@ mod settings;
 pub use settings::*;
 mod ranking;
 pub use ranking::*;
+mod ranking_browse;
+pub use ranking_browse::*;
 mod management;
 pub use management::*;
 use utoipa::ToSchema;
@@ -69,6 +71,8 @@ pub struct Asset {
     pub source_name: String,
     pub selected: bool,
     pub summary: Option<AssetSummary>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ranking: Option<AssetRanking>,
 }
 impl Asset {
     pub fn from_domain(a: domain::Asset, selected: bool) -> Self {
@@ -80,6 +84,7 @@ impl Asset {
             source_name: a.source_name,
             selected,
             summary: None,
+            ranking: None,
         }
     }
 }
@@ -94,6 +99,9 @@ pub struct AssetPage {
     pub result_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scan: Option<BrowseScan>,
+    /// Reusable first-page cursor after a Danbooru ID has been located.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start_cursor: Option<String>,
 }
 #[derive(Serialize, ToSchema)]
 pub struct BrowseScan {

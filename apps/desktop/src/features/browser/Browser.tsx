@@ -36,6 +36,12 @@ import type {
 } from "@studio/contracts";
 import { AssetImage } from "./AssetImage.js";
 import { QuickFilters, adoptRefreshedFilter } from "./QuickFilters.js";
+import {
+  useRankingBrowse,
+  RankingBadge,
+  RankingStart,
+} from "./rankingBrowse.js";
+import type { RankingBrowseState } from "./rankingBrowse.js";
 export type Scope = BrowseScope;
 export interface BrowserProps extends BrowseViewProps {
   client: StudioClient;
@@ -68,10 +74,19 @@ export default function BrowserModule(context: ModuleContext) {
   );
 }
 export function Browser(props: BrowserProps) {
+  const ranked = useRankingBrowse(
+    props.client,
+    props.projectId,
+    props.scope,
+    props.rankedBrowse,
+    props.onRankedBrowse,
+  );
   const identity = JSON.stringify([
     props.projectId,
     browseScopeIdentity(props.scope),
     props.order,
+    ranked.key,
+    ranked.info?.artifact_id,
     props.scope.kind === "selection" ? props.selectionRevision : null,
   ]);
   const position = props.position
@@ -80,7 +95,14 @@ export function Browser(props: BrowserProps) {
         scopeKey: normalizeBrowseScopeKey(props.position.scopeKey),
       }
     : null;
-  return <BrowserContent key={identity} {...props} position={position} />;
+  return (
+    <BrowserContent
+      key={identity}
+      {...props}
+      position={position}
+      ranked={ranked}
+    />
+  );
 }
 function BrowserContent({
   client,
@@ -106,7 +128,8 @@ function BrowserContent({
   filters,
   onOpenQuery,
   onRefreshed,
-}: BrowserProps) {
+  ranked,
+}: BrowserProps & { ranked: RankingBrowseState }) {
   const [pageSize, setPageSize] = useState(position?.pageSize ?? 48);
   const queryCache = useQueryClient();
   const [refreshId, setRefreshId] = useState<string | null>(null);
@@ -116,7 +139,7 @@ function BrowserContent({
     browseScopeIdentity(scope),
     scope.kind === "selection" ? selectionRevision : null,
     pageSize,
-    order,
+    ranked.active ? ranked.key : order,
   ]);
   const [history, setHistory] = useState(() =>
     restoreHistory(position, scopeKey),
@@ -151,6 +174,37 @@ function BrowserContent({
   const query = useQuery({
     queryKey: ["project", projectId, "assets", scopeKey, cursor],
     queryFn: async ({ signal }) => {
+      if (ranked.infoError) throw ranked.infoError;
+      if (ranked.active && ranked.target) {
+        const pending =
+          preparation.current?.key === requestKey
+            ? preparation.current.page
+            : null;
+        const continuation =
+          pending?.next_cursor ?? cursor ?? ranked.settings.startCursor;
+        const page = await client.ranking.browseAssets(
+          projectId,
+          {
+            scope: ranked.target,
+            ...(ranked.settings.sort !== "saved" &&
+            ranked.settings.sort !== "off"
+              ? { order: ranked.settings.sort }
+              : {}),
+            descending: ranked.settings.descending,
+            ...(ranked.settings.startPostId
+              ? { start_post_id: ranked.settings.startPostId }
+              : {}),
+            ...(continuation ? { cursor: continuation } : {}),
+            limit: pageSize,
+          },
+          signal,
+        );
+        if (!signal.aborted)
+          preparation.current = page.preparing
+            ? { key: requestKey, page }
+            : null;
+        return page;
+      }
       if (scope.kind === "result")
         return (
           await client.queries.assets(projectId, scope.id, {
@@ -199,10 +253,19 @@ function BrowserContent({
       return page;
     },
     gcTime: 0,
+    enabled: !ranked.loading,
     retry: 1,
     refetchInterval: (q) =>
-      q.state.status !== "error" && q.state.data?.preparing ? 800 : false,
+      q.state.status !== "error" && q.state.data?.preparing
+        ? ranked.active
+          ? 30
+          : 800
+        : false,
   });
+  useEffect(() => {
+    if (ranked.active && query.data?.start_cursor)
+      ranked.rememberStart(query.data.start_cursor);
+  }, [ranked.active, query.data?.start_cursor, ranked.settings.startCursor]);
   const validity = useQuery({
     queryKey: [
       "project",
@@ -298,6 +361,7 @@ function BrowserContent({
     : -1;
   const activeAsset = focusIndex >= 0 ? items[focusIndex]! : focus;
   const waiting =
+    ranked.loading ||
     query.isFetching ||
     !!query.data?.preparing ||
     focusPending ||
@@ -420,18 +484,37 @@ function BrowserContent({
         priority: "prefetch" as const,
       };
       const page =
-        scope.kind === "result"
-          ? client.queries
-              .assets(projectId, scope.id, options)
-              .then((r) => r.page)
-          : client.assets(projectId, {
-              ...options,
-              ...(scope.kind === "source" ? { sourceId: scope.id } : {}),
-              ...(scope.kind === "collection"
-                ? { collectionId: scope.id }
-                : {}),
-              ...(scope.kind === "selection" ? { selection: true } : {}),
-            });
+        ranked.active && ranked.target
+          ? client.ranking.browseAssets(
+              projectId,
+              {
+                scope: ranked.target,
+                ...(ranked.settings.sort !== "saved" &&
+                ranked.settings.sort !== "off"
+                  ? { order: ranked.settings.sort }
+                  : {}),
+                descending: ranked.settings.descending,
+                ...(ranked.settings.startPostId
+                  ? { start_post_id: ranked.settings.startPostId }
+                  : {}),
+                cursor: next,
+                limit: 4,
+              },
+              abort.signal,
+              "prefetch",
+            )
+          : scope.kind === "result"
+            ? client.queries
+                .assets(projectId, scope.id, options)
+                .then((r) => r.page)
+            : client.assets(projectId, {
+                ...options,
+                ...(scope.kind === "source" ? { sourceId: scope.id } : {}),
+                ...(scope.kind === "collection"
+                  ? { collectionId: scope.id }
+                  : {}),
+                ...(scope.kind === "selection" ? { selection: true } : {}),
+              });
       void page
         .then((p) =>
           Promise.allSettled(
@@ -461,7 +544,21 @@ function BrowserContent({
     query.isFetching,
     view,
     order,
+    ranked.active,
+    ranked.settings.sort,
+    ranked.settings.descending,
+    ranked.settings.startPostId,
   ]);
+  function chooseOrder(value: string) {
+    if (value.startsWith("ranking:")) {
+      ranked.change({
+        sort: value.slice(8) as "saved" | "main" | "rescue" | "input",
+      });
+    } else {
+      if (ranked.info) ranked.change({ sort: "off", startPostId: null });
+      onOrder(value as BrowserProps["order"]);
+    }
+  }
   function first() {
     restoreCheck.current = null;
     setHistory(initialHistory());
@@ -689,15 +786,56 @@ function BrowserContent({
         <span className="grow" />
         <select
           aria-label="浏览排序"
-          title="同图关联多个帖子时取最小 ID；无帖子 ID 的图像排在末尾"
-          value={order}
-          onChange={(e) => onOrder(e.target.value as BrowserProps["order"])}
+          title={
+            ranked.active
+              ? "排名沿用计算时的评分，名次在各分级内计算"
+              : "同图关联多个帖子时取最小 ID；无帖子 ID 的图像排在末尾"
+          }
+          value={ranked.active ? "ranking:" + ranked.settings.sort : order}
+          onChange={(e) => chooseOrder(e.target.value)}
         >
+          {ranked.info && (
+            <optgroup label="排名排序">
+              <option value="ranking:saved">保存时的榜单顺序</option>
+              <option value="ranking:main">主排名</option>
+              <option value="ranking:rescue">补救排名</option>
+              <option value="ranking:input">排名输入顺序</option>
+            </optgroup>
+          )}
           <option value="post_id_desc">Danbooru ID 从新到旧</option>
           <option value="post_id_asc">Danbooru ID 从旧到新</option>
           <option value="asset_key_asc">图像身份升序</option>
           <option value="asset_key_desc">图像身份降序</option>
         </select>
+        {ranked.active && (
+          <select
+            className="ranking-direction"
+            aria-label="排名查看方向"
+            value={ranked.settings.descending ? "desc" : "asc"}
+            onChange={(event) =>
+              ranked.change({ descending: event.target.value === "desc" })
+            }
+          >
+            <option value="asc">
+              升序 ·{" "}
+              {ranked.settings.sort === "input" ||
+              (ranked.settings.sort === "saved" &&
+                ranked.info?.saved_filter.order === "input")
+                ? "序号"
+                : "名次"}
+              从小到大
+            </option>
+            <option value="desc">
+              降序 ·{" "}
+              {ranked.settings.sort === "input" ||
+              (ranked.settings.sort === "saved" &&
+                ranked.info?.saved_filter.order === "input")
+                ? "序号"
+                : "名次"}
+              从大到小
+            </option>
+          </select>
+        )}
         <button
           className="icon-button"
           title="刷新当前范围"
@@ -741,6 +879,19 @@ function BrowserContent({
           </Button>
         )}
       </div>
+      <RankingStart
+        state={ranked}
+        busy={busy || ranked.loading}
+        first={first}
+      />
+      {ranked.info && (
+        <div className="ranking-browse-note">
+          {ranked.info.artifact_name} · 主 / 补救名次与分数按分级独立计算
+          {ranked.active && ranked.settings.descending
+            ? " · 当前沿榜单反向查看"
+            : ""}
+        </div>
+      )}
       {query.error ? (
         <EmptyState title="当前范围暂不可用" icon={<ImageIcon size={36} />}>
           <ErrorDetails error={query.error} />
@@ -765,9 +916,16 @@ function BrowserContent({
               </span>
             </div>
           )}
-          <Button onClick={() => onOrder("asset_key_asc")}>
+          <Button onClick={() => chooseOrder("asset_key_asc")}>
             先按图像身份浏览
           </Button>
+        </EmptyState>
+      ) : ranked.loading ? (
+        <EmptyState
+          title="正在读取浏览方式…"
+          icon={<LoaderCircle className="loading-icon" size={36} />}
+        >
+          {null}
         </EmptyState>
       ) : !items.length && !query.isFetching ? (
         <EmptyState title={empty.title} icon={<Images size={40} />}>
@@ -819,6 +977,7 @@ function BrowserContent({
           {activeAsset && (
             <div className="canvas-caption">
               <strong>{assetTitle(activeAsset)}</strong>
+              <RankingBadge ranking={activeAsset.ranking} />
               <CopyButton
                 label="复制图像身份"
                 text={activeAsset.key.asset_id}
@@ -981,6 +1140,7 @@ function BrowserContent({
                   ) : scope.kind !== "source" ? (
                     <small>{asset.source_name}</small>
                   ) : null}
+                  <RankingBadge ranking={asset.ranking} />
                 </div>
               </article>
             ))}

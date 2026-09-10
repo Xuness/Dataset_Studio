@@ -32,6 +32,7 @@ mod management;
 mod object_links;
 mod presets;
 mod ranking;
+mod ranking_browse;
 pub mod ranking_tables;
 mod registry;
 mod scopes;

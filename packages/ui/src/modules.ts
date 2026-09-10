@@ -31,6 +31,13 @@ export type BrowserHistory = {
   index: number;
   firstPage: number;
 };
+export type RankedBrowseSettings = {
+  scopeKey: string;
+  sort: "saved" | "main" | "rescue" | "input" | "off";
+  descending: boolean;
+  startPostId: string | null;
+  startCursor: string | null;
+};
 export type ModuleScopeOption = {
   value: string;
   label: string;
@@ -40,6 +47,8 @@ export type ModuleScopeOption = {
 export type BrowseViewProps = {
   order: QuerySpec["order"];
   onOrder: (order: QuerySpec["order"]) => void;
+  rankedBrowse: RankedBrowseSettings | null;
+  onRankedBrowse: (settings: RankedBrowseSettings) => void;
   scope: BrowseScope;
   focus: Asset | null;
   focusPending: boolean;

@@ -23,6 +23,7 @@ use utoipa::OpenApi;
 mod management;
 mod query;
 mod ranking;
+mod ranking_browse;
 mod resources;
 mod scoped_browse;
 mod settings;
@@ -56,7 +57,7 @@ impl IntoResponse for Failure {
     fn into_response(self) -> Response {
         let code = self.0.code;
         let status = match code {
-            "NOT_FOUND" | "OBJECT_REMOVED" => StatusCode::NOT_FOUND,
+            "NOT_FOUND" | "OBJECT_REMOVED" | "RANK_ANCHOR_NOT_FOUND" => StatusCode::NOT_FOUND,
             "UNAUTHORIZED" => StatusCode::UNAUTHORIZED,
             "REVISION_CONFLICT"
             | "SOURCE_CHANGED"
@@ -95,6 +96,7 @@ impl IntoResponse for Failure {
             | "METADATA_RUNTIME_UNSUPPORTED"
             | "SOURCE_FORMAT_UNSUPPORTED" => StatusCode::BAD_REQUEST,
             "QUERY_UNSUPPORTED"
+            | "RANKING_SCOPE_UNSUPPORTED"
             | "RANKING_SOURCE_UNSUPPORTED"
             | "RANKING_SCOPE_COMPLEX"
             | "QUERY_VERSION_UNSUPPORTED"
@@ -593,6 +595,7 @@ fn browse_sync(s: &AppState, id: &str, query: BrowseQuery) -> domain::Result<Ass
                     preparing: page.preparing,
                     result_id: None,
                     scan: page.scan,
+                    start_cursor: None,
                 });
             }
             has_more = page.more;
@@ -621,6 +624,7 @@ fn browse_sync(s: &AppState, id: &str, query: BrowseQuery) -> domain::Result<Ass
                     preparing: None,
                     result_id: None,
                     scan: None,
+                    start_cursor: None,
                 });
             }
             let spec = domain::QuerySpec {
@@ -664,6 +668,7 @@ fn browse_sync(s: &AppState, id: &str, query: BrowseQuery) -> domain::Result<Ass
                     preparing: Some("正在准备范围排序".into()),
                     result_id: Some(result.id),
                     scan: None,
+                    start_cursor: None,
                 });
             }
             s.queries.validate_result(store, &result)?;
@@ -751,6 +756,7 @@ fn browse_sync(s: &AppState, id: &str, query: BrowseQuery) -> domain::Result<Ass
                     preparing: Some("正在更新帖子排序索引".into()),
                     result_id: None,
                     scan: None,
+                    start_cursor: None,
                 });
             }
         }
@@ -901,6 +907,7 @@ fn browse_sync(s: &AppState, id: &str, query: BrowseQuery) -> domain::Result<Ass
         preparing: None,
         result_id: cursor.sorted_result_id,
         scan: None,
+        start_cursor: None,
     })
 }
 #[utoipa::path(get,path="/v1/projects/{project_id}/assets",params(("project_id"=String,Path),("source_id"=Option<String>,Query),("collection_id"=Option<String>,Query),("selection"=Option<bool>,Query),("cursor"=Option<String>,Query),("order"=Option<QueryOrder>,Query),("limit"=Option<usize>,Query)),responses((status=200,body=AssetPage)))]
@@ -913,8 +920,21 @@ async fn assets(
     Ok(Json(
         blocking(move || {
             let _permit = read_permit(&s, domain::ReadClass::Index, &read_context)?;
+            let ranking_scope =
+                query
+                    .collection_id
+                    .as_ref()
+                    .map(|collection_id| domain::ScopeRef {
+                        project_id: id.clone(),
+                        target: domain::ScopeTarget::Workset {
+                            collection_id: collection_id.clone(),
+                        },
+                    });
             let mut page = browse_sync(&s, &id, query)?;
             enrich_summaries(&s, &id, &read_context, &mut page.items)?;
+            if let Some(scope) = ranking_scope {
+                ranking_browse::annotate(&s, &id, &scope, &read_context, &mut page.items)?;
+            }
             Ok(page)
         })
         .await?,
@@ -1246,6 +1266,8 @@ async fn shutdown(State(s): State<AppState>) -> Json<OkResponse> {
         ranking::evidence,
         ranking::workset,
         ranking::job_result,
+        ranking_browse::info,
+        ranking_browse::assets,
         tools::submit,
         tools::validate_scope,
         tools::run,
@@ -1306,6 +1328,14 @@ async fn shutdown(State(s): State<AppState>) -> Json<OkResponse> {
 pub struct ApiDoc;
 pub fn routes() -> axum::Router<AppState> {
     axum::Router::new()
+        .route(
+            "/v1/projects/{pid}/ranking-browse",
+            get(ranking_browse::info),
+        )
+        .route(
+            "/v1/projects/{pid}/ranking-browse/assets",
+            post(ranking_browse::assets),
+        )
         .route("/v1/projects/{pid}/objects/{kind}", get(management::list))
         .route("/v1/projects/{pid}/job-history", get(management::jobs))
         .route(

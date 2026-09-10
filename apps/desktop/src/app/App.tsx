@@ -784,6 +784,24 @@ function Studio({
     defaultInput: selected > 0 ? "selection" : defaultScope,
     browser: {
       order: workspace.value.order,
+      rankedBrowse: workspace.value.rankedBrowse,
+      onRankedBrowse: (rankedBrowse) => {
+        if (workspace.editable)
+          workspace.controller?.set((v) => {
+            const previous = v.rankedBrowse;
+            const changed =
+              !previous ||
+              previous.scopeKey !== rankedBrowse.scopeKey ||
+              previous.sort !== rankedBrowse.sort ||
+              previous.descending !== rankedBrowse.descending ||
+              previous.startPostId !== rankedBrowse.startPostId;
+            return {
+              ...v,
+              rankedBrowse,
+              position: changed ? null : v.position,
+            };
+          });
+      },
       onOrder: (order) => {
         if (workspace.editable)
           workspace.controller?.set((v) => ({ ...v, order, position: null }));

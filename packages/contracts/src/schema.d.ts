@@ -863,6 +863,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{project_id}/ranking-browse": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["ranking_browse_info"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/ranking-browse/assets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["ranking_browse_assets"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects/{project_id}/read-requests/{request_id}/cancel": {
         parameters: {
             query?: never;
@@ -1360,6 +1392,7 @@ export interface components {
             extension: string;
             key: components["schemas"]["AssetKey"];
             name: string;
+            ranking?: null | components["schemas"]["AssetRanking"];
             selected: boolean;
             source_name: string;
             summary?: null | components["schemas"]["AssetSummary"];
@@ -1375,6 +1408,24 @@ export interface components {
             result_id?: string | null;
             revision: string;
             scan?: null | components["schemas"]["BrowseScan"];
+            /** @description Reusable first-page cursor after a Danbooru ID has been located. */
+            start_cursor?: string | null;
+        };
+        AssetRanking: {
+            artifact_id: string;
+            eligibility: components["schemas"]["RankingEligibility"];
+            /** Format: int64 */
+            main_rank?: number | null;
+            /** Format: double */
+            main_score?: number | null;
+            /** Format: int64 */
+            ordinal: number;
+            post_id?: string | null;
+            rating?: string | null;
+            /** Format: int64 */
+            rescue_rank?: number | null;
+            /** Format: double */
+            rescue_score?: number | null;
         };
         AssetRecord: {
             origin_observation_id?: string | null;
@@ -2056,11 +2107,31 @@ export interface components {
             type: "text_list";
             value: string[];
         };
+        RankedScope: {
+            artifact_id: string;
+            artifact_name: string;
+            /** Format: int64 */
+            count: number;
+            saved_filter: components["schemas"]["RankingFilter"];
+            workset_id: string;
+        };
         RankingBasis: {
             /** Format: int32 */
             index: number;
             result_id?: string | null;
             spec: components["schemas"]["QuerySpec"];
+        };
+        RankingBrowseInfo: {
+            ranking?: null | components["schemas"]["RankedScope"];
+        };
+        RankingBrowseRequest: {
+            cursor?: string | null;
+            descending?: boolean;
+            limit?: number | null;
+            order?: null | components["schemas"]["RankingOrder"];
+            scope: components["schemas"]["ScopeRef"];
+            /** @description Exact frozen Danbooru post ID; the located row is included as the first item. */
+            start_post_id?: string | null;
         };
         /** @enum {string} */
         RankingEligibility: "eligible" | "metadata_unavailable" | "rating_unknown" | "rating_excluded" | "dimensions_unknown" | "dimensions_excluded" | "policy_excluded" | "duplicate";
@@ -4049,6 +4120,55 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ResultValidity"];
+                };
+            };
+        };
+    };
+    ranking_browse_info: {
+        parameters: {
+            query?: {
+                collection_id?: string;
+                result_id?: string;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RankingBrowseInfo"];
+                };
+            };
+        };
+    };
+    ranking_browse_assets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RankingBrowseRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssetPage"];
                 };
             };
         };

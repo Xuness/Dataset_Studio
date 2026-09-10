@@ -338,6 +338,14 @@ try {
   );
   await page.getByRole("button", { name: "打开工作集", exact: true }).click();
   await expect(page.locator(".asset-card")).toHaveCount(48, { timeout: 30000 });
+  await expect(page.getByLabel("浏览排序", { exact: true })).toHaveValue(
+    "ranking:saved",
+  );
+  // The historical preparation-state replay exercises the generic ID path.
+  await page
+    .getByLabel("浏览排序", { exact: true })
+    .selectOption("post_id_desc");
+  await expect(page.locator(".asset-card")).toHaveCount(48, { timeout: 30000 });
   await expect(
     page.getByRole("button", { name: "保存当前范围", exact: true }),
   ).toBeVisible();
