@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createHash } from "node:crypto";
+import { performance } from "node:perf_hooks";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -21,7 +22,7 @@ await execute(
   [
     resolve(root, "tooling/ranking-fixture.py"),
     resolve(run, "fixture"),
-    "8192",
+    "32768",
   ],
   { cwd: root, windowsHide: true },
 );
@@ -444,6 +445,151 @@ try {
   assert.ok(filteredNatural.page.items.every((item) => item.ranking));
   checks.push(
     "queries within a ranking workset retain scores and obey their own fixed membership",
+  );
+
+  assert.ok(result.count > 4096, "exercise the large query scope path");
+  const cold = await page(filteredScope, { limit: 48 });
+  assert.ok(
+    cold.preparations > 0,
+    "the fixture must contain more than 4096 leading nonmembers",
+  );
+  const expectedG = oracle(full, "main", false, result.id);
+  expectRows(cold.items, expectedG.slice(0, 48));
+  for (const limit of [12, 96, 48]) {
+    const started = performance.now();
+    const resized = await engine.api(base + "/ranking-browse/assets", "POST", {
+      scope: filteredScope,
+      limit,
+    });
+    assert.equal(resized.preparing ?? null, null);
+    expectRows(resized.items, expectedG.slice(0, limit));
+    samples.push({
+      kind: "cached-first-page",
+      limit,
+      ms: performance.now() - started,
+    });
+  }
+  checks.push(
+    "changing page size reuses the resolved G origin without rescanning the leading E members",
+  );
+  const falseFirst = JSON.parse(
+    Buffer.from(cold.next_cursor, "base64url").toString("utf8"),
+  );
+  falseFirst.first_page = true;
+  const later = await engine.api(base + "/ranking-browse/assets", "POST", {
+    scope: filteredScope,
+    limit: 12,
+    cursor: Buffer.from(JSON.stringify(falseFirst)).toString("base64url"),
+  });
+  expectRows(later.items, expectedG.slice(48, 60));
+  const stillFirst = await engine.api(base + "/ranking-browse/assets", "POST", {
+    scope: filteredScope,
+    limit: 12,
+  });
+  expectRows(stillFirst.items, expectedG.slice(0, 12));
+  checks.push(
+    "a client-modified first-page flag cannot poison the shared resolved origin",
+  );
+
+  const keys = cold.items.slice(0, 3).map((item) => item.key);
+  const selectionBefore = await engine.api(base + "/selection");
+  const selectionAfter = await engine.api(base + "/selection", "PATCH", {
+    expected_revision: selectionBefore.revision,
+    add: [keys[1]],
+    remove: [],
+    clear: true,
+  });
+  const flags = await engine.api(base + "/selection/members", "POST", { keys });
+  assert.equal(flags.revision, selectionAfter.revision);
+  assert.deepEqual(flags.selected, [false, true, false]);
+  checks.push(
+    "selection membership can refresh independently of the ranked asset page",
+  );
+
+  let summaries;
+  for (let attempt = 0; attempt < 600; attempt++) {
+    summaries = await engine.api(base + "/assets/summaries", "POST", { keys });
+    if (!summaries.preparing) break;
+    await new Promise((done) => setTimeout(done, 100));
+  }
+  assert.equal(summaries.preparing, false);
+  for (const item of summaries.items) {
+    const posts = [
+      ...new Set(
+        fixture.assets
+          .filter((asset) => asset.sha256 === item.key.asset_id)
+          .map((asset) => String(asset.post_id)),
+      ),
+    ].sort((a, b) => Number(a) - Number(b));
+    assert.deepEqual(item.summary.post_ids, posts.slice(0, 8));
+    assert.equal(item.summary.post_count, String(posts.length));
+  }
+  checks.push(
+    "asynchronous identity summaries match the source oracle and preserve source hashes",
+  );
+
+  const rankedRows = base + "/artifacts/" + artifact.id + "/ranking/rows";
+  const rankedCount = base + "/artifacts/" + artifact.id + "/ranking/count";
+  const sparseFilter = {
+    eligibility: "eligible",
+    missing_only: true,
+    order: "main",
+  };
+  const sparsePage = await engine.api(rankedRows, "POST", {
+    filter: sparseFilter,
+    limit: 48,
+  });
+  assert.equal(
+    sparsePage.count,
+    null,
+    "the first page must not synchronously calculate an unknown count",
+  );
+  if (sparsePage.scan) assert.ok(sparsePage.scan.scanned <= 4096);
+  const counted = await engine.api(rankedCount, "POST", {
+    filter: sparseFilter,
+  });
+  const exactMissing = Number(
+    database
+      .prepare(
+        "SELECT count(*) AS n FROM scores WHERE eligibility='eligible' AND missing_flags!='[]'",
+      )
+      .get().n,
+  );
+  assert.equal(counted.count, exactMissing);
+  assert.deepEqual(
+    await engine.api(rankedCount, "POST", { filter: sparseFilter }),
+    counted,
+  );
+  checks.push(
+    "sparse row reads have a bounded scan and counts are calculated and cached separately",
+  );
+
+  for (const [path, body] of [
+    [base + "/ranking-browse/assets", { scope: filteredScope, limit: 12 }],
+    [
+      rankedRows,
+      { filter: { eligibility: "eligible", order: "main" }, limit: 12 },
+    ],
+    [rankedCount, { filter: sparseFilter }],
+    [base + "/selection/members", { keys }],
+    [base + "/assets/summaries", { keys }],
+  ]) {
+    const readId = crypto.randomUUID();
+    await engine.api(base + "/read-requests/" + readId + "/cancel", "POST");
+    const response = await fetch(engine.connection.endpoint + path, {
+      method: "POST",
+      headers: {
+        authorization: "Bearer " + engine.connection.token,
+        "content-type": "application/json",
+        "x-studio-read-id": readId,
+      },
+      body: JSON.stringify(body),
+    });
+    assert.equal(response.status, 409);
+    assert.equal((await response.json()).code, "CANCELLED");
+  }
+  checks.push(
+    "all five POST read routes honor explicit cancellation before work starts",
   );
 
   const ordinary = await engine.api(base + "/collections", "POST", {

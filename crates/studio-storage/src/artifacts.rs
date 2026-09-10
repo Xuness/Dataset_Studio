@@ -29,7 +29,7 @@ impl ArtifactRepository for SqliteStore {
             validate_id(id)?;
         }
         let p = self.handle(pid)?;
-        let db = p.db.lock().map_err(lock_error)?;
+        let db = p.read()?;
         let before = after
             .map(|id| read(&db, pid, id).map(|a| a.created_at))
             .transpose()?;
@@ -59,7 +59,7 @@ impl ArtifactRepository for SqliteStore {
     }
     fn artifact(&self, pid: &str, id: &str) -> Result<Artifact> {
         let p = self.handle(pid)?;
-        read(&*p.db.lock().map_err(lock_error)?, pid, id)
+        read(&*p.read()?, pid, id)
     }
     fn artifact_page(
         &self,
@@ -69,7 +69,7 @@ impl ArtifactRepository for SqliteStore {
         limit: usize,
     ) -> Result<ArtifactPage> {
         let p = self.handle(pid)?;
-        let db = p.db.lock().map_err(lock_error)?;
+        let db = p.read()?;
         let artifact = read(&db, pid, id)?;
         if artifact.state != ArtifactState::Ready {
             return Err(Error::new(
@@ -106,7 +106,7 @@ impl ArtifactRepository for SqliteStore {
     }
     fn artifact_scalar(&self, pid: &str, id: &str, key: &AssetKey) -> Result<ScalarValue> {
         let p = self.handle(pid)?;
-        let db = p.db.lock().map_err(lock_error)?;
+        let db = p.read()?;
         require_scalar(&db, pid, id)?;
         scalar(&db, id, key)
     }

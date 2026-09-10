@@ -617,126 +617,80 @@ impl RankingResultTable {
         after: Option<&RankingPosition>,
         limit: usize,
     ) -> Result<(Vec<RankingScores>, Option<RankingPosition>)> {
-        filter.validate()?;
-        let (predicate, values) = filter_sql(filter)?;
-        let position = match filter.order {
-            RankingOrder::Main => "coalesce(main_rank,9223372036854775807)",
-            RankingOrder::Rescue => "coalesce(rescue_rank,9223372036854775807)",
-            RankingOrder::Input => "ordinal",
-        };
         let limit = limit.clamp(1, 128);
-        let mut rows = Vec::new();
-        // Preserve coalesce(rating,'z') ordering while using the existing raw-rating
-        // indexes: later non-null groups, the cursor's group, and the null group
-        // each contribute at most one page. Only this bounded union is merged.
-        let mut segment = |extra: String, appended: Vec<SqlValue>| -> Result<()> {
-            let mut params = values.clone();
-            params.extend(appended);
-            params.push(SqlValue::Integer(limit as i64 + 1));
-            let sql = format!(
-                "SELECT {SCORE_COLUMNS},{position} FROM scores INDEXED BY {} WHERE {predicate} AND {extra} ORDER BY rating,{position},ordinal LIMIT ?{}",
-                score_index(filter, filter.order),
-                params.len()
-            );
-            let mut statement = self.db.prepare(&sql).map_err(db_error)?;
-            let page = statement
-                .query_map(rusqlite::params_from_iter(params), |r| {
-                    Ok((read_scores(r, 0)?, r.get::<_, i64>(21)?))
-                })
-                .map_err(db_error)?
-                .collect::<std::result::Result<Vec<_>, _>>()
-                .map_err(db_error)?;
-            rows.extend(page);
-            Ok(())
-        };
-        let parameter = values.len() + 1;
-        let seek = |parameter| {
-            format!(
-                "{position}>=?{parameter} AND ({position}>?{parameter} OR ordinal>?{})",
-                parameter + 1
-            )
-        };
-        if let Some(after) = after {
-            segment(
-                format!("rating>?{parameter}"),
-                vec![SqlValue::Text(after.group.clone())],
-            )?;
-            segment(
-                format!("rating=?{parameter} AND {}", seek(parameter + 1)),
-                vec![
-                    SqlValue::Text(after.group.clone()),
-                    SqlValue::Integer(after.position),
-                    SqlValue::Integer(after.ordinal as i64),
-                ],
-            )?;
-        } else {
-            segment("rating IS NOT NULL".into(), vec![])?;
-        }
-        if after.is_none_or(|a| a.group.as_str() <= "z") {
-            if let Some(after) = after.filter(|a| a.group == "z") {
-                segment(
-                    format!("rating IS NULL AND {}", seek(parameter)),
-                    vec![
-                        SqlValue::Integer(after.position),
-                        SqlValue::Integer(after.ordinal as i64),
-                    ],
-                )?;
-            } else {
-                segment("rating IS NULL".into(), vec![])?;
+        let mut after = after.cloned();
+        let mut picked = Vec::new();
+        loop {
+            let scan = self.browse_scan(filter, filter.order, false, after.as_ref(), 512)?;
+            for (row, matches) in scan.rows {
+                after = Some(RankingPosition::for_scores(&row, filter.order));
+                if matches {
+                    picked.push(row);
+                }
+                if picked.len() > limit {
+                    picked.truncate(limit);
+                    let next = picked
+                        .last()
+                        .map(|row| RankingPosition::for_scores(row, filter.order));
+                    return Ok((picked, next));
+                }
+            }
+            if !scan.more {
+                return Ok((picked, None));
             }
         }
-        rows.sort_by(|(a, ap), (b, bp)| {
-            (a.rating.as_deref().unwrap_or("z"), ap, a.ordinal).cmp(&(
-                b.rating.as_deref().unwrap_or("z"),
-                bp,
-                b.ordinal,
-            ))
-        });
-        let more = rows.len() > limit;
-        rows.truncate(limit);
-        let next = if more {
-            rows.last().map(|(s, p)| RankingPosition {
-                group: s.rating.clone().unwrap_or_else(|| "z".into()),
-                position: *p,
-                ordinal: s.ordinal,
-            })
-        } else {
-            None
-        };
-        Ok((rows.into_iter().map(|(s, _)| s).collect(), next))
+    }
+    pub fn cancel_reads(&self, cancelled: studio_application::ReadCancellation) -> Result<()> {
+        self.db
+            .progress_handler(
+                1000,
+                Some(move || cancelled.load(std::sync::atomic::Ordering::Acquire)),
+            )
+            .map_err(db_error)
+    }
+    pub fn known_count(&self, filter: &RankingFilter) -> Result<Option<u64>> {
+        filter.validate()?;
+        let summary = self.meta::<RankingSummary>("summary")?;
+        if filter.route.is_some() || filter.missing_only || filter.selected_only {
+            return Ok(None);
+        }
+        if filter.top.is_none() && filter.eligibility == Some(RankingEligibility::Eligible) {
+            let eligible = summary
+                .ratings
+                .iter()
+                .filter(|r| filter.rating.as_ref().is_none_or(|v| v == &r.rating));
+            return Ok(Some(eligible.map(|r| r.eligible).sum()));
+        }
+        if filter.top.is_none() && filter.rating.is_none() {
+            return Ok(Some(match &filter.eligibility {
+                None => summary.input_count,
+                Some(value) => summary
+                    .eligibility_counts
+                    .get(&enum_text(value)?)
+                    .copied()
+                    .unwrap_or(0),
+            }));
+        }
+        Ok(None)
+    }
+    pub fn count_scan(&self, filter: &RankingFilter, from: u64, total: u64) -> Result<(u64, u64)> {
+        if from > total || total > i64::MAX as u64 {
+            return Err(Error::invalid("排名统计位置无效"));
+        }
+        let to = from.saturating_add(262_144).min(total);
+        let (predicate, mut values) = filter_sql(filter)?;
+        values.push(SqlValue::Integer(from as i64));
+        let lower = values.len();
+        values.push(SqlValue::Integer(to as i64));
+        let count = self.db.query_row(&format!("SELECT coalesce(sum(CASE WHEN ({predicate}) THEN 1 ELSE 0 END),0) FROM scores WHERE ordinal>=?{lower} AND ordinal<?{}", values.len()), rusqlite::params_from_iter(values), |r| unsigned(r,0)).map_err(db_error)?;
+        Ok((to, count))
     }
     pub fn filtered_count(&self, filter: &RankingFilter) -> Result<u64> {
         filter.validate()?;
-        let summary = self.meta::<RankingSummary>("summary")?;
-        if filter.top.is_none()
-            && filter.route.is_none()
-            && !filter.missing_only
-            && !filter.selected_only
-        {
-            if filter.eligibility == Some(RankingEligibility::Eligible) {
-                return Ok(summary
-                    .ratings
-                    .iter()
-                    .filter(|r| {
-                        filter
-                            .rating
-                            .as_ref()
-                            .is_none_or(|rating| rating == &r.rating)
-                    })
-                    .map(|r| r.eligible)
-                    .sum());
-            }
-            if filter.rating.is_none() {
-                return match &filter.eligibility {
-                    None => Ok(summary.input_count),
-                    Some(eligibility) => Ok(summary
-                        .eligibility_counts
-                        .get(&enum_text(eligibility)?)
-                        .copied()
-                        .unwrap_or(0)),
-                };
-            }
+        if let Some(count) = self.known_count(filter)? {
+            return Ok(count);
         }
+        let summary = self.meta::<RankingSummary>("summary")?;
         if filter.top.is_some() && filter.rating.is_none() {
             // Ranks exist only in the summary's eligible rating populations.
             // Constrain each rating so the expression index can seek to top N.

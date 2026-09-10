@@ -6,8 +6,10 @@ import type { AssetKey } from "@studio/contracts";
 
 const queryPolicy = {
   retry: (attempt: number, error: Error) =>
-    attempt < 2 && error instanceof StudioError && error.code === "SOURCE_BUSY",
-  retryDelay: 500,
+    error instanceof StudioError &&
+    (error.code === "SOURCE_INDEX_PREPARING" ||
+      (attempt < 2 && error.code === "SOURCE_BUSY")),
+  retryDelay: 800,
   staleTime: 15_000,
   gcTime: 30_000,
   refetchOnWindowFocus: false,

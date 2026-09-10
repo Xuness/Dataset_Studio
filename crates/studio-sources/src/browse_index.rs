@@ -120,7 +120,7 @@ impl BrowseIndex {
                 || path
                     .file_stem()
                     .and_then(|s| s.to_str())
-                    .is_none_or(|s| validate_id(s).is_err())
+                    .is_none_or(|s| validate_id(s.strip_suffix(".identity").unwrap_or(s)).is_err())
             {
                 continue;
             }

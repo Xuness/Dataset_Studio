@@ -252,7 +252,11 @@ function BrowserContent({
         preparation.current = page.preparing ? { key: requestKey, page } : null;
       return page;
     },
-    gcTime: 0,
+    gcTime: 60000,
+    staleTime:
+      ranked.active || scope.kind === "result" || scope.kind === "collection"
+        ? 60000
+        : 0,
     enabled: !ranked.loading,
     retry: 1,
     refetchInterval: (q) =>
@@ -355,7 +359,44 @@ function BrowserContent({
       setRefreshing(false);
     }
   }
-  const items = query.data?.items ?? [];
+  const pageItems = query.data?.items ?? [];
+  const pageKeys = pageItems.map((item) => item.key);
+  const summaries = useQuery({
+    queryKey: ["project", projectId, "asset-summaries", pageKeys],
+    queryFn: ({ signal }) => client.assetSummaries(projectId, pageKeys, signal),
+    enabled: pageKeys.length > 0 && !ranked.active && !query.data?.preparing,
+    staleTime: 15000,
+    gcTime: 0,
+    refetchInterval: (q) =>
+      q.state.status !== "error" && q.state.data?.preparing ? 800 : false,
+  });
+  const memberSelection = useQuery({
+    queryKey: [
+      "project",
+      projectId,
+      "selection-members",
+      selectionRevision,
+      pageKeys,
+    ],
+    queryFn: ({ signal }) =>
+      client.selectionMembers(projectId, pageKeys, signal),
+    enabled: pageKeys.length > 0 && !query.data?.preparing,
+    gcTime: 0,
+  });
+  const items = pageItems.map((item, index) => ({
+    ...item,
+    selected: memberSelection.data?.selected[index] ?? item.selected,
+    summary: summaries.data?.items[index]?.summary ?? item.summary ?? null,
+  }));
+  useEffect(() => {
+    const inactive = queryCache
+      .getQueryCache()
+      .findAll({ queryKey: ["project", projectId, "assets"] })
+      .filter((entry) => entry.getObserversCount() === 0)
+      .sort((a, b) => b.state.dataUpdatedAt - a.state.dataUpdatedAt);
+    for (const entry of inactive.slice(32))
+      queryCache.removeQueries({ queryKey: entry.queryKey, exact: true });
+  }, [queryCache, projectId, query.data]);
   const focusIndex = focus
     ? items.findIndex((a) => assetIdentity(a.key) === assetIdentity(focus.key))
     : -1;

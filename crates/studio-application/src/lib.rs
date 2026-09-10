@@ -65,6 +65,40 @@ pub trait MetadataAdapter: Send + Sync {
         observation_id: &str,
         version: &str,
     ) -> Result<RawMetadata>;
+
+    fn metadata_cancelled(
+        &self,
+        source: &Source,
+        asset_id: &str,
+        request: MetadataRequest,
+        cancelled: ReadCancellation,
+    ) -> Result<MetadataOverview> {
+        read_cancelled(&cancelled)?;
+        self.metadata(source, asset_id, request)
+    }
+    fn observations_cancelled(
+        &self,
+        source: &Source,
+        asset_id: &str,
+        record_id: &str,
+        request: MetadataRequest,
+        cancelled: ReadCancellation,
+    ) -> Result<ObservationPage> {
+        read_cancelled(&cancelled)?;
+        self.observations(source, asset_id, record_id, request)
+    }
+    fn raw_metadata_cancelled(
+        &self,
+        source: &Source,
+        asset_id: &str,
+        record_id: &str,
+        observation_id: &str,
+        version: &str,
+        cancelled: ReadCancellation,
+    ) -> Result<RawMetadata> {
+        read_cancelled(&cancelled)?;
+        self.raw_metadata(source, asset_id, record_id, observation_id, version)
+    }
 }
 
 /// Adapters stream bounded identity batches. The receiver owns deduplication and publication.

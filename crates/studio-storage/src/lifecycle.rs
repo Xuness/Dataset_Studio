@@ -270,7 +270,7 @@ impl SqliteStore {
             if view_open {
                 p.view_open.store(true, Ordering::Release);
             }
-            let db = p.db.lock().map_err(lock_error)?;
+            let db = p.read()?;
             let revision = db
                 .query_row(
                     "SELECT CAST(value AS INTEGER) FROM meta WHERE key='revision'",
@@ -358,10 +358,12 @@ impl SqliteStore {
         };
         let background = has_background(&db)?;
         self.registry.lock().map_err(lock_error)?.execute("INSERT INTO projects(id,directory,opened_at,summary,background_pending) VALUES (?1,?2,?3,?4,?5) ON CONFLICT(id) DO UPDATE SET directory=excluded.directory,opened_at=excluded.opened_at,summary=excluded.summary,background_pending=excluded.background_pending,issue=NULL",params![project.id,project.directory.to_string_lossy(),now(),serde_json::to_string(&project).map_err(Error::io)?,background]).map_err(db_error)?;
+        self.invalidate_query_sizes(&project.id);
         projects.insert(
             project.id.clone(),
             Arc::new(ProjectDb {
                 db: Mutex::new(db),
+                reads: Default::default(),
                 _lease: lease,
                 project: project.clone(),
                 view_open: AtomicBool::new(view_open),

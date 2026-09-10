@@ -49,7 +49,7 @@ impl SqliteStore {
     pub fn derived_fields(&self, pid: &str, source_id: &str) -> Result<Vec<FieldDefinition>> {
         self.source(pid, source_id)?;
         let p = self.handle(pid)?;
-        let db = p.db.lock().map_err(lock_error)?;
+        let db = p.read()?;
         let mut stmt=db.prepare("SELECT a.id FROM artifacts a WHERE a.kind='scalar_columns' AND a.status='ready' AND EXISTS(SELECT 1 FROM artifact_rows r WHERE r.artifact_id=a.id AND r.source_id=?1) ORDER BY a.created_at DESC,a.id DESC LIMIT 128").map_err(db_error)?;
         let ids = stmt
             .query_map([source_id], |r| r.get::<_, String>(0))
@@ -62,7 +62,7 @@ impl SqliteStore {
     }
     pub fn validate_derived(&self, pid: &str, spec: &QuerySpec) -> Result<()> {
         let p = self.handle(pid)?;
-        let db = p.db.lock().map_err(lock_error)?;
+        let db = p.read()?;
         let mut fields = Vec::new();
         let mut derived = spec.clone();
         derived.conditions.clear();
@@ -112,7 +112,7 @@ impl SqliteStore {
             return Ok(keys.to_vec());
         }
         let p = self.handle(pid)?;
-        let db = p.db.lock().map_err(lock_error)?;
+        let db = p.read()?;
         for (id, _) in &conditions {
             artifacts::require_scalar(&db, pid, id)?;
         }

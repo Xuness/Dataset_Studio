@@ -27,8 +27,12 @@ const fixture = JSON.parse(
 const engine = new EngineFixture(root, state);
 const checks = [],
   errors = [],
-  screenshots = [];
+  screenshots = [],
+  browseRequests = [];
 let browser, page, vite, base, artifact;
+// Four-member neighbour prefetch is independent of refreshing the displayed page.
+const displayedPageReads = () =>
+  browseRequests.filter((request) => request.limit > 4).length;
 async function shot(name) {
   if (
     name !== "failure" &&
@@ -195,6 +199,11 @@ try {
   );
   await context.route(engine.connection.endpoint + "/**", async (route) => {
     const request = route.request();
+    if (
+      request.method() === "POST" &&
+      request.url().endsWith("/ranking-browse/assets")
+    )
+      browseRequests.push(JSON.parse(request.postData()));
     const headers = { ...request.headers() };
     delete headers.host;
     delete headers.origin;
@@ -230,6 +239,26 @@ try {
   await shot("01-default-rankings");
   checks.push(
     "an existing workset with an old generic order opens in its saved ranking order and displays scores",
+  );
+
+  for (const limit of [12, 96, 48]) {
+    await page.getByLabel("每页数量").selectOption(String(limit));
+    await visible(main.slice(0, limit));
+  }
+  checks.push(
+    "page-size changes retain the saved ranking and display the correct first members",
+  );
+  await sleep(200);
+  const beforeSelection = displayedPageReads();
+  const firstThumb = page.locator(".asset-thumb").first();
+  await firstThumb.focus();
+  await firstThumb.press("Space");
+  await expect(page.locator(".asset-card.selected")).toHaveCount(1);
+  await firstThumb.press("Space");
+  await expect(page.locator(".asset-card.selected")).toHaveCount(0);
+  assert.equal(displayedPageReads(), beforeSelection);
+  checks.push(
+    "selecting and deselecting a card refreshes its state without rereading the displayed ranking page",
   );
 
   await page
@@ -420,6 +449,26 @@ try {
     "ranking:saved",
   );
   await shot("05-filtered-ranking");
+  for (const limit of [12, 96, 48]) {
+    await page.getByLabel("每页数量").selectOption(String(limit));
+    await expect(page.locator(".asset-card")).toHaveCount(limit, {
+      timeout: 30000,
+    });
+    await expect
+      .poll(() => page.locator(".asset-card .ranking-rating").allTextContents())
+      .toEqual(Array(limit).fill("G"));
+  }
+  await sleep(200);
+  const beforeFilteredSelection = displayedPageReads();
+  await page.locator(".asset-thumb").first().focus();
+  await page.locator(".asset-thumb").first().press("Space");
+  await expect(page.locator(".asset-card.selected")).toHaveCount(1);
+  await page.locator(".asset-thumb").first().press("Space");
+  await expect(page.locator(".asset-card.selected")).toHaveCount(0);
+  assert.equal(displayedPageReads(), beforeFilteredSelection);
+  checks.push(
+    "filtered G results preserve page sizes and selection changes do not restart member reads",
+  );
   await page.getByRole("button", { name: "清除筛选", exact: true }).click();
   await visible(main.slice(0, 48));
   checks.push(
@@ -434,6 +483,7 @@ try {
         checks,
         errors,
         screenshots,
+        ranking_browse_requests: browseRequests.length,
         workset: workset.id,
         anchor_post_id: targetId,
       },
@@ -447,7 +497,14 @@ try {
   await writeFile(
     resolve(run, "report.json"),
     JSON.stringify(
-      { passed: false, checks, errors, error: String(error), screenshots },
+      {
+        passed: false,
+        checks,
+        errors,
+        error: String(error),
+        screenshots,
+        browseRequests,
+      },
       null,
       2,
     ),

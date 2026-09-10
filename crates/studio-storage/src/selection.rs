@@ -1,5 +1,21 @@
 use crate::*;
 
+impl SqliteStore {
+    pub fn selection_members(&self, pid: &str, keys: &[AssetKey]) -> Result<(u64, Vec<bool>)> {
+        if keys.len() > 128 {
+            return Err(Error::invalid("选择检查最多 128 项"));
+        }
+        let project = self.handle(pid)?;
+        let db = project.read()?;
+        let revision = read(&db)?.revision;
+        let selected = keys
+            .iter()
+            .map(|key| contains(&db, key))
+            .collect::<Result<Vec<_>>>()?;
+        Ok((revision, selected))
+    }
+}
+
 // Explicit additions are disjoint from the base. Exclusions are a subset of it.
 // UNION also protects membership if a manually repaired project violates that invariant.
 pub(super) const MEMBERS: &str = "SELECT source_id,asset_id FROM selection UNION SELECT m.source_id,m.asset_id FROM result_members m WHERE m.result_id=(SELECT result_id FROM selection_base WHERE singleton=1) AND NOT EXISTS(SELECT 1 FROM selection_exclusions e WHERE e.source_id=m.source_id AND e.asset_id=m.asset_id)";

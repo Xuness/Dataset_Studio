@@ -53,8 +53,9 @@ with tarfile.open(LAKE / 'packs' / 'fixture.tar', 'w', format=tarfile.PAX_FORMAT
         images.append({'number': number, 'sha': sha, 'md5': hashlib.md5(payload).hexdigest(), 'member': member,
                        'width': width, 'height': height, 'bytes': len(payload)})
 with tarfile.open(LAKE / 'packs' / 'fixture.tar') as archive:
+    offsets = {member.name: member.offset_data for member in archive}
     for image in images:
-        image['offset'] = archive.getmember(image['member']).offset_data
+        image['offset'] = offsets[image['member']]
 catalog = sqlite3.connect(GEN / 'catalog.sqlite')
 catalog.executescript("CREATE TABLE state(key TEXT PRIMARY KEY,value INTEGER); INSERT INTO state VALUES('seq',1); CREATE TABLE objects(sha256 TEXT PRIMARY KEY,pack_path TEXT,offset INTEGER,length INTEGER,stored_ext TEXT) WITHOUT ROWID;")
 catalog.executemany("INSERT INTO objects VALUES(?,'packs/fixture.tar',?,?,'png')", [(i['sha'], i['offset'], i['bytes']) for i in images])

@@ -4,7 +4,7 @@ use utoipa::ToSchema;
 
 #[derive(Serialize, ToSchema)]
 pub struct AssetSummary {
-    /// available, unlinked, unavailable, or unsupported; unavailable is not unlinked.
+    /// available, unlinked, preparing, unavailable, or unsupported.
     pub status: String,
     pub post_ids: Vec<String>,
     pub post_count: Option<String>,
@@ -28,6 +28,16 @@ impl From<domain::AssetSummary> for AssetSummary {
     }
 }
 
+#[derive(Serialize, ToSchema)]
+pub struct AssetSummaryEntry {
+    pub key: AssetKey,
+    pub summary: AssetSummary,
+}
+#[derive(Serialize, ToSchema)]
+pub struct AssetSummaries {
+    pub items: Vec<AssetSummaryEntry>,
+    pub preparing: bool,
+}
 #[derive(Serialize, ToSchema)]
 pub struct ReadVersion {
     pub token: String,

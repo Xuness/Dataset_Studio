@@ -21,6 +21,12 @@ const stages: Record<
   string,
   { label: string; phase: number; unit?: string; detail: string }
 > = {
+  fixing_members: {
+    label: "保存任务输入",
+    phase: 0,
+    unit: "项",
+    detail: "正在保存本次输入范围。",
+  },
   waiting_input: {
     label: "确定输入范围",
     phase: 0,
@@ -182,7 +188,8 @@ export function jobPresentation(job: Job) {
   // Queued/retried jobs can still contain the previous attempt's stage.
   const usableStage =
     stage &&
-    !["queued", "waiting_input"].includes(job.status) &&
+    (stage.name === "fixing_members" ||
+      !["queued", "waiting_input"].includes(job.status)) &&
     !(
       job.status === "preparing" &&
       !stage.telemetry &&
@@ -194,9 +201,10 @@ export function jobPresentation(job: Job) {
   const measurable =
     succeeded ||
     (total > 0 &&
-      (ranking
-        ? !!definition?.unit
-        : job.input_members_frozen && job.status !== "queued"));
+      (stage?.name === "fixing_members" ||
+        (ranking
+          ? !!definition?.unit
+          : job.input_members_frozen && job.status !== "queued")));
   const percent = succeeded
     ? 100
     : measurable

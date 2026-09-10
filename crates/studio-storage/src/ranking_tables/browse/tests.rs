@@ -6,6 +6,63 @@ use std::sync::{
 };
 
 #[test]
+fn filtered_pages_seek_without_sorting_whole_groups_and_sparse_scans_remain_bounded() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/test-runs");
+    std::fs::create_dir_all(&root).unwrap();
+    let temp = tempfile::Builder::new()
+        .prefix("ranking-work-")
+        .tempdir_in(root)
+        .unwrap();
+    let table = RankingResultTable::create(&temp.path().join("scores.sqlite")).unwrap();
+    table.db.execute_batch("WITH RECURSIVE n(x) AS(VALUES(0) UNION ALL SELECT x+1 FROM n WHERE x<65535) INSERT INTO scores(ordinal,rating,eligibility,missing_flags,local_count,time_reason,artist_support,main_rank,rescue_rank,selected_route) SELECT x,'g','eligible','[]',8,'fixture',0,x+1,x+1,'ranked' FROM n").unwrap();
+    table
+        .finish(&RankingSummary {
+            input_count: 65536,
+            ..Default::default()
+        })
+        .unwrap();
+    let work = Arc::new(AtomicUsize::new(0));
+    let counter = work.clone();
+    table
+        .db
+        .progress_handler(
+            100,
+            Some(move || {
+                counter.fetch_add(100, AtomicOrdering::Relaxed);
+                false
+            }),
+        )
+        .unwrap();
+    let filter = RankingFilter {
+        eligibility: Some(RankingEligibility::Eligible),
+        ..Default::default()
+    };
+    let (page, next) = table.filtered_page(&filter, None, 48).unwrap();
+    assert_eq!(page.len(), 48);
+    assert!(next.is_some());
+    assert!(
+        work.load(AtomicOrdering::Relaxed) < 100_000,
+        "a page must not sort all 65536 rows"
+    );
+    work.store(0, AtomicOrdering::Relaxed);
+    let sparse = RankingFilter {
+        missing_only: true,
+        ..filter
+    };
+    let page = table
+        .browse_scan(&sparse, RankingOrder::Main, false, None, 512)
+        .unwrap();
+    assert_eq!(page.rows.len(), 512);
+    assert!(page.rows.iter().all(|(_, matches)| !matches));
+    assert!(
+        work.load(AtomicOrdering::Relaxed) < 100_000,
+        "sparse membership must not turn a scan batch into a full scan"
+    );
+    table.db.progress_handler(0, None::<fn() -> bool>).unwrap();
+    assert_eq!(table.count_scan(&sparse, 0, 65536).unwrap(), (65536, 0));
+}
+
+#[test]
 fn bidirectional_scans_keep_saved_membership_and_match_independent_sql() {
     let temp = tempfile::tempdir().unwrap();
     let mut table = RankingResultTable::create(&temp.path().join("scores.sqlite")).unwrap();

@@ -58,6 +58,8 @@ struct Cursor {
     state: Phase,
     start: Option<u64>,
     examined: u64,
+    #[serde(default)]
+    first_page: bool,
 }
 fn encode(cursor: &Cursor) -> domain::Result<String> {
     let raw = serde_json::to_vec(cursor).map_err(domain::Error::io)?;
@@ -190,15 +192,23 @@ impl Browse<'_> {
         cursor
             .start
             .map(|start| {
-                encode(&Cursor {
+                let raw = encode(&Cursor {
                     signature: self.signature.clone(),
                     start: Some(start),
                     examined: 0,
+                    first_page: true,
                     state: Phase::Browse {
                         after: Some(self.position(start)?),
                         pending: vec![start],
                     },
-                })
+                })?;
+                if cursor.first_page {
+                    self.state
+                        .ranking_reads
+                        .first_page_continuations
+                        .insert(raw.clone(), ());
+                }
+                Ok(raw)
             })
             .transpose()
     }
@@ -207,9 +217,16 @@ impl Browse<'_> {
             Phase::Seek { next_ordinal, .. } => *next_ordinal,
             _ => cursor.examined,
         };
+        let next_cursor = encode(cursor)?;
+        if cursor.first_page {
+            self.state
+                .ranking_reads
+                .first_page_continuations
+                .insert(next_cursor.clone(), ());
+        }
         Ok(AssetPage {
             items: Vec::new(),
-            next_cursor: Some(encode(cursor)?),
+            next_cursor: Some(next_cursor),
             revision: self.signature.clone(),
             preparing: Some(if seeking {
                 format!("正在定位 Danbooru #{}", self.post.unwrap_or(0))
@@ -225,6 +242,26 @@ impl Browse<'_> {
         })
     }
     fn finish(&self, mut cursor: Cursor, picked: Vec<u64>) -> domain::Result<AssetPage> {
+        let start_cursor = self.start_cursor(&cursor)?;
+        if cursor.first_page
+            && let Some(first) = picked.first()
+        {
+            let origin = Cursor {
+                signature: self.signature.clone(),
+                start: cursor.start,
+                examined: 0,
+                first_page: true,
+                state: Phase::Browse {
+                    after: Some(self.position(*first)?),
+                    pending: vec![*first],
+                },
+            };
+            self.state
+                .ranking_reads
+                .origins
+                .insert(self.signature.clone(), encode(&origin)?);
+        }
+        cursor.first_page = false;
         let more = picked.len() > self.limit;
         let shown = &picked[..picked.len().min(self.limit)];
         let next_cursor = if more {
@@ -283,7 +320,7 @@ impl Browse<'_> {
             preparing: None,
             result_id: None,
             scan: None,
-            start_cursor: self.start_cursor(&cursor)?,
+            start_cursor,
         })
     }
     fn small(&self, mut cursor: Cursor) -> domain::Result<AssetPage> {
@@ -501,20 +538,28 @@ pub(super) async fn assets(
                 ))
                 .map_err(domain::Error::io)?,
             ));
-            let cursor = if let Some(raw) = body.cursor {
+            let cached_origin = s.ranking_reads.origins.get(&signature);
+            let raw_cursor = body.cursor.or_else(|| cached_origin.clone());
+            let cursor = if let Some(raw) = raw_cursor {
                 if raw.len() > 16_384 {
                     return Err(domain::Error::invalid("排名游标过长"));
                 }
-                URL_SAFE_NO_PAD
-                    .decode(raw)
+                let mut cursor = URL_SAFE_NO_PAD
+                    .decode(&raw)
                     .ok()
                     .and_then(|raw| serde_json::from_slice::<Cursor>(&raw).ok())
-                    .ok_or_else(|| domain::Error::invalid("无效的排名浏览游标"))?
+                    .ok_or_else(|| domain::Error::invalid("无效的排名浏览游标"))?;
+                // Clients may seek with validated cursors, but cannot declare
+                // an arbitrary later member to be this range's cached origin.
+                cursor.first_page &= cached_origin.as_deref() == Some(raw.as_str())
+                    || s.ranking_reads.first_page_continuations.get(&raw).is_some();
+                cursor
             } else {
                 Cursor {
                     signature: signature.clone(),
                     start: None,
                     examined: 0,
+                    first_page: true,
                     state: if post.is_some() {
                         Phase::Seek {
                             next_ordinal: 0,

@@ -62,6 +62,33 @@ impl From<domain::AssetKey> for AssetKey {
         }
     }
 }
+#[derive(Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct AssetKeysRequest {
+    pub keys: Vec<AssetKey>,
+}
+#[derive(Serialize, ToSchema)]
+pub struct SelectionMembers {
+    pub revision: u64,
+    pub selected: Vec<bool>,
+}
+#[derive(Serialize, ToSchema)]
+pub struct MemberWriteProgress {
+    pub state: String,
+    pub completed: u64,
+    pub total: Option<u64>,
+    pub error: Option<String>,
+}
+impl From<domain::MemberWriteProgress> for MemberWriteProgress {
+    fn from(value: domain::MemberWriteProgress) -> Self {
+        Self {
+            state: value.state,
+            completed: value.completed,
+            total: value.total,
+            error: value.error,
+        }
+    }
+}
 #[derive(Serialize, ToSchema)]
 pub struct Asset {
     pub key: AssetKey,

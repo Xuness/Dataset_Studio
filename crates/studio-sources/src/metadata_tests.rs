@@ -12,7 +12,12 @@ struct Fixture {
     dll: PathBuf,
 }
 fn fixture() -> Fixture {
-    let root = tempfile::tempdir().unwrap();
+    let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/test-runs");
+    fs::create_dir_all(&base).unwrap();
+    let root = tempfile::Builder::new()
+        .prefix("metadata-")
+        .tempdir_in(base)
+        .unwrap();
     let source = Source {
         id: new_id(),
         name: "只读夹具".into(),
@@ -400,6 +405,117 @@ fn external_writer_helper() {
         let mut line = String::new();
         std::io::stdin().read_line(&mut line).unwrap();
     }
+}
+
+#[test]
+fn identity_index_preserves_full_record_links_and_updates_only_after_complete_refresh() {
+    use crate::IdentityIndex;
+    use std::sync::{Arc, atomic::AtomicBool};
+    let f = fixture();
+    {
+        let db = Session::fixture(&f.dll, &f.path).unwrap();
+        db.query("ALTER TABLE assets ADD COLUMN IF NOT EXISTS commit_seq BIGINT DEFAULT 1; ALTER TABLE observations ADD COLUMN IF NOT EXISTS commit_seq BIGINT DEFAULT 1; ALTER TABLE applied ADD COLUMN batch_id VARCHAR; UPDATE applied SET batch_id='one'; CREATE TABLE objects(sha256 VARCHAR,pack_path VARCHAR)").unwrap();
+    }
+    let index = Arc::new(IdentityIndex::new(f.root.path().join("identity-cache")));
+    let metadata = MetadataReader::new(f.dll.clone()).with_identity_index(index.clone());
+    let cached = index.reader(&f.source);
+    assert_eq!(cached.err().unwrap().code, "SOURCE_INDEX_PREPARING");
+    let before = fs::read(&f.path).unwrap();
+    index
+        .ensure(
+            &f.source,
+            1 << 30,
+            &f.root.path().join("query-temp"),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .unwrap();
+    assert_eq!(fs::read(&f.path).unwrap(), before);
+    for asset in [100, 200, 300] {
+        let key = hex(asset);
+        let expected = f
+            .reader
+            .metadata(&f.source, &key, MetadataRequest::default())
+            .unwrap();
+        let actual = metadata
+            .metadata(&f.source, &key, MetadataRequest::default())
+            .unwrap();
+        assert_eq!(
+            actual
+                .records
+                .iter()
+                .map(|r| &r.record_id)
+                .collect::<Vec<_>>(),
+            expected
+                .records
+                .iter()
+                .map(|r| &r.record_id)
+                .collect::<Vec<_>>()
+        );
+        let expected = f
+            .reader
+            .summaries(
+                &f.source,
+                std::slice::from_ref(&key),
+                Arc::new(AtomicBool::new(false)),
+            )
+            .unwrap();
+        let actual = metadata
+            .summaries(
+                &f.source,
+                std::slice::from_ref(&key),
+                Arc::new(AtomicBool::new(false)),
+            )
+            .unwrap();
+        assert_eq!(actual[0].post_ids, expected[0].post_ids);
+        assert_eq!(actual[0].post_count, expected[0].post_count);
+    }
+    {
+        let db = Session::fixture(&f.dll, &f.path).unwrap();
+        db.query(&format!("INSERT INTO assets(asset_id,sha256,post_id,commit_seq) VALUES('{}','{}',99999,2); INSERT INTO applied VALUES(2,'two')",hex(99999),hex(100))).unwrap();
+    }
+    let catalog = f.root.path().join("indexes/gen-test/catalog.sqlite");
+    rusqlite::Connection::open(&catalog)
+        .unwrap()
+        .execute("UPDATE state SET value=2 WHERE key='seq'", [])
+        .unwrap();
+    assert!(!index.is_current(&f.source).unwrap());
+    let target = f
+        .root
+        .path()
+        .join("identity-cache")
+        .join(format!("{}.identity.sqlite", f.source.id));
+    let before = fs::read(&target).unwrap();
+    assert_eq!(
+        index
+            .ensure(
+                &f.source,
+                1 << 30,
+                &f.root.path().join("query-temp"),
+                Arc::new(AtomicBool::new(true))
+            )
+            .unwrap_err()
+            .code,
+        "CANCELLED"
+    );
+    assert_eq!(fs::read(&target).unwrap(), before);
+    index
+        .ensure(
+            &f.source,
+            1 << 30,
+            &f.root.path().join("query-temp"),
+            Arc::new(AtomicBool::new(false)),
+        )
+        .unwrap();
+    let expected = f
+        .reader
+        .summaries(&f.source, &[hex(100)], Arc::new(AtomicBool::new(false)))
+        .unwrap();
+    let actual = metadata
+        .summaries(&f.source, &[hex(100)], Arc::new(AtomicBool::new(false)))
+        .unwrap();
+    assert_eq!(actual[0].post_count, expected[0].post_count);
+    assert_eq!(actual[0].post_ids, expected[0].post_ids);
+    assert!(index.is_current(&f.source).unwrap());
 }
 #[test]
 fn external_writer_is_reported_as_busy_and_release_allows_retry() {

@@ -8,6 +8,8 @@ mod query;
 pub use query::{ChangeAnchor, QueryReader};
 mod browse_index;
 pub use browse_index::{BrowseIndex, BrowseIndexReader, BrowseIndexStamp};
+mod identity_index;
+pub use identity_index::IdentityIndex;
 mod rating_cache;
 pub use rating_cache::{RATINGS, RatingCache, RatingCacheEntry, RatingCachePin, rating_candidates};
 pub mod duckdb_probe;

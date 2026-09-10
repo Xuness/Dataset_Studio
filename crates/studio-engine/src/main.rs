@@ -7,6 +7,7 @@ mod query_budget;
 mod query_cache;
 mod query_jobs;
 mod ranking;
+mod ranking_reads;
 mod tool_inputs;
 mod worker;
 use clap::{Parser, Subcommand};
@@ -160,8 +161,12 @@ async fn serve(root: PathBuf, port: u16, cache_dir: Option<PathBuf>) -> Result<(
         connection: connection.clone(),
         resources: resources.clone(),
         previews: previews.clone(),
-        metadata: Arc::new(studio_sources::MetadataReader::default()),
+        metadata: Arc::new(
+            studio_sources::MetadataReader::default()
+                .with_identity_index(queries.identity_index.clone()),
+        ),
         queries: queries.clone(),
+        ranking_reads: Arc::new(ranking_reads::RankingReadCache::default()),
         shutdown: shutdown_tx.clone(),
     };
     let token = connection.token.clone();
@@ -211,7 +216,25 @@ async fn serve(root: PathBuf, port: u16, cache_dir: Option<PathBuf>) -> Result<(
                     .headers()
                     .get("x-studio-read-id")
                     .and_then(|v| v.to_str().ok());
-                let _read_ticket = if request.method() == axum::http::Method::GET
+                let read_operation = request.method() == axum::http::Method::GET
+                    || (request.method() == axum::http::Method::POST
+                        && matches!(
+                            segments.as_slice(),
+                            ["", "v1", "projects", _, "ranking-browse", "assets"]
+                                | [
+                                    "",
+                                    "v1",
+                                    "projects",
+                                    _,
+                                    "artifacts",
+                                    _,
+                                    "ranking",
+                                    "rows" | "count"
+                                ]
+                                | ["", "v1", "projects", _, "selection", "members"]
+                                | ["", "v1", "projects", _, "assets", "summaries"]
+                        ));
+                let _read_ticket = if read_operation
                     && segments.len() >= 4
                     && segments[1..3] == ["v1", "projects"]
                     && studio_domain::validate_id(segments[3]).is_ok()
@@ -300,7 +323,7 @@ async fn serve(root: PathBuf, port: u16, cache_dir: Option<PathBuf>) -> Result<(
         Err(error) => tracing::warn!(%error,"background recovery unavailable"),
     });
     let preview_scheduler = tokio::spawn(previews.clone().run());
-    let scheduler = tokio::spawn(jobs::scheduler(store, resources));
+    let scheduler = tokio::spawn(jobs::scheduler(store.clone(), resources));
     tracing::info!(endpoint=%connection.endpoint,api_version=API_VERSION,"engine ready");
     let abort = scheduler.abort_handle();
     let query_shutdown = queries.clone();
@@ -310,6 +333,7 @@ async fn serve(root: PathBuf, port: u16, cache_dir: Option<PathBuf>) -> Result<(
             tokio::select!{_ = tokio::signal::ctrl_c()=>{let _=shutdown_tx.send(true);},_ = shutdown_rx.changed()=>{}}
             abort.abort();
             jobs::shutdown();
+            store.stop_member_writes();
             query_shutdown.shutdown();
             preview_shutdown.shutdown();
         })

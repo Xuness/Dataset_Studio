@@ -206,7 +206,7 @@ impl QueryRepository for SqliteStore {
     }
     fn query_definition(&self, pid: &str, id: &str) -> Result<QueryDefinition> {
         let p = self.handle(pid)?;
-        read_definition(&*p.db.lock().map_err(lock_error)?, pid, id)
+        read_definition(&*p.read()?, pid, id)
     }
     fn query_definitions(
         &self,
@@ -215,7 +215,7 @@ impl QueryRepository for SqliteStore {
         limit: usize,
     ) -> Result<Vec<QueryDefinition>> {
         let p = self.handle(pid)?;
-        let db = p.db.lock().map_err(lock_error)?;
+        let db = p.read()?;
         let ids = listed_ids(&db, "query_definitions", after, limit)?;
         ids.iter().map(|id| read_definition(&db, pid, id)).collect()
     }
@@ -253,7 +253,7 @@ impl QueryRepository for SqliteStore {
     }
     fn query_result(&self, pid: &str, id: &str) -> Result<QueryResult> {
         let p = self.handle(pid)?;
-        read_result(&*p.db.lock().map_err(lock_error)?, pid, id)
+        read_result(&*p.read()?, pid, id)
     }
     fn query_results(
         &self,
@@ -262,7 +262,7 @@ impl QueryRepository for SqliteStore {
         limit: usize,
     ) -> Result<Vec<QueryResult>> {
         let p = self.handle(pid)?;
-        let db = p.db.lock().map_err(lock_error)?;
+        let db = p.read()?;
         let ids = listed_ids(&db, "query_results", after, limit)?;
         ids.iter().map(|id| read_result(&db, pid, id)).collect()
     }
@@ -274,7 +274,7 @@ impl QueryRepository for SqliteStore {
         limit: usize,
     ) -> Result<ResultPage> {
         let p = self.handle(pid)?;
-        let db = p.db.lock().map_err(lock_error)?;
+        let db = p.read()?;
         let result = ready_result(&db, pid, id)?;
         let order = result.spec.order;
         if order.by_post() {
@@ -328,7 +328,6 @@ impl QueryRepository for SqliteStore {
         Ok(result)
     }
     fn release_result(&self, pid: &str, id: &str) -> Result<QueryResult> {
-        self.invalidate_query_sizes(pid);
         let p = self.handle(pid)?;
         let mut db = p.db.lock().map_err(lock_error)?;
         let tx = db.transaction().map_err(db_error)?;
@@ -456,7 +455,7 @@ pub(super) fn post_page(
 impl SqliteStore {
     pub fn next_result(&self, pid: &str) -> Result<Option<QueryResult>> {
         let p = self.handle(pid)?;
-        let db = p.db.lock().map_err(lock_error)?;
+        let db = p.read()?;
         let id: Option<String> = db
             .query_row(
                 "SELECT id FROM query_results WHERE status='queued' ORDER BY created_at,id LIMIT 1",
@@ -491,7 +490,6 @@ impl SqliteStore {
         keys: &[AssetKey],
         processed: u64,
     ) -> Result<()> {
-        self.invalidate_query_sizes(pid);
         if keys.len() > 512 || processed > 512 {
             return Err(Error::invalid("结果批次超过 512 行"));
         }
@@ -525,10 +523,12 @@ impl SqliteStore {
         )
         .map_err(db_error)?;
         tx.execute("UPDATE query_families SET stored_members=stored_members+?2 WHERE id=(SELECT family_id FROM query_results WHERE id=?1)",params![id,added as i64]).map_err(db_error)?;
+        if added > 0 {
+            crate::query_cache::touch_sizes(&tx)?;
+        }
         tx.commit().map_err(db_error)
     }
     pub fn finish_result(&self, pid: &str, id: &str, error: Option<&Error>) -> Result<QueryResult> {
-        self.invalidate_query_sizes(pid);
         let p = self.handle(pid)?;
         let mut db = p.db.lock().map_err(lock_error)?;
         let tx = db.transaction().map_err(db_error)?;
@@ -623,7 +623,7 @@ pub(super) fn clear_input_references(db: &Connection, id: &str) -> Result<()> {
 impl SqliteStore {
     pub fn query_input_count(&self, pid: &str, spec: &QuerySpec) -> Result<Option<u64>> {
         let p = self.handle(pid)?;
-        let db = p.db.lock().map_err(lock_error)?;
+        let db = p.read()?;
         Ok(validate_input(&db, pid, spec)?.map(|scope| scope.count))
     }
 
@@ -635,7 +635,7 @@ impl SqliteStore {
         after: Option<&str>,
     ) -> Result<Vec<AssetKey>> {
         let p = self.handle(pid)?;
-        let db = p.db.lock().map_err(lock_error)?;
+        let db = p.read()?;
         let scope = validate_input(&db, pid, spec)?
             .ok_or_else(|| Error::invalid("该查询没有固定的项目范围"))?;
         let mut stmt = db.prepare(&format!("SELECT source_id,asset_id FROM ({}) WHERE source_id=?1 AND asset_id>?2 ORDER BY asset_id LIMIT 512",scope.sql)).map_err(db_error)?;
@@ -668,7 +668,7 @@ impl SqliteStore {
             return Ok(keys.to_vec());
         }
         let p = self.handle(pid)?;
-        let db = p.db.lock().map_err(lock_error)?;
+        let db = p.read()?;
         let scope = validate_input(&db, pid, spec)?.expect("project scope validated");
         let mut stmt = db
             .prepare(&format!(

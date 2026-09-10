@@ -292,7 +292,7 @@ impl ManagementRepository for SqliteStore {
                 .replace('%', "\\%")
                 .replace('_', "\\_")
         );
-        let db = p.db.lock().map_err(lock_error)?;
+        let db = p.read()?;
         let mut stmt = db.prepare(&sql).map_err(db_error)?;
         let mut found = stmt
             .query_map(
@@ -335,7 +335,7 @@ impl ManagementRepository for SqliteStore {
     }
     fn object_details(&self, pid: &str, kind: ObjectKind, id: &str) -> Result<ObjectDetails> {
         let p = self.handle(pid)?;
-        let db = p.db.lock().map_err(lock_error)?;
+        let db = p.read()?;
         let object = read(&db, &p.project, kind, id)?;
         let incoming = crate::object_links::page(&db, pid, kind, id, true, None, 32)?;
         let outgoing = crate::object_links::page(&db, pid, kind, id, false, None, 32)?;
@@ -454,7 +454,7 @@ impl ManagementRepository for SqliteStore {
         limit: usize,
     ) -> Result<ObjectLinkPage> {
         let p = self.handle(pid)?;
-        let db = p.db.lock().map_err(lock_error)?;
+        let db = p.read()?;
         read(&db, &p.project, kind, id)?;
         crate::object_links::page(&db, pid, kind, id, incoming, after, limit)
     }

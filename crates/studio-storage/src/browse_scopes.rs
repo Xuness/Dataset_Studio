@@ -3,7 +3,7 @@ use crate::*;
 impl SqliteStore {
     pub fn browse_scope_count(&self, pid: &str, scope: &ScopeRef) -> Result<u64> {
         let p = self.handle(pid)?;
-        let db = p.db.lock().map_err(lock_error)?;
+        let db = p.read()?;
         Ok(scopes::resolve(&db, pid, scope)?.count)
     }
 
@@ -16,7 +16,7 @@ impl SqliteStore {
         descending: bool,
     ) -> Result<Vec<AssetKey>> {
         let p = self.handle(pid)?;
-        let db = p.db.lock().map_err(lock_error)?;
+        let db = p.read()?;
         let resolved = scopes::resolve(&db, pid, scope)?;
         if matches!(scope.target, ScopeTarget::Selection { .. }) {
             return selection::keys_ordered(&db, after, limit, descending);
@@ -49,7 +49,7 @@ impl SqliteStore {
             return Err(Error::invalid("范围检查批次超过 512 项"));
         }
         let p = self.handle(pid)?;
-        let db = p.db.lock().map_err(lock_error)?;
+        let db = p.read()?;
         let resolved = scopes::resolve(&db, pid, scope)?;
         if matches!(scope.target, ScopeTarget::Selection { .. }) {
             return keys

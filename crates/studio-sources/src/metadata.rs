@@ -8,18 +8,25 @@ use serde::{Deserialize, Serialize};
 #[cfg(test)]
 use std::path::Path;
 use std::path::PathBuf;
-use studio_application::MetadataAdapter;
+use std::sync::{Arc, atomic::AtomicBool};
+use studio_application::{MetadataAdapter, ReadCancellation, read_cancelled};
 use studio_domain::*;
 
 #[derive(Default)]
 pub struct MetadataReader {
     runtime: Runtime,
+    identity_index: Option<Arc<crate::IdentityIndex>>,
 }
 impl MetadataReader {
     pub fn new(dll: PathBuf) -> Self {
         Self {
             runtime: Runtime::new(dll),
+            identity_index: None,
         }
+    }
+    pub fn with_identity_index(mut self, index: Arc<crate::IdentityIndex>) -> Self {
+        self.identity_index = Some(index);
+        self
     }
     pub fn freeze_origin_width(
         &self,
@@ -107,6 +114,22 @@ impl ReadSession {
         asset: &str,
         expected: Option<&str>,
     ) -> Result<Self> {
+        Self::open_cancelled(
+            reader,
+            source,
+            asset,
+            expected,
+            Arc::new(AtomicBool::new(false)),
+        )
+    }
+    fn open_cancelled(
+        reader: &MetadataReader,
+        source: &Source,
+        asset: &str,
+        expected: Option<&str>,
+        cancelled: ReadCancellation,
+    ) -> Result<Self> {
+        read_cancelled(&cancelled)?;
         if source.kind != "danbooru" {
             return Err(Error::new(
                 "METADATA_UNSUPPORTED",
@@ -118,7 +141,7 @@ impl ReadSession {
         catalog.asset(source, asset)?;
         let db = reader
             .runtime
-            .open(&catalog.analysis_path().map_err(source_error)?)?;
+            .open_metadata(&catalog.analysis_path().map_err(source_error)?, cancelled)?;
         db.query("BEGIN TRANSACTION")?;
         let applied = db.query("SELECT CAST(MAX(seq) AS VARCHAR) FROM applied")?;
         let seq = applied
@@ -304,6 +327,12 @@ impl MetadataAdapter for MetadataReader {
         asset_ids: &[String],
         cancelled: studio_application::ReadCancellation,
     ) -> Result<Vec<AssetSummary>> {
+        read_cancelled(&cancelled)?;
+        if source.kind == "danbooru"
+            && let Some(index) = &self.identity_index
+        {
+            return index.reader(source)?.summaries(&source.id, asset_ids);
+        }
         if source.kind != "danbooru" {
             return Err(Error::new("METADATA_UNSUPPORTED", "该来源没有帖子身份摘要"));
         }
@@ -377,6 +406,16 @@ impl MetadataAdapter for MetadataReader {
         asset: &str,
         request: MetadataRequest,
     ) -> Result<MetadataOverview> {
+        self.metadata_cancelled(source, asset, request, Arc::new(AtomicBool::new(false)))
+    }
+    fn metadata_cancelled(
+        &self,
+        source: &Source,
+        asset: &str,
+        request: MetadataRequest,
+        cancelled: ReadCancellation,
+    ) -> Result<MetadataOverview> {
+        read_cancelled(&cancelled)?;
         if source.kind == "demo" {
             let n = demo_number(asset)?;
             let version = demo_version(source, &request)?;
@@ -399,19 +438,47 @@ impl MetadataAdapter for MetadataReader {
                 version,
             });
         }
-        let session = ReadSession::open(self, source, asset, request.version.as_deref())?;
+        let session = ReadSession::open_cancelled(
+            self,
+            source,
+            asset,
+            request.version.as_deref(),
+            cancelled,
+        )?;
         let limit = request.limit.unwrap_or(20).clamp(1, 50);
         let after = after(&request, source, asset, None, &session.version)?;
         if let Some(value) = &after {
             sha(value)?;
         }
-        let rows=session.db.query(&format!("SELECT asset_id,observation_id,CAST(post_id AS VARCHAR),source_md5,storage_profile FROM assets WHERE sha256={} AND asset_id>{} ORDER BY asset_id LIMIT {}",quote(asset),quote(after.as_deref().unwrap_or("")),limit+1))?;
-        let more = rows.len() > limit;
-        let records = rows
-            .iter()
-            .take(limit)
-            .map(|r| record(r))
-            .collect::<Result<Vec<_>>>()?;
+        let (records, more) = if let Some(index) = &self.identity_index {
+            let reader = index.reader(source)?;
+            if reader.generation != session.catalog.generation
+                || reader.sequence != session.catalog.sequence
+            {
+                return Err(Error::new(
+                    "SOURCE_CHANGED",
+                    "身份索引版本已变化，请刷新元数据",
+                ));
+            }
+            let ids = reader.record_ids(asset, after.as_deref(), limit + 1)?;
+            let more = ids.len() > limit;
+            let records = ids
+                .iter()
+                .take(limit)
+                .map(|id| session.record(asset, id))
+                .collect::<Result<Vec<_>>>()?;
+            (records, more)
+        } else {
+            let rows=session.db.query(&format!("SELECT asset_id,observation_id,CAST(post_id AS VARCHAR),source_md5,storage_profile FROM assets WHERE sha256={} AND asset_id>{} ORDER BY asset_id LIMIT {}",quote(asset),quote(after.as_deref().unwrap_or("")),limit+1))?;
+            let more = rows.len() > limit;
+            (
+                rows.iter()
+                    .take(limit)
+                    .map(|r| record(r))
+                    .collect::<Result<Vec<_>>>()?,
+                more,
+            )
+        };
         let next_cursor = if more {
             Some(next(
                 source,
@@ -442,6 +509,23 @@ impl MetadataAdapter for MetadataReader {
         record_id: &str,
         request: MetadataRequest,
     ) -> Result<ObservationPage> {
+        self.observations_cancelled(
+            source,
+            asset,
+            record_id,
+            request,
+            Arc::new(AtomicBool::new(false)),
+        )
+    }
+    fn observations_cancelled(
+        &self,
+        source: &Source,
+        asset: &str,
+        record_id: &str,
+        request: MetadataRequest,
+        cancelled: ReadCancellation,
+    ) -> Result<ObservationPage> {
+        read_cancelled(&cancelled)?;
         if source.kind == "demo" {
             let n = demo_number(asset)?;
             let version = demo_version(source, &request)?;
@@ -476,7 +560,13 @@ impl MetadataAdapter for MetadataReader {
                 version,
             });
         }
-        let session = ReadSession::open(self, source, asset, request.version.as_deref())?;
+        let session = ReadSession::open_cancelled(
+            self,
+            source,
+            asset,
+            request.version.as_deref(),
+            cancelled,
+        )?;
         let record = session.record(asset, record_id)?;
         let limit = request.limit.unwrap_or(10).clamp(1, 10);
         let after = after(&request, source, asset, Some(record_id), &session.version)?;
@@ -551,6 +641,25 @@ impl MetadataAdapter for MetadataReader {
         observation_id: &str,
         version: &str,
     ) -> Result<RawMetadata> {
+        self.raw_metadata_cancelled(
+            source,
+            asset,
+            record_id,
+            observation_id,
+            version,
+            Arc::new(AtomicBool::new(false)),
+        )
+    }
+    fn raw_metadata_cancelled(
+        &self,
+        source: &Source,
+        asset: &str,
+        record_id: &str,
+        observation_id: &str,
+        version: &str,
+        cancelled: ReadCancellation,
+    ) -> Result<RawMetadata> {
+        read_cancelled(&cancelled)?;
         if source.kind == "demo" {
             demo_number(asset)?;
             let version = demo_version(
@@ -574,7 +683,7 @@ impl MetadataAdapter for MetadataReader {
             });
         }
         sha(observation_id)?;
-        let session = ReadSession::open(self, source, asset, Some(version))?;
+        let session = ReadSession::open_cancelled(self, source, asset, Some(version), cancelled)?;
         let record = session.record(asset, record_id)?;
         if session
             .db

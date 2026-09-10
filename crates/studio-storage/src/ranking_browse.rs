@@ -6,7 +6,7 @@ impl SqliteStore {
     pub fn ranked_scope(&self, pid: &str, scope: &ScopeRef) -> Result<Option<RankedScope>> {
         scope.validate_project(pid)?;
         let project = self.handle(pid)?;
-        let db = project.db.lock().map_err(lock_error)?;
+        let db = project.read()?;
         let mut target = scope.target.clone();
         let mut count = None;
         for _ in 0..16 {

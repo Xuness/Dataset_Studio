@@ -27,3 +27,10 @@ pub struct ProjectClose {
     pub project_id: String,
     pub state: ProjectState,
 }
+#[derive(Debug, Clone)]
+pub struct MemberWriteProgress {
+    pub state: String,
+    pub completed: u64,
+    pub total: Option<u64>,
+    pub error: Option<String>,
+}

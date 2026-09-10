@@ -98,16 +98,41 @@ struct Manifest {
 }
 struct ProjectDb {
     db: Mutex<Connection>,
+    reads: read_pool::ReadPool,
     _lease: File,
     project: Project,
     view_open: AtomicBool,
     background: AtomicBool,
 }
+mod member_writes;
+mod read_pool;
+impl ProjectDb {
+    fn read(&self) -> Result<read_pool::ReadGuard<'_>> {
+        self.reads
+            .read(&self.project.directory.join("project.sqlite"))
+    }
+    fn write_cancelled(
+        &self,
+        cancelled: &AtomicBool,
+    ) -> Result<std::sync::MutexGuard<'_, Connection>> {
+        loop {
+            studio_application::read_cancelled(cancelled)?;
+            match self.db.try_lock() {
+                Ok(db) => return Ok(db),
+                Err(std::sync::TryLockError::WouldBlock) => {
+                    std::thread::sleep(std::time::Duration::from_millis(20))
+                }
+                Err(error) => return Err(Error::new("INTERNAL_ERROR", error.to_string())),
+            }
+        }
+    }
+}
 pub struct SqliteStore {
     root: PathBuf,
     registry: Mutex<Connection>,
     projects: Mutex<HashMap<String, Arc<ProjectDb>>>,
-    query_sizes: Mutex<HashMap<String, (u64, u64)>>,
+    query_sizes: Mutex<HashMap<String, query_cache::QuerySizes>>,
+    member_writes: member_writes::MemberWrites,
 }
 impl SqliteStore {
     pub fn new(root: PathBuf) -> Result<Self> {
@@ -121,6 +146,7 @@ impl SqliteStore {
             registry: Mutex::new(db),
             projects: Mutex::new(HashMap::new()),
             query_sizes: Mutex::new(HashMap::new()),
+            member_writes: Default::default(),
         })
     }
     pub fn root(&self) -> &Path {
@@ -139,7 +165,7 @@ impl SqliteStore {
     pub fn source(&self, project_id: &str, source_id: &str) -> Result<Source> {
         {
             let p = self.handle(project_id)?;
-            if management::removed(&*p.db.lock().map_err(lock_error)?, "source", source_id)? {
+            if management::removed(&*p.read()?, "source", source_id)? {
                 return Err(Error::new(
                     "SOURCE_DETACHED",
                     "此数据湖已取消与项目的关联，请在管理面板重新关联后读取图片",
@@ -153,7 +179,7 @@ impl SqliteStore {
     }
     pub fn contains(&self, project_id: &str, keys: &[AssetKey]) -> Result<Vec<bool>> {
         let p = self.handle(project_id)?;
-        let db = p.db.lock().map_err(lock_error)?;
+        let db = p.read()?;
         keys.iter()
             .map(|key| selection::contains(&db, key))
             .collect()
@@ -166,7 +192,7 @@ impl SqliteStore {
         limit: usize,
     ) -> Result<Vec<AssetKey>> {
         let p = self.handle(project_id)?;
-        let db = p.db.lock().map_err(lock_error)?;
+        let db = p.read()?;
         let (source, asset) = after
             .map(|a| (a.source_id.as_str(), a.asset_id.as_str()))
             .unwrap_or(("", ""));
@@ -290,7 +316,7 @@ impl SqliteStore {
     }
     pub fn jobs(&self, project_id: &str) -> Result<Vec<Job>> {
         let p = self.handle(project_id)?;
-        let db = p.db.lock().map_err(lock_error)?;
+        let db = p.read()?;
         let mut stmt = db
             .prepare("SELECT id FROM jobs WHERE NOT EXISTS(SELECT 1 FROM object_metadata m WHERE m.kind='job' AND m.id=jobs.id AND m.deleted=1) ORDER BY (status='running') DESC,(status='preparing') DESC,(status IN ('queued','waiting_input')) DESC,created_at DESC LIMIT 200")
             .map_err(db_error)?;
@@ -299,12 +325,14 @@ impl SqliteStore {
             .map_err(db_error)?
             .collect::<std::result::Result<Vec<_>, _>>()
             .map_err(db_error)?;
-        ids.iter().map(|id| read_job(&db, project_id, id)).collect()
+        ids.iter()
+            .map(|id| read_job(&db, project_id, id).map(|job| self.annotate_member_write(job)))
+            .collect()
     }
     pub fn job(&self, project_id: &str, id: &str) -> Result<Job> {
         validate_id(id)?;
         let p = self.handle(project_id)?;
-        read_job(&*p.db.lock().map_err(lock_error)?, project_id, id)
+        read_job(&*p.read()?, project_id, id).map(|job| self.annotate_member_write(job))
     }
     pub fn job_delay(&self, project_id: &str, id: &str) -> Result<u64> {
         let p = self.handle(project_id)?;
@@ -342,7 +370,7 @@ impl SqliteStore {
     }
     pub fn scheduled_jobs(&self, project_id: &str, recovery: bool) -> Result<Vec<Job>> {
         let p = self.handle(project_id)?;
-        let db = p.db.lock().map_err(lock_error)?;
+        let db = p.read()?;
         let sql = if recovery {
             "SELECT id FROM jobs WHERE status IN ('running','preparing') ORDER BY created_at"
         } else {
@@ -358,7 +386,7 @@ impl SqliteStore {
     }
     pub fn latest_event(&self, project_id: &str) -> Result<u64> {
         let p = self.handle(project_id)?;
-        let db = p.db.lock().map_err(lock_error)?;
+        let db = p.read()?;
         db.query_row("SELECT COALESCE(MAX(sequence),0) FROM events", [], |r| {
             unsigned(r, 0)
         })
@@ -433,7 +461,7 @@ impl ProjectRepository for SqliteStore {
     }
     fn project(&self, id: &str) -> Result<Project> {
         let p = self.handle(id)?;
-        let db = p.db.lock().map_err(lock_error)?;
+        let db = p.read()?;
         let revision = db
             .query_row(
                 "SELECT CAST(value AS INTEGER) FROM meta WHERE key='revision'",
@@ -477,7 +505,7 @@ impl ProjectRepository for SqliteStore {
     fn sources(&self, project_id: &str) -> Result<Vec<Source>> {
         let p = self.handle(project_id)?;
         let rows = {
-            let db = p.db.lock().map_err(lock_error)?;
+            let db = p.read()?;
             let mut stmt = db
                 .prepare("SELECT s.json,m.name FROM sources s LEFT JOIN object_metadata m ON m.kind='source' AND m.id=s.id WHERE COALESCE(m.deleted,0)=0 ORDER BY s.id")
                 .map_err(db_error)?;
@@ -521,7 +549,7 @@ impl ProjectRepository for SqliteStore {
     }
     fn selection(&self, project_id: &str) -> Result<Selection> {
         let p = self.handle(project_id)?;
-        selection::read(&*p.db.lock().map_err(lock_error)?)
+        selection::read(&*p.read()?)
     }
     fn selection_keys(
         &self,
@@ -543,7 +571,7 @@ impl ProjectRepository for SqliteStore {
     }
     fn collections(&self, project_id: &str) -> Result<Vec<Collection>> {
         let p = self.handle(project_id)?;
-        let db = p.db.lock().map_err(lock_error)?;
+        let db = p.read()?;
         let mut stmt = db
             .prepare("SELECT c.id,COALESCE(m.name,c.name),c.count FROM collections c LEFT JOIN object_metadata m ON m.kind='workset' AND m.id=c.id ORDER BY c.rowid")
             .map_err(db_error)?;
@@ -583,7 +611,7 @@ impl ProjectRepository for SqliteStore {
     }
     fn events(&self, project_id: &str, after: u64) -> Result<Vec<ProjectEvent>> {
         let p = self.handle(project_id)?;
-        let db = p.db.lock().map_err(lock_error)?;
+        let db = p.read()?;
         let mut stmt=db.prepare("SELECT sequence,kind,resource_id FROM events WHERE sequence>?1 ORDER BY sequence LIMIT 64").map_err(db_error)?;
         stmt.query_map([after.min(i64::MAX as u64) as i64], |r| {
             Ok(ProjectEvent {

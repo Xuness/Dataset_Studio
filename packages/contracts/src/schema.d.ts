@@ -207,6 +207,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{project_id}/artifacts/{artifact_id}/ranking/count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["ranking_count"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects/{project_id}/artifacts/{artifact_id}/ranking/evidence": {
         parameters: {
             query?: never;
@@ -313,6 +329,22 @@ export interface paths {
         get: operations["assets"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/assets/summaries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["asset_summaries"];
         delete?: never;
         options?: never;
         head?: never;
@@ -521,6 +553,38 @@ export interface paths {
         get: operations["run"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/member-writes/{operation_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["member_write_progress"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/member-writes/{operation_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["cancel_member_write"];
         delete?: never;
         options?: never;
         head?: never;
@@ -953,6 +1017,22 @@ export interface paths {
         get: operations["history"];
         put?: never;
         post: operations["restore"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/selection/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["selection_members"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1401,6 +1481,9 @@ export interface components {
             asset_id: string;
             source_id: string;
         };
+        AssetKeysRequest: {
+            keys: components["schemas"]["AssetKey"][];
+        };
         AssetPage: {
             items: components["schemas"]["Asset"][];
             next_cursor?: string | null;
@@ -1434,13 +1517,21 @@ export interface components {
             source_md5?: string | null;
             storage_profile?: string | null;
         };
+        AssetSummaries: {
+            items: components["schemas"]["AssetSummaryEntry"][];
+            preparing: boolean;
+        };
         AssetSummary: {
             issue?: string | null;
             post_count?: string | null;
             post_ids: string[];
-            /** @description available, unlinked, unavailable, or unsupported; unavailable is not unlinked. */
+            /** @description available, unlinked, preparing, unavailable, or unsupported. */
             status: string;
             version?: string | null;
+        };
+        AssetSummaryEntry: {
+            key: components["schemas"]["AssetKey"];
+            summary: components["schemas"]["AssetSummary"];
         };
         AttachSource: {
             index_root?: string | null;
@@ -1716,6 +1807,14 @@ export interface components {
         };
         MaybePreference: {
             preference?: null | components["schemas"]["Preference"];
+        };
+        MemberWriteProgress: {
+            /** Format: int64 */
+            completed: number;
+            error?: string | null;
+            state: string;
+            /** Format: int64 */
+            total?: number | null;
         };
         MetadataField: {
             missing_reason?: string | null;
@@ -2133,6 +2232,17 @@ export interface components {
             /** @description Exact frozen Danbooru post ID; the located row is included as the first item. */
             start_post_id?: string | null;
         };
+        RankingCount: {
+            /** Format: int64 */
+            count?: number | null;
+            /** Format: int64 */
+            scanned: number;
+            /** Format: int64 */
+            total: number;
+        };
+        RankingCountRequest: {
+            filter: components["schemas"]["RankingFilter"];
+        };
         /** @enum {string} */
         RankingEligibility: "eligible" | "metadata_unavailable" | "rating_unknown" | "rating_excluded" | "dimensions_unknown" | "dimensions_excluded" | "policy_excluded" | "duplicate";
         RankingEvidence: {
@@ -2211,6 +2321,8 @@ export interface components {
             count?: number | null;
             items: components["schemas"]["RankingRow"][];
             next_cursor?: string | null;
+            preparing?: string | null;
+            scan?: null | components["schemas"]["BrowseScan"];
         };
         RankingPageRequest: {
             cursor?: string | null;
@@ -2531,6 +2643,11 @@ export interface components {
             excluded_count: number;
             /** Format: int64 */
             revision: number;
+        };
+        SelectionMembers: {
+            /** Format: int64 */
+            revision: number;
+            selected: boolean[];
         };
         SetCacheQuota: {
             /** Format: int32 */
@@ -2945,6 +3062,32 @@ export interface operations {
             };
         };
     };
+    ranking_count: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RankingCountRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RankingCount"];
+                };
+            };
+        };
+    };
     ranking_evidence: {
         parameters: {
             query?: never;
@@ -3112,6 +3255,31 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AssetPage"];
+                };
+            };
+        };
+    };
+    asset_summaries: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssetKeysRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssetSummaries"];
                 };
             };
         };
@@ -3482,6 +3650,50 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["JobRun"];
+                };
+            };
+        };
+    };
+    member_write_progress: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                operation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MemberWriteProgress"];
+                };
+            };
+        };
+    };
+    cancel_member_write: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                operation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
                 };
             };
         };
@@ -4308,6 +4520,31 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HistoryStatus"];
+                };
+            };
+        };
+    };
+    selection_members: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssetKeysRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SelectionMembers"];
                 };
             };
         };

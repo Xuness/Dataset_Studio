@@ -38,6 +38,7 @@ pub struct AppState {
     pub previews: Arc<crate::previews::PreviewService>,
     pub metadata: Arc<studio_sources::MetadataReader>,
     pub queries: Arc<crate::query_jobs::QueryRunner>,
+    pub ranking_reads: Arc<crate::ranking_reads::RankingReadCache>,
     pub shutdown: tokio::sync::watch::Sender<bool>,
 }
 #[derive(Clone)]
@@ -80,6 +81,7 @@ impl IntoResponse for Failure {
             | "PROJECT_ID_CONFLICT"
             | "IDEMPOTENCY_CONFLICT" => StatusCode::CONFLICT,
             "SOURCE_BUSY"
+            | "SOURCE_INDEX_PREPARING"
             | "SOURCE_UNAVAILABLE"
             | "METADATA_RUNTIME_UNAVAILABLE"
             | "READ_BUDGET_EXCEEDED"
@@ -306,7 +308,7 @@ fn enrich_summaries(
             continue;
         }
         let result = (|| {
-            let _permit = read_permit(s, domain::ReadClass::NativeQuery, context)?;
+            prepare_metadata(s, &source)?;
             s.metadata
                 .summaries(&source, &ids, context.cancelled.clone())
         })();
@@ -324,7 +326,12 @@ fn enrich_summaries(
             Err(e) => {
                 for item in items.iter_mut().filter(|item| item.key.source_id == sid) {
                     item.summary = Some(AssetSummary {
-                        status: "unavailable".into(),
+                        status: if e.code == "SOURCE_INDEX_PREPARING" {
+                            "preparing"
+                        } else {
+                            "unavailable"
+                        }
+                        .into(),
                         post_ids: Vec::new(),
                         post_count: None,
                         version: None,
@@ -336,6 +343,70 @@ fn enrich_summaries(
     }
     Ok(())
 }
+fn prepare_metadata(s: &AppState, source: &domain::Source) -> domain::Result<()> {
+    if !s.queries.prepare_identity_index(source)? {
+        return Err(domain::Error::new(
+            "SOURCE_INDEX_PREPARING",
+            "正在准备图片身份索引，完成后会自动显示帖子信息",
+        ));
+    }
+    Ok(())
+}
+#[utoipa::path(post,path="/v1/projects/{project_id}/assets/summaries",operation_id="asset_summaries",params(("project_id"=String,Path)),request_body=AssetKeysRequest,responses((status=200,body=AssetSummaries)))]
+async fn asset_summaries(
+    State(s): State<AppState>,
+    Extension(read): Extension<RequestReadContext>,
+    Path(pid): Path<String>,
+    Body(body): Body<AssetKeysRequest>,
+) -> ApiResult<AssetSummaries> {
+    Ok(Json(
+        blocking(move || {
+            if body.keys.len() > 128 {
+                return Err(domain::Error::invalid("身份摘要最多 128 项"));
+            }
+            let _permit = read_permit(&s, domain::ReadClass::Index, &read)?;
+            let mut items = body
+                .keys
+                .into_iter()
+                .map(|key| {
+                    Asset::from_domain(
+                        domain::Asset {
+                            key: key.into(),
+                            name: String::new(),
+                            bytes: 0,
+                            extension: String::new(),
+                            source_name: String::new(),
+                        },
+                        false,
+                    )
+                })
+                .collect::<Vec<_>>();
+            enrich_summaries(&s, &pid, &read, &mut items)?;
+            let preparing = items.iter().any(|item| {
+                item.summary
+                    .as_ref()
+                    .is_some_and(|v| v.status == "preparing")
+            });
+            Ok(AssetSummaries {
+                items: items
+                    .into_iter()
+                    .map(|item| AssetSummaryEntry {
+                        key: item.key,
+                        summary: item.summary.unwrap_or(AssetSummary {
+                            status: "unsupported".into(),
+                            post_ids: Vec::new(),
+                            post_count: None,
+                            version: None,
+                            issue: None,
+                        }),
+                    })
+                    .collect(),
+                preparing,
+            })
+        })
+        .await?,
+    ))
+}
 #[utoipa::path(get,path="/v1/projects/{project_id}/sources/{source_id}/assets/{asset_id}/metadata",params(("project_id"=String,Path),("source_id"=String,Path),("asset_id"=String,Path),("cursor"=Option<String>,Query),("limit"=Option<usize>,Query),("version"=Option<String>,Query)),responses((status=200,body=MetadataOverview),(status=409,body=ApiError),(status=503,body=ApiError)))]
 async fn metadata(
     State(s): State<AppState>,
@@ -345,9 +416,12 @@ async fn metadata(
 ) -> ApiResult<MetadataOverview> {
     Ok(Json(
         blocking(move || {
-            let _permit = read_permit(&s, domain::ReadClass::NativeQuery, &read_context)?;
             let source = s.store.source(&pid, &sid)?;
-            s.metadata.metadata(&source, &aid, q.into()).map(Into::into)
+            prepare_metadata(&s, &source)?;
+            let _permit = read_permit(&s, domain::ReadClass::NativeQuery, &read_context)?;
+            s.metadata
+                .metadata_cancelled(&source, &aid, q.into(), read_context.cancelled)
+                .map(Into::into)
         })
         .await?,
     ))
@@ -361,10 +435,11 @@ async fn observations(
 ) -> ApiResult<ObservationPage> {
     Ok(Json(
         blocking(move || {
-            let _permit = read_permit(&s, domain::ReadClass::NativeQuery, &read_context)?;
             let source = s.store.source(&pid, &sid)?;
+            prepare_metadata(&s, &source)?;
+            let _permit = read_permit(&s, domain::ReadClass::NativeQuery, &read_context)?;
             s.metadata
-                .observations(&source, &aid, &rid, q.into())
+                .observations_cancelled(&source, &aid, &rid, q.into(), read_context.cancelled)
                 .map(Into::into)
         })
         .await?,
@@ -379,10 +454,18 @@ async fn raw_metadata(
 ) -> ApiResult<RawMetadata> {
     Ok(Json(
         blocking(move || {
-            let _permit = read_permit(&s, domain::ReadClass::NativeQuery, &read_context)?;
             let source = s.store.source(&pid, &sid)?;
+            prepare_metadata(&s, &source)?;
+            let _permit = read_permit(&s, domain::ReadClass::NativeQuery, &read_context)?;
             s.metadata
-                .raw_metadata(&source, &aid, &rid, &oid, &q.version)
+                .raw_metadata_cancelled(
+                    &source,
+                    &aid,
+                    &rid,
+                    &oid,
+                    &q.version,
+                    read_context.cancelled,
+                )
                 .map(Into::into)
         })
         .await?,
@@ -970,6 +1053,42 @@ async fn media(
 async fn selection(State(s): State<AppState>, Path(id): Path<String>) -> ApiResult<Selection> {
     Ok(Json(blocking(move || s.store.selection(&id)).await?.into()))
 }
+#[utoipa::path(get,path="/v1/projects/{project_id}/member-writes/{operation_id}",operation_id="member_write_progress",params(("project_id"=String,Path),("operation_id"=String,Path)),responses((status=200,body=MemberWriteProgress)))]
+async fn member_write_progress(
+    State(s): State<AppState>,
+    Path((pid, id)): Path<(String, String)>,
+) -> ApiResult<MemberWriteProgress> {
+    Ok(Json(s.store.member_write_progress(&pid, &id)?.into()))
+}
+#[utoipa::path(post,path="/v1/projects/{project_id}/member-writes/{operation_id}/cancel",operation_id="cancel_member_write",params(("project_id"=String,Path),("operation_id"=String,Path)),responses((status=200,body=OkResponse)))]
+async fn cancel_member_write(
+    State(s): State<AppState>,
+    Path((pid, id)): Path<(String, String)>,
+) -> ApiResult<OkResponse> {
+    s.store.cancel_member_write(&pid, &id)?;
+    Ok(Json(OkResponse { ok: true }))
+}
+#[utoipa::path(post,path="/v1/projects/{project_id}/selection/members",operation_id="selection_members",params(("project_id"=String,Path)),request_body=AssetKeysRequest,responses((status=200,body=SelectionMembers)))]
+async fn selection_members(
+    State(s): State<AppState>,
+    Extension(read): Extension<RequestReadContext>,
+    Path(pid): Path<String>,
+    Body(body): Body<AssetKeysRequest>,
+) -> ApiResult<SelectionMembers> {
+    Ok(Json(
+        blocking(move || {
+            let _permit = read_permit(&s, domain::ReadClass::Index, &read)?;
+            let keys = body
+                .keys
+                .into_iter()
+                .map(Into::into)
+                .collect::<Vec<domain::AssetKey>>();
+            let (revision, selected) = s.store.selection_members(&pid, &keys)?;
+            Ok(SelectionMembers { revision, selected })
+        })
+        .await?,
+    ))
+}
 #[utoipa::path(patch,path="/v1/projects/{project_id}/selection",params(("project_id"=String,Path)),request_body=ChangeSelection,responses((status=200,body=Selection)))]
 async fn change_selection(
     State(s): State<AppState>,
@@ -1102,6 +1221,12 @@ async fn cancel_job(
     Ok(Json(
         blocking(move || {
             let job = s.store.job(&pid, &jid)?;
+            s.store.cancel_member_write(&pid, &jid)?;
+            crate::jobs::cancel(&pid, &jid);
+            let owned_result = s.store.job_owned_result(&pid, &jid)?;
+            if let Some(result) = &owned_result {
+                s.queries.cancel(result);
+            }
             let cancelled =
                 s.store
                     .update_job(&pid, &jid, "cancelled", job.completed, None, None)?;
@@ -1109,7 +1234,7 @@ async fn cancel_job(
                 crate::jobs::cancel(&pid, &jid);
             }
             if cancelled.status == "cancelled"
-                && let Some(result) = s.store.job_owned_result(&pid, &jid)?
+                && let Some(result) = owned_result
             {
                 s.store.cancel_result(&pid, &result)?;
                 s.queries.cancel(&result);
@@ -1215,6 +1340,10 @@ async fn shutdown(State(s): State<AppState>) -> Json<OkResponse> {
         observations,
         raw_metadata,
         selection,
+        selection_members,
+        asset_summaries,
+        member_write_progress,
+        cancel_member_write,
         change_selection,
         collections,
         create_collection,
@@ -1244,6 +1373,7 @@ async fn shutdown(State(s): State<AppState>) -> Json<OkResponse> {
         tools::operators,
         ranking::summary,
         ranking::rows,
+        ranking::count,
         ranking::evidence,
         ranking::workset,
         ranking::job_result,
@@ -1422,6 +1552,10 @@ pub fn routes() -> axum::Router<AppState> {
             post(ranking::rows),
         )
         .route(
+            "/v1/projects/{pid}/artifacts/{aid}/ranking/count",
+            post(ranking::count),
+        )
+        .route(
             "/v1/projects/{pid}/artifacts/{aid}/ranking/evidence",
             get(ranking::evidence),
         )
@@ -1471,6 +1605,19 @@ pub fn routes() -> axum::Router<AppState> {
             get(sources).post(attach_source),
         )
         .route("/v1/projects/{id}/assets", get(assets))
+        .route("/v1/projects/{id}/assets/summaries", post(asset_summaries))
+        .route(
+            "/v1/projects/{id}/selection/members",
+            post(selection_members),
+        )
+        .route(
+            "/v1/projects/{pid}/member-writes/{id}",
+            get(member_write_progress),
+        )
+        .route(
+            "/v1/projects/{pid}/member-writes/{id}/cancel",
+            post(cancel_member_write),
+        )
         .route(
             "/v1/projects/{pid}/sources/{sid}/assets/{aid}",
             get(asset_detail),

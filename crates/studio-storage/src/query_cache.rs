@@ -55,6 +55,41 @@ pub struct QueryCacheStats {
     pub oldest_long_term_millis: u64,
     pub oldest_temporary_millis: u64,
 }
+#[derive(Debug, Clone, Copy)]
+pub struct QuerySizes {
+    revision: u64,
+    bytes: u64,
+    members: u64,
+}
+#[derive(Debug, Clone)]
+pub struct QueryCacheSnapshot {
+    sizes: QuerySizes,
+    pub stats: QueryCacheStats,
+}
+fn sizes_revision(db: &Connection) -> Result<u64> {
+    db.query_row("SELECT coalesce((SELECT CAST(value AS INTEGER) FROM meta WHERE key='query_storage_revision'),0)", [], |r| unsigned(r,0)).map_err(db_error)
+}
+pub(super) fn touch_sizes(db: &Connection) -> Result<()> {
+    db.execute("INSERT INTO meta(key,value) VALUES('query_storage_revision','1') ON CONFLICT(key) DO UPDATE SET value=CAST(value AS INTEGER)+1",[]).map_err(db_error)?;
+    Ok(())
+}
+fn snapshot(db: &Connection) -> Result<QueryCacheSnapshot> {
+    let sizes = QuerySizes {
+        revision: sizes_revision(db)?,
+        bytes: member_bytes(db)?,
+        members: db
+            .query_row(
+                "SELECT coalesce(sum(stored_members),0) FROM query_families",
+                [],
+                |r| unsigned(r, 0),
+            )
+            .map_err(db_error)?,
+    };
+    Ok(QueryCacheSnapshot {
+        stats: stats(db, (sizes.bytes, sizes.members))?,
+        sizes,
+    })
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct QueryCacheEntry {
@@ -171,6 +206,39 @@ impl SqliteStore {
         policy: &QueryCachePolicy,
         force: bool,
     ) -> Result<Option<QueryCacheStats>> {
+        Self::with_closed_cache(app_root, pid, directory, |store| {
+            store.maintain_query_cache(pid, policy, &HashSet::new(), force)
+        })
+    }
+    pub fn maintain_closed_cache_step(
+        app_root: &Path,
+        pid: &str,
+        directory: &Path,
+        policy: &QueryCachePolicy,
+        force: bool,
+        before: &QueryCacheSnapshot,
+    ) -> Result<Option<(u64, bool)>> {
+        Self::with_closed_cache(app_root, pid, directory, |store| {
+            let project = store.handle(pid)?;
+            let db = project.read()?;
+            if sizes_revision(&db)? != before.sizes.revision {
+                return Err(Error::new("CACHE_BUSY", "缓存状态已变化"));
+            }
+            drop(db);
+            store
+                .query_sizes
+                .lock()
+                .map_err(lock_error)?
+                .insert(pid.into(), before.sizes);
+            store.maintain_query_cache_step(pid, policy, &HashSet::new(), force)
+        })
+    }
+    fn with_closed_cache<T>(
+        app_root: &Path,
+        pid: &str,
+        directory: &Path,
+        run: impl FnOnce(&SqliteStore) -> Result<T>,
+    ) -> Result<Option<T>> {
         validate_id(pid)?;
         let manifest: serde_json::Value =
             serde_json::from_slice(&fs::read(directory.join("project.json")).map_err(Error::io)?)
@@ -204,9 +272,9 @@ impl SqliteStore {
             Err(e) if e.code == "PROJECT_BUSY" => return Ok(None),
             Err(e) => return Err(e),
         }
-        let stats = maintenance.maintain_query_cache(pid, policy, &HashSet::new(), force)?;
+        let result = run(&maintenance);
         maintenance.close(pid)?;
-        Ok(Some(stats))
+        result.map(Some)
     }
     pub fn result_page_ordered(
         &self,
@@ -218,12 +286,12 @@ impl SqliteStore {
     ) -> Result<ResultPage> {
         if order.by_post() {
             let p = self.handle(pid)?;
-            let db = p.db.lock().map_err(lock_error)?;
+            let db = p.read()?;
             query::ready_result(&db, pid, rid)?;
             return query::post_page(&db, rid, after, limit, order);
         }
         let p = self.handle(pid)?;
-        let db = p.db.lock().map_err(lock_error)?;
+        let db = p.read()?;
         query::ready_result(&db, pid, rid)?;
         let direction = if order.descending() { "DESC" } else { "ASC" };
         let op = if order.descending() { "<" } else { ">" };
@@ -260,27 +328,54 @@ impl SqliteStore {
         }
     }
     fn query_sizes(&self, pid: &str, db: &Connection) -> Result<(u64, u64)> {
-        if let Some(value) = self
-            .query_sizes
-            .lock()
-            .map_err(lock_error)?
-            .get(pid)
-            .copied()
-        {
-            return Ok(value);
-        }
-        let value = (
-            member_bytes(db)?,
-            db.query_row("SELECT count(*) FROM query_member_data", [], |r| {
-                unsigned(r, 0)
-            })
-            .map_err(db_error)?,
-        );
+        let revision = sizes_revision(db)?;
         self.query_sizes
             .lock()
             .map_err(lock_error)?
-            .insert(pid.into(), value);
-        Ok(value)
+            .get(pid)
+            .filter(|s| s.revision == revision)
+            .map(|s| (s.bytes, s.members))
+            .ok_or_else(|| Error::new("CACHE_BUSY", "正在更新缓存容量统计"))
+    }
+    /// The page walk holds neither the project writer nor the engine cache gate.
+    /// A storage-only revision rejects obsolete WAL snapshots.
+    pub fn refresh_query_cache_sizes(&self, pid: &str) -> Result<()> {
+        let project = self.handle(pid)?;
+        let db = project.read()?;
+        if self.query_sizes(pid, &db).is_ok() {
+            return Ok(());
+        }
+        let snapshot = snapshot(&db)?;
+        let mut cache = self.query_sizes.lock().map_err(lock_error)?;
+        if cache
+            .get(pid)
+            .is_none_or(|s| s.revision <= snapshot.sizes.revision)
+        {
+            cache.insert(pid.into(), snapshot.sizes);
+        }
+        Ok(())
+    }
+    pub fn inspect_query_cache(directory: &Path) -> Result<QueryCacheSnapshot> {
+        Self::inspect_query_cache_after(directory, None)
+    }
+    pub fn inspect_query_cache_after(
+        directory: &Path,
+        previous: Option<&QueryCacheSnapshot>,
+    ) -> Result<QueryCacheSnapshot> {
+        let db = Connection::open_with_flags(
+            directory.join("project.sqlite"),
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .map_err(db_error)?;
+        db.execute_batch("PRAGMA query_only=ON; PRAGMA cache_size=-4096; BEGIN;")
+            .map_err(db_error)?;
+        if let Some(old) = previous.filter(|p| sizes_revision(&db).ok() == Some(p.sizes.revision)) {
+            return Ok(QueryCacheSnapshot {
+                sizes: old.sizes,
+                stats: stats(&db, (old.sizes.bytes, old.sizes.members))?,
+            });
+        }
+        snapshot(&db)
     }
     pub fn create_cached_result(
         &self,
@@ -626,7 +721,6 @@ impl SqliteStore {
         prune(&tx, &family, live)?;
         event(&tx, "result.changed", rid)?;
         tx.commit().map_err(db_error)?;
-        self.invalidate_query_sizes(pid);
         query::read_result(&db, pid, rid)
     }
     pub fn query_cache_entries(
@@ -635,6 +729,7 @@ impl SqliteStore {
         after: Option<&str>,
         limit: usize,
     ) -> Result<Vec<QueryCacheEntry>> {
+        self.refresh_query_cache_sizes(pid)?;
         let p = self.handle(pid)?;
         let db = p.db.lock().map_err(lock_error)?;
         let sizes = self.query_sizes(pid, &db)?;
@@ -694,7 +789,6 @@ impl SqliteStore {
         cancelled: &AtomicBool,
         cache_bytes: u64,
     ) -> Result<()> {
-        self.invalidate_query_sizes(pid);
         let p = self.handle(pid)?;
         let mut db = p.db.lock().map_err(lock_error)?;
         let result = query::read_result(&db, pid, rid)?;
@@ -762,6 +856,9 @@ impl SqliteStore {
             )
             .map_err(db_error)?;
             tx.execute("UPDATE query_results SET count=?2,processed=?3,cache_mode=?4,evaluated_count=?5,changed_members=?6,post_ready=?7 WHERE id=?1",params![rid,count,stage.processed as i64,mode,stage.evaluated as i64,changed as i64,stage.post_ready]).map_err(db_error)?;
+            if changed > 0 {
+                touch_sizes(&tx)?;
+            }
             tx.commit().map_err(db_error)?;
             Ok(())
         })();
@@ -776,18 +873,20 @@ impl SqliteStore {
         outcome.and(detached).and(restored)
     }
     pub fn query_cache_stats(&self, pid: &str) -> Result<QueryCacheStats> {
+        self.refresh_query_cache_sizes(pid)?;
         let p = self.handle(pid)?;
-        let db = p.db.lock().map_err(lock_error)?;
+        let db = p.read()?;
         stats(&db, self.query_sizes(pid, &db)?)
     }
     pub fn try_query_cache_stats(&self, pid: &str) -> Result<Option<QueryCacheStats>> {
         let p = self.handle(pid)?;
-        let db = match p.db.try_lock() {
-            Ok(db) => db,
-            Err(std::sync::TryLockError::WouldBlock) => return Ok(None),
-            Err(std::sync::TryLockError::Poisoned(error)) => return Err(lock_error(error)),
+        let db = p.read()?;
+        let sizes = match self.query_sizes(pid, &db) {
+            Ok(value) => value,
+            Err(error) if error.code == "CACHE_BUSY" => return Ok(None),
+            Err(error) => return Err(error),
         };
-        stats(&db, self.query_sizes(pid, &db)?).map(Some)
+        stats(&db, sizes).map(Some)
     }
     pub fn maintain_query_cache(
         &self,
@@ -796,10 +895,37 @@ impl SqliteStore {
         live: &HashSet<String>,
         force: bool,
     ) -> Result<QueryCacheStats> {
+        let mut reclaimed = 0;
+        for _ in 0..2 {
+            self.refresh_query_cache_sizes(pid)?;
+            let (count, changed) = self.maintain_query_cache_step(pid, policy, live, force)?;
+            reclaimed += count;
+            if !changed {
+                break;
+            }
+        }
+        let mut stats = self.query_cache_stats(pid)?;
+        stats.reclaimed_families = reclaimed;
+        Ok(stats)
+    }
+    pub fn maintain_query_cache_step(
+        &self,
+        pid: &str,
+        policy: &QueryCachePolicy,
+        live: &HashSet<String>,
+        force: bool,
+    ) -> Result<(u64, bool)> {
         let p = self.handle(pid)?;
-        let mut db = p.db.lock().map_err(lock_error)?;
+        let mut db = match p.db.try_lock() {
+            Ok(db) => db,
+            Err(std::sync::TryLockError::WouldBlock) => {
+                return Err(Error::new("CACHE_BUSY", "项目正在写入，稍后整理缓存"));
+            }
+            Err(error) => return Err(Error::new("INTERNAL_ERROR", error.to_string())),
+        };
         let current_time = now().parse::<u64>().unwrap_or(0);
         let mut reclaimed = 0;
+        let mut changed = false;
         let session_ids = checked_ids(&policy.live_sessions)?;
         db.execute(
             &format!("DELETE FROM query_cache_sessions WHERE session_id NOT IN ({session_ids})"),
@@ -822,8 +948,8 @@ impl SqliteStore {
             .collect::<std::result::Result<Vec<_>, _>>()
             .map_err(db_error)?
         };
-        let mut usage = stats(&db, self.query_sizes(pid, &db)?)?;
-        let mut retained: u64 = db
+        let usage = stats(&db, self.query_sizes(pid, &db)?)?;
+        let retained: u64 = db
             .query_row(
                 "SELECT count(*) FROM query_families WHERE cached=1",
                 [],
@@ -902,12 +1028,8 @@ impl SqliteStore {
             event(&tx, "result.changed", &family)?;
             tx.commit().map_err(db_error)?;
             reclaimed += 1;
-            retained = retained.saturating_sub(u64::from(cached));
-            self.invalidate_query_sizes(pid);
-            usage = stats(&db, self.query_sizes(pid, &db)?)?;
-            if reclaimed >= 2 {
-                break;
-            }
+            changed = true;
+            break;
         }
         // Expired intermediate versions are removed while referenced snapshots remain.
         let families = {
@@ -933,14 +1055,12 @@ impl SqliteStore {
             }
             tx.commit().map_err(db_error)?;
             if removed > 0 {
-                self.invalidate_query_sizes(pid);
+                changed = true;
             }
         }
         db.execute_batch("PRAGMA incremental_vacuum(8192);")
             .map_err(db_error)?;
-        let mut value = stats(&db, self.query_sizes(pid, &db)?)?;
-        value.reclaimed_families = reclaimed;
-        Ok(value)
+        Ok((reclaimed, changed))
     }
 }
 fn member_bytes(db: &Connection) -> Result<u64> {
@@ -1051,6 +1171,7 @@ fn prune(db: &Connection, family: &str, live: &HashSet<String>) -> Result<usize>
     };
     let removed=db.execute(&format!("WITH kept(revision) AS MATERIALIZED (SELECT DISTINCT r.member_revision FROM query_results r WHERE r.family_id=?1 AND (r.status IN ('queued','running') OR r.id IN ({alive}) OR EXISTS(SELECT 1 FROM result_references x WHERE x.result_id=r.id)) UNION SELECT latest_revision FROM query_families WHERE id=?1 AND cached=1) DELETE FROM query_member_data AS m {index} WHERE family_id=?1 {candidate} AND NOT EXISTS(SELECT 1 FROM kept WHERE revision>=m.valid_from AND (m.valid_until IS NULL OR revision<m.valid_until))"),[family]).map_err(db_error)?;
     if removed > 0 {
+        touch_sizes(db)?;
         db.execute(
             "UPDATE query_families SET stored_members=MAX(0,stored_members-?2) WHERE id=?1",
             params![family, removed as i64],
@@ -1107,11 +1228,14 @@ pub(super) fn rollback_revision(db: &Connection, rid: &str) -> Result<()> {
             params![family, removed as i64],
         )
         .map_err(db_error)?;
-        db.execute(
+        let restored = db.execute(
             "UPDATE query_member_data SET valid_until=NULL WHERE family_id=?1 AND valid_until=?2",
             params![family, revision],
         )
         .map_err(db_error)?;
+        if removed > 0 || restored > 0 {
+            touch_sizes(db)?;
+        }
     }
     Ok(())
 }

@@ -484,6 +484,54 @@
         }
       }
     },
+    "/v1/projects/{project_id}/artifacts/{artifact_id}/ranking/count": {
+      "post": {
+        "tags": [
+          "ranking"
+        ],
+        "operationId": "ranking_count",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "artifact_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RankingCountRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RankingCount"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/projects/{project_id}/artifacts/{artifact_id}/ranking/evidence": {
       "get": {
         "tags": [
@@ -819,6 +867,44 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AssetPage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/assets/summaries": {
+      "post": {
+        "tags": [],
+        "operationId": "asset_summaries",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssetKeysRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssetSummaries"
                 }
               }
             }
@@ -1451,6 +1537,78 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/JobRun"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/member-writes/{operation_id}": {
+      "get": {
+        "tags": [],
+        "operationId": "member_write_progress",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "operation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberWriteProgress"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/member-writes/{operation_id}/cancel": {
+      "post": {
+        "tags": [],
+        "operationId": "cancel_member_write",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "operation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
                 }
               }
             }
@@ -2996,6 +3154,44 @@
         }
       }
     },
+    "/v1/projects/{project_id}/selection/members": {
+      "post": {
+        "tags": [],
+        "operationId": "selection_members",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssetKeysRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SelectionMembers"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/projects/{project_id}/selection/scope": {
       "post": {
         "tags": [
@@ -4320,6 +4516,21 @@
           }
         }
       },
+      "AssetKeysRequest": {
+        "type": "object",
+        "required": [
+          "keys"
+        ],
+        "properties": {
+          "keys": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssetKey"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
       "AssetPage": {
         "type": "object",
         "required": [
@@ -4471,6 +4682,24 @@
           }
         }
       },
+      "AssetSummaries": {
+        "type": "object",
+        "required": [
+          "items",
+          "preparing"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssetSummaryEntry"
+            }
+          },
+          "preparing": {
+            "type": "boolean"
+          }
+        }
+      },
       "AssetSummary": {
         "type": "object",
         "required": [
@@ -4498,13 +4727,28 @@
           },
           "status": {
             "type": "string",
-            "description": "available, unlinked, unavailable, or unsupported; unavailable is not unlinked."
+            "description": "available, unlinked, preparing, unavailable, or unsupported."
           },
           "version": {
             "type": [
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "AssetSummaryEntry": {
+        "type": "object",
+        "required": [
+          "key",
+          "summary"
+        ],
+        "properties": {
+          "key": {
+            "$ref": "#/components/schemas/AssetKey"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/AssetSummary"
           }
         }
       },
@@ -5605,6 +5849,37 @@
                 "$ref": "#/components/schemas/Preference"
               }
             ]
+          }
+        }
+      },
+      "MemberWriteProgress": {
+        "type": "object",
+        "required": [
+          "state",
+          "completed"
+        ],
+        "properties": {
+          "completed": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": "string"
+          },
+          "total": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
           }
         }
       },
@@ -7323,6 +7598,45 @@
         },
         "additionalProperties": false
       },
+      "RankingCount": {
+        "type": "object",
+        "required": [
+          "scanned",
+          "total"
+        ],
+        "properties": {
+          "count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "scanned": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "RankingCountRequest": {
+        "type": "object",
+        "required": [
+          "filter"
+        ],
+        "properties": {
+          "filter": {
+            "$ref": "#/components/schemas/RankingFilter"
+          }
+        },
+        "additionalProperties": false
+      },
       "RankingEligibility": {
         "type": "string",
         "enum": [
@@ -7669,6 +7983,22 @@
             "type": [
               "string",
               "null"
+            ]
+          },
+          "preparing": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scan": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/BrowseScan"
+              }
             ]
           }
         }
@@ -8939,6 +9269,26 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          }
+        }
+      },
+      "SelectionMembers": {
+        "type": "object",
+        "required": [
+          "revision",
+          "selected"
+        ],
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "selected": {
+            "type": "array",
+            "items": {
+              "type": "boolean"
+            }
           }
         }
       },

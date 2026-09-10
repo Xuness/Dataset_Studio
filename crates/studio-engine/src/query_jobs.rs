@@ -11,7 +11,9 @@ use std::{
 };
 use studio_application::{QueryAdapter, ReadResources};
 use studio_domain::*;
-use studio_sources::{BrowseIndex, BrowseIndexStamp, QueryReader, RatingCache, rating_candidates};
+use studio_sources::{
+    BrowseIndex, BrowseIndexStamp, IdentityIndex, QueryReader, RatingCache, rating_candidates,
+};
 use studio_storage::{QueryStage, SqliteStore};
 
 type IndexJobs = HashMap<String, (Arc<AtomicBool>, Option<Error>)>;
@@ -34,6 +36,7 @@ pub struct QueryRunner {
     pub budget: crate::query_budget::QueryBudget,
     pub cache: crate::query_cache::CacheControl,
     pub browse_index: BrowseIndex,
+    pub identity_index: Arc<IdentityIndex>,
     pub rating_cache: Arc<RatingCache>,
     query_directory: std::path::PathBuf,
 }
@@ -57,6 +60,7 @@ impl QueryRunner {
             rating_cache: Arc::new(RatingCache::new(
                 index_directory.with_file_name("rating-cache"),
             )),
+            identity_index: Arc::new(IdentityIndex::new(index_directory.clone())),
             browse_index: BrowseIndex::new(index_directory),
             query_directory,
         }
@@ -120,6 +124,65 @@ impl QueryRunner {
                     }
                 } else {
                     jobs.remove(&source.id);
+                }
+            }
+        });
+        Ok(false)
+    }
+    pub fn prepare_identity_index(self: &Arc<Self>, source: &Source) -> Result<bool> {
+        if source.kind != "danbooru" || self.identity_index.is_current(source)? {
+            return Ok(true);
+        }
+        let key = format!("identity:{}", source.id);
+        let mut jobs = self
+            .indexes
+            .lock()
+            .map_err(|_| Error::new("INTERNAL_ERROR", "身份准备状态不可用"))?;
+        if let Some((_, error)) = jobs.get(&key) {
+            if error.is_some() {
+                return Err(jobs
+                    .remove(&key)
+                    .and_then(|(_, e)| e)
+                    .expect("present error"));
+            }
+            return Ok(false);
+        }
+        if jobs.len() >= 32 {
+            return Err(Error::new("READ_BUDGET_EXCEEDED", "等待身份准备的来源过多"));
+        }
+        let cancelled = Arc::new(AtomicBool::new(false));
+        jobs.insert(key.clone(), (cancelled.clone(), None));
+        let runner = self.clone();
+        let source = source.clone();
+        tokio::task::spawn_blocking(move || {
+            let result = (|| {
+                let budget = runner.budget.wait(&cancelled)?;
+                let _permit = runner.resources.acquire(
+                    ReadRequest {
+                        class: ReadClass::NativeQuery,
+                        priority: ReadPriority::Background,
+                        bytes: budget.memory_bytes,
+                    },
+                    &cancelled,
+                )?;
+                runner.identity_index.ensure(
+                    &source,
+                    budget.memory_bytes,
+                    &runner.query_directory,
+                    cancelled,
+                )
+            })();
+            if let Ok(mut jobs) = runner.indexes.lock() {
+                match result {
+                    Ok(()) => {
+                        jobs.remove(&key);
+                        runner.cache.requested.store(true, Ordering::Release);
+                    }
+                    Err(error) => {
+                        if let Some((_, state)) = jobs.get_mut(&key) {
+                            *state = Some(error);
+                        }
+                    }
                 }
             }
         });
@@ -569,6 +632,166 @@ pub async fn scheduler(store: Arc<SqliteStore>, runner: Arc<QueryRunner>) {
     }
 }
 
+fn sweep_cache(
+    store: &SqliteStore,
+    runner: &Arc<QueryRunner>,
+    preview: &studio_resources::PreviewCache,
+    force: bool,
+) -> Result<u64> {
+    // Page accounting must finish before taking the lease/eviction gate.
+    let owned = store.owned_projects()?;
+    for pid in &owned {
+        store.refresh_query_cache_sizes(pid)?;
+        runner.cache.track(store, pid)?;
+    }
+    let config = runner.cache.config()?;
+    let policy = config.policy();
+    let mut projects = runner.cache.projects()?;
+    projects.sort_by_key(|p| (p.temporary_families == 0, p.touched));
+    let source_bytes = runner.browse_index.storage()?.0;
+    let basis_bytes = runner.rating_cache.storage_bytes()?;
+    let query_quota = (u64::from(config.total_mib) << 20)
+        .saturating_sub(source_bytes + basis_bytes + preview.metrics().bytes)
+        .min(policy.quota_bytes);
+    let long_quota = policy
+        .long_term_quota_bytes
+        .saturating_sub(source_bytes + basis_bytes);
+    let total = projects.iter().map(|p| p.bytes).sum::<u64>();
+    let long_bytes = projects.iter().map(|p| p.long_term_bytes).sum::<u64>();
+    let temporary_bytes = projects.iter().map(|p| p.temporary_bytes).sum::<u64>();
+    let now = studio_storage::now().parse::<u64>().unwrap_or(0);
+    let needs_closed = |p: &crate::query_cache::CachedProject| {
+        force
+            || (p.retained > 0 && p.long_term_families + p.temporary_families == 0)
+            || p.session_families > 0
+            || (policy.session_only && p.temporary_families > 0)
+            || (p.temporary_families > 0
+                && p.oldest_temporary_millis <= now.saturating_sub(policy.max_age_seconds * 1000))
+            || (p.long_term_families > 0
+                && policy
+                    .long_term_max_age_seconds
+                    .is_some_and(|age| p.oldest_long_term_millis <= now.saturating_sub(age * 1000)))
+            || p.free_bytes >= 32 << 20
+            || total > query_quota
+            || long_bytes > long_quota
+            || temporary_bytes > policy.temporary_quota_bytes
+    };
+    let mut closed = HashMap::new();
+    for p in projects
+        .iter()
+        .filter(|p| !owned.contains(&p.id) && needs_closed(p))
+        .take(2)
+    {
+        if runner.stopping.load(Ordering::Acquire) {
+            return Ok(0);
+        }
+        match SqliteStore::inspect_query_cache(&p.directory) {
+            Ok(snapshot) => {
+                closed.insert(p.id.clone(), snapshot);
+            }
+            Err(error) => {
+                tracing::warn!(project_id=%p.id,%error,"closed query cache inspection deferred")
+            }
+        }
+    }
+    let mut changed_projects = Vec::new();
+    let mut reclaimed = 0;
+    {
+        let _gate = runner.cache.lock()?;
+        // Configuration changes during a slow inspection require a fresh plan.
+        if serde_json::to_vec(&runner.cache.config()?).map_err(Error::io)?
+            != serde_json::to_vec(&config).map_err(Error::io)?
+        {
+            runner.cache.requested.store(true, Ordering::Release);
+            return Ok(0);
+        }
+        let clear_tier = runner.cache.clear_target()?;
+        for p in &projects {
+            if !owned.contains(&p.id) && !needs_closed(p) {
+                continue;
+            }
+            let local = studio_storage::QueryCachePolicy {
+                quota_bytes: query_quota.saturating_sub(total.saturating_sub(p.bytes)),
+                long_term_quota_bytes: long_quota
+                    .saturating_sub(long_bytes.saturating_sub(p.long_term_bytes)),
+                temporary_quota_bytes: policy
+                    .temporary_quota_bytes
+                    .saturating_sub(temporary_bytes.saturating_sub(p.temporary_bytes)),
+                live_sessions: runner.cache.live_sessions(&p.id)?,
+                clear_tier,
+                ..policy.clone()
+            };
+            let outcome = if owned.contains(&p.id) {
+                store
+                    .maintain_query_cache_step(&p.id, &local, &runner.cache.live(&p.id), force)
+                    .map(Some)
+            } else if let Some(before) = closed.get(&p.id) {
+                SqliteStore::maintain_closed_cache_step(
+                    store.root(),
+                    &p.id,
+                    &p.directory,
+                    &local,
+                    force,
+                    before,
+                )
+            } else {
+                continue;
+            };
+            match outcome {
+                Ok(Some((count, changed))) => {
+                    reclaimed += count;
+                    changed_projects.push(p);
+                    if changed {
+                        runner.cache.requested.store(true, Ordering::Release);
+                        break;
+                    }
+                }
+                Ok(None) => {}
+                Err(error) if error.code == "CACHE_BUSY" => {
+                    runner.cache.requested.store(true, Ordering::Release);
+                }
+                Err(error) => {
+                    tracing::warn!(project_id=%p.id,%error,"query cache maintenance deferred")
+                }
+            }
+        }
+        let mut bases = runner.rating_cache.entries()?;
+        bases.sort_by_key(|b| b.last_used_millis);
+        let mut retained_basis = basis_bytes;
+        for basis in bases {
+            if reclaimed >= 2 {
+                break;
+            }
+            let expired = policy
+                .long_term_max_age_seconds
+                .is_some_and(|age| basis.last_used_millis <= now.saturating_sub(age * 1000));
+            let clear = force && clear_tier.is_none_or(|v| v == QueryCacheTier::LongTerm);
+            let excess = long_bytes + source_bytes + retained_basis > policy.long_term_quota_bytes;
+            if !basis.fixed
+                && !basis.active
+                && (expired || clear || excess)
+                && runner
+                    .rating_cache
+                    .remove(&basis.source_id, &basis.rating, false)?
+            {
+                retained_basis = retained_basis.saturating_sub(basis.bytes);
+                reclaimed += 1;
+            }
+        }
+    }
+    // Reinspect after the mutation, outside both locks. A stale snapshot never
+    // drives another eviction; the next bounded pass plans from current sizes.
+    for p in changed_projects {
+        let stats = if owned.contains(&p.id) {
+            store.query_cache_stats(&p.id)?
+        } else {
+            SqliteStore::inspect_query_cache_after(&p.directory, closed.get(&p.id))?.stats
+        };
+        runner.cache.record(&p.id, p.directory.clone(), stats)?;
+    }
+    Ok(reclaimed)
+}
+
 pub async fn cache_maintenance(
     store: Arc<SqliteStore>,
     runner: Arc<QueryRunner>,
@@ -585,73 +808,26 @@ pub async fn cache_maintenance(
             let preview = previews.clone();
             let force = runner.cache.force.swap(false, Ordering::AcqRel);
             runner.cache.busy.store(true, Ordering::Release);
-            let result=tokio::task::spawn_blocking(move||->Result<u64>{
-                let _gate=r.cache.lock()?;
-                let config=r.cache.config()?;
-                let policy=config.policy();
-                let owned=s.owned_projects()?;
-                for id in &owned {if let Err(e)=r.cache.track(&s,id){tracing::warn!(%e,"query cache inspection deferred");}}
-                let mut projects=r.cache.projects()?;
-                projects.sort_by_key(|p|(p.temporary_families==0,p.touched));
-                let source_indexes=r.browse_index.storage()?.0;
-                let basis_bytes=r.rating_cache.storage_bytes()?;
-                let preview_bytes=preview.metrics().bytes;
-                let query_quota=(u64::from(config.total_mib)<<20).saturating_sub(source_indexes+basis_bytes+preview_bytes).min(policy.quota_bytes);
-                let long_quota=policy.long_term_quota_bytes.saturating_sub(source_indexes+basis_bytes);
-                let mut total=projects.iter().map(|p|p.bytes).sum::<u64>();
-                let mut long_bytes=projects.iter().map(|p|p.long_term_bytes).sum::<u64>();
-                let mut temporary_bytes=projects.iter().map(|p|p.temporary_bytes).sum::<u64>();
-                let now=studio_storage::now().parse::<u64>().unwrap_or(0);
-                let clear_tier=r.cache.clear_target()?;
-                let mut reclaimed=0;
-                for project in projects {
-                    if project.retained==0 && project.members==0 && project.free_bytes==0 && !owned.contains(&project.id){continue;}
-                    let expired_temporary=project.temporary_families>0 && project.oldest_temporary_millis<=now.saturating_sub(policy.max_age_seconds*1000);
-                    let expired_long=project.long_term_families>0 && policy.long_term_max_age_seconds.is_some_and(|age|project.oldest_long_term_millis<=now.saturating_sub(age*1000));
-                    let session_cleanup=project.session_families>0 || (policy.session_only && project.temporary_families>0);
-                    let legacy=project.retained>0 && project.long_term_families+project.temporary_families==0;
-                    if !owned.contains(&project.id) && !force && !legacy && !session_cleanup && !expired_temporary && !expired_long && project.free_bytes==0 && total<=query_quota && long_bytes<=long_quota && temporary_bytes<=policy.temporary_quota_bytes {continue;}
-                    let local=studio_storage::QueryCachePolicy{
-                        quota_bytes:query_quota.saturating_sub(total.saturating_sub(project.bytes)),
-                        long_term_quota_bytes:long_quota.saturating_sub(long_bytes.saturating_sub(project.long_term_bytes)),
-                        temporary_quota_bytes:policy.temporary_quota_bytes.saturating_sub(temporary_bytes.saturating_sub(project.temporary_bytes)),
-                        live_sessions:r.cache.live_sessions(&project.id)?,clear_tier,..policy.clone()
-                    };
-                    let stats=if owned.contains(&project.id){Some(s.maintain_query_cache(&project.id,&local,&r.cache.live(&project.id),force)?)}else{match SqliteStore::maintain_closed_cache(s.root(),&project.id,&project.directory,&local,force){Ok(value)=>value,Err(e)=>{tracing::warn!(project_id=%project.id,%e,"closed query cache maintenance deferred");None}}};
-                    if let Some(stats)=stats {
-                        total=total.saturating_sub(project.bytes).saturating_add(stats.storage_bytes);
-                        long_bytes=long_bytes.saturating_sub(project.long_term_bytes).saturating_add(stats.long_term_bytes);
-                        temporary_bytes=temporary_bytes.saturating_sub(project.temporary_bytes).saturating_add(stats.temporary_bytes);
-                        reclaimed+=stats.reclaimed_families;r.cache.record(&project.id,project.directory,stats)?;
-                    }
-                    if reclaimed>=2 {break;}
-                }
-                let mut bases=r.rating_cache.entries()?;
-                bases.sort_by_key(|b|b.last_used_millis);
-                let mut retained_basis=basis_bytes;
-                for basis in bases {
-                    if reclaimed>=2 {break;}
-                    let expired=policy.long_term_max_age_seconds.is_some_and(|age|basis.last_used_millis<=now.saturating_sub(age*1000));
-                    let clear=force && clear_tier.is_none_or(|v|v==QueryCacheTier::LongTerm);
-                    let excess=long_bytes+source_indexes+retained_basis>policy.long_term_quota_bytes;
-                    if !basis.fixed && !basis.active && (expired || clear || excess)
-                        && r.rating_cache.remove(&basis.source_id,&basis.rating,false)?
-                    { retained_basis=retained_basis.saturating_sub(basis.bytes);reclaimed+=1; }
-                }
-                Ok(reclaimed)
-            }).await;
+            let result =
+                tokio::task::spawn_blocking(move || sweep_cache(&s, &r, &preview, force)).await;
             match result {
                 Ok(Ok(n)) => {
                     runner.cache.reclaimed.fetch_add(n, Ordering::Relaxed);
-                    if n >= 2 {
+                    if n >= 1 {
                         runner.cache.requested.store(true, Ordering::Release);
-                        if force {
-                            runner.cache.force.store(true, Ordering::Release);
-                        }
                     }
                 }
-                Ok(Err(e)) => tracing::warn!(%e,"query cache maintenance deferred"),
-                Err(e) => tracing::warn!(%e,"query cache maintenance failed"),
+                Ok(Err(e)) => {
+                    runner.cache.requested.store(true, Ordering::Release);
+                    tracing::warn!(%e,"query cache maintenance deferred");
+                }
+                Err(e) => {
+                    runner.cache.requested.store(true, Ordering::Release);
+                    tracing::warn!(%e,"query cache maintenance failed");
+                }
+            }
+            if force && runner.cache.requested.load(Ordering::Acquire) {
+                runner.cache.force.store(true, Ordering::Release);
             }
             runner.cache.busy.store(false, Ordering::Release);
         }

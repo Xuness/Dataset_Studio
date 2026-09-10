@@ -75,15 +75,43 @@ export default function RankingPanel(context: ModuleContext) {
   const d = draft.value;
   const applied = useRef<number | null>(null);
   const [pending, setPending] = useState(false);
+  const [submissionOperation, setSubmissionOperation] = useState<string | null>(
+    null,
+  );
+  const submissionProgress = useQuery({
+    queryKey: ["project", projectId, "member-write", submissionOperation],
+    queryFn: ({ signal }) =>
+      client.ranking.saveProgress(projectId, submissionOperation!, signal),
+    enabled: pending && !!submissionOperation,
+    gcTime: 0,
+    refetchInterval: 400,
+  });
   const submissionLock = useRef(false);
   const [jobAction, setJobAction] = useState<"cancel" | "retry" | null>(null);
   const [error, setError] = useState("");
   const [cursor, setCursor] = useState<string | null>(null);
   const [history, setHistory] = useState<(string | null)[]>([]);
   const [count, setCount] = useState<number | null>(null);
+  const filterKey = canonical(d.filter);
+  const [settledFilter, setSettledFilter] = useState(filterKey);
+  useEffect(() => {
+    const timer = setTimeout(() => setSettledFilter(filterKey), 180);
+    return () => clearTimeout(timer);
+  }, [filterKey]);
+  const pageKey = JSON.stringify([d.artifactId, filterKey, cursor]);
+  const preparingPage = useRef<{ key: string; cursor: string } | null>(null);
   const [focused, setFocused] = useState<RankingRow | null>(null);
   const [worksetOpen, setWorksetOpen] = useState(false);
   const [savingWorkset, setSavingWorkset] = useState(false);
+  const [saveOperation, setSaveOperation] = useState<string | null>(null);
+  const saveProgress = useQuery({
+    queryKey: ["project", projectId, "member-write", saveOperation],
+    queryFn: ({ signal }) =>
+      client.ranking.saveProgress(projectId, saveOperation!, signal),
+    enabled: savingWorkset && !!saveOperation,
+    gcTime: 0,
+    refetchInterval: 400,
+  });
   const [saved, setSaved] = useState<Collection | null>(null);
   const hasDanbooru = context.sources.some((s) => s.kind === "danbooru");
   const option = context.inputOptions.find((o) => o.value === d.scopeId);
@@ -140,19 +168,47 @@ export default function RankingPanel(context: ModuleContext) {
       d.filter,
       cursor,
     ],
-    queryFn: ({ signal }) =>
-      client.ranking.rows(
+    queryFn: async ({ signal }) => {
+      const continuation =
+        preparingPage.current?.key === pageKey
+          ? preparingPage.current.cursor
+          : cursor;
+      const page = await client.ranking.rows(
         projectId,
         d.artifactId,
-        { filter: d.filter, cursor, limit: 48 },
+        { filter: d.filter, cursor: continuation, limit: 48 },
         signal,
-      ),
+      );
+      if (!signal.aborted)
+        preparingPage.current =
+          page.preparing && page.next_cursor
+            ? { key: pageKey, cursor: page.next_cursor }
+            : null;
+      return page;
+    },
     enabled:
       !!summary.data &&
       d.tab === "results" &&
-      d.filterArtifact === d.artifactId,
+      d.filterArtifact === d.artifactId &&
+      settledFilter === filterKey,
     retry: false,
     gcTime: 0,
+    refetchInterval: (q) =>
+      q.state.status !== "error" && q.state.data?.preparing ? 30 : false,
+  });
+  const counting = useQuery({
+    queryKey: ["project", projectId, "ranking-count", d.artifactId, d.filter],
+    queryFn: ({ signal }) =>
+      client.ranking.count(projectId, d.artifactId, d.filter, signal),
+    enabled:
+      !!summary.data &&
+      d.tab === "results" &&
+      settledFilter === filterKey &&
+      results.data?.count === null,
+    retry: false,
+    gcTime: 0,
+    refetchInterval: (q) =>
+      q.state.status !== "error" && q.state.data?.count === null ? 100 : false,
   });
   const rankingList = useObjectList(
     client,
@@ -290,7 +346,12 @@ export default function RankingPanel(context: ModuleContext) {
   useEffect(() => {
     if (results.data?.count !== null && results.data?.count !== undefined)
       setCount(results.data.count);
-  }, [results.data]);
+    else if (
+      counting.data?.count !== null &&
+      counting.data?.count !== undefined
+    )
+      setCount(counting.data.count);
+  }, [results.data, counting.data]);
   function changeParameters(parameters: RankingParameters) {
     draft.controller.set((v) => ({ ...v, parameters, submission: null }));
   }
@@ -363,6 +424,7 @@ export default function RankingPanel(context: ModuleContext) {
         d.submission?.signature === signature
           ? d.submission.key
           : crypto.randomUUID();
+      setSubmissionOperation(key);
       draft.controller.set((v) => ({ ...v, submission: { key, signature } }));
       await draft.controller.flush();
       const accepted = await client.tools.submit(projectId, {
@@ -384,9 +446,12 @@ export default function RankingPanel(context: ModuleContext) {
       });
       context.onJob(accepted, { revealTasks: false });
     } catch (e) {
+      if ((e as { code?: string }).code === "CANCELLED")
+        draft.controller.set((v) => ({ ...v, submission: null }));
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setPending(false);
+      setSubmissionOperation(null);
       submissionLock.current = false;
     }
   }
@@ -438,6 +503,7 @@ export default function RankingPanel(context: ModuleContext) {
         d.worksetSubmission?.signature === signature
           ? d.worksetSubmission.key
           : crypto.randomUUID();
+      setSaveOperation(key);
       draft.controller.set((v) => ({
         ...v,
         worksetSubmission: { key, signature },
@@ -455,9 +521,14 @@ export default function RankingPanel(context: ModuleContext) {
         queryKey: ["project", projectId, "collections"],
       });
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      if (e instanceof Error && "code" in e && e.code === "CANCELLED") {
+        draft.controller.set((v) => ({ ...v, worksetSubmission: null }));
+        setWorksetOpen(false);
+        setError("");
+      } else setError(e instanceof Error ? e.message : String(e));
     } finally {
       setSavingWorkset(false);
+      setSaveOperation(null);
     }
   }
   const issue = parameterIssue(d.parameters);
@@ -715,6 +786,29 @@ export default function RankingPanel(context: ModuleContext) {
           }
         />
       )}
+      {pending && submissionOperation && (
+        <div className="ranking-dialog-actions">
+          <span role="status">
+            {submissionProgress.data?.state === "cancelling"
+              ? "正在取消提交…"
+              : submissionProgress.data?.state === "saving"
+                ? `正在固定任务成员：${number(submissionProgress.data.completed)} / ${number(submissionProgress.data.total)}`
+                : "正在准备任务输入…"}
+          </span>
+          <Button
+            disabled={submissionProgress.data?.state === "cancelling"}
+            onClick={() =>
+              void client.ranking
+                .cancelSave(projectId, submissionOperation)
+                .catch((e: unknown) =>
+                  setError(e instanceof Error ? e.message : String(e)),
+                )
+            }
+          >
+            取消提交
+          </Button>
+        </div>
+      )}
       {errorMessage && (
         <div className="ranking-error">
           <ErrorDetails error={errorMessage} />
@@ -971,7 +1065,12 @@ export default function RankingPanel(context: ModuleContext) {
                 </Button>
               </div>
               <div className="ranking-result-description">
-                <span>匹配 {number(count)} 项 · 每页 48 项 · 分级内排名</span>
+                <span>
+                  {count === null
+                    ? "正在统计匹配数量…"
+                    : `匹配 ${number(count)} 项`}{" "}
+                  · 每页 48 项 · 分级内排名
+                </span>
                 <label>
                   <input
                     type="checkbox"
@@ -1049,16 +1148,26 @@ export default function RankingPanel(context: ModuleContext) {
                     ))}
                   </tbody>
                 </table>
-                {results.isFetching && (
+                {(results.isFetching ||
+                  results.isPending ||
+                  results.data?.preparing) && (
                   <p className="ranking-loading">正在加载榜单…</p>
                 )}
-                {!results.isFetching && !results.data?.items.length && (
-                  <p className="ranking-loading">当前过滤条件没有匹配图片。</p>
-                )}
+                {counting.error && <ErrorDetails error={counting.error} />}
+                {!results.isFetching &&
+                  !results.isPending &&
+                  !results.data?.preparing &&
+                  !results.data?.items.length && (
+                    <p className="ranking-loading">
+                      当前过滤条件没有匹配图片。
+                    </p>
+                  )}
               </div>
               <div className="ranking-paging">
                 <Button
-                  disabled={!cursor || results.isFetching}
+                  disabled={
+                    !cursor || results.isFetching || !!results.data?.preparing
+                  }
                   onClick={() => {
                     setCursor(null);
                     setHistory([]);
@@ -1068,7 +1177,11 @@ export default function RankingPanel(context: ModuleContext) {
                   首批
                 </Button>
                 <Button
-                  disabled={!history.length || results.isFetching}
+                  disabled={
+                    !history.length ||
+                    results.isFetching ||
+                    !!results.data?.preparing
+                  }
                   onClick={() => {
                     setCursor(history[history.length - 1] ?? null);
                     setHistory((v) => v.slice(0, -1));
@@ -1078,7 +1191,11 @@ export default function RankingPanel(context: ModuleContext) {
                   上一批
                 </Button>
                 <Button
-                  disabled={!results.data?.next_cursor || results.isFetching}
+                  disabled={
+                    !results.data?.next_cursor ||
+                    results.isFetching ||
+                    !!results.data?.preparing
+                  }
                   onClick={() => {
                     setHistory((v) => [...v, cursor].slice(-64));
                     setCursor(results.data!.next_cursor!);
@@ -1158,6 +1275,7 @@ export default function RankingPanel(context: ModuleContext) {
                 value={d.worksetName}
                 maxLength={100}
                 required
+                disabled={savingWorkset}
                 onChange={(e) =>
                   draft.controller.set((v) => ({
                     ...v,
@@ -1171,8 +1289,34 @@ export default function RankingPanel(context: ModuleContext) {
               将保存全部匹配结果，共 {number(count)} 项，包含尚未加载的页面。
             </p>
             <div className="ranking-dialog-actions">
-              <Button type="button" onClick={() => setWorksetOpen(false)}>
-                取消
+              {savingWorkset && (
+                <span role="status">
+                  {saveProgress.data?.state === "cancelling"
+                    ? "正在取消…"
+                    : `已保存 ${number(saveProgress.data?.completed ?? 0)} / ${number(saveProgress.data?.total ?? count)} 项`}
+                </span>
+              )}
+              <Button
+                type="button"
+                disabled={
+                  savingWorkset &&
+                  (!saveOperation || saveProgress.data?.state === "cancelling")
+                }
+                onClick={() => {
+                  if (savingWorkset && saveOperation) {
+                    void client.ranking
+                      .cancelSave(projectId, saveOperation)
+                      .catch((error: unknown) =>
+                        setError(
+                          error instanceof Error
+                            ? error.message
+                            : String(error),
+                        ),
+                      );
+                  } else setWorksetOpen(false);
+                }}
+              >
+                {savingWorkset ? "取消保存" : "取消"}
               </Button>
               <Button
                 type="submit"

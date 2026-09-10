@@ -177,6 +177,8 @@ impl CacheControl {
     pub fn track(&self, store: &SqliteStore, id: &str) -> Result<()> {
         if let Some(stats) = store.try_query_cache_stats(id)? {
             self.record(id, store.directory(id)?, stats)?;
+        } else {
+            self.requested.store(true, Ordering::Release);
         }
         Ok(())
     }

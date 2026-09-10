@@ -188,10 +188,15 @@ export class StudioClient {
       "x-studio-session",
       (projectId && this.projectSessions.get(projectId)) || this.sessionId,
     );
+    const readOperation =
+      !init.method ||
+      init.method === "GET" ||
+      (init.method === "POST" &&
+        /\/(?:ranking-browse\/assets|artifacts\/[^/]+\/ranking\/(?:rows|count)|selection\/members|assets\/summaries)$/.test(
+          path,
+        ));
     const readId =
-      (!init.method || init.method === "GET") && projectId && init.signal
-        ? crypto.randomUUID()
-        : null;
+      readOperation && projectId && init.signal ? crypto.randomUUID() : null;
     if (readId) headers.set("x-studio-read-id", readId);
     const cancel = () => {
       if (readId && projectId)
@@ -403,6 +408,26 @@ export class StudioClient {
     return this.request<Schema["Selection"]>(
       "/v1/projects/" + id + "/selection",
       { method: "PATCH", body: JSON.stringify(body) },
+    );
+  }
+  selectionMembers(id: string, keys: AssetKey[], signal?: AbortSignal) {
+    return this.request<Schema["SelectionMembers"]>(
+      "/v1/projects/" + encodeURIComponent(id) + "/selection/members",
+      {
+        method: "POST",
+        body: JSON.stringify({ keys }),
+        signal: signal ?? null,
+      },
+    );
+  }
+  assetSummaries(id: string, keys: AssetKey[], signal?: AbortSignal) {
+    return this.request<Schema["AssetSummaries"]>(
+      "/v1/projects/" + encodeURIComponent(id) + "/assets/summaries",
+      {
+        method: "POST",
+        body: JSON.stringify({ keys }),
+        signal: signal ?? null,
+      },
     );
   }
   changeSelectionScope(id: string, body: Schema["ChangeSelectionScope"]) {

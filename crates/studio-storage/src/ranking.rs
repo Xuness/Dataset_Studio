@@ -1,10 +1,13 @@
 use crate::*;
 use serde_json::Value;
+#[cfg(test)]
+#[path = "ranking_write_tests.rs"]
+mod tests;
 
 impl SqliteStore {
     pub fn job_scope_artifacts(&self, pid: &str, jid: &str) -> Result<Vec<String>> {
         let p = self.handle(pid)?;
-        let db = p.db.lock().map_err(lock_error)?;
+        let db = p.read()?;
         let mut stmt=db.prepare("SELECT artifact_id FROM artifact_references WHERE owner_kind='job_scope' AND owner_id=?1 ORDER BY artifact_id").map_err(db_error)?;
         stmt.query_map([jid], |r| r.get(0))
             .map_err(db_error)?
@@ -13,7 +16,7 @@ impl SqliteStore {
     }
     pub fn ranking_job_artifact(&self, pid: &str, jid: &str) -> Result<Artifact> {
         let p = self.handle(pid)?;
-        let db = p.db.lock().map_err(lock_error)?;
+        let db = p.read()?;
         read_job(&db, pid, jid)?;
         let id:String=db.query_row("SELECT id FROM artifacts WHERE job_id=?1 AND kind=?2 AND output_id='data' AND status='ready'",params![jid,RANKING_KIND],|r|r.get(0)).optional().map_err(db_error)?.ok_or_else(||Error::new("ARTIFACT_NOT_READY","排名任务尚未发布成果"))?;
         artifacts::read(&db, pid, &id)
@@ -25,7 +28,7 @@ impl SqliteStore {
     }
     pub fn ranking_job_bases(&self, pid: &str, jid: &str) -> Result<Vec<RankingBasis>> {
         let p = self.handle(pid)?;
-        let db = p.db.lock().map_err(lock_error)?;
+        let db = p.read()?;
         read_job(&db, pid, jid)?;
         let raw: String = db
             .query_row(
@@ -71,7 +74,7 @@ impl SqliteStore {
             return Err(Error::invalid("排名依据批次超出范围"));
         }
         let p = self.handle(pid)?;
-        let db = p.db.lock().map_err(lock_error)?;
+        let db = p.read()?;
         read_job(&db, pid, jid)?;
         let mut out = vec![Vec::new(); keys.len()];
         let mut stmt=db.prepare_cached("SELECT EXISTS(SELECT 1 FROM result_members WHERE result_id=?1 AND source_id=?2 AND asset_id=?3)").map_err(db_error)?;
@@ -123,7 +126,7 @@ impl SqliteStore {
     }
     pub fn ranking_summary(&self, pid: &str, aid: &str) -> Result<RankingSummary> {
         let p = self.handle(pid)?;
-        let db = p.db.lock().map_err(lock_error)?;
+        let db = p.read()?;
         let item = artifacts::read(&db, pid, aid)?;
         if item.kind != RANKING_KIND || item.state != ArtifactState::Ready {
             return Err(Error::new(
@@ -156,7 +159,9 @@ impl SqliteStore {
         filter.validate()?;
         let request = serde_json::to_string(&(aid, &name, filter)).map_err(Error::io)?;
         let p = self.handle(pid)?;
-        let mut db = p.db.lock().map_err(lock_error)?;
+        let operation = self.begin_member_write(pid, key)?;
+        let cancelled = operation.cancelled();
+        let mut db = p.write_cancelled(&cancelled)?;
         let retired: Option<String> = db
             .query_row(
                 "SELECT request_json FROM retired_workset_requests WHERE request_id=?1",
@@ -184,7 +189,7 @@ impl SqliteStore {
                 ));
             }
             let name = management::display_name(&db, "workset", &id, &name)?;
-            return Ok(Collection { id, name, count });
+            return operation.finish(Ok(Collection { id, name, count }));
         }
         let artifact = artifacts::read(&db, pid, aid)?;
         if artifact.state != ArtifactState::Ready || artifact.kind != RANKING_KIND {
@@ -209,34 +214,63 @@ impl SqliteStore {
                     .replace('#', "%23")
             )
         };
-        db.execute("ATTACH DATABASE ?1 AS ranking_output", [uri(table)])
+        let scores = ranking_tables::RankingResultTable::open(table)?;
+        scores.cancel_reads(cancelled.clone())?;
+        let expected = scores.known_count(filter)?;
+        operation.update(0, expected);
+        db.execute("ATTACH DATABASE ?1 AS ranking_input", [uri(input)])
             .map_err(db_error)?;
-        if let Err(e) = db.execute("ATTACH DATABASE ?1 AS ranking_input", [uri(input)]) {
-            let _ = db.execute_batch("DETACH DATABASE ranking_output;");
-            return Err(db_error(e));
+        let flag = cancelled.clone();
+        if let Err(error) = db.progress_handler(1000, Some(move || flag.load(Ordering::Acquire))) {
+            let _ = db.execute_batch("DETACH DATABASE ranking_input;");
+            return operation.finish(Err(db_error(error)));
         }
         let result = (|| {
             let tx = db.transaction().map_err(db_error)?;
-            let (condition, mut values) = ranking_tables::filter_sql(filter)?;
-            let count: u64 = tx
-                .query_row(
-                    &format!("SELECT count(*) FROM ranking_output.scores WHERE {condition}"),
-                    rusqlite::params_from_iter(values.clone()),
-                    |r| unsigned(r, 0),
-                )
-                .map_err(db_error)?;
+            let id = new_id();
+            tx.execute(
+                "INSERT INTO collections VALUES (?1,?2,0)",
+                params![id, name],
+            )
+            .map_err(db_error)?;
+            let mut count = 0u64;
+            let mut after = None;
+            loop {
+                studio_application::read_cancelled(&cancelled)?;
+                let page = scores.browse_scan(filter, filter.order, false, after.as_ref(), 512)?;
+                let mut values = vec![rusqlite::types::Value::Text(id.clone())];
+                for (row, matches) in page.rows {
+                    after = Some(ranking_tables::RankingPosition::for_scores(
+                        &row,
+                        filter.order,
+                    ));
+                    if matches {
+                        values.push(rusqlite::types::Value::Integer(row.ordinal as i64));
+                    }
+                }
+                if values.len() > 1 {
+                    let placeholders = (2..=values.len())
+                        .map(|n| format!("?{n}"))
+                        .collect::<Vec<_>>()
+                        .join(",");
+                    count += tx.execute(&format!("INSERT INTO collection_members SELECT ?1,source_id,lower(hex(asset_id)) FROM ranking_input.input_rows WHERE ordinal IN ({placeholders}) ORDER BY source_id,asset_id"),rusqlite::params_from_iter(values)).map_err(db_error)? as u64;
+                }
+                operation.update(count, expected);
+                if !page.more {
+                    break;
+                }
+            }
             if count == 0 {
                 return Err(Error::invalid("当前排名过滤结果为空"));
             }
-            let id = new_id();
+            if expected.is_some_and(|expected| expected != count) {
+                return Err(Error::new("ARTIFACT_INVALID", "排名成员与已验证摘要不一致"));
+            }
             tx.execute(
-                "INSERT INTO collections VALUES (?1,?2,?3)",
-                params![id, name, count as i64],
+                "UPDATE collections SET count=?2 WHERE id=?1",
+                params![id, count as i64],
             )
             .map_err(db_error)?;
-            values.push(rusqlite::types::Value::Text(id.clone()));
-            // Filter the score table before joining its immutable source identities.
-            tx.execute(&format!("INSERT INTO collection_members SELECT ?{},i.source_id,lower(hex(i.asset_id)) FROM ranking_input.input_rows i JOIN (SELECT ordinal FROM ranking_output.scores WHERE {condition}) s USING(ordinal)",values.len()),rusqlite::params_from_iter(values)).map_err(db_error)?;
             let provenance = serde_json::json!({"version":2,"ranking_artifact":aid,"filter":filter,"input_scope":artifact.provenance.input_scope});
             tx.execute(
                 "INSERT INTO collection_scopes VALUES (?1,?2,?3)",
@@ -260,6 +294,7 @@ impl SqliteStore {
             .map_err(db_error)?;
             management::created(&tx, "workset", &id)?;
             event(&tx, "collection.created", &id)?;
+            studio_application::read_cancelled(&cancelled)?;
             tx.commit().map_err(db_error)?;
             Ok(Collection {
                 id,
@@ -267,11 +302,16 @@ impl SqliteStore {
                 count,
             })
         })();
-        let detach = db
-            .execute_batch("DETACH DATABASE ranking_input; DETACH DATABASE ranking_output;")
+        let cleared = db
+            .progress_handler(0, None::<fn() -> bool>)
             .map_err(db_error);
-        let collection = result?;
-        detach?;
-        Ok(collection)
+        let detached = db
+            .execute_batch("DETACH DATABASE ranking_input;")
+            .map_err(db_error);
+        operation.finish(result.and_then(|collection| {
+            cleared?;
+            detached?;
+            Ok(collection)
+        }))
     }
 }

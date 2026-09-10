@@ -515,7 +515,7 @@ function Studio({
             queryKey: [...prefix, "selection"],
           });
           void queryClient.invalidateQueries({
-            queryKey: [...prefix, "assets"],
+            queryKey: [...prefix, "selection-members"],
           });
           void queryClient.invalidateQueries({
             queryKey: [...prefix, "selection-history"],
@@ -526,17 +526,30 @@ function Studio({
     );
     return () => abort.abort();
   }, [client, currentId, queryClient, session.close]);
-  async function act(action: () => Promise<unknown>, pid = currentId) {
+  async function act(
+    action: () => Promise<unknown>,
+    pid = currentId,
+    changed: "project" | "selection" = "project",
+  ) {
     setBusy(true);
     setError("");
+    const refresh = () =>
+      changed === "selection"
+        ? Promise.all(
+            ["selection", "selection-members", "selection-history"].map(
+              (kind) =>
+                queryClient.invalidateQueries({
+                  queryKey: ["project", pid, kind],
+                }),
+            ),
+          )
+        : queryClient.invalidateQueries({ queryKey: ["project", pid] });
     try {
       await action();
-      if (pid)
-        await queryClient.invalidateQueries({ queryKey: ["project", pid] });
+      if (pid) await refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-      if (pid)
-        void queryClient.invalidateQueries({ queryKey: ["project", pid] });
+      if (pid) void refresh();
     } finally {
       setBusy(false);
     }
@@ -544,23 +557,29 @@ function Studio({
   function pick(keys: AssetKey[], remove = false) {
     const revision = selection.data?.revision;
     if (revision === undefined || busy) return;
-    void act(() =>
-      client.changeSelection(currentId, {
-        expected_revision: revision,
-        add: remove ? [] : keys,
-        remove: remove ? keys : [],
-        clear: false,
-      }),
+    void act(
+      () =>
+        client.changeSelection(currentId, {
+          expected_revision: revision,
+          add: remove ? [] : keys,
+          remove: remove ? keys : [],
+          clear: false,
+        }),
+      currentId,
+      "selection",
     );
   }
   function operateScope(scope: ScopeRef, operation: ScopeOperation) {
     if (selection.data?.revision === undefined || busy) return;
-    void act(() =>
-      client.changeSelectionScope(currentId, {
-        expected_revision: selection.data!.revision,
-        scope,
-        operation,
-      }),
+    void act(
+      () =>
+        client.changeSelectionScope(currentId, {
+          expected_revision: selection.data!.revision,
+          scope,
+          operation,
+        }),
+      currentId,
+      "selection",
     );
   }
   function selectResult(result: QueryResult, operation: ScopeOperation) {
@@ -593,13 +612,16 @@ function Studio({
   function clearSelection() {
     const revision = selection.data?.revision;
     if (revision === undefined) return;
-    void act(() =>
-      client.changeSelection(currentId, {
-        expected_revision: revision,
-        add: [],
-        remove: [],
-        clear: true,
-      }),
+    void act(
+      () =>
+        client.changeSelection(currentId, {
+          expected_revision: revision,
+          add: [],
+          remove: [],
+          clear: true,
+        }),
+      currentId,
+      "selection",
     );
   }
   const historyBusy = useRef(false);
@@ -615,24 +637,28 @@ function Studio({
     )
       return;
     historyBusy.current = true;
-    void act(async () => {
-      const result = await client.management.restore(
-        currentId,
-        action,
-        selection.data!.revision,
-      );
-      queryClient.setQueryData(
-        ["project", currentId, "selection"],
-        result.selection,
-      );
-      queryClient.setQueryData(
-        ["project", currentId, "selection-history"],
-        result,
-      );
-      setOperationNotice(
-        action === "undo" ? "已撤销选择操作。" : "已重做选择操作。",
-      );
-    }).finally(() => {
+    void act(
+      async () => {
+        const result = await client.management.restore(
+          currentId,
+          action,
+          selection.data!.revision,
+        );
+        queryClient.setQueryData(
+          ["project", currentId, "selection"],
+          result.selection,
+        );
+        queryClient.setQueryData(
+          ["project", currentId, "selection-history"],
+          result,
+        );
+        setOperationNotice(
+          action === "undo" ? "已撤销选择操作。" : "已重做选择操作。",
+        );
+      },
+      currentId,
+      "selection",
+    ).finally(() => {
       historyBusy.current = false;
     });
   }

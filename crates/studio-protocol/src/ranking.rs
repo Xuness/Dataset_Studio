@@ -444,6 +444,21 @@ pub struct RankingPage {
     pub items: Vec<RankingRow>,
     pub next_cursor: Option<String>,
     pub count: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preparing: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scan: Option<crate::BrowseScan>,
+}
+#[derive(Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RankingCountRequest {
+    pub filter: RankingFilter,
+}
+#[derive(Serialize, ToSchema)]
+pub struct RankingCount {
+    pub count: Option<u64>,
+    pub scanned: u64,
+    pub total: u64,
 }
 #[derive(Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
