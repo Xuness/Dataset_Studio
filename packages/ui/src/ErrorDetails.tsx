@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { Copy, Check, AlertCircle } from "lucide-react";
+import { useClipboardWriter } from "./ClipboardProvider.js";
 
 export function errorText(error: unknown) {
   if (error instanceof Error) {
@@ -51,6 +52,7 @@ export function CopyButton({
 }) {
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState("");
+  const writeClipboard = useClipboardWriter();
   return (
     <span className={"copy-action " + className}>
       <button
@@ -58,8 +60,7 @@ export function CopyButton({
         title={label}
         aria-label={label}
         onClick={() => {
-          void navigator.clipboard
-            .writeText(text)
+          void writeClipboard({ text })
             .then(() => {
               setCopied(true);
               setError("");

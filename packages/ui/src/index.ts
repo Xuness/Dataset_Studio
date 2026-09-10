@@ -1,4 +1,7 @@
 export { Button, EmptyState, Dialog, Field } from "./primitives.js";
+export { ClipboardProvider } from "./ClipboardProvider.js";
+export { writeBrowserClipboard } from "./clipboard.js";
+export type { ClipboardContent, ClipboardWriter } from "./clipboard.js";
 export { useDraft, DraftStatus } from "./drafts.js";
 export { ModuleRegistry } from "./modules.js";
 export {

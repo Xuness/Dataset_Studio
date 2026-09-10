@@ -380,6 +380,21 @@ button:hover:not(:disabled) {
   width: 100%;
   font-size: 12px;
 }
+.clipboard-notice {
+  position: fixed;
+  right: 16px;
+  bottom: 36px;
+  z-index: 2000;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: calc(100vw - 32px);
+  padding: 10px 14px;
+  background: var(--panel);
+  border: 1px solid var(--danger);
+  border-radius: 4px;
+  box-shadow: 0 4px 20px #0006;
+}
 .error-details {
   border: 1px solid #665044;
   border-radius: 3px;

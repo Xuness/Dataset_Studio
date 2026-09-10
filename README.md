@@ -110,6 +110,8 @@ pnpm build
 
 `pnpm build` 只构建前端资产用于验证。默认脚本不生成发布版或安装包。
 
+Windows 原生剪贴板验收为 `pnpm test:clipboard`，要求已开启系统剪贴板历史。它使用独立 WebView2 窗口复制测试文字，并核对当前剪贴板和 Win+V 历史；不连接项目或使用日常 WebView 配置。结果写入 `.local/test-runs/clipboard-*`，不纳入默认测试以免普通检查改动系统剪贴板。
+
 接口以 Rust DTO 和 Utoipa 定义为准。生成的 OpenAPI 和 TypeScript 类型纳入 Git，CI 重新生成后检查漂移。前端功能通过 SDK 调用引擎，原生目录选择由应用层注入。
 
 测试覆盖旧项目升级、只读元数据、范围与结果、算子注册和固定字段、成果发布恢复、草稿冲突、读取公平性和取消、持久缓存与引用隔离。`test:integration` 包含 11 组独立引擎脚本，覆盖增量查询、分层预算、每日分级更新、真实 SDK 会话重连、MetaRecall 排名、有界范围排序、对象管理、撤销和排名起点浏览。夹具默认使用 Debug，引擎已构建时可用 `STUDIO_ENGINE_PROFILE=release` 验证优化产物。界面检查包括 `node tooling/smoke-ranking-ui.mjs`、`node tooling/smoke-management-ui.mjs` 和 `node tooling/smoke-ranking-browse-ui.mjs`，使用独立引擎与无头 Edge 上下文；真实有界元数据检查为 `tooling/verify-ranking.mjs`。可选的原生设置窗口检查为 `node tooling/smoke-settings-ui.mjs`，先关闭现有开发窗口与前端服务；它只使用独立的合成图片与项目。
@@ -139,6 +141,7 @@ pnpm build
 - [对象管理与选择历史决策](docs/decisions/0011-object-management-and-selection-history.md)
 - [对象管理与选择撤销验收](docs/verification-object-management-v0.9.md)
 - [排名工作集浏览决策](docs/decisions/0012-ranked-workset-browsing.md)
+- [桌面剪贴板接入决策](docs/decisions/0013-desktop-clipboard.md)
 - [排名工作集浏览验收](docs/verification-ranking-browse-v0.9.1.md)
 - [项目数据层计划及验收标准](docs/plans/project-data-layer-v0.2.md)
 - [0.3 项目数据范围层计划](docs/plans/project-data-scopes-v0.3.md)

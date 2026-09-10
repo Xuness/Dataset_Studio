@@ -2,6 +2,8 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { App } from "./app/App.js";
+import { ClipboardProvider } from "@studio/ui";
+import { nativeClipboard, writeClipboard } from "./platform/clipboard.js";
 import "@studio/ui/styles.css";
 import "./app/studio.css";
 const queries = new QueryClient({
@@ -19,8 +21,13 @@ const element = document.getElementById("root");
 if (!element) throw new Error("Root element missing");
 createRoot(element).render(
   <React.StrictMode>
-    <QueryClientProvider client={queries}>
-      <App />
-    </QueryClientProvider>
+    <ClipboardProvider
+      write={writeClipboard}
+      captureSelection={nativeClipboard}
+    >
+      <QueryClientProvider client={queries}>
+        <App />
+      </QueryClientProvider>
+    </ClipboardProvider>
   </React.StrictMode>,
 );

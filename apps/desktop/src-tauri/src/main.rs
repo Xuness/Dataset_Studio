@@ -105,6 +105,7 @@ fn main() {
             }
         }))
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .setup(|app| {
             let data_dir = std::env::var_os("STUDIO_DATA_DIR")
                 .map(PathBuf::from)
