@@ -11,9 +11,11 @@ import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { resolve } from "node:path";
+import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 import { finished } from "./cargo.mjs";
 import { engineProfile, engineExecutable } from "./engine-profile.mjs";
+import { engineWaitTimeoutMs, waitForEngineExit } from "./engine-process.mjs";
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const dataDir = resolve(
   process.env.STUDIO_DATA_DIR ?? resolve(root, ".local/dev"),
@@ -176,18 +178,30 @@ async function buildAndConnect() {
         const response = await fetch(current.endpoint + "/v1/shutdown", {
           method: "POST",
           headers: { Authorization: "Bearer " + current.token },
+          signal: AbortSignal.timeout(10000),
         });
         if (!response.ok)
           throw new Error("无法停止旧开发引擎，请先关闭旧版本。");
-        for (let i = 0; i < 60 && (await live()); i++) await sleep(150);
-        if (await live())
-          throw new Error("旧引擎仍在处理请求；请稍后重试启动。");
+        // HTTP can stop before workers, SQLite checkpoints and the directory
+        // lock are released. Do not spend startup retries racing that cleanup.
+        await waitForEngineExit(current.pid, {
+          onWaiting: (elapsed) =>
+            console.log(
+              `等待旧引擎完成退出收尾… ${Math.floor(elapsed / 1000)} 秒`,
+            ),
+        });
       }
       if (!(await live())) {
         let engine;
         let launches = 0;
-        for (let i = 0; i < 60 && !(await live()); i++) {
-          if ((!engine || engine.exitCode !== null) && launches < 5) {
+        const deadline = performance.now() + engineWaitTimeoutMs;
+        let nextLaunch = 0;
+        while (performance.now() < deadline && !(await live())) {
+          if (
+            (!engine || engine.exitCode !== null) &&
+            launches < 5 &&
+            performance.now() >= nextLaunch
+          ) {
             const log = await open(resolve(dataDir, "engine.log"), "a");
             engine = spawn(binary, ["serve", "--data-dir", dataDir], {
               env,
@@ -196,10 +210,16 @@ async function buildAndConnect() {
               windowsHide: true,
               detached: true,
             });
-            engine.unref();
-            await log.close();
+            try {
+              await once(engine, "spawn");
+              engine.unref();
+            } finally {
+              await log.close();
+            }
             launches++;
+            nextLaunch = performance.now() + 1000;
           }
+          if (engine?.exitCode != null && launches >= 5) break;
           await sleep(200);
         }
       }
