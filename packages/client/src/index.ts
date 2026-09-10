@@ -11,6 +11,8 @@ import { DraftCoordinator } from "./drafts.js";
 import { MediaClient, ResourceClient } from "./media.js";
 import { SettingsClient } from "./settings.js";
 import { RankingClient } from "./ranking.js";
+import { ManagementClient } from "./management.js";
+export type { ObjectTarget, ObjectListOptions } from "./management.js";
 import type { MediaOptions, MediaHandle } from "./media.js";
 export { DraftController, DraftCoordinator } from "./drafts.js";
 export type { DraftSnapshot, DraftStatus } from "./drafts.js";
@@ -75,6 +77,9 @@ function metadataQuery(options: MetadataOptions) {
   return query;
 }
 export class StudioClient {
+  readonly management = new ManagementClient(
+    <T>(path: string, init?: RequestInit) => this.request<T>(path, init),
+  );
   readonly ranking = new RankingClient(<T>(path: string, init?: RequestInit) =>
     this.request<T>(path, init),
   );

@@ -1,4 +1,4 @@
-//! Manifest v1 supports database v1 through v8. Only project.sqlite is migrated;
+//! Manifest v1 supports database v1 through v9. Only project.sqlite is migrated;
 //! artifacts and the manifest are immutable during this upgrade.
 use crate::{atomic_json, db_error, now};
 use rusqlite::{
@@ -12,7 +12,7 @@ use std::{
 };
 use studio_domain::{Error, Result, new_id};
 
-pub(super) const VERSION: u32 = 8;
+pub(super) const VERSION: u32 = 9;
 const V2: &str = "CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL, backup_directory TEXT);";
 const STEPS: &[(u32, &str)] = &[
     (2, V2),
@@ -22,6 +22,7 @@ const STEPS: &[(u32, &str)] = &[
     (6, include_str!("schema_v6.sql")),
     (7, include_str!("schema_v7.sql")),
     (8, include_str!("schema_v8.sql")),
+    (9, include_str!("schema_v9.sql")),
 ];
 
 fn version(db: &Connection) -> Result<u32> {
@@ -170,7 +171,12 @@ fn upgrade_with(db: &mut Connection, directory: &Path, steps: &[(u32, &str)]) ->
     // Repack once while this project is exclusively owned and its pre-upgrade
     // backup is already durable. Subsequent cache eviction can return free pages
     // in small batches instead of preserving a file high-water mark forever.
-    if let Err(error) = db.execute_batch("PRAGMA auto_vacuum=INCREMENTAL; VACUUM;") {
+    if db
+        .query_row("PRAGMA auto_vacuum", [], |r| r.get::<_, u32>(0))
+        .map_err(db_error)?
+        != 2
+        && let Err(error) = db.execute_batch("PRAGMA auto_vacuum=INCREMENTAL; VACUUM;")
+    {
         tracing::warn!(%error,"project free-page reclamation setup deferred");
     }
     Ok(())

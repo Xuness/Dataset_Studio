@@ -1079,3 +1079,35 @@
     grid-template-columns: minmax(0, 1fr);
   }
 }
+.ranking-tabs {
+  flex-wrap: wrap;
+  align-items: center;
+  row-gap: 5px;
+  padding-bottom: 3px;
+}
+.ranking-result-search {
+  width: 165px;
+  margin: 3px 6px;
+}
+.ranking-tabs > select[aria-label="查看排名成果"] {
+  max-width: min(350px, 45vw);
+}
+.ranking-tabs > select[aria-label="排名成果排序"] {
+  width: 92px;
+}
+.ranking-inspector {
+  flex-direction: column;
+}
+.ranking-inspector > .ranking-details,
+.ranking-inspector > .ranking-overview {
+  min-height: 0;
+  flex: 1;
+  overflow: auto;
+}
+.ranking-presets {
+  padding: 4px 16px;
+  border-bottom: 1px solid #383838;
+}
+.ranking-presets .preset-controls {
+  padding: 4px 0;
+}

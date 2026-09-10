@@ -18,6 +18,8 @@ mod resources;
 pub use resources::*;
 mod ranking;
 pub use ranking::*;
+mod management;
+pub use management::*;
 
 pub type Result<T> = std::result::Result<T, Error>;
 

@@ -14,6 +14,8 @@ mod settings;
 pub use settings::*;
 mod ranking;
 pub use ranking::*;
+mod management;
+pub use management::*;
 use utoipa::ToSchema;
 pub const API_VERSION: u32 = 1;
 
@@ -383,7 +385,7 @@ pub struct OkResponse {
     pub ok: bool,
 }
 
-fn display_path(path: &std::path::Path) -> String {
+pub fn display_path(path: &std::path::Path) -> String {
     let text = path.to_string_lossy();
     if let Some(unc) = text.strip_prefix(r"\\?\UNC\") {
         format!(r"\\{}", unc)

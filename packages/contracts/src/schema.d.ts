@@ -415,6 +415,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{project_id}/job-history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["jobs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects/{project_id}/jobs": {
         parameters: {
             query?: never;
@@ -511,6 +527,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{project_id}/objects/{kind}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/objects/{kind}/{object_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["read"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch: operations["edit"];
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/objects/{kind}/{object_id}/actions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["action"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/objects/{kind}/{object_id}/links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["links"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/objects/{kind}/{object_id}/reveal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["reveal"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects/{project_id}/open": {
         parameters: {
             query?: never;
@@ -521,6 +617,38 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["open_recent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/presets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["presets"];
+        put?: never;
+        post: operations["save_preset"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/presets/{preset_id}/delete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["delete_preset"];
         delete?: never;
         options?: never;
         head?: never;
@@ -781,6 +909,22 @@ export interface paths {
         options?: never;
         head?: never;
         patch: operations["change_selection"];
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/selection/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["history"];
+        put?: never;
+        post: operations["restore"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/v1/projects/{project_id}/selection/scope": {
@@ -1119,6 +1263,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/settings/editing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["editing"];
+        put: operations["configure_editing"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/shutdown": {
         parameters: {
             query?: never;
@@ -1330,6 +1490,12 @@ export interface components {
         Collections: {
             items: components["schemas"]["Collection"][];
         };
+        ConfigureEditing: {
+            /** Format: int64 */
+            expected_revision: number;
+            /** Format: int32 */
+            undo_limit: number;
+        };
         CreateCollection: {
             name: string;
             scope?: null | components["schemas"]["ScopeRef"];
@@ -1337,6 +1503,10 @@ export interface components {
         CreateProject: {
             name: string;
             parent_directory?: string | null;
+        };
+        DeleteToolPreset: {
+            /** Format: int64 */
+            expected_revision: number;
         };
         Draft: {
             instance_id: string;
@@ -1348,6 +1518,18 @@ export interface components {
             schema_version: number;
             updated_at: string;
             value: unknown;
+        };
+        EditObject: {
+            /** Format: int64 */
+            expected_revision: number;
+            name: string;
+            notes: string;
+        };
+        EditingSettings: {
+            /** Format: int64 */
+            revision: number;
+            /** Format: int32 */
+            undo_limit: number;
         };
         EngineConnection: {
             /** Format: int32 */
@@ -1386,6 +1568,24 @@ export interface components {
             api_version: number;
             instance_id: string;
             version: string;
+        };
+        HistoryAction: {
+            action: components["schemas"]["HistoryActionKind"];
+            /** Format: int64 */
+            expected_revision: number;
+        };
+        /** @enum {string} */
+        HistoryActionKind: "undo" | "redo" | "clear";
+        HistoryStatus: {
+            /** Format: int32 */
+            limit: number;
+            redo_label?: string | null;
+            /** Format: int32 */
+            redo_steps: number;
+            selection: components["schemas"]["Selection"];
+            undo_label?: string | null;
+            /** Format: int32 */
+            undo_steps: number;
         };
         Job: {
             artifact?: string | null;
@@ -1434,6 +1634,31 @@ export interface components {
         };
         Jobs: {
             items: components["schemas"]["Job"][];
+        };
+        ManagedJob: {
+            job: components["schemas"]["Job"];
+            object: components["schemas"]["ManagedObject"];
+            result_available: boolean;
+        };
+        ManagedJobPage: {
+            items: components["schemas"]["ManagedJob"][];
+            next_cursor?: string | null;
+        };
+        ManagedObject: {
+            archived: boolean;
+            bytes?: string | null;
+            /** Format: int64 */
+            count?: number | null;
+            created_at?: string | null;
+            id: string;
+            kind: components["schemas"]["ObjectKind"];
+            name: string;
+            notes: string;
+            /** Format: int64 */
+            revision: number;
+            state: string;
+            subtype?: string | null;
+            updated_at?: string | null;
         };
         MaybeDraft: {
             draft?: null | components["schemas"]["Draft"];
@@ -1491,6 +1716,48 @@ export interface components {
             /** @enum {string} */
             type: "timestamp";
             value: string;
+        };
+        ObjectAction: {
+            action: components["schemas"]["ObjectActionKind"];
+            /** Format: int64 */
+            expected_revision: number;
+        };
+        /** @enum {string} */
+        ObjectActionKind: "remove" | "archive" | "unarchive" | "reconnect";
+        ObjectDetails: {
+            can_remove: boolean;
+            incoming: components["schemas"]["ObjectLink"][];
+            incoming_cursor?: string | null;
+            /** Format: int64 */
+            incoming_total: number;
+            object: components["schemas"]["ManagedObject"];
+            outgoing: components["schemas"]["ObjectLink"][];
+            outgoing_cursor?: string | null;
+            /** Format: int64 */
+            outgoing_total: number;
+            paths: string[];
+            provenance: unknown;
+            remove_reason?: string | null;
+            run?: null | components["schemas"]["OperatorRun"];
+        };
+        /** @enum {string} */
+        ObjectKind: "project" | "source" | "workset" | "artifact" | "query" | "job" | "query_result" | "selection" | "selection_history";
+        ObjectLink: {
+            blocking: boolean;
+            id: string;
+            kind: components["schemas"]["ObjectKind"];
+            name: string;
+            relation: string;
+        };
+        ObjectLinkPage: {
+            items: components["schemas"]["ObjectLink"][];
+            next_cursor?: string | null;
+            /** Format: int64 */
+            total: number;
+        };
+        ObjectPage: {
+            items: components["schemas"]["ManagedObject"][];
+            next_cursor?: string | null;
         };
         Observation: {
             commit_sequence?: string | null;
@@ -1574,6 +1841,10 @@ export interface components {
             /** Format: int32 */
             schema_version: number;
             value: unknown;
+        };
+        PresetPage: {
+            items: components["schemas"]["ToolPreset"][];
+            next_cursor?: string | null;
         };
         PreviewActivity: {
             active_subscriptions: number;
@@ -2095,6 +2366,14 @@ export interface components {
             issue?: string | null;
             result_id: string;
         };
+        RevealObject: {
+            file_index?: number;
+            open?: boolean;
+        };
+        RevealedLocation: {
+            opened: boolean;
+            path: string;
+        };
         RunQuery: {
             spec: components["schemas"]["QuerySpec"];
         };
@@ -2110,6 +2389,14 @@ export interface components {
             expected_revision?: number | null;
             name: string;
             spec: components["schemas"]["QuerySpec"];
+        };
+        SaveToolPreset: {
+            /** Format: int64 */
+            expected_revision: number;
+            id?: string | null;
+            name: string;
+            notes: string;
+            run: components["schemas"]["OperatorRun"];
         };
         ScalarInput: {
             /** @enum {string} */
@@ -2226,6 +2513,16 @@ export interface components {
             scope?: null | components["schemas"]["ScopeRef"];
             /** Format: int64 */
             selection_revision?: number | null;
+        };
+        ToolPreset: {
+            created_at: string;
+            id: string;
+            name: string;
+            notes: string;
+            /** Format: int64 */
+            revision: number;
+            run: components["schemas"]["OperatorRun"];
+            updated_at: string;
         };
         ToolSubmission: {
             /** Format: int64 */
@@ -2933,6 +3230,34 @@ export interface operations {
             };
         };
     };
+    jobs: {
+        parameters: {
+            query?: {
+                search?: string;
+                state?: string;
+                include_archived?: boolean;
+                order?: string;
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ManagedJobPage"];
+                };
+            };
+        };
+    };
     list_jobs: {
         parameters: {
             query?: never;
@@ -3090,6 +3415,167 @@ export interface operations {
             };
         };
     };
+    list: {
+        parameters: {
+            query?: {
+                search?: string;
+                order?: string;
+                state?: string;
+                subtype?: string;
+                include_archived?: boolean;
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+                kind: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObjectPage"];
+                };
+            };
+        };
+    };
+    read: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                kind: string;
+                object_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObjectDetails"];
+                };
+            };
+        };
+    };
+    edit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                kind: string;
+                object_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EditObject"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ManagedObject"];
+                };
+            };
+        };
+    };
+    action: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                kind: string;
+                object_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ObjectAction"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+        };
+    };
+    links: {
+        parameters: {
+            query?: {
+                incoming?: boolean;
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+                kind: string;
+                object_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObjectLinkPage"];
+                };
+            };
+        };
+    };
+    reveal: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                kind: string;
+                object_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RevealObject"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RevealedLocation"];
+                };
+            };
+        };
+    };
     open_recent: {
         parameters: {
             query?: never;
@@ -3107,6 +3593,82 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Project"];
+                };
+            };
+        };
+    };
+    presets: {
+        parameters: {
+            query: {
+                operator_id: string;
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PresetPage"];
+                };
+            };
+        };
+    };
+    save_preset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveToolPreset"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ToolPreset"];
+                };
+            };
+        };
+    };
+    delete_preset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                preset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeleteToolPreset"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
                 };
             };
         };
@@ -3580,6 +4142,52 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Selection"];
+                };
+            };
+        };
+    };
+    history: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistoryStatus"];
+                };
+            };
+        };
+    };
+    restore: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["HistoryAction"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HistoryStatus"];
                 };
             };
         };
@@ -4146,6 +4754,48 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SettingsStatus"];
+                };
+            };
+        };
+    };
+    editing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EditingSettings"];
+                };
+            };
+        };
+    };
+    configure_editing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfigureEditing"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EditingSettings"];
                 };
             };
         };

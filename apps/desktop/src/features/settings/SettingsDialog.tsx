@@ -29,6 +29,7 @@ export function SettingsDialog({
     null,
   );
   const [memoryDraft, setMemoryDraft] = useState<string | null>(null);
+  const [undoDraft, setUndoDraft] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState<unknown>(null);
@@ -59,7 +60,8 @@ export function SettingsDialog({
     }
   }
   const CurrentPage = settingsPages.find((item) => item.id === page)!.Component;
-  const dirty = cacheDraft !== null || memoryDraft !== null;
+  const dirty =
+    cacheDraft !== null || memoryDraft !== null || undoDraft !== null;
   return (
     <Dialog title="设置" onClose={onClose} className="settings-dialog">
       <div className="settings-layout">
@@ -110,6 +112,8 @@ export function SettingsDialog({
               setCacheDraft={setCacheDraft}
               memoryDraft={memoryDraft}
               setMemoryDraft={setMemoryDraft}
+              undoDraft={undoDraft}
+              setUndoDraft={setUndoDraft}
             />
           ) : (
             <p className="settings-empty">正在读取设置…</p>

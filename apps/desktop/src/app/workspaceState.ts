@@ -1,5 +1,5 @@
 import { useMemo, useSyncExternalStore } from "react";
-import type { StudioClient, DraftSnapshot } from "@studio/client";
+import type { StudioClient, DraftSnapshot, ObjectTarget } from "@studio/client";
 import type { AssetKey, QuerySpec } from "@studio/contracts";
 import type { BrowseScope, BrowserPosition } from "@studio/ui";
 export type WorkspaceState = {
@@ -10,6 +10,8 @@ export type WorkspaceState = {
   focusKey: AssetKey | null;
   view: "grid" | "image";
   position: BrowserPosition | null;
+  inspectorTab: "properties" | "management";
+  managementTarget: ObjectTarget | null;
 };
 const initial: WorkspaceState = {
   order: "post_id_desc",
@@ -19,6 +21,8 @@ const initial: WorkspaceState = {
   focusKey: null,
   view: "grid",
   position: null,
+  inspectorTab: "properties",
+  managementTarget: null,
 };
 const fallback: DraftSnapshot<WorkspaceState> = {
   value: initial,
@@ -84,6 +88,24 @@ function decode(value: unknown): WorkspaceState | null {
     moduleId:
       value.moduleId === "core.resources" ? "core.browser" : value.moduleId,
     order: value.order ?? "post_id_desc",
+    inspectorTab:
+      value.inspectorTab === "management" ? "management" : "properties",
+    managementTarget:
+      record(value.managementTarget) &&
+      typeof value.managementTarget.id === "string" &&
+      [
+        "project",
+        "source",
+        "workset",
+        "artifact",
+        "query",
+        "job",
+        "query_result",
+        "selection",
+        "selection_history",
+      ].includes(String(value.managementTarget.kind))
+        ? value.managementTarget
+        : null,
   } as WorkspaceState;
 }
 export function useWorkspaceState(client: StudioClient, projectId: string) {

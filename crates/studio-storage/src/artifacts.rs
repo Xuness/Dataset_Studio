@@ -8,6 +8,7 @@ pub(crate) fn read(db: &Connection, pid: &str, id: &str) -> Result<Artifact> {
         provenance: ArtifactProvenance {run:None,input_scope:None,input_sha256:None,attempt:None,input_artifacts:vec![],fields_frozen:false,evidence:String::new()},issue:r.get(11)?
     },r.get::<_,String>(6)?,r.get::<_,String>(9)?,r.get::<_,String>(10)?))).optional().map_err(db_error)?.ok_or_else(|| Error::new("NOT_FOUND", "成果不属于当前项目"))?;
     item.state = serde_json::from_value(serde_json::json!(state)).map_err(Error::io)?;
+    item.name = management::display_name(db, "artifact", id, &item.name)?;
     item.files = serde_json::from_str(&files).map_err(Error::io)?;
     item.provenance = serde_json::from_str(&provenance).map_err(Error::io)?;
     Ok(item)
@@ -247,6 +248,7 @@ impl SqliteStore {
                 [id],
             )
             .map_err(db_error)?;
+            event(&tx, "artifact.changed", id)?;
         }
         if let Some(path) = job_path {
             tx.execute("UPDATE jobs SET status='succeeded',completed=total,error=NULL,artifact=?2 WHERE id=?1",params![job_id,path]).map_err(db_error)?;

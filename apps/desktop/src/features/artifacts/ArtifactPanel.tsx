@@ -1,7 +1,10 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Archive, RotateCw, Calculator } from "lucide-react";
-import { Button, useDraft, DraftStatus } from "@studio/ui";
+import { Button, useDraft, DraftStatus, MoreMenu } from "@studio/ui";
+import type { ObjectListOptions } from "@studio/client";
+import { useObjectList } from "../management/useObjectList.js";
+import { objectStates, readableTime } from "../management/presentation.js";
 import type { ModuleContext } from "@studio/ui";
 import type { ScalarValue } from "@studio/contracts";
 import "./artifacts.css";
@@ -36,7 +39,7 @@ const names = {
   legacy: "旧成果待校验",
   publishing: "发布中",
   ready: "已发布",
-  released: "已释放",
+  released: "已删除",
   unavailable: "不可用",
 };
 const kinds: Record<string, string> = {
@@ -51,19 +54,32 @@ export default function ArtifactPanel(context: ModuleContext) {
   const draft = useDraft(client, projectId, "core.artifacts", initial, decode);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  const list = useQuery({
-    queryKey: ["project", projectId, "artifacts", draft.value.listCursor],
-    queryFn: ({ signal }) =>
-      client.tools.artifacts(projectId, {
-        ...(draft.value.listCursor ? { cursor: draft.value.listCursor } : {}),
-        limit: 32,
-        signal,
-      }),
-    enabled: draft.editable,
+  const [state, setState] = useState("");
+  const [kind, setKind] = useState("");
+  const listing = useObjectList(client, projectId, "artifact", {
+    state,
+    ...(kind ? { subtype: kind } : {}),
   });
+  const list = listing.query;
+  const applied = useRef<number | null>(null);
+  useEffect(() => {
+    if (
+      !draft.editable ||
+      !context.invocation ||
+      applied.current === context.invocation.sequence
+    )
+      return;
+    if (context.invocation.args.artifactId)
+      draft.controller.set((old) => ({
+        ...old,
+        selectedId: context.invocation!.args.artifactId!,
+        rowCursor: null,
+      }));
+    applied.current = context.invocation.sequence;
+  }, [context.invocation, draft.editable, draft.controller]);
   const selectedId =
     draft.value.selectedId ||
-    list.data?.items.find((a) => a.output_id === "data")?.id ||
+    list.data?.items.find((a) => a.subtype !== "item_failures")?.id ||
     list.data?.items[0]?.id ||
     "";
   const artifact = useQuery({
@@ -104,6 +120,30 @@ export default function ArtifactPanel(context: ModuleContext) {
     }
   }
   const item = artifact.data;
+  useEffect(() => {
+    if (
+      draft.editable &&
+      item?.state === "released" &&
+      state !== "released" &&
+      state !== "all"
+    ) {
+      draft.controller.set((old) => ({
+        ...old,
+        selectedId:
+          list.data?.items.find(
+            (next) => next.id !== item.id && next.state !== "released",
+          )?.id ?? "",
+        rowCursor: null,
+      }));
+    }
+  }, [
+    draft.editable,
+    draft.controller,
+    item?.id,
+    item?.state,
+    state,
+    list.data,
+  ]);
   return (
     <section className="artifact-view" aria-label="项目成果">
       <div className="content-bar">
@@ -122,50 +162,112 @@ export default function ArtifactPanel(context: ModuleContext) {
       <DraftStatus controller={draft.controller} />
       <div className="artifact-columns">
         <aside>
+          <div className="object-list-tools">
+            <input
+              type="search"
+              aria-label="搜索计算成果"
+              placeholder="搜索成果名称或备注"
+              maxLength={120}
+              value={listing.search}
+              onChange={(event) => listing.searchFor(event.target.value)}
+            />
+            <select
+              aria-label="成果排序"
+              value={listing.order}
+              onChange={(event) =>
+                listing.sortBy(event.target.value as ObjectListOptions["order"])
+              }
+            >
+              <option value="created_desc">最近创建</option>
+              <option value="created_asc">最早创建</option>
+              <option value="name_asc">名称升序</option>
+              <option value="name_desc">名称降序</option>
+              <option value="count_desc">成员最多</option>
+            </select>
+            <select
+              aria-label="成果类型"
+              value={kind}
+              onChange={(event) => {
+                setKind(event.target.value);
+                listing.reset();
+              }}
+            >
+              <option value="">全部类型</option>
+              {Object.entries(kinds).map(([id, name]) => (
+                <option key={id} value={id}>
+                  {name}
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label="成果状态"
+              value={state}
+              onChange={(event) => {
+                setState(event.target.value);
+                listing.reset();
+              }}
+            >
+              <option value="">保留的成果</option>
+              <option value="ready">可用成果</option>
+              <option value="released">已删除记录</option>
+              <option value="all">全部记录</option>
+            </select>
+          </div>
           <div className="artifact-list">
             {list.data?.items.map((a) => (
-              <button
-                className={a.id === selectedId ? "active" : ""}
-                key={a.id}
-                onClick={() =>
-                  draft.controller.set((v) => ({
-                    ...v,
-                    selectedId: a.id,
-                    rowCursor: null,
-                  }))
-                }
-              >
-                <strong>{a.name}</strong>
-                <span>
-                  {kinds[a.kind] ?? a.kind} · {a.count ?? "待确认"} 项
-                </span>
-                <small>
-                  {names[a.state]} · {a.id.slice(0, 8)}
-                </small>
-              </button>
+              <div className="managed-list-row" key={a.id}>
+                <button
+                  className={
+                    "artifact-item " + (a.id === selectedId ? "active" : "")
+                  }
+                  onClick={() =>
+                    draft.controller.set((v) => ({
+                      ...v,
+                      selectedId: a.id,
+                      rowCursor: null,
+                    }))
+                  }
+                >
+                  <strong>{a.name}</strong>
+                  <span>
+                    {kinds[a.subtype ?? ""] ?? a.subtype} ·{" "}
+                    {a.count?.toLocaleString("zh-CN") ?? "待确认"} 项
+                  </span>
+                  <small>
+                    {objectStates[a.state] ?? a.state} ·{" "}
+                    {readableTime(a.created_at)}
+                  </small>
+                </button>
+                <MoreMenu
+                  label={a.name}
+                  items={[
+                    {
+                      label: "管理与引用关系",
+                      action: () => context.management?.open(a),
+                    },
+                    {
+                      label: "重命名与备注…",
+                      action: () => context.management?.open(a, "rename"),
+                    },
+                    {
+                      label:
+                        a.state === "released"
+                          ? "检查清理状态…"
+                          : "删除计算结果…",
+                      danger: true,
+                      action: () => context.management?.open(a, "remove"),
+                    },
+                  ]}
+                />
+              </div>
             ))}
           </div>
           <div className="artifact-paging">
-            {draft.value.listCursor && (
-              <Button
-                onClick={() =>
-                  draft.controller.set((v) => ({ ...v, listCursor: null }))
-                }
-              >
-                最近成果
-              </Button>
+            {listing.cursor && (
+              <Button onClick={() => listing.previous()}>上一页</Button>
             )}
             {list.data?.next_cursor && (
-              <Button
-                onClick={() =>
-                  draft.controller.set((v) => ({
-                    ...v,
-                    listCursor: list.data!.next_cursor ?? null,
-                  }))
-                }
-              >
-                更多成果
-              </Button>
+              <Button onClick={() => listing.next()}>更多成果</Button>
             )}
           </div>
         </aside>
@@ -203,12 +305,38 @@ export default function ArtifactPanel(context: ModuleContext) {
                     item.state === "publishing"
                   }
                   onClick={() =>
-                    void act(() => client.tools.release(projectId, item.id))
+                    context.management?.open({ kind: "artifact", id: item.id })
                   }
                 >
-                  释放成果
+                  管理成果
                 </Button>
               </header>
+              <div className="artifact-quick-actions">
+                <Button
+                  onClick={() =>
+                    void act(() =>
+                      client.management.reveal(projectId, {
+                        kind: "artifact",
+                        id: item.id,
+                      }),
+                    )
+                  }
+                >
+                  打开文件所在位置
+                </Button>
+                {item.provenance.run && (
+                  <Button
+                    onClick={() =>
+                      context.activateView("core.tools", {
+                        operatorId: item.provenance.run!.operator_id,
+                        reuseRun: JSON.stringify(item.provenance.run),
+                      })
+                    }
+                  >
+                    用这些参数配置新任务
+                  </Button>
+                )}
+              </div>
               {item.issue && <p className="tool-notice">{item.issue}</p>}
               {item.kind === "ranking_table" && (
                 <div className="derived-field">

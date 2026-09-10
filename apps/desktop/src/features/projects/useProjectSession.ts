@@ -97,5 +97,18 @@ export function useProjectSession(
     const id = savedProject();
     if (id && projects.data.items.some((p) => p.id === id)) void openRecent(id);
   }, [projects.data, openRecent]);
-  return { project, projects, pending, activate, openRecent, close };
+  const updateCurrent = useCallback((next: Project) => {
+    if (current.current?.id !== next.id) return;
+    current.current = next;
+    setProject(next);
+  }, []);
+  return {
+    project,
+    projects,
+    pending,
+    activate,
+    openRecent,
+    close,
+    updateCurrent,
+  };
 }

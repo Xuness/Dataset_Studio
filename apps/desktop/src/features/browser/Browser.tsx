@@ -22,6 +22,8 @@ import {
   initialHistory,
   restoreHistory,
   nextHistory,
+  browseScopeIdentity,
+  normalizeBrowseScopeKey,
 } from "@studio/ui";
 import type { ModuleContext, BrowseScope, BrowseViewProps } from "@studio/ui";
 import { assetIdentity } from "@studio/client";
@@ -68,11 +70,17 @@ export default function BrowserModule(context: ModuleContext) {
 export function Browser(props: BrowserProps) {
   const identity = JSON.stringify([
     props.projectId,
-    props.scope,
+    browseScopeIdentity(props.scope),
     props.order,
     props.scope.kind === "selection" ? props.selectionRevision : null,
   ]);
-  return <BrowserContent key={identity} {...props} />;
+  const position = props.position
+    ? {
+        ...props.position,
+        scopeKey: normalizeBrowseScopeKey(props.position.scopeKey),
+      }
+    : null;
+  return <BrowserContent key={identity} {...props} position={position} />;
 }
 function BrowserContent({
   client,
@@ -105,7 +113,7 @@ function BrowserContent({
   const [refreshing, setRefreshing] = useState(false);
   const [refreshError, setRefreshError] = useState<unknown>(null);
   const scopeKey = JSON.stringify([
-    scope,
+    browseScopeIdentity(scope),
     scope.kind === "selection" ? selectionRevision : null,
     pageSize,
     order,

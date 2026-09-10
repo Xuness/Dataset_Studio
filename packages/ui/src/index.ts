@@ -46,3 +46,9 @@ export type {
   BrowserPosition,
   BrowserHistory,
 } from "./modules.js";
+export { MoreMenu } from "./MoreMenu.js";
+export type { MoreMenuItem } from "./MoreMenu.js";
+export {
+  browseScopeIdentity,
+  normalizeBrowseScopeKey,
+} from "./browserHistory.js";

@@ -87,10 +87,20 @@ pub(super) fn change(
     if add.len() + remove.len() > 1000 {
         return Err(Error::invalid("每次选择修改最多提交 1000 项"));
     }
+    let history_limit = store.editing_settings()?.undo_limit;
     let p = store.handle(pid)?;
     let mut db = p.db.lock().map_err(lock_error)?;
     let tx = db.transaction().map_err(db_error)?;
     check_revision(&tx, expected)?;
+    let history_id = history::begin(
+        &tx,
+        history_limit,
+        if reset {
+            "清空选择"
+        } else {
+            "修改图片选择"
+        },
+    )?;
     if reset {
         clear(&tx)?;
     }
@@ -111,6 +121,7 @@ pub(super) fn change(
         tx.execute("INSERT OR IGNORE INTO selection_exclusions SELECT ?1,?2 WHERE EXISTS(SELECT 1 FROM result_members m WHERE m.result_id=(SELECT result_id FROM selection_base WHERE singleton=1) AND m.source_id=?1 AND m.asset_id=?2)",params![key.source_id,key.asset_id]).map_err(db_error)?;
     }
     let selection = publish(&tx)?;
+    history::finish(&tx, history_id, history_limit)?;
     tx.commit().map_err(db_error)?;
     Ok(selection)
 }

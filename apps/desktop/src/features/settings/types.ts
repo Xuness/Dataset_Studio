@@ -13,6 +13,8 @@ export type SettingsPageProps = {
   setCacheDraft: (value: Schema["CacheSettings"] | null) => void;
   memoryDraft: string | null;
   setMemoryDraft: (value: string | null) => void;
+  undoDraft: string | null;
+  setUndoDraft: (value: string | null) => void;
 };
 export const sizeLabel = (bytes: string | number) => {
   const value = Number(bytes);

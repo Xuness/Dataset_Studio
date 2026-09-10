@@ -4,6 +4,8 @@ mod tools;
 pub use tools::*;
 mod resources;
 pub use resources::*;
+mod management;
+pub use management::*;
 
 /// Application ports contain no window, HTTP, or database types.
 pub trait SourceAdapter: Send + Sync {

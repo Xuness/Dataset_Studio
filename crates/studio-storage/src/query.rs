@@ -7,6 +7,12 @@ fn decode<T: serde::de::DeserializeOwned>(text: String) -> Result<T> {
 }
 pub(super) fn read_definition(db: &Connection, pid: &str, id: &str) -> Result<QueryDefinition> {
     validate_id(id)?;
+    if management::removed(db, "query", id)? {
+        return Err(Error::new(
+            "OBJECT_REMOVED",
+            "查询定义已删除，旧结果保留生成时的条件",
+        ));
+    }
     let row = db
         .query_row(
             "SELECT name,revision,spec_json,created_at FROM query_definitions WHERE id=?1",
@@ -26,7 +32,7 @@ pub(super) fn read_definition(db: &Connection, pid: &str, id: &str) -> Result<Qu
     Ok(QueryDefinition {
         id: id.into(),
         project_id: pid.into(),
-        name: row.0,
+        name: management::display_name(db, "query", id, &row.0)?,
         revision: row.1,
         spec: decode(row.2)?,
         created_at: row.3,
@@ -84,7 +90,7 @@ pub(super) fn ready_result(db: &Connection, pid: &str, id: &str) -> Result<Query
 }
 pub(super) fn validate_sources(db: &Connection, spec: &QuerySpec) -> Result<()> {
     let mut stmt = db
-        .prepare("SELECT 1 FROM sources WHERE id=?1")
+        .prepare("SELECT 1 FROM sources WHERE id=?1 AND NOT EXISTS(SELECT 1 FROM object_metadata m WHERE m.kind='source' AND m.id=?1 AND m.deleted=1)")
         .map_err(db_error)?;
     for id in &spec.source_ids {
         if !stmt.exists([id]).map_err(db_error)? {
@@ -116,7 +122,7 @@ fn listed_ids(
     let visibility = if table == "query_results" {
         "internal=0"
     } else {
-        "1"
+        "NOT EXISTS(SELECT 1 FROM object_metadata m WHERE m.kind='query' AND m.id=query_definitions.id AND m.deleted=1)"
     };
     let predicate = if after.is_some() {
         format!("WHERE {visibility} AND (created_at,id)<(?1,?2)")
@@ -192,6 +198,7 @@ impl QueryRepository for SqliteStore {
         };
         derived_fields::references(&tx, pid, "query_definition", &id, &spec)?;
         input_references(&tx, pid, "query_definition_input", &id, &spec)?;
+        management::named(&tx, "query", &id, &name)?;
         event(&tx, "query.changed", &id)?;
         let result = read_definition(&tx, pid, &id)?;
         tx.commit().map_err(db_error)?;

@@ -1,5 +1,6 @@
-import type { ComponentType } from "react";
+import type { ComponentType, ReactNode } from "react";
 import type { StudioClient } from "@studio/client";
+import type { ObjectTarget } from "@studio/client";
 import type {
   Asset,
   AssetKey,
@@ -78,6 +79,16 @@ export type ModuleContext = {
     width: number;
     setVisible: (visible: boolean) => void;
     resize: (width: number) => void;
+  };
+  management?: {
+    tab: "properties" | "management";
+    open: (
+      target: ObjectTarget,
+      mode?: "details" | "rename" | "remove",
+    ) => void;
+    showProperties: () => void;
+    header: ReactNode;
+    content: ReactNode;
   };
   invocation: { sequence: number; args: Record<string, string> } | null;
 };

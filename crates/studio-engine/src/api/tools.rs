@@ -239,13 +239,7 @@ pub(super) async fn release(
     Ok(Json(
         blocking(move || {
             let _lease = s.store.operation_lease(&pid)?;
-            let item = s.store.release_artifact(&pid, &aid)?;
-            for file in &item.files {
-                let path = crate::artifacts::controlled_path(&s.store, &pid, &file.path)?;
-                if path.exists() {
-                    std::fs::remove_file(path).map_err(domain::Error::io)?;
-                }
-            }
+            let item = super::management::release_files(&s, &pid, &aid)?;
             Ok(item.into())
         })
         .await?,

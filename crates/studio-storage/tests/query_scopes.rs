@@ -141,6 +141,11 @@ fn scoped_queries_pin_inputs_and_fence_changed_selections_before_publication() {
     assert_eq!(failed.state, ResultState::Failed);
     assert!(failed.error.unwrap().contains("REVISION_CONFLICT"));
     assert!(failed.count.is_none());
+    // The cancelled build has released its input; selection undo now independently
+    // protects the old base until the user discards that history.
+    store
+        .clear_selection_history(&project.id, store.selection(&project.id).unwrap().revision)
+        .unwrap();
     assert_eq!(
         store.release_result(&project.id, &base.id).unwrap().state,
         ResultState::Released

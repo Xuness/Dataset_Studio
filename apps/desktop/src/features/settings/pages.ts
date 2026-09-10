@@ -1,10 +1,17 @@
-import { Database, List, Gauge } from "lucide-react";
+import { Database, List, Gauge, Undo2 } from "lucide-react";
+import { EditingSettingsPage } from "./EditingSettingsPage.js";
 import { CacheSettingsPage } from "./CacheSettingsPage.js";
 import { CacheManagerPage } from "./CacheManagerPage.js";
 import { PerformanceSettingsPage } from "./PerformanceSettingsPage.js";
 
 /** Register a settings page here; it stays outside the project's business views. */
 export const settingsPages = [
+  {
+    id: "editing",
+    title: "编辑与撤销",
+    Icon: Undo2,
+    Component: EditingSettingsPage,
+  },
   {
     id: "cache",
     title: "缓存与存储",

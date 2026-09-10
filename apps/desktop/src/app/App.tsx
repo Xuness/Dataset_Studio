@@ -31,7 +31,8 @@ import {
   Info,
   RotateCw,
   Search,
-  Link2,
+  Undo2,
+  Redo2,
   Calculator,
   Archive,
 } from "lucide-react";
@@ -44,6 +45,7 @@ import {
   assetTitle,
   ErrorDetails,
   isJobActive,
+  MoreMenu,
 } from "@studio/ui";
 import type { CSSProperties } from "react";
 import { MenuBar } from "./MenuBar.js";
@@ -57,7 +59,7 @@ import type {
   ScopeOperation,
   ScopeRef,
 } from "@studio/contracts";
-import type { StudioClient } from "@studio/client";
+import type { StudioClient, ObjectTarget } from "@studio/client";
 import {
   connectEngine,
   chooseDirectory,
@@ -72,6 +74,13 @@ import { MetadataInspector } from "../features/metadata/MetadataInspector.js";
 import { SettingsDialog } from "../features/settings/SettingsDialog.js";
 import { settingsPages } from "../features/settings/pages.js";
 import type { SettingsPageId } from "../features/settings/pages.js";
+import {
+  ManagementPanel,
+  InspectorTabs,
+} from "../features/management/ManagementPanel.js";
+import type { ManagementMode } from "../features/management/ManagementPanel.js";
+import { WorksetTree } from "../features/management/WorksetTree.js";
+import { DetachedSources } from "../features/management/DetachedSources.js";
 
 type ViewState = {
   scope: BrowseScope;
@@ -177,15 +186,38 @@ function Studio({
   const [dialog, setDialog] = useState<DialogKind>(null);
   const [settingsPage, setSettingsPage] = useState<SettingsPageId | null>(null);
   const [error, setError] = useState("");
+  const [operationNotice, setOperationNotice] = useState("");
+  const [managementAction, setManagementAction] = useState({
+    mode: "details" as ManagementMode,
+    sequence: 0,
+  });
+  const [taskFocus, setTaskFocus] = useState<string | null>(null);
   const [saving, setBusy] = useState(false);
   const session = useProjectSession(client, setError);
   const { project, projects } = session;
   const busy = saving || session.pending;
   const [relinkTarget, setRelinkTarget] = useState<Source | null>(null);
   const currentId = project?.id ?? "";
+  useEffect(() => {
+    setTaskFocus(null);
+    setOperationNotice("");
+  }, [currentId]);
   const currentIdRef = useRef(currentId);
   currentIdRef.current = currentId;
   const workspace = useWorkspaceState(client, currentId);
+  const projectInfo = useQuery({
+    queryKey: ["project", currentId, "info"],
+    queryFn: () => client.project(currentId),
+    enabled: !!currentId,
+  });
+  useEffect(() => {
+    if (
+      projectInfo.data &&
+      projectInfo.data.id === currentId &&
+      projectInfo.data.name !== project?.name
+    )
+      session.updateCurrent(projectInfo.data);
+  }, [projectInfo.data, currentId, project?.name, session.updateCurrent]);
   const layout = useLayoutState(client);
   const { projectsVisible, propertiesVisible, tasksVisible } = layout.value;
   const queryVisible =
@@ -269,6 +301,11 @@ function Studio({
     queryFn: () => client.selection(currentId),
     enabled: !!project,
   });
+  const selectionHistory = useQuery({
+    queryKey: ["project", currentId, "selection-history"],
+    queryFn: ({ signal }) => client.management.history(currentId, signal),
+    enabled: !!project,
+  });
   const collections = useQuery({
     queryKey: ["project", currentId, "collections"],
     queryFn: () => client.collections(currentId),
@@ -314,6 +351,14 @@ function Studio({
       ? view.scope.id
       : "selection";
   const selected = selection.data?.count ?? 0;
+  function targetForScope(scope: BrowseScope): ObjectTarget {
+    if (scope.kind === "source") return { kind: "source", id: scope.id };
+    if (scope.kind === "collection") return { kind: "workset", id: scope.id };
+    if (scope.kind === "result") return { kind: "query_result", id: scope.id };
+    if (scope.kind === "selection")
+      return { kind: "selection", id: "selection" };
+    return { kind: "project", id: currentId };
+  }
   function updateView(update: Partial<ViewState>) {
     if (!workspace.editable) return;
     if (update.focus)
@@ -326,6 +371,9 @@ function Studio({
       ...(update.scope
         ? {
             scope: update.scope,
+            ...(v.inspectorTab === "management"
+              ? { managementTarget: targetForScope(update.scope) }
+              : {}),
             focusKey: null,
             view: "grid" as const,
             position: v.position
@@ -348,6 +396,43 @@ function Studio({
       ...("focus" in update ? { focusKey: update.focus?.key ?? null } : {}),
     }));
   }
+  useEffect(() => {
+    if (!workspace.editable || !workspace.controller) return;
+    const scope = workspace.value.scope;
+    const items =
+      scope.kind === "source"
+        ? sources.data?.items
+        : scope.kind === "collection"
+          ? collections.data?.items
+          : undefined;
+    if (!items || (scope.kind !== "source" && scope.kind !== "collection"))
+      return;
+    const current = items.find((item) => item.id === scope.id);
+    if (!current) {
+      workspace.controller.set((old) => ({
+        ...old,
+        scope: { kind: "all" },
+        focusKey: null,
+        position: null,
+        view: "grid",
+      }));
+      setOperationNotice(
+        scope.kind === "source"
+          ? "数据湖已取消关联，已返回项目数据。"
+          : "工作集已删除，已返回项目数据。",
+      );
+    } else if (current.name !== scope.name)
+      workspace.controller.set((old) => ({
+        ...old,
+        scope: { ...scope, name: current.name },
+      }));
+  }, [
+    workspace.editable,
+    workspace.controller,
+    workspace.value.scope,
+    sources.data,
+    collections.data,
+  ]);
   useEffect(() => {
     if (!workspace.editable || !workspace.controller) return;
     const value = workspace.value;
@@ -432,6 +517,9 @@ function Studio({
           void queryClient.invalidateQueries({
             queryKey: [...prefix, "assets"],
           });
+          void queryClient.invalidateQueries({
+            queryKey: [...prefix, "selection-history"],
+          });
         } else void queryClient.invalidateQueries({ queryKey: prefix });
       },
       abort.signal,
@@ -514,6 +602,180 @@ function Studio({
       }),
     );
   }
+  const historyBusy = useRef(false);
+  function restoreSelection(action: "undo" | "redo") {
+    if (
+      !currentId ||
+      busy ||
+      historyBusy.current ||
+      selection.data?.revision === undefined ||
+      !(action === "undo"
+        ? selectionHistory.data?.undo_steps
+        : selectionHistory.data?.redo_steps)
+    )
+      return;
+    historyBusy.current = true;
+    void act(async () => {
+      const result = await client.management.restore(
+        currentId,
+        action,
+        selection.data!.revision,
+      );
+      queryClient.setQueryData(
+        ["project", currentId, "selection"],
+        result.selection,
+      );
+      queryClient.setQueryData(
+        ["project", currentId, "selection-history"],
+        result,
+      );
+      setOperationNotice(
+        action === "undo" ? "已撤销选择操作。" : "已重做选择操作。",
+      );
+    }).finally(() => {
+      historyBusy.current = false;
+    });
+  }
+  const historyKeyboard = useRef(restoreSelection);
+  historyKeyboard.current = restoreSelection;
+  useEffect(() => {
+    const keyboard = (event: KeyboardEvent) => {
+      if (
+        event.defaultPrevented ||
+        event.isComposing ||
+        event.altKey ||
+        !(event.ctrlKey || event.metaKey)
+      )
+        return;
+      if (
+        event.target instanceof Element &&
+        event.target.closest(
+          "input,textarea,select,[contenteditable=true],[role=dialog],[role=menu]",
+        )
+      )
+        return;
+      if (document.querySelector("[role=dialog]")) return;
+      const key = event.key.toLowerCase();
+      if (key === "z" || (key === "y" && !event.shiftKey)) {
+        event.preventDefault();
+        historyKeyboard.current(
+          key === "y" || event.shiftKey ? "redo" : "undo",
+        );
+      }
+    };
+    document.addEventListener("keydown", keyboard);
+    return () => document.removeEventListener("keydown", keyboard);
+  }, []);
+  function openManagement(
+    target: ObjectTarget,
+    mode: ManagementMode = "details",
+  ) {
+    if (!workspace.editable) return;
+    setManagementAction((old) => ({ mode, sequence: old.sequence + 1 }));
+    workspace.controller?.set((old) => ({
+      ...old,
+      inspectorTab: "management",
+      managementTarget: target,
+    }));
+    setPropertiesVisible(true);
+  }
+  function setInspectorTab(tab: "properties" | "management") {
+    if (!workspace.editable) return;
+    workspace.controller?.set((old) => ({
+      ...old,
+      inspectorTab: tab,
+      managementTarget: old.managementTarget ?? targetForScope(old.scope),
+    }));
+  }
+  function browseManaged(target: ObjectTarget) {
+    void act(async () => {
+      const item = await client.management.details(currentId, target);
+      if (target.kind === "source")
+        updateView({
+          scope: { kind: "source", id: target.id, name: item.object.name },
+        });
+      if (target.kind === "workset")
+        updateView({
+          scope: { kind: "collection", id: target.id, name: item.object.name },
+        });
+      if (target.kind === "selection")
+        updateView({ scope: { kind: "selection", name: "当前选择" } });
+      if (target.kind === "artifact")
+        activateView("core.artifacts", { artifactId: target.id });
+      if (target.kind === "query_result") {
+        const result = await client.queries.result(currentId, target.id);
+        if (result.state === "ready")
+          updateView({
+            scope: { kind: "result", id: target.id, name: item.object.name },
+          });
+        else setQueryVisible(true);
+      }
+      if (target.kind === "query") {
+        setQueryVisible(true);
+        setInvocation((old) => ({
+          projectId: currentId,
+          sequence: (old?.sequence ?? 0) + 1,
+          args: { queryId: target.id },
+        }));
+      }
+      if (target.kind === "job") {
+        setTaskFocus(target.id);
+        setTasksVisible(true);
+      }
+    });
+  }
+  function objectChanged(target: ObjectTarget, action: string) {
+    if (currentIdRef.current !== currentId) return;
+    if (target.kind === "project")
+      void queryClient.invalidateQueries({ queryKey: ["projects"] });
+    if (action === "remove") {
+      setOperationNotice(
+        target.kind === "source"
+          ? "已取消数据湖与当前项目的关联。"
+          : "对象已删除，相关引用已更新。",
+      );
+      if (target.kind === "workset" || target.kind === "job")
+        openManagement({ kind: "project", id: currentId });
+      if (
+        target.kind === "source" &&
+        workspace.value.focusKey?.source_id === target.id
+      )
+        workspace.controller?.set((old) => ({
+          ...old,
+          focusKey: null,
+          view: "grid",
+        }));
+    }
+  }
+  const managementTarget =
+    workspace.value.managementTarget ?? targetForScope(view.scope);
+  const inspectorHeader = (
+    <InspectorTabs
+      tab={workspace.value.inspectorTab}
+      onChange={setInspectorTab}
+    />
+  );
+  const managementContent = currentId ? (
+    <ManagementPanel
+      key={currentId + managementTarget.kind + managementTarget.id}
+      client={client}
+      projectId={currentId}
+      target={managementTarget}
+      mode={managementAction.mode}
+      sequence={managementAction.sequence}
+      onNavigate={openManagement}
+      onBrowse={browseManaged}
+      onReuse={(run) => {
+        activateView("core.tools", {
+          operatorId: run.operator_id,
+          reuseRun: JSON.stringify(run),
+        });
+        setInspectorTab("properties");
+      }}
+      onChanged={objectChanged}
+      onSettings={() => setSettingsPage("editing")}
+    />
+  ) : null;
   const moduleContext: ModuleContext = {
     client,
     projectId: currentId,
@@ -532,6 +794,7 @@ function Studio({
       onFocus: (focus) => updateView({ focus }),
       onInspect: (focus) => {
         updateView({ focus });
+        setInspectorTab("properties");
         setPropertiesVisible(true);
       },
       onScope: (scope) => updateView({ scope }),
@@ -598,6 +861,13 @@ function Studio({
       setVisible: setPropertiesVisible,
       resize: (propertiesWidth) => layout.update({ propertiesWidth }),
     },
+    management: {
+      tab: workspace.value.inspectorTab,
+      open: openManagement,
+      showProperties: () => setInspectorTab("properties"),
+      header: inspectorHeader,
+      content: managementContent,
+    },
     invocation:
       invocation?.projectId === currentId
         ? { sequence: invocation.sequence, args: invocation.args }
@@ -613,12 +883,38 @@ function Studio({
       { label: "新建项目…", action: () => setDialog("new") },
       { label: "打开项目…", action: () => setDialog("open") },
       {
+        label: "项目管理…",
+        action: () => openManagement({ kind: "project", id: currentId }),
+        disabled: !project,
+      },
+      {
+        label: "打开项目文件夹",
+        action: () =>
+          void act(() =>
+            client.management.reveal(currentId, {
+              kind: "project",
+              id: currentId,
+            }),
+          ),
+        disabled: !project,
+      },
+      {
         label: "关闭当前项目",
         action: () => void session.close(),
         disabled: !project,
       },
     ],
     编辑: [
+      {
+        label: "撤销选择（Ctrl+Z）",
+        action: () => restoreSelection("undo"),
+        disabled: busy || !selectionHistory.data?.undo_steps,
+      },
+      {
+        label: "重做选择（Ctrl+Y）",
+        action: () => restoreSelection("redo"),
+        disabled: busy || !selectionHistory.data?.redo_steps,
+      },
       { label: "清除当前选择", action: clearSelection, disabled: !selected },
       {
         label: "保存选择为工作集…",
@@ -694,6 +990,24 @@ function Studio({
         <span className="option-value">{selected} 项</span>
         <button disabled={!selected || busy} onClick={clearSelection}>
           清除
+        </button>
+        <button
+          className="icon-button"
+          title="撤销选择（Ctrl+Z）"
+          aria-label="撤销选择"
+          disabled={busy || !selectionHistory.data?.undo_steps}
+          onClick={() => restoreSelection("undo")}
+        >
+          <Undo2 size={15} />
+        </button>
+        <button
+          className="icon-button"
+          title="重做选择（Ctrl+Y）"
+          aria-label="重做选择"
+          disabled={busy || !selectionHistory.data?.redo_steps}
+          onClick={() => restoreSelection("redo")}
+        >
+          <Redo2 size={15} />
         </button>
         <span className="option-separator" />
         <button
@@ -919,6 +1233,9 @@ function Studio({
                 <SourceRow
                   key={source.id}
                   source={source}
+                  onManage={(mode) =>
+                    openManagement({ kind: "source", id: source.id }, mode)
+                  }
                   onRelink={() => {
                     setRelinkTarget(source);
                     setDialog("relink");
@@ -946,6 +1263,12 @@ function Studio({
                   添加第一个数据湖
                 </button>
               )}
+              <DetachedSources
+                key={currentId}
+                client={client}
+                projectId={currentId}
+                onManage={openManagement}
+              />
               <div className="tree-heading">
                 <ChevronDown size={12} />
                 <span>工作集</span>
@@ -959,32 +1282,53 @@ function Studio({
                   <Plus size={12} />
                 </button>
               </div>
-              {collections.data?.items.map((c) => (
-                <button
-                  key={c.id}
-                  className={
-                    "tree-row " +
-                    (view.scope.kind === "collection" && view.scope.id === c.id
-                      ? "active"
-                      : "")
-                  }
-                  onClick={() =>
-                    updateView({
-                      scope: { kind: "collection", id: c.id, name: c.name },
-                    })
-                  }
-                >
-                  <FolderOpen size={14} />
-                  <span>{c.name}</span>
-                  <small>{c.count}</small>
-                </button>
-              ))}
-              {!collections.data?.items.length && (
-                <p className="tree-hint">选择资料后，可将它们保存为工作集。</p>
-              )}
+              <WorksetTree
+                key={currentId}
+                client={client}
+                projectId={currentId}
+                activeId={
+                  view.scope.kind === "collection" ? view.scope.id : null
+                }
+                onBrowse={(item) =>
+                  updateView({
+                    scope: { kind: "collection", id: item.id, name: item.name },
+                  })
+                }
+                onManage={openManagement}
+              />
             </div>
             <div className="project-foot">
-              <strong>{project.name}</strong>
+              <div className="project-foot-title">
+                <strong>{project.name}</strong>
+                <MoreMenu
+                  label="项目"
+                  items={[
+                    {
+                      label: "项目管理与备注",
+                      action: () =>
+                        openManagement({ kind: "project", id: currentId }),
+                    },
+                    {
+                      label: "重命名项目…",
+                      action: () =>
+                        openManagement(
+                          { kind: "project", id: currentId },
+                          "rename",
+                        ),
+                    },
+                    {
+                      label: "打开项目文件夹",
+                      action: () =>
+                        void act(() =>
+                          client.management.reveal(currentId, {
+                            kind: "project",
+                            id: currentId,
+                          }),
+                        ),
+                    },
+                  ]}
+                />
+              </div>
               <span>
                 {sources.data?.items.length ?? 0} 个数据湖 ·{" "}
                 {collections.data?.items.length ?? 0} 个工作集
@@ -1024,10 +1368,12 @@ function Studio({
           </div>
           {!activeSurface?.ownsInspector && (
             <aside className="properties-panel">
-              <header className="panel-tabs">
-                <strong>属性</strong>
-              </header>
-              {view.focus ? (
+              {inspectorHeader}
+              {workspace.value.inspectorTab === "management" ? (
+                propertiesVisible ? (
+                  managementContent
+                ) : null
+              ) : view.focus ? (
                 <div className="properties-scroll">
                   <div className="property-preview">
                     <AssetImage
@@ -1140,6 +1486,8 @@ function Studio({
           projectId={project.id}
           onClose={() => setTasksVisible(false)}
           onError={setError}
+          focusJobId={taskFocus}
+          onManage={openManagement}
           onOpenRanking={(jobId) => {
             setTasksVisible(false);
             activateView("core.tools", {
@@ -1165,6 +1513,11 @@ function Studio({
       <footer className="status-bar">
         <span className={health.error ? "online-dot offline" : "online-dot"} />
         <span>{health.error ? "本机引擎已断开" : "本机引擎已连接"}</span>
+        {operationNotice && (
+          <span role="status" className="operation-notice">
+            {operationNotice}
+          </span>
+        )}
         {health.error && <button onClick={onReconnect}>重新连接</button>}
         {project && (
           <>
@@ -1236,11 +1589,13 @@ function SourceRow({
   active,
   onClick,
   onRelink,
+  onManage,
 }: {
   source: Source;
   active: boolean;
   onClick: () => void;
   onRelink: () => void;
+  onManage: (mode?: ManagementMode) => void;
 }) {
   return (
     <div className="source-tree-row">
@@ -1257,15 +1612,21 @@ function SourceRow({
           <small className="source-offline">离线</small>
         )}
       </button>
-      {source.kind === "danbooru" && (
-        <button
-          className="icon-button"
-          title={"重新关联 " + source.name}
-          onClick={onRelink}
-        >
-          <Link2 size={12} />
-        </button>
-      )}
+      <MoreMenu
+        label={source.name}
+        items={[
+          { label: "管理与引用关系", action: () => onManage() },
+          { label: "重命名与备注…", action: () => onManage("rename") },
+          ...(source.kind === "danbooru"
+            ? [{ label: "重新关联本机位置…", action: onRelink }]
+            : []),
+          {
+            label: "取消与项目关联…",
+            danger: true,
+            action: () => onManage("remove"),
+          },
+        ]}
+      />
     </div>
   );
 }

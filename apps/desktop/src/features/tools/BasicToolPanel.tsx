@@ -8,8 +8,10 @@ import type {
   OperatorDescriptor,
   ScalarInput,
   ScopeRef,
+  OperatorRun,
 } from "@studio/contracts";
 import { ScopePicker } from "../scopes/ScopePicker.js";
+import { PresetControls } from "./PresetControls.js";
 import "./tools.css";
 
 type ToolDraft = {
@@ -120,6 +122,7 @@ export default function BasicToolPanel(context: ModuleContext) {
   const value = draft.value;
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const applied = useRef<number | null>(null);
   const operators = useQuery({
     queryKey: ["operators", client.connection.instance_id],
@@ -156,6 +159,33 @@ export default function BasicToolPanel(context: ModuleContext) {
       submission: null,
     }));
   }
+  function applyRun(run: OperatorRun) {
+    const supported = operators.data?.items.find(
+      (item) =>
+        item.id === run.operator_id &&
+        item.version === run.operator_version &&
+        item.parameters_version === run.parameters_version,
+    );
+    if (
+      !supported ||
+      !run.parameters ||
+      typeof run.parameters !== "object" ||
+      Array.isArray(run.parameters)
+    ) {
+      setError("这份参数的格式或工具版本暂不兼容。");
+      return;
+    }
+    draft.controller.set((old) => ({
+      ...old,
+      operatorId: run.operator_id,
+      operatorVersion: run.operator_version,
+      parametersVersion: run.parameters_version,
+      parameters: run.parameters as Record<string, unknown>,
+      submission: null,
+    }));
+    setNotice("已载入参数，输入范围仍以当前配置为准。确认后再启动计算。");
+    context.management?.showProperties();
+  }
   useEffect(() => {
     if (
       !draft.editable ||
@@ -165,6 +195,15 @@ export default function BasicToolPanel(context: ModuleContext) {
     )
       return;
     const args = context.invocation.args;
+    if (args.reuseRun) {
+      try {
+        applyRun(JSON.parse(args.reuseRun) as OperatorRun);
+      } catch {
+        setError("历史参数无法读取，原配置已保留。");
+      }
+      applied.current = context.invocation.sequence;
+      return;
+    }
     const target = operators.data.items.find((o) => o.id === args.operatorId);
     if (target)
       draft.controller.set((v) => ({
@@ -296,6 +335,25 @@ export default function BasicToolPanel(context: ModuleContext) {
         <span className="subtle">选择输入并设置计算参数</span>
       </div>
       <DraftStatus controller={draft.controller} quiet />
+      {notice && (
+        <p className="tool-notice" role="status">
+          {notice}
+        </p>
+      )}
+      <div className="basic-presets">
+        <PresetControls
+          client={client}
+          projectId={projectId}
+          run={{
+            operator_id: value.operatorId,
+            operator_version: value.operatorVersion,
+            parameters_version: value.parametersVersion,
+            parameters: value.parameters,
+          }}
+          onApply={applyRun}
+          disabled={!draft.editable || pending || !operator}
+        />
+      </div>
       <form onSubmit={(event) => void submit(event)}>
         <fieldset disabled={!draft.editable || pending}>
           <Field label="工具">

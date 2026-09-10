@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef } from "react";
-import { useDraft } from "@studio/ui";
+import { useDraft, ResizeGrip } from "@studio/ui";
 import type { ModuleContext } from "@studio/ui";
 import BasicToolPanel from "./BasicToolPanel.js";
 import "./tools.css";
@@ -51,7 +51,39 @@ export default function ToolPanel(context: ModuleContext) {
         </button>
       </nav>
       {nav.value.tool === "basic" ? (
-        <BasicToolPanel {...context} />
+        <div className="tools-basic-content">
+          <BasicToolPanel {...context} />
+          {context.inspector?.visible && context.management && (
+            <aside
+              className="management-dock"
+              style={{
+                width: context.inspector.width,
+                flexBasis: context.inspector.width,
+              }}
+            >
+              {context.management.header}
+              {context.management.tab === "management" ? (
+                context.management.content
+              ) : (
+                <div className="management-empty">
+                  选择计算工具与输入范围后可配置参数。
+                  <br />
+                  切换到“管理”可查看项目对象和来源关系。
+                </div>
+              )}
+              <ResizeGrip
+                label="管理面板宽度"
+                orientation="vertical"
+                reverse
+                value={context.inspector.width}
+                minimum={260}
+                maximum={600}
+                onChange={context.inspector.resize}
+                onReset={() => context.inspector?.resize(320)}
+              />
+            </aside>
+          )}
+        </div>
       ) : (
         <Suspense
           fallback={<p className="ranking-loading">正在加载元数据排名…</p>}

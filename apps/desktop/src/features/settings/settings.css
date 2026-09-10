@@ -331,3 +331,21 @@
     gap: 12px;
   }
 }
+.settings-page[aria-label="编辑与撤销设置"] {
+  line-height: 1.75;
+}
+.settings-page[aria-label="编辑与撤销设置"] input[type="number"] {
+  max-width: 180px;
+}
+.settings-page[aria-label="编辑与撤销设置"] .settings-card {
+  margin-top: 24px;
+  padding-top: 15px;
+  border-top: 1px solid #45484e;
+}
+.settings-page[aria-label="编辑与撤销设置"] kbd {
+  font: inherit;
+  padding: 2px 6px;
+  border: 1px solid #555b64;
+  border-radius: 3px;
+  background: #30343a;
+}

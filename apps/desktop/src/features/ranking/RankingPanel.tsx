@@ -11,6 +11,7 @@ import {
   ResizeGrip,
   isJobActive,
   useDraft,
+  MoreMenu,
 } from "@studio/ui";
 import type { ModuleContext } from "@studio/ui";
 import type {
@@ -22,7 +23,11 @@ import type {
   Schema,
   ScopeRef,
   Job,
+  OperatorRun,
 } from "@studio/contracts";
+import type { ObjectListOptions } from "@studio/client";
+import { useObjectList } from "../management/useObjectList.js";
+import { PresetControls } from "../tools/PresetControls.js";
 import { RankingConfig } from "./RankingConfig.js";
 import { RankingDetails } from "./RankingDetails.js";
 import { RankingOverview } from "./RankingOverview.js";
@@ -149,21 +154,37 @@ export default function RankingPanel(context: ModuleContext) {
     retry: false,
     gcTime: 0,
   });
-  const artifacts = useQuery({
-    queryKey: ["project", projectId, "ranking-artifact-options"],
-    queryFn: ({ signal }) =>
-      client.tools.artifacts(projectId, { limit: 64, signal }),
-    enabled: draft.editable,
-    refetchInterval:
-      job &&
-      ["queued", "preparing", "running", "waiting_input"].includes(job.status)
-        ? 5000
-        : false,
-    select: (data) =>
-      data.items.filter(
-        (a) => a.kind === "ranking_table" && a.state === "ready",
-      ),
-  });
+  const rankingList = useObjectList(
+    client,
+    projectId,
+    "artifact",
+    { subtype: "ranking_table", state: "ready" },
+    active ? 5000 : false,
+  );
+  const artifacts = rankingList.query;
+  const [parameterNotice, setParameterNotice] = useState("");
+  function applyRun(run: OperatorRun) {
+    const value = decode({ ...initial, parameters: run.parameters });
+    if (
+      run.operator_id !== operatorId ||
+      run.operator_version !== 1 ||
+      run.parameters_version !== 1 ||
+      !value
+    ) {
+      setError("这份参数的格式或工具版本暂不兼容。");
+      return;
+    }
+    draft.controller.set((old) => ({
+      ...old,
+      parameters: value.parameters,
+      submission: null,
+      tab: "config",
+    }));
+    setParameterNotice(
+      "已载入参数，输入范围仍以当前配置为准。确认后再启动计算。",
+    );
+    context.management?.showProperties();
+  }
   useEffect(() => {
     if (draft.editable && runningJob && d.lastJob !== runningJob.id)
       draft.controller.set((v) => ({ ...v, lastJob: runningJob.id }));
@@ -197,6 +218,15 @@ export default function RankingPanel(context: ModuleContext) {
       invocation.args.operatorId !== operatorId
     )
       return;
+    if (invocation.args.reuseRun) {
+      try {
+        applyRun(JSON.parse(invocation.args.reuseRun) as OperatorRun);
+      } catch {
+        setError("历史参数无法读取，原配置已保留。");
+      }
+      applied.current = invocation.sequence;
+      return;
+    }
     draft.controller.set((v) => ({
       ...v,
       ...(invocation.args.artifactId
@@ -212,6 +242,17 @@ export default function RankingPanel(context: ModuleContext) {
     }));
     applied.current = invocation.sequence;
   }, [context.invocation, draft.controller, draft.editable]);
+  useEffect(() => {
+    if (draft.editable && artifact.data?.state === "released" && d.artifactId) {
+      draft.controller.set((old) => ({
+        ...old,
+        artifactId: "",
+        lastJob: null,
+        filterArtifact: "",
+      }));
+      setParameterNotice("这份排名成果已删除，可从列表选择其他成果。");
+    }
+  }, [draft.editable, draft.controller, artifact.data?.state, d.artifactId]);
   useEffect(() => {
     const item = jobArtifact.data;
     if (draft.editable && item && d.lastJob === item.job_id && !d.artifactId)
@@ -445,8 +486,18 @@ export default function RankingPanel(context: ModuleContext) {
     summary.error?.message ||
     results.error?.message ||
     jobArtifact.error?.message;
-  const available: Artifact[] = [...(artifacts.data ?? [])];
-  if (artifact.data && !available.some((a) => a.id === artifact.data!.id))
+  const available: Pick<Artifact, "id" | "name" | "count" | "created_at">[] = (
+    artifacts.data?.items ?? []
+  ).map((a) => ({
+    id: a.id,
+    name: a.name,
+    count: a.count ?? null,
+    created_at: a.created_at ?? "0",
+  }));
+  if (
+    artifact.data?.state === "ready" &&
+    !available.some((a) => a.id === artifact.data!.id)
+  )
     available.unshift(artifact.data);
   const filterDescription = [
     d.filter.rating ? `${d.filter.rating.toUpperCase()} 分级` : "全部分级",
@@ -539,6 +590,27 @@ export default function RankingPanel(context: ModuleContext) {
           </button>
         ))}
         <span className="grow" />
+        <input
+          type="search"
+          className="ranking-result-search"
+          aria-label="搜索排名成果"
+          placeholder="搜索排名名称或备注"
+          value={rankingList.search}
+          maxLength={120}
+          onChange={(event) => rankingList.searchFor(event.target.value)}
+        />
+        <select
+          aria-label="排名成果排序"
+          value={rankingList.order}
+          onChange={(event) =>
+            rankingList.sortBy(event.target.value as ObjectListOptions["order"])
+          }
+        >
+          <option value="created_desc">最近创建</option>
+          <option value="created_asc">最早创建</option>
+          <option value="name_asc">名称升序</option>
+          <option value="name_desc">名称降序</option>
+        </select>
         <select
           aria-label="查看排名成果"
           value={d.artifactId}
@@ -553,12 +625,72 @@ export default function RankingPanel(context: ModuleContext) {
           <option value="">选择已发布成果</option>
           {available.map((a) => (
             <option key={a.id} value={a.id}>
+              {a.name} ·{" "}
               {new Date(Number(a.created_at)).toLocaleString("zh-CN")} ·{" "}
               {number(a.count)} 项
             </option>
           ))}
         </select>
+        {rankingList.cursor && (
+          <Button
+            disabled={artifacts.isFetching}
+            onClick={rankingList.previous}
+          >
+            上一组
+          </Button>
+        )}
+        {artifacts.data?.next_cursor && (
+          <Button disabled={artifacts.isFetching} onClick={rankingList.next}>
+            更多排名
+          </Button>
+        )}
+        {d.artifactId && (
+          <MoreMenu
+            label="当前排名"
+            items={[
+              {
+                label: "管理与引用关系",
+                action: () =>
+                  context.management?.open({
+                    kind: "artifact",
+                    id: d.artifactId,
+                  }),
+              },
+              {
+                label: "重命名与备注…",
+                action: () =>
+                  context.management?.open(
+                    { kind: "artifact", id: d.artifactId },
+                    "rename",
+                  ),
+              },
+              {
+                label: "复用这份成果的参数",
+                disabled: !artifact.data?.provenance.run || active,
+                action: () => {
+                  if (artifact.data?.provenance.run)
+                    applyRun(artifact.data.provenance.run);
+                },
+              },
+              {
+                label: "删除此排名结果…",
+                danger: true,
+                action: () =>
+                  context.management?.open(
+                    { kind: "artifact", id: d.artifactId },
+                    "remove",
+                  ),
+              },
+            ]}
+          />
+        )}
       </nav>
+      {artifacts.error && <ErrorDetails error={artifacts.error} compact />}
+      {parameterNotice && (
+        <p className="ranking-notice" role="status">
+          {parameterNotice}
+        </p>
+      )}
       {(job || trackedJobId || pending || jobs.isError) && (
         <RankingJob
           job={pending ? undefined : job}
@@ -634,6 +766,20 @@ export default function RankingPanel(context: ModuleContext) {
                 </div>
               )}
               {issue && <p className="ranking-notice">{issue}</p>}
+              <div className="ranking-presets">
+                <PresetControls
+                  client={client}
+                  projectId={projectId}
+                  run={{
+                    operator_id: operatorId,
+                    operator_version: 1,
+                    parameters_version: 1,
+                    parameters: d.parameters,
+                  }}
+                  onApply={applyRun}
+                  disabled={!draft.editable || pending || active}
+                />
+              </div>
               <RankingConfig
                 id={formId}
                 parameters={d.parameters}
@@ -951,7 +1097,10 @@ export default function RankingPanel(context: ModuleContext) {
         </div>
         {(context.inspector?.visible ?? true) && (
           <div className="ranking-inspector">
-            {focused && summary.data && d.tab === "results" ? (
+            {context.management?.header}
+            {context.management?.tab === "management" ? (
+              context.management.content
+            ) : focused && summary.data && d.tab === "results" ? (
               <RankingDetails
                 row={focused}
                 summary={summary.data}

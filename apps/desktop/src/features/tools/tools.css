@@ -143,3 +143,14 @@ form .tool-hint {
     padding: 16px;
   }
 }
+.basic-presets {
+  padding: 3px 24px 8px;
+  border-bottom: 1px solid #444;
+}
+.tool-view .preset-controls select {
+  width: auto;
+  min-height: 28px;
+}
+.tools-basic-content .tool-view fieldset {
+  grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
+}

@@ -20,6 +20,7 @@ use studio_protocol::*;
 use studio_sources::SourceRouter;
 use studio_storage::SqliteStore;
 use utoipa::OpenApi;
+mod management;
 mod query;
 mod ranking;
 mod resources;
@@ -55,7 +56,7 @@ impl IntoResponse for Failure {
     fn into_response(self) -> Response {
         let code = self.0.code;
         let status = match code {
-            "NOT_FOUND" => StatusCode::NOT_FOUND,
+            "NOT_FOUND" | "OBJECT_REMOVED" => StatusCode::NOT_FOUND,
             "UNAUTHORIZED" => StatusCode::UNAUTHORIZED,
             "REVISION_CONFLICT"
             | "SOURCE_CHANGED"
@@ -65,6 +66,12 @@ impl IntoResponse for Failure {
             | "RESULT_IN_USE"
             | "ARTIFACT_IN_USE"
             | "ARTIFACT_NOT_READY"
+            | "OBJECT_IN_USE"
+            | "SOURCE_DETACHED"
+            | "HISTORY_EMPTY"
+            | "JOB_NOT_RETRYABLE"
+            | "ARTIFACT_CLEANUP_PENDING"
+            | "JOB_CLEANUP_PENDING"
             | "DRAFT_CONFLICT"
             | "DRAFT_VERSION_UNSUPPORTED"
             | "SCOPE_PROJECT_MISMATCH"
@@ -76,6 +83,7 @@ impl IntoResponse for Failure {
             | "METADATA_RUNTIME_UNAVAILABLE"
             | "READ_BUDGET_EXCEEDED"
             | "CACHE_BUSY" => StatusCode::SERVICE_UNAVAILABLE,
+            "LOCATION_UNAVAILABLE" => StatusCode::NOT_FOUND,
             "SOURCE_TIMEOUT" => StatusCode::GATEWAY_TIMEOUT,
             "SOURCE_RESOURCE_LIMIT" | "METADATA_LIMIT" => StatusCode::PAYLOAD_TOO_LARGE,
             "CANCELLED" => StatusCode::CONFLICT,
@@ -1269,7 +1277,21 @@ async fn shutdown(State(s): State<AppState>) -> Json<OkResponse> {
         settings::prebuild,
         settings::cancel_build,
         settings::fix_basis,
-        settings::release_basis
+        settings::release_basis,
+        management::list,
+        management::jobs,
+        management::read,
+        management::edit,
+        management::links,
+        management::action,
+        management::history,
+        management::restore,
+        management::editing,
+        management::configure_editing,
+        management::presets,
+        management::save_preset,
+        management::delete_preset,
+        management::reveal
     ),
     components(schemas(
         EngineConnection,
@@ -1284,6 +1306,40 @@ async fn shutdown(State(s): State<AppState>) -> Json<OkResponse> {
 pub struct ApiDoc;
 pub fn routes() -> axum::Router<AppState> {
     axum::Router::new()
+        .route("/v1/projects/{pid}/objects/{kind}", get(management::list))
+        .route("/v1/projects/{pid}/job-history", get(management::jobs))
+        .route(
+            "/v1/projects/{pid}/objects/{kind}/{id}",
+            get(management::read).patch(management::edit),
+        )
+        .route(
+            "/v1/projects/{pid}/objects/{kind}/{id}/links",
+            get(management::links),
+        )
+        .route(
+            "/v1/projects/{pid}/objects/{kind}/{id}/actions",
+            post(management::action),
+        )
+        .route(
+            "/v1/projects/{pid}/objects/{kind}/{id}/reveal",
+            post(management::reveal),
+        )
+        .route(
+            "/v1/projects/{pid}/selection/history",
+            get(management::history).post(management::restore),
+        )
+        .route(
+            "/v1/settings/editing",
+            get(management::editing).put(management::configure_editing),
+        )
+        .route(
+            "/v1/projects/{pid}/presets",
+            get(management::presets).post(management::save_preset),
+        )
+        .route(
+            "/v1/projects/{pid}/presets/{id}/delete",
+            post(management::delete_preset),
+        )
         .route("/v1/settings", get(settings::read))
         .route(
             "/v1/projects/{project_id}/query-results/{result_id}/cache-release",

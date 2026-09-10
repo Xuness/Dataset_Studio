@@ -157,6 +157,24 @@ impl SqliteStore {
         let request = serde_json::to_string(&(aid, &name, filter)).map_err(Error::io)?;
         let p = self.handle(pid)?;
         let mut db = p.db.lock().map_err(lock_error)?;
+        let retired: Option<String> = db
+            .query_row(
+                "SELECT request_json FROM retired_workset_requests WHERE request_id=?1",
+                [key],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(db_error)?;
+        if let Some(retired) = retired {
+            return Err(if retired == request {
+                Error::new(
+                    "OBJECT_REMOVED",
+                    "此请求生成的工作集已删除，请使用新的保存请求",
+                )
+            } else {
+                Error::new("IDEMPOTENCY_CONFLICT", "工作集请求键已用于其他条件")
+            });
+        }
         let old:Option<(String,String,String,u64)>=db.query_row("SELECT r.request_json,c.id,c.name,c.count FROM ranking_workset_requests r JOIN collections c ON c.id=r.collection_id WHERE r.request_id=?1",[key],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,unsigned(r,3)?))).optional().map_err(db_error)?;
         if let Some((previous, id, name, count)) = old {
             if previous != request {
@@ -165,6 +183,7 @@ impl SqliteStore {
                     "工作集请求键已用于其他条件",
                 ));
             }
+            let name = management::display_name(&db, "workset", &id, &name)?;
             return Ok(Collection { id, name, count });
         }
         let artifact = artifacts::read(&db, pid, aid)?;
@@ -239,6 +258,7 @@ impl SqliteStore {
                 params![key, aid, request, id],
             )
             .map_err(db_error)?;
+            management::created(&tx, "workset", &id)?;
             event(&tx, "collection.created", &id)?;
             tx.commit().map_err(db_error)?;
             Ok(Collection {

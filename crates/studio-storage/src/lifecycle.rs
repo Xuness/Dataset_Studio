@@ -270,17 +270,17 @@ impl SqliteStore {
             if view_open {
                 p.view_open.store(true, Ordering::Release);
             }
-            let revision =
-                p.db.lock()
-                    .map_err(lock_error)?
-                    .query_row(
-                        "SELECT CAST(value AS INTEGER) FROM meta WHERE key='revision'",
-                        [],
-                        |r| unsigned(r, 0),
-                    )
-                    .map_err(db_error)?;
+            let db = p.db.lock().map_err(lock_error)?;
+            let revision = db
+                .query_row(
+                    "SELECT CAST(value AS INTEGER) FROM meta WHERE key='revision'",
+                    [],
+                    |r| unsigned(r, 0),
+                )
+                .map_err(db_error)?;
             return Ok(Project {
                 revision,
+                name: management::display_name(&db, "project", &manifest.id, &p.project.name)?,
                 ..p.project.clone()
             });
         }
@@ -321,6 +321,7 @@ impl SqliteStore {
             tx.execute("UPDATE query_results SET status='interrupted',count=NULL,error='构建被中断，请重新计算' WHERE status='running'", []).map_err(db_error)?;
             tx.execute("DELETE FROM result_references WHERE owner_kind='query_input' AND owner_id IN (SELECT id FROM query_results WHERE status NOT IN ('queued','running'))", []).map_err(db_error)?;
             crate::query_cache::recover(&tx)?;
+            history::prune(&tx, self.editing_settings()?.undo_limit)?;
             let interrupted = {
                 let mut stmt = tx
                     .prepare("SELECT id FROM jobs WHERE status IN ('running','preparing')")
@@ -347,9 +348,10 @@ impl SqliteStore {
                 |r| unsigned(r, 0),
             )
             .map_err(db_error)?;
+        let name = management::display_name(&db, "project", &manifest.id, &manifest.name)?;
         let project = Project {
             id: manifest.id,
-            name: manifest.name,
+            name,
             directory,
             created_at: manifest.created_at,
             revision,

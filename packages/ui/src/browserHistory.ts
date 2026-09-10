@@ -1,4 +1,38 @@
-import type { BrowserHistory, BrowserPosition } from "./modules.js";
+import type {
+  BrowserHistory,
+  BrowserPosition,
+  BrowseScope,
+} from "./modules.js";
+
+/** Display labels are editable; they never identify a data range or its page. */
+export function browseScopeIdentity(scope: BrowseScope) {
+  return "id" in scope
+    ? { kind: scope.kind, id: scope.id }
+    : { kind: scope.kind };
+}
+export function normalizeBrowseScopeKey(value: string): string {
+  try {
+    const parts: unknown = JSON.parse(value);
+    if (
+      !Array.isArray(parts) ||
+      parts.length !== 4 ||
+      !parts[0] ||
+      typeof parts[0] !== "object" ||
+      !("kind" in parts[0])
+    )
+      return value;
+    const scope = parts[0] as BrowseScope;
+    if (
+      !["all", "selection", "source", "collection", "result"].includes(
+        scope.kind,
+      )
+    )
+      return value;
+    return JSON.stringify([browseScopeIdentity(scope), ...parts.slice(1)]);
+  } catch {
+    return value;
+  }
+}
 
 const MAX_PAGES = 128;
 const MAX_BYTES = 48 * 1024;

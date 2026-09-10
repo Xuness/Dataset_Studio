@@ -478,3 +478,45 @@ button:hover:not(:disabled) {
     grid-column: 1/-1;
   }
 }
+.object-more {
+  flex: 0 0 26px;
+  width: 26px;
+  height: 27px;
+  padding: 3px !important;
+  color: #b1b1b1;
+}
+.object-popover {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  width: 212px;
+  max-height: min(360px, calc(100vh - 16px));
+  overflow: auto;
+  padding: 5px;
+  background: #353535;
+  border: 1px solid #646464;
+  border-radius: 3px;
+  box-shadow: 0 7px 25px #0008;
+  color: #ddd;
+  z-index: 1200;
+}
+.object-popover:popover-open {
+  display: flex;
+  flex-direction: column;
+}
+.object-popover button {
+  text-align: left;
+  justify-content: flex-start;
+  padding: 7px 10px;
+  font-size: 12px;
+  border-radius: 2px;
+}
+.object-popover button:hover:not(:disabled),
+.object-popover button:focus-visible {
+  background: #4c4c4c;
+  outline: 1px solid #8c8c8c;
+  outline-offset: -1px;
+}
+.danger-text {
+  color: #f1a3a0 !important;
+}

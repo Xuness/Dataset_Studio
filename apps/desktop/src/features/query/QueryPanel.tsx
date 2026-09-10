@@ -10,9 +10,11 @@ import {
   ResizeGrip,
   querySignature,
   queryCacheLabel,
+  MoreMenu,
 } from "@studio/ui";
 import type { BrowseScope, ModuleScopeOption } from "@studio/ui";
-import type { StudioClient } from "@studio/client";
+import { StudioError } from "@studio/client";
+import type { StudioClient, ObjectTarget } from "@studio/client";
 import type {
   QueryDefinition,
   QueryResult,
@@ -136,6 +138,8 @@ export function QueryPanel({
   inputOptions,
   height,
   onHeight,
+  onManage,
+  invocation,
 }: {
   client: StudioClient;
   projectId: string;
@@ -148,6 +152,11 @@ export function QueryPanel({
   inputOptions: ModuleScopeOption[];
   height: number;
   onHeight: (height: number) => void;
+  onManage?: (
+    target: ObjectTarget,
+    mode?: "details" | "rename" | "remove",
+  ) => void;
+  invocation?: { sequence: number; args: Record<string, string> } | null;
 }) {
   const cache = useQueryClient();
   const draft = useDraft(
@@ -164,6 +173,41 @@ export function QueryPanel({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [notice, setNotice] = useState("");
+  const currentDefinition = useQuery({
+    queryKey: ["project", projectId, "query-definition", definition?.id ?? ""],
+    queryFn: () => client.queries.definition(projectId, definition!.id),
+    enabled: !!definition && draft.editable,
+    retry: false,
+  });
+  useEffect(() => {
+    if (
+      definition &&
+      currentDefinition.error instanceof StudioError &&
+      currentDefinition.error.code === "OBJECT_REMOVED"
+    ) {
+      draft.controller.set((old) => ({ ...old, definition: null }));
+      setNotice("原保存查询已删除，当前条件草稿仍保留，可另存为新查询。");
+    }
+  }, [currentDefinition.error, definition, draft.controller]);
+  const appliedInvocation = useRef<number | null>(null);
+  const requestedId = invocation?.args.queryId ?? "";
+  const requestedDefinition = useQuery({
+    queryKey: ["project", projectId, "query-definition", requestedId],
+    queryFn: () => client.queries.definition(projectId, requestedId),
+    enabled: !!requestedId && draft.editable,
+    retry: false,
+  });
+  useEffect(() => {
+    if (
+      !draft.editable ||
+      !invocation ||
+      appliedInvocation.current === invocation.sequence ||
+      !requestedDefinition.data
+    )
+      return;
+    load(requestedDefinition.data);
+    appliedInvocation.current = invocation.sequence;
+  }, [draft.editable, invocation, requestedDefinition.data]);
   const [showReleased, setShowReleased] = useState(false);
   const [lastRun, setLastRun] = useState<string | null>(null);
   const submittedScope = useRef<string | null>(null);
@@ -343,7 +387,7 @@ export function QueryPanel({
             disabled={!draft.editable || pending}
           >
             <div className="query-definition-row">
-              <label>
+              <div className="query-saved-control">
                 <span>已保存查询</span>
                 <select
                   aria-label="已保存查询"
@@ -363,7 +407,36 @@ export function QueryPanel({
                     </option>
                   ))}
                 </select>
-              </label>
+                {definition && onManage && (
+                  <MoreMenu
+                    label="已保存查询"
+                    items={[
+                      {
+                        label: "管理与引用关系",
+                        action: () =>
+                          onManage({ kind: "query", id: definition.id }),
+                      },
+                      {
+                        label: "重命名与备注…",
+                        action: () =>
+                          onManage(
+                            { kind: "query", id: definition.id },
+                            "rename",
+                          ),
+                      },
+                      {
+                        label: "删除保存的查询…",
+                        danger: true,
+                        action: () =>
+                          onManage(
+                            { kind: "query", id: definition.id },
+                            "remove",
+                          ),
+                      },
+                    ]}
+                  />
+                )}
+              </div>
               <label>
                 <span>查询名称</span>
                 <input
@@ -717,19 +790,16 @@ export function QueryPanel({
                         {result.state !== "released" && (
                           <button
                             className="release-result"
-                            disabled={pending || visible}
-                            title={
-                              visible
-                                ? "先切换到其他范围，再释放当前结果"
-                                : "释放此结果引用；复用缓存可在读取与缓存中清理"
-                            }
+                            disabled={pending || !onManage}
+                            title="查看引用关系并删除此查询结果"
                             onClick={() =>
-                              void action(() =>
-                                client.queries.release(projectId, result.id),
+                              onManage?.(
+                                { kind: "query_result", id: result.id },
+                                "remove",
                               )
                             }
                           >
-                            释放
+                            删除…
                           </button>
                         )}
                       </>

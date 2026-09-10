@@ -1133,6 +1133,85 @@
         }
       }
     },
+    "/v1/projects/{project_id}/job-history": {
+      "get": {
+        "tags": [
+          "management"
+        ],
+        "operationId": "jobs",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "include_archived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagedJobPage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/projects/{project_id}/jobs": {
       "get": {
         "tags": [],
@@ -1379,6 +1458,384 @@
         }
       }
     },
+    "/v1/projects/{project_id}/objects/{kind}": {
+      "get": {
+        "tags": [
+          "management"
+        ],
+        "operationId": "list",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "subtype",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "include_archived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectPage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/objects/{kind}/{object_id}": {
+      "get": {
+        "tags": [
+          "management"
+        ],
+        "operationId": "read",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "object_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectDetails"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "management"
+        ],
+        "operationId": "edit",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "object_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EditObject"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagedObject"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/objects/{kind}/{object_id}/actions": {
+      "post": {
+        "tags": [
+          "management"
+        ],
+        "operationId": "action",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "object_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ObjectAction"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/objects/{kind}/{object_id}/links": {
+      "get": {
+        "tags": [
+          "management"
+        ],
+        "operationId": "links",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "object_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "incoming",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ObjectLinkPage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/objects/{kind}/{object_id}/reveal": {
+      "post": {
+        "tags": [
+          "management"
+        ],
+        "operationId": "reveal",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "object_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevealObject"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevealedLocation"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/projects/{project_id}/open": {
       "post": {
         "tags": [],
@@ -1400,6 +1857,147 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Project"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/presets": {
+      "get": {
+        "tags": [
+          "management"
+        ],
+        "operationId": "presets",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "operator_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PresetPage"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "management"
+        ],
+        "operationId": "save_preset",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveToolPreset"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolPreset"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/presets/{preset_id}/delete": {
+      "post": {
+        "tags": [
+          "management"
+        ],
+        "operationId": "delete_preset",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "preset_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteToolPreset"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
                 }
               }
             }
@@ -2237,6 +2835,74 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Selection"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/selection/history": {
+      "get": {
+        "tags": [
+          "management"
+        ],
+        "operationId": "history",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryStatus"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "management"
+        ],
+        "operationId": "restore",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HistoryAction"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HistoryStatus"
                 }
               }
             }
@@ -3178,6 +3844,54 @@
         }
       }
     },
+    "/v1/settings/editing": {
+      "get": {
+        "tags": [
+          "management"
+        ],
+        "operationId": "editing",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EditingSettings"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "management"
+        ],
+        "operationId": "configure_editing",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfigureEditing"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EditingSettings"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/shutdown": {
       "post": {
         "tags": [],
@@ -4001,6 +4715,26 @@
           }
         }
       },
+      "ConfigureEditing": {
+        "type": "object",
+        "required": [
+          "undo_limit",
+          "expected_revision"
+        ],
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "undo_limit": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
       "CreateCollection": {
         "type": "object",
         "required": [
@@ -4041,6 +4775,20 @@
         },
         "additionalProperties": false
       },
+      "DeleteToolPreset": {
+        "type": "object",
+        "required": [
+          "expected_revision"
+        ],
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
       "Draft": {
         "type": "object",
         "required": [
@@ -4076,6 +4824,47 @@
             "type": "string"
           },
           "value": {}
+        }
+      },
+      "EditObject": {
+        "type": "object",
+        "required": [
+          "expected_revision",
+          "name",
+          "notes"
+        ],
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "EditingSettings": {
+        "type": "object",
+        "required": [
+          "undo_limit",
+          "revision"
+        ],
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "undo_limit": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
         }
       },
       "EngineConnection": {
@@ -4231,6 +5020,73 @@
           },
           "version": {
             "type": "string"
+          }
+        }
+      },
+      "HistoryAction": {
+        "type": "object",
+        "required": [
+          "action",
+          "expected_revision"
+        ],
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/HistoryActionKind"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "HistoryActionKind": {
+        "type": "string",
+        "enum": [
+          "undo",
+          "redo",
+          "clear"
+        ]
+      },
+      "HistoryStatus": {
+        "type": "object",
+        "required": [
+          "selection",
+          "undo_steps",
+          "redo_steps",
+          "limit"
+        ],
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "redo_label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "redo_steps": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "selection": {
+            "$ref": "#/components/schemas/Selection"
+          },
+          "undo_label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "undo_steps": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
           }
         }
       },
@@ -4445,6 +5301,114 @@
             "items": {
               "$ref": "#/components/schemas/Job"
             }
+          }
+        }
+      },
+      "ManagedJob": {
+        "type": "object",
+        "required": [
+          "object",
+          "job",
+          "result_available"
+        ],
+        "properties": {
+          "job": {
+            "$ref": "#/components/schemas/Job"
+          },
+          "object": {
+            "$ref": "#/components/schemas/ManagedObject"
+          },
+          "result_available": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ManagedJobPage": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedJob"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ManagedObject": {
+        "type": "object",
+        "required": [
+          "kind",
+          "id",
+          "name",
+          "notes",
+          "revision",
+          "state",
+          "archived"
+        ],
+        "properties": {
+          "archived": {
+            "type": "boolean"
+          },
+          "bytes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "created_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ObjectKind"
+          },
+          "name": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "state": {
+            "type": "string"
+          },
+          "subtype": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updated_at": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -4709,6 +5673,198 @@
             }
           }
         ]
+      },
+      "ObjectAction": {
+        "type": "object",
+        "required": [
+          "action",
+          "expected_revision"
+        ],
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/ObjectActionKind"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "ObjectActionKind": {
+        "type": "string",
+        "enum": [
+          "remove",
+          "archive",
+          "unarchive",
+          "reconnect"
+        ]
+      },
+      "ObjectDetails": {
+        "type": "object",
+        "required": [
+          "object",
+          "incoming",
+          "outgoing",
+          "incoming_total",
+          "outgoing_total",
+          "provenance",
+          "paths",
+          "can_remove"
+        ],
+        "properties": {
+          "can_remove": {
+            "type": "boolean"
+          },
+          "incoming": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ObjectLink"
+            }
+          },
+          "incoming_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "incoming_total": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "object": {
+            "$ref": "#/components/schemas/ManagedObject"
+          },
+          "outgoing": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ObjectLink"
+            }
+          },
+          "outgoing_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "outgoing_total": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "paths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "provenance": {},
+          "remove_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "run": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OperatorRun"
+              }
+            ]
+          }
+        }
+      },
+      "ObjectKind": {
+        "type": "string",
+        "enum": [
+          "project",
+          "source",
+          "workset",
+          "artifact",
+          "query",
+          "job",
+          "query_result",
+          "selection",
+          "selection_history"
+        ]
+      },
+      "ObjectLink": {
+        "type": "object",
+        "required": [
+          "kind",
+          "id",
+          "name",
+          "relation",
+          "blocking"
+        ],
+        "properties": {
+          "blocking": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/ObjectKind"
+          },
+          "name": {
+            "type": "string"
+          },
+          "relation": {
+            "type": "string"
+          }
+        }
+      },
+      "ObjectLinkPage": {
+        "type": "object",
+        "required": [
+          "items",
+          "total"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ObjectLink"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "ObjectPage": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ManagedObject"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
       },
       "Observation": {
         "type": "object",
@@ -5042,6 +6198,26 @@
             "minimum": 0
           },
           "value": {}
+        }
+      },
+      "PresetPage": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ToolPreset"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
         }
       },
       "PreviewActivity": {
@@ -7124,6 +8300,34 @@
           }
         }
       },
+      "RevealObject": {
+        "type": "object",
+        "properties": {
+          "file_index": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "open": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "RevealedLocation": {
+        "type": "object",
+        "required": [
+          "path",
+          "opened"
+        ],
+        "properties": {
+          "opened": {
+            "type": "boolean"
+          },
+          "path": {
+            "type": "string"
+          }
+        }
+      },
       "RunQuery": {
         "type": "object",
         "required": [
@@ -7178,6 +8382,38 @@
           },
           "spec": {
             "$ref": "#/components/schemas/QuerySpec"
+          }
+        },
+        "additionalProperties": false
+      },
+      "SaveToolPreset": {
+        "type": "object",
+        "required": [
+          "name",
+          "notes",
+          "expected_revision",
+          "run"
+        ],
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "run": {
+            "$ref": "#/components/schemas/OperatorRun"
           }
         },
         "additionalProperties": false
@@ -7654,6 +8890,43 @@
           }
         },
         "additionalProperties": false
+      },
+      "ToolPreset": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "notes",
+          "revision",
+          "run",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "notes": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "run": {
+            "$ref": "#/components/schemas/OperatorRun"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        }
       },
       "ToolSubmission": {
         "type": "object",

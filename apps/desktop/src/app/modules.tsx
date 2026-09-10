@@ -123,14 +123,12 @@ registry.register({
 registry.validate();
 export const modules = registry;
 export const moduleViews = new Map(
-  registry
-    .surfaces()
-    .map((surface) => [
-      surface.id,
-      {
-        kind: surface.kind,
-        ownsInspector: surface.ownsInspector ?? false,
-        Component: lazy(surface.load),
-      },
-    ]),
+  registry.surfaces().map((surface) => [
+    surface.id,
+    {
+      kind: surface.kind,
+      ownsInspector: surface.ownsInspector ?? false,
+      Component: lazy(surface.load),
+    },
+  ]),
 );

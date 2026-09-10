@@ -85,7 +85,7 @@ pub(super) fn resolve(db: &Connection, pid: &str, scope: &ScopeRef) -> Result<Re
     }
     for rid in &results {
         for id in stmt
-            .query_map(params!["result", rid], |r| r.get::<_, String>(0))
+            .query_map(params!["query_result", rid], |r| r.get::<_, String>(0))
             .map_err(db_error)?
         {
             artifacts.insert(id.map_err(db_error)?);
@@ -135,11 +135,22 @@ impl ScopeRepository for SqliteStore {
         operation: ScopeOperation,
     ) -> Result<Selection> {
         scope.validate_project(pid)?;
+        let history_limit = self.editing_settings()?.undo_limit;
         let p = self.handle(pid)?;
         let mut db = p.db.lock().map_err(lock_error)?;
         let tx = db.transaction().map_err(db_error)?;
         selection::check_revision(&tx, expected)?;
         let resolved = resolve(&tx, pid, scope)?;
+        let history_id = history::begin(
+            &tx,
+            history_limit,
+            match operation {
+                ScopeOperation::Replace => "替换当前选择",
+                ScopeOperation::Add => "将范围加入选择",
+                ScopeOperation::Remove => "从选择移除范围",
+                ScopeOperation::Intersect => "选择取交集",
+            },
+        )?;
         // Self-selection operations must read the original relation before any mutation.
         // A TEMP table is disk-backed and dropped in this transaction; no frontend ID list.
         tx.execute_batch("DROP TABLE IF EXISTS temp.scope_members; CREATE TEMP TABLE scope_members(source_id TEXT,asset_id TEXT,PRIMARY KEY(source_id,asset_id)) WITHOUT ROWID;").map_err(db_error)?;
@@ -180,6 +191,7 @@ impl ScopeRepository for SqliteStore {
         tx.execute_batch("DROP TABLE temp.scope_members;")
             .map_err(db_error)?;
         let selection = selection::publish(&tx)?;
+        history::finish(&tx, history_id, history_limit)?;
         tx.commit().map_err(db_error)?;
         Ok(selection)
     }
@@ -217,6 +229,7 @@ impl ScopeRepository for SqliteStore {
             ],
         )
         .map_err(db_error)?;
+        management::created(&tx, "workset", &id)?;
         event(&tx, "collection.created", &id)?;
         tx.commit().map_err(db_error)?;
         Ok(Collection {

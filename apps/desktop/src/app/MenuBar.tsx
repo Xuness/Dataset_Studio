@@ -219,7 +219,7 @@ export function MenuBar({
           <span data-tauri-drag-region>{title}</span>
         </div>
         <span className="version-label" data-tauri-drag-region>
-          0.8.1
+          0.9.0
         </span>
         {nativeWindow && (
           <div className="window-controls">

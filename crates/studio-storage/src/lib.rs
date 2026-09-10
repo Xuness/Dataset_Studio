@@ -27,6 +27,10 @@ mod query_cache;
 pub use query_cache::{
     QueryCacheEntry, QueryCachePolicy, QueryCacheRequest, QueryCacheStats, QueryStage,
 };
+mod history;
+mod management;
+mod object_links;
+mod presets;
 mod ranking;
 pub mod ranking_tables;
 mod registry;
@@ -132,6 +136,15 @@ impl SqliteStore {
         Ok(self.handle(id)?.project.directory.clone())
     }
     pub fn source(&self, project_id: &str, source_id: &str) -> Result<Source> {
+        {
+            let p = self.handle(project_id)?;
+            if management::removed(&*p.db.lock().map_err(lock_error)?, "source", source_id)? {
+                return Err(Error::new(
+                    "SOURCE_DETACHED",
+                    "此数据湖已取消与项目的关联，请在管理面板重新关联后读取图片",
+                ));
+            }
+        }
         self.sources(project_id)?
             .into_iter()
             .find(|s| s.id == source_id)
@@ -214,6 +227,12 @@ impl SqliteStore {
             if old != request {
                 return Err(Error::new("IDEMPOTENCY_CONFLICT", "幂等键已被不同请求使用"));
             }
+            if management::removed(&tx, "job", &id)? {
+                return Err(Error::new(
+                    "OBJECT_REMOVED",
+                    "此请求生成的任务已清理，请使用新的提交请求",
+                ));
+            }
             return read_job(&tx, project_id, &id);
         }
         let revision: u64 = tx
@@ -272,7 +291,7 @@ impl SqliteStore {
         let p = self.handle(project_id)?;
         let db = p.db.lock().map_err(lock_error)?;
         let mut stmt = db
-            .prepare("SELECT id FROM jobs ORDER BY created_at DESC LIMIT 200")
+            .prepare("SELECT id FROM jobs WHERE NOT EXISTS(SELECT 1 FROM object_metadata m WHERE m.kind='job' AND m.id=jobs.id AND m.deleted=1) ORDER BY (status='running') DESC,(status='preparing') DESC,(status IN ('queued','waiting_input')) DESC,created_at DESC LIMIT 200")
             .map_err(db_error)?;
         let ids = stmt
             .query_map([], |r| r.get::<_, String>(0))
@@ -413,17 +432,17 @@ impl ProjectRepository for SqliteStore {
     }
     fn project(&self, id: &str) -> Result<Project> {
         let p = self.handle(id)?;
-        let revision =
-            p.db.lock()
-                .map_err(lock_error)?
-                .query_row(
-                    "SELECT CAST(value AS INTEGER) FROM meta WHERE key='revision'",
-                    [],
-                    |r| unsigned(r, 0),
-                )
-                .map_err(db_error)?;
+        let db = p.db.lock().map_err(lock_error)?;
+        let revision = db
+            .query_row(
+                "SELECT CAST(value AS INTEGER) FROM meta WHERE key='revision'",
+                [],
+                |r| unsigned(r, 0),
+            )
+            .map_err(db_error)?;
         Ok(Project {
             revision,
+            name: management::display_name(&db, "project", id, &p.project.name)?,
             ..p.project.clone()
         })
     }
@@ -445,6 +464,12 @@ impl ProjectRepository for SqliteStore {
             ],
         )
         .map_err(db_error)?;
+        management::named(&tx, "source", &reference.id, &reference.name)?;
+        tx.execute(
+            "UPDATE object_metadata SET deleted=0 WHERE kind='source' AND id=?1",
+            [&reference.id],
+        )
+        .map_err(db_error)?;
         event(&tx, "source.attached", &reference.id)?;
         tx.commit().map_err(db_error)
     }
@@ -453,17 +478,22 @@ impl ProjectRepository for SqliteStore {
         let rows = {
             let db = p.db.lock().map_err(lock_error)?;
             let mut stmt = db
-                .prepare("SELECT json FROM sources ORDER BY id")
+                .prepare("SELECT s.json,m.name FROM sources s LEFT JOIN object_metadata m ON m.kind='source' AND m.id=s.id WHERE COALESCE(m.deleted,0)=0 ORDER BY s.id")
                 .map_err(db_error)?;
-            stmt.query_map([], |r| r.get::<_, String>(0))
-                .map_err(db_error)?
-                .collect::<std::result::Result<Vec<_>, _>>()
-                .map_err(db_error)?
+            stmt.query_map([], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, Option<String>>(1)?))
+            })
+            .map_err(db_error)?
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(db_error)?
         };
         let registry = self.registry.lock().map_err(lock_error)?;
         rows.into_iter()
-            .map(|json| {
-                let reference: Source = serde_json::from_str(&json).map_err(Error::io)?;
+            .map(|(json, name)| {
+                let mut reference: Source = serde_json::from_str(&json).map_err(Error::io)?;
+                if let Some(name) = name {
+                    reference.name = name;
+                }
                 let location: Option<String> = registry
                     .query_row(
                         "SELECT json FROM source_locations WHERE id=?1",
@@ -514,7 +544,7 @@ impl ProjectRepository for SqliteStore {
         let p = self.handle(project_id)?;
         let db = p.db.lock().map_err(lock_error)?;
         let mut stmt = db
-            .prepare("SELECT id,name,count FROM collections ORDER BY rowid")
+            .prepare("SELECT c.id,COALESCE(m.name,c.name),c.count FROM collections c LEFT JOIN object_metadata m ON m.kind='workset' AND m.id=c.id ORDER BY c.rowid")
             .map_err(db_error)?;
         stmt.query_map([], |r| {
             Ok(Collection {

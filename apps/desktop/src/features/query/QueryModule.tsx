@@ -16,6 +16,8 @@ export default function QueryModule(context: ModuleContext) {
       inputOptions={context.inputOptions}
       height={context.panelHeight("core.query")}
       onHeight={(height) => context.resizePanel("core.query", height)}
+      {...(context.management ? { onManage: context.management.open } : {})}
+      invocation={context.invocation}
     />
   );
 }

@@ -26,6 +26,10 @@ fn v4_upgrade_preserves_tools_and_drafts_before_query_v2_use() {
 fn v5_upgrade_preserves_original_query_columns_and_members() {
     upgrade_preserves_every_relationship(5);
 }
+#[test]
+fn v8_upgrade_adds_management_without_rewriting_fixed_data() {
+    upgrade_preserves_every_relationship(8);
+}
 fn upgrade_preserves_every_relationship(from: u32) {
     let root = tempfile::tempdir().unwrap();
     let dir = root.path().join("中文旧项目");
@@ -119,6 +123,21 @@ fn upgrade_preserves_every_relationship(from: u32) {
     if from >= 5 {
         db.execute_batch("INSERT INTO schema_migrations VALUES(5,'query-v2-migration','v5-backup'); PRAGMA user_version=5;").unwrap();
     }
+    for (version, sql) in [
+        (6, include_str!("../src/schema_v6.sql")),
+        (7, include_str!("../src/schema_v7.sql")),
+        (8, include_str!("../src/schema_v8.sql")),
+    ] {
+        if from >= version {
+            db.execute_batch(sql).unwrap();
+            db.execute(
+                "INSERT INTO schema_migrations VALUES (?1,'prior-migration','prior-backup')",
+                [version],
+            )
+            .unwrap();
+            db.pragma_update(None, "user_version", version).unwrap();
+        }
+    }
     // Last committed page remains in WAL while the upgrade takes its consistent backup.
     db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; INSERT INTO events VALUES (43,'fixture.wal','kept');").unwrap();
     let store = SqliteStore::new(root.path().join("runtime")).unwrap();
@@ -176,7 +195,7 @@ fn upgrade_preserves_every_relationship(from: u32) {
         after
             .query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0))
             .unwrap(),
-        8
+        9
     );
     // Exact rows, including drafts, idempotency keys, event sequences and artifact references.
     if from >= 2 {
@@ -229,7 +248,12 @@ fn upgrade_preserves_every_relationship(from: u32) {
         } else {
             "*"
         };
-        let sql = format!("SELECT {columns} FROM {table} ORDER BY 1");
+        let condition = if table == "meta" {
+            " WHERE key!='selection_history_current'"
+        } else {
+            ""
+        };
+        let sql = format!("SELECT {columns} FROM {table}{condition} ORDER BY 1");
         fn rows(db: &Connection, sql: &str) -> Vec<Vec<rusqlite::types::Value>> {
             let mut stmt = db.prepare(sql).unwrap();
             let n = stmt.column_count();
@@ -240,6 +264,16 @@ fn upgrade_preserves_every_relationship(from: u32) {
         }
         assert_eq!(rows(&before, &sql), rows(&after, &sql), "{table}");
     }
+    assert_eq!(
+        after
+            .query_row(
+                "SELECT value FROM meta WHERE key='selection_history_current'",
+                [],
+                |r| r.get::<_, String>(0)
+            )
+            .unwrap(),
+        "0"
+    );
     assert_eq!(
         fs::read(backup.join("project.json")).unwrap(),
         fs::read(dir.join("project.json")).unwrap()

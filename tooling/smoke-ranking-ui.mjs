@@ -166,7 +166,12 @@ try {
     }
     // Deterministic presentation states, confined to this browser's fixture traffic.
     // The actual engine job and published artifact remain unchanged.
-    if (path === base + "/jobs" && request.method() === "GET") {
+    const isJobHistory =
+      new URL(request.url()).pathname === base + "/job-history";
+    if (
+      (path === base + "/jobs" || isJobHistory) &&
+      request.method() === "GET"
+    ) {
       if (jobsOffline)
         return route.fulfill({
           status: 503,
@@ -176,6 +181,21 @@ try {
             message: "任务状态接口暂时不可用（界面验收）",
           },
         });
+      if (jobOverride && isJobHistory) {
+        const result = await engine.api(path);
+        assert.ok(result.items.some((item) => item.job.id === jobOverride.id));
+        return route.fulfill({
+          headers: cors,
+          json: {
+            ...result,
+            items: result.items.map((item) =>
+              item.job.id === jobOverride.id
+                ? { ...item, job: jobOverride }
+                : item,
+            ),
+          },
+        });
+      }
       if (jobOverride)
         return route.fulfill({ headers: cors, json: { items: [jobOverride] } });
     }

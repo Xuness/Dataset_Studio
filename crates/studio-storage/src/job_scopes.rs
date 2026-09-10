@@ -6,6 +6,12 @@ impl SqliteStore {
         self.mark_background(pid)?;
         let mut db = p.db.lock().map_err(lock_error)?;
         let tx = db.transaction().map_err(db_error)?;
+        if management::removed(&tx, "job", id)? {
+            return Err(Error::new(
+                "JOB_NOT_RETRYABLE",
+                "任务记录已清理，不能重试已释放的输入",
+            ));
+        }
         let old = read_job(&tx, pid, id)?;
         if !matches!(old.status.as_str(), "failed" | "cancelled") || old.total == 0 {
             return Err(Error::new(
@@ -85,6 +91,12 @@ impl SqliteStore {
                 if old != request {
                     return Err(Error::new("IDEMPOTENCY_CONFLICT", "幂等键已被不同请求使用"));
                 }
+                if management::removed(&db, "job", &id)? {
+                    return Err(Error::new(
+                        "OBJECT_REMOVED",
+                        "此请求生成的任务已清理，请使用新的提交请求",
+                    ));
+                }
                 read_job(&db, pid, &id)
             })
             .transpose()
@@ -122,6 +134,12 @@ impl SqliteStore {
             .map(|(id, old)| {
                 if old != request {
                     return Err(Error::new("IDEMPOTENCY_CONFLICT", "幂等键已被不同请求使用"));
+                }
+                if management::removed(&db, "job", &id)? {
+                    return Err(Error::new(
+                        "OBJECT_REMOVED",
+                        "此请求生成的任务已清理，请使用新的提交请求",
+                    ));
                 }
                 read_job(&db, pid, &id)
             })
@@ -202,6 +220,12 @@ impl SqliteStore {
             if old != request {
                 return Err(Error::new("IDEMPOTENCY_CONFLICT", "幂等键已被不同请求使用"));
             }
+            if management::removed(&tx, "job", &id)? {
+                return Err(Error::new(
+                    "OBJECT_REMOVED",
+                    "此请求生成的任务已清理，请使用新的提交请求",
+                ));
+            }
             return read_job(&tx, pid, &id);
         }
         let id = new_id();
@@ -248,6 +272,15 @@ impl SqliteStore {
                     None,
                 )
             };
+        if let Some(sql) = &input_sql {
+            let detached: bool = tx.query_row(&format!("SELECT EXISTS(SELECT 1 FROM object_metadata s WHERE s.kind='source' AND s.deleted=1 AND EXISTS(SELECT 1 FROM ({sql}) i WHERE i.source_id=s.id))"),[],|r|r.get(0)).map_err(db_error)?;
+            if detached {
+                return Err(Error::new(
+                    "SOURCE_DETACHED",
+                    "任务输入中的数据湖已取消关联，请先重新关联",
+                ));
+            }
+        }
         tx.execute("INSERT INTO jobs(id,operator,status,total,created_at,idempotency_key,request_hash,delay_ms) VALUES (?1,'core.manifest',?2,?3,?4,?5,?6,?7)",params![id,status,total as i64,now(),key,request,delay_ms.min(1000) as i64]).map_err(db_error)?;
         if let Some((_, frozen)) = registered {
             for field in &frozen.fields {

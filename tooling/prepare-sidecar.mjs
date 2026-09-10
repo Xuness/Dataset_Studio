@@ -18,5 +18,7 @@ const folder = resolve(root, "apps/desktop/src-tauri/binaries");
 await mkdir(folder, { recursive: true });
 await copyFile(
   engineExecutable(root, profile),
-  resolve(folder, "studio-engine-x86_64-pc-windows-msvc.exe"),
+  // Tauri stages this name in target/<profile>. It must not overwrite Cargo's
+  // actual studio-engine.exe with a previously prepared copy.
+  resolve(folder, "studio-engine-sidecar-x86_64-pc-windows-msvc.exe"),
 );
