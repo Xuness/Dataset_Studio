@@ -38,12 +38,7 @@ pub(super) async fn run(
             let spec = domain::QuerySpec::from(body.spec).normalize()?;
             let versions = s.queries.versions(&s.store, &pid, &spec)?;
             validate_input(&s, &pid, &spec, &versions)?;
-            let _cache_gate = s
-                .queries
-                .cache
-                .gate
-                .lock()
-                .map_err(|_| domain::Error::new("INTERNAL_ERROR", "查询缓存锁不可用"))?;
+            let _cache_gate = s.queries.cache.lock()?;
             let result = s.store.create_result_with_cache(
                 &pid,
                 None,
@@ -182,12 +177,7 @@ pub(super) async fn build(
             }
             let versions = s.queries.versions(&s.store, &pid, &query.spec)?;
             validate_input(&s, &pid, &query.spec, &versions)?;
-            let _cache_gate = s
-                .queries
-                .cache
-                .gate
-                .lock()
-                .map_err(|_| domain::Error::new("INTERNAL_ERROR", "查询缓存锁不可用"))?;
+            let _cache_gate = s.queries.cache.lock()?;
             let result = s.store.create_result_with_cache(
                 &pid,
                 Some((&qid, query.revision)),
@@ -305,12 +295,7 @@ pub(super) async fn lease_result(
 ) -> ApiResult<OkResponse> {
     Ok(Json(
         blocking(move || {
-            let _gate = s
-                .queries
-                .cache
-                .gate
-                .lock()
-                .map_err(|_| domain::Error::new("INTERNAL_ERROR", "查询缓存锁不可用"))?;
+            let _gate = s.queries.cache.lock()?;
             let result = session_result(&s, &pid, &rid, session.0.as_deref())?;
             if result.state != domain::ResultState::Ready {
                 return Err(domain::Error::new(
@@ -363,18 +348,14 @@ pub(super) async fn result_assets(
     Ok(Json(
         blocking(move || {
             let _permit = read_permit(&s, domain::ReadClass::Index, &read_context)?;
-            let result =
-                {
-                    let _gate =
-                        s.queries.cache.gate.lock().map_err(|_| {
-                            domain::Error::new("INTERNAL_ERROR", "查询缓存锁不可用")
-                        })?;
-                    let result = session_result(&s, &pid, &rid, session.0.as_deref())?;
-                    if result.state == domain::ResultState::Ready {
-                        s.queries.cache.recent(&pid, &rid);
-                    }
-                    result
-                };
+            let result = {
+                let _gate = s.queries.cache.lock()?;
+                let result = session_result(&s, &pid, &rid, session.0.as_deref())?;
+                if result.state == domain::ResultState::Ready {
+                    s.queries.cache.recent(&pid, &rid);
+                }
+                result
+            };
             s.queries.validate_result(&s.store, &result)?;
             let order = q.order.map(Into::into).unwrap_or(result.spec.order);
             let after = q
@@ -532,12 +513,7 @@ pub(super) async fn capture(
     Ok(Json(
         blocking(move || {
             let (spec, versions) = source_capture(&s, &pid, &body.scope.into())?;
-            let _cache_gate = s
-                .queries
-                .cache
-                .gate
-                .lock()
-                .map_err(|_| domain::Error::new("INTERNAL_ERROR", "查询缓存锁不可用"))?;
+            let _cache_gate = s.queries.cache.lock()?;
             let result = s.store.create_result_with_cache(
                 &pid,
                 None,

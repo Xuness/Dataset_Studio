@@ -1,13 +1,15 @@
 pub use crate::cache_config::CacheConfig;
+mod lease_clock;
+use lease_clock::LeaseClock;
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
     sync::{
-        Mutex,
+        Mutex, MutexGuard,
         atomic::{AtomicBool, AtomicU64, Ordering},
     },
-    time::{Duration, Instant},
+    time::Duration,
 };
 use studio_domain::{Error, QueryCacheTier, Result, new_id, validate_id};
 use studio_storage::{QueryCacheRequest, QueryCacheStats, SqliteStore};
@@ -42,11 +44,12 @@ pub struct CachedProject {
     pub oldest_temporary_millis: u64,
 }
 pub struct CacheControl {
-    pub gate: Mutex<()>,
+    gate: Mutex<()>,
+    lease_clock: LeaseClock,
     path: PathBuf,
     config: Mutex<CacheConfig>,
     leases: Mutex<HashMap<(String, String, String), CacheLease>>,
-    sessions: Mutex<HashMap<(String, String), Instant>>,
+    sessions: Mutex<HashMap<(String, String), Duration>>,
     server_session: String,
     clear_tier: Mutex<Option<QueryCacheTier>>,
     pub requested: AtomicBool,
@@ -57,10 +60,25 @@ pub struct CacheControl {
     catalog: Mutex<HashMap<String, CachedProject>>,
 }
 struct CacheLease {
-    until: Instant,
+    until: Duration,
     session: Option<String>,
 }
+pub struct CacheGuard<'a> {
+    // Fields drop in declaration order: resume lease time before unlocking.
+    _pause: lease_clock::Pause<'a>,
+    _gate: MutexGuard<'a, ()>,
+}
 impl CacheControl {
+    pub fn lock(&self) -> Result<CacheGuard<'_>> {
+        let gate = self
+            .gate
+            .lock()
+            .map_err(|_| Error::new("INTERNAL_ERROR", "查询缓存锁不可用"))?;
+        Ok(CacheGuard {
+            _pause: self.lease_clock.pause(),
+            _gate: gate,
+        })
+    }
     pub fn open(path: PathBuf, preview_mib: u32) -> Result<Self> {
         let config = match std::fs::read(&path) {
             Ok(bytes) => {
@@ -103,6 +121,7 @@ impl CacheControl {
         };
         Ok(Self {
             gate: Mutex::new(()),
+            lease_clock: LeaseClock::new(),
             path,
             config: Mutex::new(config),
             leases: Mutex::new(HashMap::new()),
@@ -214,12 +233,13 @@ impl CacheControl {
             .sessions
             .lock()
             .map_err(|_| Error::new("INTERNAL_ERROR", "缓存会话状态不可用"))?;
-        sessions.retain(|_, until| *until > Instant::now());
+        let now = self.lease_clock.now();
+        sessions.retain(|_, until| *until > now);
         let key = (pid.into(), id.into());
         if sessions.len() >= 1024 && !sessions.contains_key(&key) {
             return Err(Error::new("RESOURCE_LIMIT", "缓存会话数量超过上限"));
         }
-        sessions.insert(key, Instant::now() + Duration::from_secs(90));
+        sessions.insert(key, now + Duration::from_secs(90));
         Ok(id.into())
     }
     pub fn end_session(&self, pid: &str, provided: Option<&str>) {
@@ -237,7 +257,8 @@ impl CacheControl {
             .sessions
             .lock()
             .map_err(|_| Error::new("INTERNAL_ERROR", "缓存会话状态不可用"))?;
-        sessions.retain(|_, until| *until > Instant::now());
+        let now = self.lease_clock.now();
+        sessions.retain(|_, until| *until > now);
         Ok(sessions
             .keys()
             .filter(|(p, _)| p == pid)
@@ -262,7 +283,8 @@ impl CacheControl {
             .leases
             .lock()
             .map_err(|_| Error::new("INTERNAL_ERROR", "查询读取占用不可用"))?;
-        leases.retain(|_, lease| lease.until > Instant::now());
+        let now = self.lease_clock.now();
+        leases.retain(|_, lease| lease.until > now);
         let key = (pid.into(), rid.into(), id.into());
         if leases.len() >= 1024 && !leases.contains_key(&key) {
             return Err(Error::new("READ_BUDGET_EXCEEDED", "查询读取占用过多"));
@@ -270,7 +292,7 @@ impl CacheControl {
         leases.insert(
             key,
             CacheLease {
-                until: Instant::now() + Duration::from_secs(90),
+                until: now + Duration::from_secs(90),
                 session: Some(session.into()),
             },
         );
@@ -283,7 +305,8 @@ impl CacheControl {
     }
     pub fn recent(&self, pid: &str, rid: &str) {
         if let Ok(mut leases) = self.leases.lock() {
-            leases.retain(|_, lease| lease.until > Instant::now());
+            let now = self.lease_clock.now();
+            leases.retain(|_, lease| lease.until > now);
             if leases.len() >= 1024
                 && !leases.contains_key(&(pid.into(), rid.into(), "recent".into()))
             {
@@ -301,7 +324,7 @@ impl CacheControl {
             leases.insert(
                 (pid.into(), rid.into(), "recent".into()),
                 CacheLease {
-                    until: Instant::now() + Duration::from_secs(10),
+                    until: now + Duration::from_secs(10),
                     session: None,
                 },
             );
@@ -311,7 +334,8 @@ impl CacheControl {
         self.leases
             .lock()
             .map(|mut leases| {
-                leases.retain(|_, lease| lease.until > Instant::now());
+                let now = self.lease_clock.now();
+                leases.retain(|_, lease| lease.until > now);
                 leases
                     .keys()
                     .filter(|(p, _, _)| p == pid)
@@ -321,6 +345,9 @@ impl CacheControl {
             .unwrap_or_default()
     }
 }
+
+#[cfg(test)]
+mod handoff_tests;
 
 #[cfg(test)]
 mod tests {

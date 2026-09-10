@@ -545,7 +545,7 @@ pub async fn scheduler(store: Arc<SqliteStore>, runner: Arc<QueryRunner>) {
                     let built=r.build(&s,&query,cancelled);
                     let error=if r.stopping.load(Ordering::Acquire) { Some(Error::new("INTERRUPTED","引擎已停止，结果需要重新计算")) } else { built.err() };
                     if let Some(e)=&error { tracing::warn!(result_id=%query.id,code=e.code,message=%e.message,"query build stopped"); }
-                    let _cache_gate=r.cache.gate.lock().map_err(|_|Error::new("INTERNAL_ERROR","查询缓存锁不可用"))?;
+                    let _cache_gate=r.cache.lock()?;
                     let published=s.finish_result(&query.project_id,&query.id,error.as_ref())?;
                     if published.state==ResultState::Ready {r.cache.recent(&query.project_id,&query.id);}
                     r.cache.track_committed(&s,&query.project_id);
@@ -586,7 +586,7 @@ pub async fn cache_maintenance(
             let force = runner.cache.force.swap(false, Ordering::AcqRel);
             runner.cache.busy.store(true, Ordering::Release);
             let result=tokio::task::spawn_blocking(move||->Result<u64>{
-                let _gate=r.cache.gate.lock().map_err(|_|Error::new("INTERNAL_ERROR","查询缓存锁不可用"))?;
+                let _gate=r.cache.lock()?;
                 let config=r.cache.config()?;
                 let policy=config.policy();
                 let owned=s.owned_projects()?;

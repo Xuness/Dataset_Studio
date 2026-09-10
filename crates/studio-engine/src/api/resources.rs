@@ -171,12 +171,7 @@ pub(super) async fn configure(
 ) -> ApiResult<PreviewCacheStatus> {
     Ok(Json(cache_status(
         blocking(move || {
-            let _gate = s
-                .queries
-                .cache
-                .gate
-                .lock()
-                .map_err(|_| domain::Error::new("INTERNAL_ERROR", "缓存设置锁不可用"))?;
+            let _gate = s.queries.cache.lock()?;
             let previous = s.queries.cache.config()?;
             let mut next = previous.clone();
             next.preview_mib = body.quota_mib;

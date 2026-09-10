@@ -136,12 +136,7 @@ pub(super) async fn configure(
 ) -> ApiResult<SettingsStatus> {
     Ok(Json(
         blocking(move || {
-            let _gate = s
-                .queries
-                .cache
-                .gate
-                .lock()
-                .map_err(|_| domain::Error::new("INTERNAL_ERROR", "缓存设置锁不可用"))?;
+            let _gate = s.queries.cache.lock()?;
             let config = cache_config(body);
             config.validate()?;
             let previous = s.queries.cache.config()?;
@@ -227,12 +222,7 @@ pub(super) async fn retention(
 ) -> ApiResult<QueryResult> {
     Ok(Json(
         blocking(move || {
-            let _gate = s
-                .queries
-                .cache
-                .gate
-                .lock()
-                .map_err(|_| domain::Error::new("INTERNAL_ERROR", "缓存设置锁不可用"))?;
+            let _gate = s.queries.cache.lock()?;
             let selected = tier(&body.tier)?;
             let config = s.queries.cache.config()?;
             let session_id = s.queries.cache.session(&pid, session.0.as_deref())?;
@@ -276,12 +266,7 @@ pub(super) async fn release_entry(
 ) -> ApiResult<QueryResult> {
     Ok(Json(
         blocking(move || {
-            let _gate = s
-                .queries
-                .cache
-                .gate
-                .lock()
-                .map_err(|_| domain::Error::new("INTERNAL_ERROR", "缓存设置锁不可用"))?;
+            let _gate = s.queries.cache.lock()?;
             let result = s
                 .store
                 .release_cache_entry(&pid, &rid, &s.queries.cache.live(&pid))?;

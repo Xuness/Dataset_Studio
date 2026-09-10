@@ -181,12 +181,7 @@ async fn open_project(
 ) -> ApiResult<Project> {
     Ok(Json(
         blocking(move || {
-            let _gate = s
-                .queries
-                .cache
-                .gate
-                .lock()
-                .map_err(|_| domain::Error::new("INTERNAL_ERROR", "查询缓存锁不可用"))?;
+            let _gate = s.queries.cache.lock()?;
             let project = s.store.open(body.directory.into())?;
             s.queries.cache.track_committed(&s.store, &project.id);
             Ok(project)
@@ -199,12 +194,7 @@ async fn open_project(
 async fn open_recent(State(s): State<AppState>, Path(id): Path<String>) -> ApiResult<Project> {
     Ok(Json(
         blocking(move || {
-            let _gate = s
-                .queries
-                .cache
-                .gate
-                .lock()
-                .map_err(|_| domain::Error::new("INTERNAL_ERROR", "查询缓存锁不可用"))?;
+            let _gate = s.queries.cache.lock()?;
             let project = s.store.open_recent(&id)?;
             s.queries.cache.track_committed(&s.store, &id);
             Ok(project)
@@ -221,12 +211,7 @@ async fn close_project(
 ) -> ApiResult<ProjectClose> {
     Ok(Json(
         blocking(move || {
-            let _gate = s
-                .queries
-                .cache
-                .gate
-                .lock()
-                .map_err(|_| domain::Error::new("INTERNAL_ERROR", "查询缓存锁不可用"))?;
+            let _gate = s.queries.cache.lock()?;
             if s.store.directory(&id).is_ok() {
                 s.queries.cache.track_committed(&s.store, &id);
             }
@@ -636,26 +621,22 @@ fn browse_sync(s: &AppState, id: &str, query: BrowseQuery) -> domain::Result<Ass
                 input_scope: Some(input_scope),
             }
             .normalize()?;
-            let result =
-                {
-                    let _gate =
-                        s.queries.cache.gate.lock().map_err(|_| {
-                            domain::Error::new("INTERNAL_ERROR", "查询缓存锁不可用")
-                        })?;
-                    let result = if let Some(result) = prepared {
-                        result
-                    } else {
-                        let versions = s.queries.versions(store, id, &spec)?;
-                        store.browse_result(
-                            id,
-                            spec,
-                            versions,
-                            s.queries.cache.config()?.query_enabled(),
-                        )?
-                    };
-                    s.queries.cache.recent(id, &result.id);
+            let result = {
+                let _gate = s.queries.cache.lock()?;
+                let result = if let Some(result) = prepared {
                     result
+                } else {
+                    let versions = s.queries.versions(store, id, &spec)?;
+                    store.browse_result(
+                        id,
+                        spec,
+                        versions,
+                        s.queries.cache.config()?.query_enabled(),
+                    )?
                 };
+                s.queries.cache.recent(id, &result.id);
+                result
+            };
             if matches!(
                 result.state,
                 domain::ResultState::Queued | domain::ResultState::Running
