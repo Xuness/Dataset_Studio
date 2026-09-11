@@ -1379,6 +1379,7 @@ async fn shutdown(State(s): State<AppState>) -> Json<OkResponse> {
         ranking::job_result,
         ranking_browse::info,
         ranking_browse::assets,
+        ranking_browse::lease,
         tools::submit,
         tools::validate_scope,
         tools::run,
@@ -1446,6 +1447,10 @@ pub fn routes() -> axum::Router<AppState> {
         .route(
             "/v1/projects/{pid}/ranking-browse/assets",
             post(ranking_browse::assets),
+        )
+        .route(
+            "/v1/projects/{project_id}/ranking-browse/lease",
+            post(ranking_browse::lease),
         )
         .route("/v1/projects/{pid}/objects/{kind}", get(management::list))
         .route("/v1/projects/{pid}/job-history", get(management::jobs))

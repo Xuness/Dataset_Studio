@@ -2944,6 +2944,46 @@
         }
       }
     },
+    "/v1/projects/{project_id}/ranking-browse/lease": {
+      "post": {
+        "tags": [
+          "ranking_browse"
+        ],
+        "operationId": "ranking_scope_lease",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RankingBrowseLease"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/projects/{project_id}/read-requests/{request_id}/cancel": {
       "post": {
         "tags": [
@@ -4949,6 +4989,7 @@
           "source_index_bytes",
           "rating_basis_bytes",
           "project_member_bytes",
+          "ranked_index_bytes",
           "fixed_member_bytes",
           "working_temporary_bytes",
           "protected_results",
@@ -4987,6 +5028,9 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          },
+          "ranked_index_bytes": {
+            "type": "string"
           },
           "rating_basis_bytes": {
             "type": "string"
@@ -7036,6 +7080,10 @@
           "incremental_results",
           "source_index_bytes",
           "source_indexes",
+          "ranked_index_bytes",
+          "ranked_indexes",
+          "ranked_index_builds",
+          "ranked_index_reuses",
           "cleanup_pending",
           "reclaimed_queries"
         ],
@@ -7073,6 +7121,24 @@
           },
           "quota_bytes": {
             "type": "string"
+          },
+          "ranked_index_builds": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "ranked_index_bytes": {
+            "type": "string"
+          },
+          "ranked_index_reuses": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "ranked_indexes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           },
           "reclaimed_queries": {
             "type": "integer",
@@ -7551,6 +7617,25 @@
             ]
           }
         }
+      },
+      "RankingBrowseLease": {
+        "type": "object",
+        "required": [
+          "scope",
+          "lease_id"
+        ],
+        "properties": {
+          "lease_id": {
+            "type": "string"
+          },
+          "release": {
+            "type": "boolean"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/ScopeRef"
+          }
+        },
+        "additionalProperties": false
       },
       "RankingBrowseRequest": {
         "type": "object",

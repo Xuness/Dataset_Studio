@@ -22,6 +22,7 @@ pub struct CacheStorageOverview {
     pub source_index_bytes: String,
     pub rating_basis_bytes: String,
     pub project_member_bytes: String,
+    pub ranked_index_bytes: String,
     pub fixed_member_bytes: String,
     pub working_temporary_bytes: String,
     pub protected_results: u64,

@@ -81,6 +81,25 @@ export function Browser(props: BrowserProps) {
     props.rankedBrowse,
     props.onRankedBrowse,
   );
+  const leasedScope =
+    ranked.active && ranked.target ? JSON.stringify(ranked.target) : null;
+  useEffect(() => {
+    if (!leasedScope) return;
+    const scope = JSON.parse(leasedScope) as NonNullable<typeof ranked.target>;
+    const id = crypto.randomUUID();
+    const renew = () =>
+      void props.client.ranking
+        .leaseScope(props.projectId, scope, id)
+        .catch(() => {});
+    renew();
+    const timer = setInterval(renew, 20000);
+    return () => {
+      clearInterval(timer);
+      void props.client.ranking
+        .leaseScope(props.projectId, scope, id, true)
+        .catch(() => {});
+    };
+  }, [props.client, props.projectId, leasedScope]);
   const identity = JSON.stringify([
     props.projectId,
     browseScopeIdentity(props.scope),
@@ -267,7 +286,7 @@ function BrowserContent({
     refetchInterval: (q) =>
       q.state.status !== "error" && q.state.data?.preparing
         ? ranked.active
-          ? 30
+          ? 500
           : 800
         : false,
   });

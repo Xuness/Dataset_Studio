@@ -26,6 +26,14 @@ impl From<domain::RankedScope> for RankedScope {
 pub struct RankingBrowseInfo {
     pub ranking: Option<RankedScope>,
 }
+#[derive(Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RankingBrowseLease {
+    pub scope: ScopeRef,
+    pub lease_id: String,
+    #[serde(default)]
+    pub release: bool,
+}
 
 #[derive(Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]

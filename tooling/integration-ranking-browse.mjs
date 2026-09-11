@@ -7,7 +7,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { DatabaseSync } from "node:sqlite";
-import { EngineFixture, within } from "./engine-fixture.mjs";
+import { EngineFixture, within, sleep } from "./engine-fixture.mjs";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const run = resolve(
@@ -49,7 +49,9 @@ let database,
   small,
   source,
   sparseResult,
-  sparseExpected;
+  sparseExpected,
+  gapResult,
+  gapExpected;
 const scope = (collection) => ({
   project_id: project.id,
   target: { kind: "workset", collection_id: collection.id },
@@ -83,12 +85,12 @@ async function page(target, options = {}) {
     });
     if (!value.preparing) return { ...value, preparations };
     assert.equal(value.items.length, 0);
-    assert.ok(value.next_cursor);
     assert.ok(
       ++preparations < 4096,
       "bounded preparation cursor must make progress",
     );
-    cursor = value.next_cursor;
+    cursor = value.next_cursor ?? cursor;
+    await sleep(40);
   }
 }
 function expectRows(actual, expected) {
@@ -458,9 +460,10 @@ try {
 
   assert.ok(result.count > 4096, "exercise the large query scope path");
   const cold = await page(filteredScope, { limit: 48 });
-  assert.ok(
-    cold.preparations > 0,
-    "the fixture must contain more than 4096 leading nonmembers",
+  assert.equal(
+    cold.preparations,
+    0,
+    "the existing scope index must serve other orders",
   );
   const expectedG = oracle(full, "main", false, result.id);
   expectRows(cold.items, expectedG.slice(0, 48));
@@ -601,6 +604,48 @@ try {
     "all five POST read routes honor explicit cancellation before work starts",
   );
 
+  const viewLease = crypto.randomUUID();
+  await engine.api(base + "/ranking-browse/lease", "POST", {
+    scope: scope(full),
+    lease_id: viewLease,
+    release: false,
+  });
+  const clearIndexes = async () => {
+    await engine.api("/v1/settings/cache/clear", "POST", { tier: "temporary" });
+    await engine.wait("/v1/settings", (s) => !s.storage.cleanup_pending, 15000);
+  };
+  await clearIndexes();
+  assert.equal((await page(scope(full))).preparations, 0);
+  assert.equal(
+    (await engine.api("/v1/resources")).query_cache.ranked_indexes,
+    1,
+  );
+  await engine.api(base + "/ranking-browse/lease", "POST", {
+    scope: scope(full),
+    lease_id: viewLease,
+    release: true,
+  });
+  const beforeRebuild = (await engine.api("/v1/resources")).query_cache
+    .ranked_index_builds;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    await clearIndexes();
+    assert.equal(
+      (await engine.api("/v1/resources")).query_cache.ranked_indexes,
+      0,
+    );
+    const started = performance.now();
+    const rebuilt = await page(scope(full));
+    assert.ok(performance.now() - started < 15000);
+    expectRows(rebuilt.items, oracle(full).slice(0, 13));
+    assert.equal(
+      (await engine.api("/v1/resources")).query_cache.ranked_index_builds,
+      beforeRebuild + attempt + 1,
+    );
+  }
+  checks.push(
+    "a live view survives temporary-cache clearing; released indexes rebuild immediately after repeated eviction",
+  );
+
   sparseResult = await engine.api(base + "/query-results", "POST", {
     spec: {
       version: 3,
@@ -639,70 +684,104 @@ try {
       allPositions.get(sparseExpected[0].ordinal) >
       4096,
   );
-  let previousScanned = 0,
-    staleCursor;
-  for (const limit of [48, 12, 96, 48]) {
-    const value = await engine.api(base + "/ranking-browse/assets", "POST", {
-      scope: sparseScope,
-      limit,
-    });
-    assert.ok(
-      value.preparing,
-      "the first sparse prefix must span several bounded requests",
-    );
-    assert.ok(
-      value.scan.scanned > previousScanned,
-      "changing page size must resume the prior scan",
-    );
-    assert.ok(value.scan.scanned - previousScanned <= 4096);
-    previousScanned = value.scan.scanned;
-    staleCursor ??= value.next_cursor;
-    samples.push({
-      kind: "sparse-size-change",
-      limit,
-      scanned: previousScanned,
-    });
-  }
-  const replayed = await engine.api(base + "/ranking-browse/assets", "POST", {
-    scope: sparseScope,
-    limit: 48,
-    cursor: staleCursor,
-  });
-  if (replayed.scan) assert.ok(replayed.scan.scanned > previousScanned);
-  const concurrent = await Promise.all(
-    [12, 96].map((limit) =>
+  const beforeBuilds = (await engine.api("/v1/resources")).query_cache
+    .ranked_index_builds;
+  await Promise.all(
+    [12, 48, 96].map((limit) =>
       engine.api(base + "/ranking-browse/assets", "POST", {
         scope: sparseScope,
         limit,
       }),
     ),
   );
-  const steps = concurrent
-    .filter((value) => value.scan)
-    .map((value) => value.scan.scanned);
-  assert.equal(
-    new Set(steps).size,
-    steps.length,
-    "concurrent sizes must not process the same complete scan batch",
-  );
   const sparseReady = await page(sparseScope, { limit: 96 });
   expectRows(sparseReady.items, sparseExpected.slice(0, 96));
+  assert.equal(
+    (await engine.api("/v1/resources")).query_cache.ranked_index_builds,
+    beforeBuilds + 1,
+  );
   for (const limit of [12, 48, 96, 12]) {
-    const started = performance.now();
     const value = await engine.api(base + "/ranking-browse/assets", "POST", {
       scope: sparseScope,
       limit,
     });
     assert.equal(value.preparing ?? null, null);
     expectRows(value.items, sparseExpected.slice(0, limit));
-    samples.push({
-      kind: "sparse-cached-prefix",
-      limit,
-      ms: performance.now() - started,
-    });
   }
   checks.push(
-    "sparse first-page matches and in-progress scans are reused across sizes, stale cursors, and concurrent requests",
+    "one persistent index serves concurrent sizes and every first-page size for a sparse scope",
+  );
+
+  gapResult = await engine.api(base + "/query-results", "POST", {
+    spec: {
+      version: 3,
+      source_ids: [source.id],
+      observation_rule: "current_post",
+      order: "asset_key_asc",
+      input_scope: scope(full),
+      conditions: [
+        {
+          field: "rating",
+          operator: "in",
+          value: { type: "text_list", value: ["e", "s"] },
+        },
+      ],
+    },
+  });
+  gapResult = await engine.wait(
+    base + "/query-results/" + gapResult.id,
+    (r) => ["ready", "failed"].includes(r.state),
+    60000,
+  );
+  assert.equal(gapResult.state, "ready");
+  const gapScope = {
+    project_id: project.id,
+    target: { kind: "query_result", result_id: gapResult.id },
+  };
+  gapExpected = oracle(full, "main", false, gapResult.id);
+  assert.ok(gapExpected.length > 110 * 96);
+  const firstGap = await page(gapScope, { limit: 96 });
+  const bookmarks = [null];
+  let next = firstGap.next_cursor;
+  expectRows(firstGap.items, gapExpected.slice(0, 96));
+  const built = (await engine.api("/v1/resources")).query_cache
+    .ranked_index_builds;
+  for (let number = 1; number < 110; number++) {
+    bookmarks.push(next);
+    const result = await engine.api(base + "/ranking-browse/assets", "POST", {
+      scope: gapScope,
+      limit: 96,
+      cursor: next,
+    });
+    assert.equal(
+      result.preparing ?? null,
+      null,
+      "every subsequent page must use the range index",
+    );
+    expectRows(result.items, gapExpected.slice(number * 96, (number + 1) * 96));
+    next = result.next_cursor;
+  }
+  for (const number of [2, 84, 17, 85, 109, 84]) {
+    const result = await engine.api(base + "/ranking-browse/assets", "POST", {
+      scope: gapScope,
+      limit: 96,
+      cursor: bookmarks[number],
+    });
+    assert.equal(result.preparing ?? null, null);
+    expectRows(result.items, gapExpected.slice(number * 96, (number + 1) * 96));
+  }
+  assert.equal(
+    (await engine.api("/v1/resources")).query_cache.ranked_index_builds,
+    built,
+  );
+  samples.push({
+    kind: "all-page-index",
+    forward_pages: 110,
+    backward_replays: 6,
+    members_verified: 110 * 96,
+  });
+  checks.push(
+    "110 pages and repeated old-page bookmarks cross the missing-rating gap without any scan or rebuild",
   );
 
   const ordinary = await engine.api(base + "/collections", "POST", {
@@ -735,6 +814,12 @@ try {
     cursor: anchored.start_cursor,
   });
   assert.equal(resumed.items[0].ranking.post_id, postId);
+  assert.equal(resumed.preparations, 0);
+  assert.equal(
+    (await engine.api("/v1/resources")).query_cache.ranked_index_builds,
+    0,
+    "restart must reuse completed disk indexes",
+  );
   checks.push("a resolved starting cursor survives an engine restart");
   assert.deepEqual(await Promise.all(artifactFiles.map(hash)), artifactHashes);
   assert.deepEqual(await Promise.all(sourceFiles.map(hash)), sourceHashes);
@@ -754,6 +839,8 @@ try {
         artifact_id: artifact.id,
         anchor_post_id: postId,
         sparse_result_id: sparseResult.id,
+        gap_result_id: gapResult.id,
+        gap_post_ids: gapExpected.map((row) => String(row.post_id)),
         sparse_first_members: sparseExpected.slice(0, 129),
       },
       null,

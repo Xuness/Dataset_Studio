@@ -2,6 +2,8 @@
 
 日期：2026-09-10。开发版本 0.9.1。
 
+更新：逐批交集和旧输入 ID 扫描实现已由 [0017：固定范围的持久化排名索引](0017-persistent-ranked-scope-indexes.md) 替代。本文的固定成员、排序和起点语义保持有效。
+
 ## 固定成员与查看顺序
 
 工作集继续保存成员集合。来自排名的工作集已在 collection_scopes 中保存 ranking_artifact 与原 RankingFilter，并通过 artifact_references 保护原成果；这些已有信息用于恢复排名浏览，无需重新计算或改写已有工作集。

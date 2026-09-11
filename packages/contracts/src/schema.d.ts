@@ -959,6 +959,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{project_id}/ranking-browse/lease": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["ranking_scope_lease"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects/{project_id}/read-requests/{request_id}/cancel": {
         parameters: {
             query?: never;
@@ -1595,6 +1611,7 @@ export interface components {
             project_member_bytes: string;
             /** Format: int64 */
             protected_results: number;
+            ranked_index_bytes: string;
             rating_basis_bytes: string;
             source_index_bytes: string;
             temporary_bytes: string;
@@ -2112,6 +2129,13 @@ export interface components {
             protected_results: number;
             quota_bytes: string;
             /** Format: int64 */
+            ranked_index_builds: number;
+            ranked_index_bytes: string;
+            /** Format: int64 */
+            ranked_index_reuses: number;
+            /** Format: int64 */
+            ranked_indexes: number;
+            /** Format: int64 */
             reclaimed_queries: number;
             result_storage_bytes: string;
             /** Format: int64 */
@@ -2222,6 +2246,11 @@ export interface components {
         };
         RankingBrowseInfo: {
             ranking?: null | components["schemas"]["RankedScope"];
+        };
+        RankingBrowseLease: {
+            lease_id: string;
+            release?: boolean;
+            scope: components["schemas"]["ScopeRef"];
         };
         RankingBrowseRequest: {
             cursor?: string | null;
@@ -4381,6 +4410,31 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AssetPage"];
+                };
+            };
+        };
+    };
+    ranking_scope_lease: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RankingBrowseLease"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
                 };
             };
         };

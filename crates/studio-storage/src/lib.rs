@@ -31,6 +31,7 @@ mod history;
 mod management;
 mod object_links;
 mod presets;
+pub mod ranked_index;
 mod ranking;
 mod ranking_browse;
 pub mod ranking_tables;

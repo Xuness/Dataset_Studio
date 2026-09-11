@@ -1,11 +1,8 @@
 use super::*;
 use std::{cmp::Ordering, collections::HashSet};
 use studio_application::read_cancelled;
+use studio_storage::ranked_index::{RankedIndex, RankedIndexMeta, RankedIndexPlan};
 use studio_storage::ranking_tables::{RankingInputTable, RankingPosition, RankingResultTable};
-
-const SMALL_SCOPE: u64 = 4096;
-const PAGE_SCAN_BUDGET: usize = 4096;
-const POST_SCAN_ROWS: u64 = 262_144;
 
 #[derive(Deserialize)]
 pub(super) struct InfoQuery {
@@ -192,77 +189,21 @@ impl Browse<'_> {
         cursor
             .start
             .map(|start| {
-                let raw = encode(&Cursor {
+                encode(&Cursor {
                     signature: self.signature.clone(),
                     start: Some(start),
                     examined: 0,
-                    first_page: true,
+                    first_page: false,
                     state: Phase::Browse {
                         after: Some(self.position(start)?),
                         pending: vec![start],
                     },
-                })?;
-                if cursor.first_page {
-                    self.state
-                        .ranking_reads
-                        .first_page_continuations
-                        .insert(raw.clone(), ());
-                }
-                Ok(raw)
+                })
             })
             .transpose()
     }
-    fn remember_first_page(&self, cursor: &Cursor) -> domain::Result<()> {
-        if cursor.first_page {
-            let (seeking, matched, scanned) = match &cursor.state {
-                Phase::Seek { next_ordinal, .. } => (true, 0, *next_ordinal),
-                Phase::Browse { pending, .. } => (false, pending.len(), cursor.examined),
-            };
-            self.state.ranking_reads.remember_first_page(
-                self.signature.clone(),
-                crate::ranking_reads::FirstPageProgress {
-                    cursor: encode(cursor)?,
-                    seeking,
-                    matched,
-                    scanned,
-                },
-            );
-        }
-        Ok(())
-    }
-    fn preparing(&self, cursor: &Cursor, seeking: bool) -> domain::Result<AssetPage> {
-        self.remember_first_page(cursor)?;
-        let scanned = match &cursor.state {
-            Phase::Seek { next_ordinal, .. } => *next_ordinal,
-            _ => cursor.examined,
-        };
-        let next_cursor = encode(cursor)?;
-        if cursor.first_page {
-            self.state
-                .ranking_reads
-                .first_page_continuations
-                .insert(next_cursor.clone(), ());
-        }
-        Ok(AssetPage {
-            items: Vec::new(),
-            next_cursor: Some(next_cursor),
-            revision: self.signature.clone(),
-            preparing: Some(if seeking {
-                format!("正在定位 Danbooru #{}", self.post.unwrap_or(0))
-            } else {
-                "正在读取这一页的排名成员".into()
-            }),
-            result_id: None,
-            scan: Some(BrowseScan {
-                scanned,
-                total: self.total,
-            }),
-            start_cursor: self.start_cursor(cursor)?,
-        })
-    }
     fn finish(&self, mut cursor: Cursor, picked: Vec<u64>) -> domain::Result<AssetPage> {
         let start_cursor = self.start_cursor(&cursor)?;
-        self.remember_first_page(&cursor)?;
         cursor.first_page = false;
         let more = picked.len() > self.limit;
         let shown = &picked[..picked.len().min(self.limit)];
@@ -325,198 +266,39 @@ impl Browse<'_> {
             start_cursor,
         })
     }
-    fn small(&self, mut cursor: Cursor) -> domain::Result<AssetPage> {
-        let keys = self
-            .state
-            .store
-            .browse_scope_keys(self.pid, &self.scope, None, 4097, false)?;
-        if keys.len() as u64 != self.basis.count || keys.len() > SMALL_SCOPE as usize {
-            return Err(domain::Error::new(
-                "SOURCE_CHANGED",
-                "范围成员数量已变化，请重新打开",
-            ));
-        }
-        let mut rows = Vec::new();
-        for key in keys {
-            read_cancelled(self.read.cancelled.as_ref())?;
-            let (ordinal, post) = self.input.post_for_key(&key)?.ok_or_else(|| {
-                domain::Error::new("ARTIFACT_INVALID", "工作集图片不在原排名输入中")
-            })?;
-            if !self
-                .table
-                .matches_filter(ordinal, &self.basis.saved_filter)?
-            {
-                return Err(domain::Error::new(
-                    "ARTIFACT_INVALID",
-                    "工作集成员与保存的排名条件不一致",
-                ));
-            }
-            rows.push((self.position(ordinal)?, post));
-        }
-        rows.sort_by(|(a, _), (b, _)| a.compare(b, self.descending));
+    fn run(&self, mut cursor: Cursor, index: &RankedIndex) -> domain::Result<AssetPage> {
+        read_cancelled(&self.read.cancelled)?;
         if matches!(cursor.state, Phase::Seek { .. }) {
-            let (start, _) = rows
-                .iter()
-                .find(|(_, post)| *post == self.post)
+            let position = index
+                .locate(
+                    self.post.ok_or_else(missing_anchor)?,
+                    self.order,
+                    self.descending,
+                )?
                 .ok_or_else(missing_anchor)?;
-            cursor.start = Some(start.ordinal);
+            cursor.start = Some(position.ordinal);
             cursor.state = Phase::Browse {
-                after: Some(start.clone()),
-                pending: vec![start.ordinal],
+                after: Some(position.clone()),
+                pending: vec![position.ordinal],
             };
         }
-        let Phase::Browse {
-            mut after,
-            mut pending,
-        } = cursor.state.clone()
-        else {
+        let Phase::Browse { after, mut pending } = cursor.state.clone() else {
             unreachable!()
         };
-        for (position, _) in rows {
-            if pending.len()
-                >= if cursor.first_page {
-                    129
-                } else {
-                    self.limit + 1
-                }
-            {
-                break;
-            }
-            if after
-                .as_ref()
-                .is_none_or(|after| position.compare(after, self.descending) == Ordering::Greater)
-            {
-                pending.push(position.ordinal);
-                after = Some(position);
-            }
+        if pending.len() <= self.limit {
+            pending.extend(
+                index
+                    .page(
+                        self.order,
+                        self.descending,
+                        after.as_ref(),
+                        self.limit + 1 - pending.len(),
+                    )?
+                    .into_iter()
+                    .map(|p| p.ordinal),
+            );
         }
-        cursor.state = Phase::Browse {
-            after,
-            pending: pending.clone(),
-        };
         self.finish(cursor, pending)
-    }
-    fn run(&self, mut cursor: Cursor) -> domain::Result<AssetPage> {
-        self.validate(&cursor)?;
-        if let Phase::Browse { pending, .. } = &cursor.state
-            && pending.len() > self.limit
-        {
-            let picked = pending.clone();
-            return self.finish(cursor, picked);
-        }
-        if self.basis.count <= SMALL_SCOPE {
-            return self.small(cursor);
-        }
-        if let Phase::Seek {
-            next_ordinal,
-            mut best,
-        } = cursor.state.clone()
-        {
-            let scan = self.input.post_id_scan(
-                self.post.ok_or_else(missing_anchor)?,
-                next_ordinal,
-                self.total,
-                POST_SCAN_ROWS,
-            )?;
-            let kept = self.keep(&scan.ordinals)?;
-            for (ordinal, keep) in scan.ordinals.into_iter().zip(kept) {
-                read_cancelled(self.read.cancelled.as_ref())?;
-                if keep
-                    && self
-                        .table
-                        .matches_filter(ordinal, &self.basis.saved_filter)?
-                    && match best {
-                        Some(old) => {
-                            self.position(ordinal)?
-                                .compare(&self.position(old)?, self.descending)
-                                == Ordering::Less
-                        }
-                        None => true,
-                    }
-                {
-                    best = Some(ordinal);
-                }
-            }
-            if scan.next_ordinal < self.total {
-                cursor.state = Phase::Seek {
-                    next_ordinal: scan.next_ordinal,
-                    best,
-                };
-                return self.preparing(&cursor, true);
-            }
-            let start = best.ok_or_else(missing_anchor)?;
-            cursor.start = Some(start);
-            cursor.state = Phase::Browse {
-                after: Some(self.position(start)?),
-                pending: vec![start],
-            };
-        }
-        let Phase::Browse {
-            mut after,
-            mut pending,
-        } = cursor.state.clone()
-        else {
-            unreachable!()
-        };
-        let mut scanned = 0;
-        loop {
-            read_cancelled(self.read.cancelled.as_ref())?;
-            if pending.len() > self.limit {
-                cursor.state = Phase::Browse {
-                    after,
-                    pending: pending.clone(),
-                };
-                return self.finish(cursor, pending);
-            }
-            if scanned >= PAGE_SCAN_BUDGET {
-                cursor.state = Phase::Browse { after, pending };
-                return self.preparing(&cursor, false);
-            }
-            let batch = (PAGE_SCAN_BUDGET - scanned).min(512);
-            let page = self.table.browse_scan(
-                &self.basis.saved_filter,
-                self.order,
-                self.descending,
-                after.as_ref(),
-                batch,
-            )?;
-            let candidates = page
-                .rows
-                .iter()
-                .filter(|(_, yes)| *yes)
-                .map(|(row, _)| row.ordinal)
-                .collect::<Vec<_>>();
-            let mut kept = self.keep(&candidates)?.into_iter();
-            for (scores, matches) in page.rows {
-                scanned += 1;
-                cursor.examined += 1;
-                after = Some(RankingPosition::for_scores(&scores, self.order));
-                if matches && kept.next().unwrap_or(false) {
-                    pending.push(scores.ordinal);
-                }
-                if pending.len()
-                    >= if cursor.first_page {
-                        129
-                    } else {
-                        self.limit + 1
-                    }
-                {
-                    cursor.state = Phase::Browse {
-                        after,
-                        pending: pending.clone(),
-                    };
-                    return self.finish(cursor, pending);
-                }
-            }
-            cursor.state = Phase::Browse {
-                after: after.clone(),
-                pending: pending.clone(),
-            };
-            self.remember_first_page(&cursor)?;
-            if pending.len() > self.limit || !page.more {
-                return self.finish(cursor, pending);
-            }
-        }
     }
 }
 
@@ -580,34 +362,44 @@ pub(super) async fn assets(
                 ))
                 .map_err(domain::Error::io)?,
             ));
-            let cached_first = s.ranking_reads.first_pages.get(&signature);
-            let raw_cursor = body
-                .cursor
-                .or_else(|| cached_first.as_ref().map(|v| v.cursor.clone()));
-            let mut cursor = if let Some(raw) = raw_cursor {
-                if raw.len() > 16_384 {
+            let index_key = hex::encode(Sha256::digest(
+                serde_json::to_vec(&(
+                    1,
+                    &scope,
+                    &basis.workset_id,
+                    &basis.artifact_id,
+                    &basis.saved_filter,
+                    basis.count,
+                    &artifact.files,
+                ))
+                .map_err(domain::Error::io)?,
+            ));
+            let plan = RankedIndexPlan {
+                meta: RankedIndexMeta {
+                    version: 1,
+                    key: index_key,
+                    scope: scope.clone(),
+                    count: basis.count,
+                },
+                project: s.store.directory(&pid)?.join("project.sqlite"),
+                input: input_path.clone(),
+                scores: table_path.clone(),
+            };
+            let cursor = if let Some(raw) = body.cursor {
+                if raw.len() > 16384 {
                     return Err(domain::Error::invalid("排名游标过长"));
                 }
-                let mut cursor = URL_SAFE_NO_PAD
-                    .decode(&raw)
+                URL_SAFE_NO_PAD
+                    .decode(raw)
                     .ok()
                     .and_then(|raw| serde_json::from_slice::<Cursor>(&raw).ok())
-                    .ok_or_else(|| domain::Error::invalid("无效的排名浏览游标"))?;
-                // Clients may seek with validated cursors, but cannot declare
-                // an arbitrary later member to be this range's cached origin.
-                if cursor.signature != signature {
-                    return Err(domain::Error::invalid("排名游标不属于当前范围"));
-                }
-                cursor.first_page &= cached_first.as_ref().map(|v| v.cursor.as_str())
-                    == Some(raw.as_str())
-                    || s.ranking_reads.first_page_continuations.get(&raw).is_some();
-                cursor
+                    .ok_or_else(|| domain::Error::invalid("无效的排名浏览游标"))?
             } else {
                 Cursor {
                     signature: signature.clone(),
                     start: None,
                     examined: 0,
-                    first_page: true,
+                    first_page: false,
                     state: if post.is_some() {
                         Phase::Seek {
                             next_ordinal: 0,
@@ -621,37 +413,7 @@ pub(super) async fn assets(
                     },
                 }
             };
-            let first_gate = s
-                .ranking_reads
-                .first_page_gates
-                .get_or_insert(signature.clone(), || Arc::new(std::sync::Mutex::new(())));
-            let _first_guard = if cursor.first_page {
-                Some(loop {
-                    read_cancelled(&read.cancelled)?;
-                    match first_gate.try_lock() {
-                        Ok(guard) => break guard,
-                        Err(std::sync::TryLockError::WouldBlock) => {
-                            std::thread::sleep(std::time::Duration::from_millis(10))
-                        }
-                        Err(_) => {
-                            return Err(domain::Error::new("INTERNAL_ERROR", "首屏准备状态不可用"));
-                        }
-                    }
-                })
-            } else {
-                None
-            };
-            // A previous page size may have advanced while this request waited.
-            if cursor.first_page
-                && let Some(latest) = s.ranking_reads.first_pages.get(&signature)
-            {
-                cursor = URL_SAFE_NO_PAD
-                    .decode(latest.cursor)
-                    .ok()
-                    .and_then(|raw| serde_json::from_slice(&raw).ok())
-                    .ok_or_else(|| domain::Error::new("INTERNAL_ERROR", "首屏准备状态无效"))?;
-            }
-            Browse {
+            let browse = Browse {
                 state: &s,
                 pid: &pid,
                 read: &read,
@@ -664,12 +426,63 @@ pub(super) async fn assets(
                 post,
                 total,
                 limit: body.limit.unwrap_or(48).clamp(1, 128),
-                signature,
+                signature: signature.clone(),
+            };
+            browse.table.cancel_reads(read.cancelled.clone())?;
+            browse.validate(&cursor)?;
+            read_cancelled(&read.cancelled)?;
+            if let Some(index) = s
+                .queries
+                .ranked_indexes
+                .open(&plan, read.cancelled.clone())?
+            {
+                let result = browse.run(cursor, &index.index);
+                drop(index);
+                read_cancelled(&read.cancelled)?;
+                if result
+                    .as_ref()
+                    .is_err_and(|e| e.code == "RANKING_INDEX_INVALID")
+                {
+                    s.queries.ranked_indexes.invalidate(&plan.meta.key)?;
+                }
+                return result;
             }
-            .run(cursor)
+            let (message, completed) = s.queries.ranked_indexes.prepare(
+                s.store.clone(),
+                s.queries.clone(),
+                s.resources.clone(),
+                s.previews.cache.clone(),
+                plan.clone(),
+            )?;
+            Ok(AssetPage {
+                items: Vec::new(),
+                next_cursor: None,
+                revision: signature,
+                preparing: Some(message),
+                result_id: None,
+                scan: Some(BrowseScan {
+                    scanned: completed,
+                    total: plan.meta.count,
+                }),
+                start_cursor: None,
+            })
         })
         .await?,
     ))
+}
+
+#[utoipa::path(post,path="/v1/projects/{project_id}/ranking-browse/lease",operation_id="ranking_scope_lease",params(("project_id"=String,Path)),request_body=RankingBrowseLease,responses((status=200,body=OkResponse)))]
+pub(super) async fn lease(
+    State(s): State<AppState>,
+    Path(pid): Path<String>,
+    Body(body): Body<RankingBrowseLease>,
+) -> ApiResult<OkResponse> {
+    let scope: domain::ScopeRef = body.scope.into();
+    scope.validate_project(&pid)?;
+    s.queries
+        .ranked_indexes
+        .lease(&scope, &body.lease_id, body.release)?;
+    Ok(Json(OkResponse { ok: true }))
 }
 
 pub(super) fn annotate(

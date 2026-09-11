@@ -20,9 +20,7 @@ const previous = JSON.parse(
   await readFile(resolve(fixtureRun, "report.json"), "utf8"),
 );
 assert.equal(previous.passed, true);
-assert.ok(
-  previous.sparse_result_id && previous.sparse_first_members.length >= 97,
-);
+assert.ok(previous.gap_result_id && previous.gap_post_ids.length > 110 * 96);
 const run = resolve(
   root,
   ".local/test-runs",
@@ -39,9 +37,8 @@ const trace = [],
 let browser,
   page,
   vite,
-  slowPreparation = true,
   phase = "preparing";
-async function visible(limit) {
+async function visible(limit, number = 0) {
   await expect(page.locator(".asset-card")).toHaveCount(limit, {
     timeout: 60000,
   });
@@ -50,9 +47,9 @@ async function visible(limit) {
       page.locator(".asset-card .asset-caption > span").allTextContents(),
     )
     .toEqual(
-      previous.sparse_first_members
-        .slice(0, limit)
-        .map((row) => "Danbooru #" + row.post_id),
+      previous.gap_post_ids
+        .slice(number * limit, (number + 1) * limit)
+        .map((id) => "Danbooru #" + id),
     );
 }
 try {
@@ -68,7 +65,7 @@ try {
       panels: [],
       scope: {
         kind: "result",
-        id: previous.sparse_result_id,
+        id: previous.gap_result_id,
         name: "含稀疏排名成员的筛选",
       },
       focusKey: null,
@@ -147,7 +144,6 @@ try {
           scanned: value.scan?.scanned ?? null,
           items: value.items.length,
         });
-        if (slowPreparation && value.preparing) await sleep(600);
       }
     }
     await route
@@ -162,42 +158,52 @@ try {
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(url);
   await page.locator(".recent-row").filter({ hasText: project.name }).click();
-  await expect.poll(() => trace.some((row) => row.preparing)).toBe(true);
-  await expect(page.getByLabel("每页数量")).toBeVisible();
-  for (const limit of [12, 96, 48]) {
-    const before = trace.length;
-    await page.getByLabel("每页数量").selectOption(String(limit));
-    await expect
-      .poll(
-        () =>
-          trace
-            .slice(before)
-            .some((row) => row.limit === limit && row.preparing),
-        { timeout: 15000 },
-      )
-      .toBe(true);
-  }
-  const scans = trace.filter((row) => row.preparing).map((row) => row.scanned);
-  for (let i = 1; i < scans.length; i++)
-    assert.ok(
-      scans[i] > scans[i - 1],
-      "page-size changes must continue the sparse scan",
-    );
-  checks.push(
-    "switching 48/12/96/48 while preparation is in flight preserves scan progress",
-  );
-  slowPreparation = false;
   await visible(48);
-  phase = "ready";
+  await page.getByLabel("每页数量").selectOption("96");
+  await visible(96);
+  for (let number = 1; number < 110; number++) {
+    await page
+      .locator(".browser-view")
+      .getByRole("button", { name: "下一页", exact: true })
+      .click();
+    await visible(96, number);
+  }
+  checks.push(
+    "110 actual next-page clicks cross the sparse gap with no per-page preparation",
+  );
+  await expect
+    .poll(
+      async () =>
+        (await engine.api(base + "/drafts/studio.session/default")).draft?.value
+          ?.position?.pageNumber,
+    )
+    .toBe(110);
+  phase = "after_reload";
+  await page.reload();
+  await visible(96, 109);
+  for (let number = 108; number >= 80; number--) {
+    await page
+      .locator(".browser-view")
+      .getByRole("button", { name: "上一页", exact: true })
+      .click();
+    await visible(96, number);
+  }
+  checks.push(
+    "backward paging still seeks directly after the frontend page cache has been discarded",
+  );
   for (const limit of [12, 96, 48, 12]) {
     await page.getByLabel("每页数量").selectOption(String(limit));
     await visible(limit);
   }
-  assert.ok(
-    trace.filter((row) => row.phase === "ready").every((row) => !row.preparing),
+  assert.ok(trace.every((row) => !row.preparing));
+  const metrics = (await engine.api("/v1/resources")).query_cache;
+  assert.equal(
+    metrics.ranked_index_builds,
+    0,
+    "the restarted engine must reuse existing disk indexes",
   );
   checks.push(
-    "completed sparse prefixes serve every page size without repeating preparation",
+    "page sizes and frontend reload reuse the same persisted scope index",
   );
   await page.screenshot({ path: resolve(run, "sparse-page-size.png") });
   assert.deepEqual(errors, []);

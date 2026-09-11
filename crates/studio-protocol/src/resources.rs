@@ -109,6 +109,10 @@ pub struct QueryCacheStatus {
     pub incremental_results: u64,
     pub source_index_bytes: String,
     pub source_indexes: u64,
+    pub ranked_index_bytes: String,
+    pub ranked_indexes: u64,
+    pub ranked_index_builds: u64,
+    pub ranked_index_reuses: u64,
     pub cleanup_pending: bool,
     pub reclaimed_queries: u64,
 }

@@ -59,12 +59,14 @@ pub(super) fn query_cache_status(s: &AppState) -> domain::Result<QueryCacheStatu
     }
     let records = s.queries.cache.projects()?;
     let (index_bytes, index_count) = s.queries.browse_index.storage()?;
+    let ranked = s.queries.ranked_indexes.metrics()?;
     Ok(QueryCacheStatus {
         quota_bytes: (u64::from(config.query_mib()) << 20).to_string(),
         max_age_days: config.temporary_idle_hours.div_ceil(24),
         retained_queries: records.iter().map(|p| p.retained).sum(),
         member_versions: records.iter().map(|p| p.members).sum(),
-        result_storage_bytes: records.iter().map(|p| p.bytes).sum::<u64>().to_string(),
+        result_storage_bytes: (records.iter().map(|p| p.bytes).sum::<u64>() + ranked.bytes)
+            .to_string(),
         database_free_bytes: records
             .iter()
             .map(|p| p.free_bytes)
@@ -79,8 +81,13 @@ pub(super) fn query_cache_status(s: &AppState) -> domain::Result<QueryCacheStatu
         incremental_results: records.iter().map(|p| p.incremental).sum(),
         source_index_bytes: index_bytes.to_string(),
         source_indexes: index_count,
+        ranked_index_bytes: ranked.bytes.to_string(),
+        ranked_indexes: ranked.entries,
+        ranked_index_builds: ranked.builds,
+        ranked_index_reuses: ranked.reuses,
         cleanup_pending: s.queries.cache.busy.load(Ordering::Acquire)
-            || s.queries.cache.requested.load(Ordering::Acquire),
+            || s.queries.cache.requested.load(Ordering::Acquire)
+            || s.queries.ranked_indexes.busy(),
         reclaimed_queries: s.queries.cache.reclaimed.load(Ordering::Relaxed),
     })
 }

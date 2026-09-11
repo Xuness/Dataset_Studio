@@ -6,6 +6,7 @@ mod previews;
 mod query_budget;
 mod query_cache;
 mod query_jobs;
+mod ranked_indexes;
 mod ranking;
 mod ranking_reads;
 mod tool_inputs;
@@ -119,6 +120,7 @@ async fn serve(root: PathBuf, port: u16, cache_dir: Option<PathBuf>) -> Result<(
         .map_err(|_| Error::new("ENGINE_BUSY", "已有引擎管理这个应用目录"))?;
     remove_abandoned_query_temps(&root.join("query-temp"), "query-")?;
     remove_abandoned_query_temps(&root.join("browse-index"), "index-build-")?;
+    remove_abandoned_query_temps(&root.join("ranked-index"), "rank-build-")?;
     let store = Arc::new(SqliteStore::new(root.clone())?);
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", port))
         .await
@@ -344,6 +346,9 @@ async fn serve(root: PathBuf, port: u16, cache_dir: Option<PathBuf>) -> Result<(
     queries.shutdown();
     let _ = query_scheduler.await;
     let _ = cache_maintenance.await;
+    while queries.ranked_indexes.busy() {
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
     let _ = recovery.await;
     previews.shutdown();
     let _ = preview_scheduler.await;

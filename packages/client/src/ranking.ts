@@ -32,6 +32,20 @@ export class RankingClient {
       },
     );
   }
+  leaseScope(
+    pid: string,
+    scope: Schema["ScopeRef"],
+    leaseId: string,
+    release = false,
+  ) {
+    return this.request<Schema["OkResponse"]>(
+      `/v1/projects/${encodeURIComponent(pid)}/ranking-browse/lease`,
+      {
+        method: "POST",
+        body: JSON.stringify({ scope, lease_id: leaseId, release }),
+      },
+    );
+  }
   summary(pid: string, aid: string, signal?: AbortSignal) {
     return this.request<Schema["RankingSummary"]>(path(pid, aid), {
       signal: signal ?? null,

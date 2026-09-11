@@ -37,6 +37,7 @@ pub struct QueryRunner {
     pub cache: crate::query_cache::CacheControl,
     pub browse_index: BrowseIndex,
     pub identity_index: Arc<IdentityIndex>,
+    pub ranked_indexes: Arc<crate::ranked_indexes::RankedIndexes>,
     pub rating_cache: Arc<RatingCache>,
     query_directory: std::path::PathBuf,
 }
@@ -61,6 +62,9 @@ impl QueryRunner {
                 index_directory.with_file_name("rating-cache"),
             )),
             identity_index: Arc::new(IdentityIndex::new(index_directory.clone())),
+            ranked_indexes: Arc::new(crate::ranked_indexes::RankedIndexes::new(
+                index_directory.with_file_name("ranked-index"),
+            )),
             browse_index: BrowseIndex::new(index_directory),
             query_directory,
         }
@@ -310,6 +314,7 @@ impl QueryRunner {
     }
     pub fn shutdown(&self) {
         self.stopping.store(true, Ordering::Release);
+        self.ranked_indexes.shutdown();
         if let Ok(jobs) = self.rating_builds.lock() {
             for (cancelled, _) in jobs.values() {
                 cancelled.store(true, Ordering::Release);
@@ -650,8 +655,25 @@ fn sweep_cache(
     projects.sort_by_key(|p| (p.temporary_families == 0, p.touched));
     let source_bytes = runner.browse_index.storage()?.0;
     let basis_bytes = runner.rating_cache.storage_bytes()?;
+    let rank_budget = crate::ranked_indexes::available_budget(runner, preview)?;
+    let rank_sessions = if config.temporary_session_only {
+        Some(crate::ranked_indexes::live_session_projects(runner)?)
+    } else {
+        None
+    };
+    runner.ranked_indexes.prune(
+        rank_budget,
+        force
+            && runner
+                .cache
+                .clear_target()?
+                .is_none_or(|tier| tier == QueryCacheTier::Temporary),
+        u64::from(config.temporary_idle_hours) * 3600,
+        rank_sessions.as_ref(),
+    )?;
+    let ranked_bytes = runner.ranked_indexes.metrics()?.bytes;
     let query_quota = (u64::from(config.total_mib) << 20)
-        .saturating_sub(source_bytes + basis_bytes + preview.metrics().bytes)
+        .saturating_sub(source_bytes + basis_bytes + preview.metrics().bytes + ranked_bytes)
         .min(policy.quota_bytes);
     let long_quota = policy
         .long_term_quota_bytes
@@ -674,7 +696,7 @@ fn sweep_cache(
             || p.free_bytes >= 32 << 20
             || total > query_quota
             || long_bytes > long_quota
-            || temporary_bytes > policy.temporary_quota_bytes
+            || temporary_bytes + ranked_bytes > policy.temporary_quota_bytes
     };
     let mut closed = HashMap::new();
     for p in projects
@@ -716,6 +738,7 @@ fn sweep_cache(
                     .saturating_sub(long_bytes.saturating_sub(p.long_term_bytes)),
                 temporary_quota_bytes: policy
                     .temporary_quota_bytes
+                    .saturating_sub(ranked_bytes)
                     .saturating_sub(temporary_bytes.saturating_sub(p.temporary_bytes)),
                 live_sessions: runner.cache.live_sessions(&p.id)?,
                 clear_tier,
@@ -799,6 +822,7 @@ pub async fn cache_maintenance(
 ) {
     let mut last = Instant::now();
     while !runner.stopping.load(Ordering::Acquire) {
+        runner.ranked_indexes.tick();
         if runner.cache.requested.swap(false, Ordering::AcqRel)
             || last.elapsed() >= Duration::from_secs(30)
         {

@@ -79,6 +79,7 @@ fn settings_status(s: &AppState) -> domain::Result<SettingsStatus> {
         }
     }
     let member_bytes = projects.iter().map(|p| p.bytes).sum::<u64>();
+    let ranked = s.queries.ranked_indexes.metrics()?;
     let fixed_bases = s
         .queries
         .rating_cache
@@ -91,28 +92,29 @@ fn settings_status(s: &AppState) -> domain::Result<SettingsStatus> {
         cache: cache_settings(config.clone()),
         query_limits: resources::query_limits(s)?,
         storage: CacheStorageOverview {
-            total_bytes: (member_bytes + indexes + rating_bytes + preview_bytes).to_string(),
+            total_bytes: (member_bytes + indexes + rating_bytes + preview_bytes + ranked.bytes)
+                .to_string(),
             total_quota_bytes: (u64::from(config.total_mib) << 20).to_string(),
             long_term_bytes: (projects.iter().map(|p| p.long_term_bytes).sum::<u64>()
                 + indexes
                 + rating_bytes)
                 .to_string(),
-            temporary_bytes: projects
-                .iter()
-                .map(|p| p.temporary_bytes)
-                .sum::<u64>()
+            temporary_bytes: (projects.iter().map(|p| p.temporary_bytes).sum::<u64>()
+                + ranked.bytes)
                 .to_string(),
             preview_bytes: preview_bytes.to_string(),
             source_index_bytes: indexes.to_string(),
             rating_basis_bytes: rating_bytes.to_string(),
-            project_member_bytes: member_bytes.to_string(),
+            project_member_bytes: (member_bytes + ranked.bytes).to_string(),
+            ranked_index_bytes: ranked.bytes.to_string(),
             fixed_member_bytes: (projects.iter().map(|p| p.fixed_bytes).sum::<u64>()
                 + fixed_bases
                 + indexes)
                 .to_string(),
             working_temporary_bytes: (temporary_bytes(&s.store.root().join("query-temp"), 3)?
-                + s.queries.rating_cache.working_bytes()?)
-            .to_string(),
+                + s.queries.rating_cache.working_bytes()?
+                + ranked.working_bytes)
+                .to_string(),
             protected_results: projects.iter().map(|p| p.protected).sum(),
             active_views: projects
                 .iter()
@@ -121,7 +123,8 @@ fn settings_status(s: &AppState) -> domain::Result<SettingsStatus> {
             long_term_results: projects.iter().map(|p| p.long_term_families).sum(),
             temporary_results: projects.iter().map(|p| p.temporary_families).sum(),
             cleanup_pending: s.queries.cache.busy.load(Ordering::Acquire)
-                || s.queries.cache.requested.load(Ordering::Acquire),
+                || s.queries.cache.requested.load(Ordering::Acquire)
+                || s.queries.ranked_indexes.busy(),
         },
     })
 }

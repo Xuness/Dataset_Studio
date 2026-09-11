@@ -79,7 +79,10 @@ export function CacheSettingsPage({
         <div>
           <span>临时结果</span>
           <strong>{sizeLabel(storage.temporary_bytes)}</strong>
-          <small>{storage.temporary_results} 组临时查询</small>
+          <small>
+            {storage.temporary_results} 组临时查询 · 排名浏览索引{" "}
+            {sizeLabel(storage.ranked_index_bytes ?? "0")}
+          </small>
         </div>
         <div>
           <span>缩略图</span>
@@ -199,7 +202,7 @@ export function CacheSettingsPage({
           <div className="settings-control-row">
             <div>
               <label htmlFor="settings-temporary-mode">保留方式</label>
-              <p>普通 Tag 搜索与组合条件默认使用临时缓存。</p>
+              <p>普通 Tag 搜索、组合条件和排名浏览索引使用临时缓存。</p>
             </div>
             <select
               id="settings-temporary-mode"
