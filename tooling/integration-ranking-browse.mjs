@@ -23,6 +23,7 @@ await execute(
     resolve(root, "tooling/ranking-fixture.py"),
     resolve(run, "fixture"),
     "32768",
+    "--sparse-browse",
   ],
   { cwd: root, windowsHide: true },
 );
@@ -40,7 +41,15 @@ const sourceFiles = ["catalog.sqlite", "analysis.duckdb"].map((name) =>
   resolve(fixture.lake, "indexes/gen-ranking", name),
 );
 const sourceHashes = await Promise.all(sourceFiles.map(hash));
-let database, project, base, artifact, full, small, source;
+let database,
+  project,
+  base,
+  artifact,
+  full,
+  small,
+  source,
+  sparseResult,
+  sparseExpected;
 const scope = (collection) => ({
   project_id: project.id,
   target: { kind: "workset", collection_id: collection.id },
@@ -592,6 +601,110 @@ try {
     "all five POST read routes honor explicit cancellation before work starts",
   );
 
+  sparseResult = await engine.api(base + "/query-results", "POST", {
+    spec: {
+      version: 3,
+      source_ids: [source.id],
+      observation_rule: "current_post",
+      order: "asset_key_asc",
+      input_scope: scope(full),
+      conditions: [
+        {
+          field: "tags",
+          operator: "has_all_tags",
+          value: { type: "text_list", value: ["sparse_browse"] },
+        },
+      ],
+    },
+  });
+  sparseResult = await engine.wait(
+    base + "/query-results/" + sparseResult.id,
+    (r) => ["ready", "failed"].includes(r.state),
+    60000,
+  );
+  assert.equal(sparseResult.state, "ready");
+  assert.ok(sparseResult.count > 4096);
+  const sparseScope = {
+    project_id: project.id,
+    target: { kind: "query_result", result_id: sparseResult.id },
+  };
+  sparseExpected = oracle(full, "main", false, sparseResult.id);
+  assert.equal(sparseExpected[0].rating, "e");
+  assert.ok(sparseExpected.slice(0, 96).some((item) => item.rating === "s"));
+  const allPositions = new Map(
+    oracle(full).map((row, index) => [row.ordinal, index]),
+  );
+  assert.ok(
+    allPositions.get(sparseExpected[95].ordinal) -
+      allPositions.get(sparseExpected[0].ordinal) >
+      4096,
+  );
+  let previousScanned = 0,
+    staleCursor;
+  for (const limit of [48, 12, 96, 48]) {
+    const value = await engine.api(base + "/ranking-browse/assets", "POST", {
+      scope: sparseScope,
+      limit,
+    });
+    assert.ok(
+      value.preparing,
+      "the first sparse prefix must span several bounded requests",
+    );
+    assert.ok(
+      value.scan.scanned > previousScanned,
+      "changing page size must resume the prior scan",
+    );
+    assert.ok(value.scan.scanned - previousScanned <= 4096);
+    previousScanned = value.scan.scanned;
+    staleCursor ??= value.next_cursor;
+    samples.push({
+      kind: "sparse-size-change",
+      limit,
+      scanned: previousScanned,
+    });
+  }
+  const replayed = await engine.api(base + "/ranking-browse/assets", "POST", {
+    scope: sparseScope,
+    limit: 48,
+    cursor: staleCursor,
+  });
+  if (replayed.scan) assert.ok(replayed.scan.scanned > previousScanned);
+  const concurrent = await Promise.all(
+    [12, 96].map((limit) =>
+      engine.api(base + "/ranking-browse/assets", "POST", {
+        scope: sparseScope,
+        limit,
+      }),
+    ),
+  );
+  const steps = concurrent
+    .filter((value) => value.scan)
+    .map((value) => value.scan.scanned);
+  assert.equal(
+    new Set(steps).size,
+    steps.length,
+    "concurrent sizes must not process the same complete scan batch",
+  );
+  const sparseReady = await page(sparseScope, { limit: 96 });
+  expectRows(sparseReady.items, sparseExpected.slice(0, 96));
+  for (const limit of [12, 48, 96, 12]) {
+    const started = performance.now();
+    const value = await engine.api(base + "/ranking-browse/assets", "POST", {
+      scope: sparseScope,
+      limit,
+    });
+    assert.equal(value.preparing ?? null, null);
+    expectRows(value.items, sparseExpected.slice(0, limit));
+    samples.push({
+      kind: "sparse-cached-prefix",
+      limit,
+      ms: performance.now() - started,
+    });
+  }
+  checks.push(
+    "sparse first-page matches and in-progress scans are reused across sizes, stale cursors, and concurrent requests",
+  );
+
   const ordinary = await engine.api(base + "/collections", "POST", {
     name: "普通成员副本",
     scope: scope(small),
@@ -640,6 +753,8 @@ try {
         small,
         artifact_id: artifact.id,
         anchor_post_id: postId,
+        sparse_result_id: sparseResult.id,
+        sparse_first_members: sparseExpected.slice(0, 129),
       },
       null,
       2,

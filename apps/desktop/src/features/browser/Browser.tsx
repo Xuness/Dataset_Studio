@@ -170,7 +170,11 @@ function BrowserContent({
   const cursor = history.cursors[history.index] ?? null;
   const pageNumber = history.firstPage + history.index;
   const preparation = useRef<{ key: string; page: AssetPage } | null>(null);
-  const requestKey = JSON.stringify([scopeKey, cursor]);
+  const requestKey = JSON.stringify([
+    client.connection.instance_id,
+    scopeKey,
+    cursor,
+  ]);
   const query = useQuery({
     queryKey: ["project", projectId, "assets", scopeKey, cursor],
     queryFn: async ({ signal }) => {
@@ -253,8 +257,9 @@ function BrowserContent({
       return page;
     },
     gcTime: 60000,
-    staleTime:
-      ranked.active || scope.kind === "result" || scope.kind === "collection"
+    staleTime: (q) =>
+      !q.state.data?.preparing &&
+      (ranked.active || scope.kind === "result" || scope.kind === "collection")
         ? 60000
         : 0,
     enabled: !ranked.loading,

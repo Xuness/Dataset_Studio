@@ -15,6 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 OUT = Path(sys.argv[1]).resolve()
 N = int(sys.argv[2]) if len(sys.argv) > 2 else 2048
+SPARSE_BROWSE = '--sparse-browse' in sys.argv[3:]
 if not OUT.is_relative_to(ROOT / '.local') or not 32 <= N <= 100000:
     raise ValueError('Fixture must use a bounded repository-local directory')
 LAKE = OUT / 'lake'
@@ -154,6 +155,8 @@ for image in images[:N]:
     if n == 15:
         continue
     tags = 'common alpha ' + ('red' if n % 2 == 0 else 'blue')
+    if SPARSE_BROWSE and (n % 4 == 1 or n == 7):
+        tags += ' sparse_browse'
     if n == 9:
         tags += ' not_jpeg_artifacts'
     if n == 10:

@@ -212,7 +212,26 @@ impl Browse<'_> {
             })
             .transpose()
     }
+    fn remember_first_page(&self, cursor: &Cursor) -> domain::Result<()> {
+        if cursor.first_page {
+            let (seeking, matched, scanned) = match &cursor.state {
+                Phase::Seek { next_ordinal, .. } => (true, 0, *next_ordinal),
+                Phase::Browse { pending, .. } => (false, pending.len(), cursor.examined),
+            };
+            self.state.ranking_reads.remember_first_page(
+                self.signature.clone(),
+                crate::ranking_reads::FirstPageProgress {
+                    cursor: encode(cursor)?,
+                    seeking,
+                    matched,
+                    scanned,
+                },
+            );
+        }
+        Ok(())
+    }
     fn preparing(&self, cursor: &Cursor, seeking: bool) -> domain::Result<AssetPage> {
+        self.remember_first_page(cursor)?;
         let scanned = match &cursor.state {
             Phase::Seek { next_ordinal, .. } => *next_ordinal,
             _ => cursor.examined,
@@ -243,24 +262,7 @@ impl Browse<'_> {
     }
     fn finish(&self, mut cursor: Cursor, picked: Vec<u64>) -> domain::Result<AssetPage> {
         let start_cursor = self.start_cursor(&cursor)?;
-        if cursor.first_page
-            && let Some(first) = picked.first()
-        {
-            let origin = Cursor {
-                signature: self.signature.clone(),
-                start: cursor.start,
-                examined: 0,
-                first_page: true,
-                state: Phase::Browse {
-                    after: Some(self.position(*first)?),
-                    pending: vec![*first],
-                },
-            };
-            self.state
-                .ranking_reads
-                .origins
-                .insert(self.signature.clone(), encode(&origin)?);
-        }
+        self.remember_first_page(&cursor)?;
         cursor.first_page = false;
         let more = picked.len() > self.limit;
         let shown = &picked[..picked.len().min(self.limit)];
@@ -363,11 +365,21 @@ impl Browse<'_> {
                 pending: vec![start.ordinal],
             };
         }
-        let Phase::Browse { after, mut pending } = cursor.state.clone() else {
+        let Phase::Browse {
+            mut after,
+            mut pending,
+        } = cursor.state.clone()
+        else {
             unreachable!()
         };
         for (position, _) in rows {
-            if pending.len() > self.limit {
+            if pending.len()
+                >= if cursor.first_page {
+                    129
+                } else {
+                    self.limit + 1
+                }
+            {
                 break;
             }
             if after
@@ -375,12 +387,23 @@ impl Browse<'_> {
                 .is_none_or(|after| position.compare(after, self.descending) == Ordering::Greater)
             {
                 pending.push(position.ordinal);
+                after = Some(position);
             }
         }
+        cursor.state = Phase::Browse {
+            after,
+            pending: pending.clone(),
+        };
         self.finish(cursor, pending)
     }
     fn run(&self, mut cursor: Cursor) -> domain::Result<AssetPage> {
         self.validate(&cursor)?;
+        if let Phase::Browse { pending, .. } = &cursor.state
+            && pending.len() > self.limit
+        {
+            let picked = pending.clone();
+            return self.finish(cursor, picked);
+        }
         if self.basis.count <= SMALL_SCOPE {
             return self.small(cursor);
         }
@@ -439,6 +462,10 @@ impl Browse<'_> {
         loop {
             read_cancelled(self.read.cancelled.as_ref())?;
             if pending.len() > self.limit {
+                cursor.state = Phase::Browse {
+                    after,
+                    pending: pending.clone(),
+                };
                 return self.finish(cursor, pending);
             }
             if scanned >= PAGE_SCAN_BUDGET {
@@ -467,11 +494,26 @@ impl Browse<'_> {
                 if matches && kept.next().unwrap_or(false) {
                     pending.push(scores.ordinal);
                 }
-                if pending.len() > self.limit {
+                if pending.len()
+                    >= if cursor.first_page {
+                        129
+                    } else {
+                        self.limit + 1
+                    }
+                {
+                    cursor.state = Phase::Browse {
+                        after,
+                        pending: pending.clone(),
+                    };
                     return self.finish(cursor, pending);
                 }
             }
-            if !page.more {
+            cursor.state = Phase::Browse {
+                after: after.clone(),
+                pending: pending.clone(),
+            };
+            self.remember_first_page(&cursor)?;
+            if pending.len() > self.limit || !page.more {
                 return self.finish(cursor, pending);
             }
         }
@@ -538,9 +580,11 @@ pub(super) async fn assets(
                 ))
                 .map_err(domain::Error::io)?,
             ));
-            let cached_origin = s.ranking_reads.origins.get(&signature);
-            let raw_cursor = body.cursor.or_else(|| cached_origin.clone());
-            let cursor = if let Some(raw) = raw_cursor {
+            let cached_first = s.ranking_reads.first_pages.get(&signature);
+            let raw_cursor = body
+                .cursor
+                .or_else(|| cached_first.as_ref().map(|v| v.cursor.clone()));
+            let mut cursor = if let Some(raw) = raw_cursor {
                 if raw.len() > 16_384 {
                     return Err(domain::Error::invalid("排名游标过长"));
                 }
@@ -551,7 +595,11 @@ pub(super) async fn assets(
                     .ok_or_else(|| domain::Error::invalid("无效的排名浏览游标"))?;
                 // Clients may seek with validated cursors, but cannot declare
                 // an arbitrary later member to be this range's cached origin.
-                cursor.first_page &= cached_origin.as_deref() == Some(raw.as_str())
+                if cursor.signature != signature {
+                    return Err(domain::Error::invalid("排名游标不属于当前范围"));
+                }
+                cursor.first_page &= cached_first.as_ref().map(|v| v.cursor.as_str())
+                    == Some(raw.as_str())
                     || s.ranking_reads.first_page_continuations.get(&raw).is_some();
                 cursor
             } else {
@@ -573,6 +621,36 @@ pub(super) async fn assets(
                     },
                 }
             };
+            let first_gate = s
+                .ranking_reads
+                .first_page_gates
+                .get_or_insert(signature.clone(), || Arc::new(std::sync::Mutex::new(())));
+            let _first_guard = if cursor.first_page {
+                Some(loop {
+                    read_cancelled(&read.cancelled)?;
+                    match first_gate.try_lock() {
+                        Ok(guard) => break guard,
+                        Err(std::sync::TryLockError::WouldBlock) => {
+                            std::thread::sleep(std::time::Duration::from_millis(10))
+                        }
+                        Err(_) => {
+                            return Err(domain::Error::new("INTERNAL_ERROR", "首屏准备状态不可用"));
+                        }
+                    }
+                })
+            } else {
+                None
+            };
+            // A previous page size may have advanced while this request waited.
+            if cursor.first_page
+                && let Some(latest) = s.ranking_reads.first_pages.get(&signature)
+            {
+                cursor = URL_SAFE_NO_PAD
+                    .decode(latest.cursor)
+                    .ok()
+                    .and_then(|raw| serde_json::from_slice(&raw).ok())
+                    .ok_or_else(|| domain::Error::new("INTERNAL_ERROR", "首屏准备状态无效"))?;
+            }
             Browse {
                 state: &s,
                 pid: &pid,
