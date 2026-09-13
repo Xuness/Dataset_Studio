@@ -1525,6 +1525,7 @@ export interface components {
             rescue_rank?: number | null;
             /** Format: double */
             rescue_score?: number | null;
+            v2?: null | components["schemas"]["RankingV2Scores"];
         };
         AssetRecord: {
             origin_observation_id?: string | null;
@@ -1698,6 +1699,19 @@ export interface components {
             /** Format: int32 */
             pid: number;
             token: string;
+        };
+        EraPreference: {
+            /** Format: double */
+            bonus: number;
+            /** Format: int32 */
+            from_year: number;
+            /**
+             * Format: int32
+             * @description Thousandths of the final per-rating retained count. Null means soft preference only.
+             */
+            target_share?: number | null;
+            /** Format: int32 */
+            through_year: number;
         };
         FieldDefinition: {
             basis: string;
@@ -2236,6 +2250,8 @@ export interface components {
             /** Format: int64 */
             count: number;
             saved_filter: components["schemas"]["RankingFilter"];
+            /** Format: int32 */
+            schema_version: number;
             workset_id: string;
         };
         RankingBasis: {
@@ -2335,6 +2351,7 @@ export interface components {
             stored_height?: number | null;
             /** Format: int32 */
             stored_width?: number | null;
+            tags?: string | null;
             tags_known: boolean;
             time_quality: string;
             up_score?: string | null;
@@ -2343,7 +2360,7 @@ export interface components {
         /** @enum {string} */
         RankingMode: "rank" | "select";
         /** @enum {string} */
-        RankingOrder: "main" | "rescue" | "input";
+        RankingOrder: "main" | "rescue" | "input" | "direct" | "fused";
         RankingPage: {
             artifact_id: string;
             /** Format: int64 */
@@ -2377,6 +2394,7 @@ export interface components {
             time_enabled: boolean;
             /** Format: double */
             time_weight: number;
+            v2?: null | components["schemas"]["RankingV2Parameters"];
             /** Format: double */
             vote_weight: number;
             votes_enabled: boolean;
@@ -2398,6 +2416,7 @@ export interface components {
             time_fallback: number;
             /** Format: int64 */
             time_used: number;
+            v2?: null | components["schemas"]["RankingV2Summary"];
             /** Format: int64 */
             valid_heat: number;
         };
@@ -2445,6 +2464,7 @@ export interface components {
             time_reason: string;
             /** Format: double */
             v?: number | null;
+            v2?: null | components["schemas"]["RankingV2Scores"];
         };
         RankingSummary: {
             created_at: string;
@@ -2464,10 +2484,114 @@ export interface components {
             /** Format: int32 */
             schema_version: number;
         };
+        RankingV2Parameters: {
+            /** Format: int32 */
+            audit: number;
+            /** Format: double */
+            comic_penalty: number;
+            /** Format: int32 */
+            direct_rescue: number;
+            /** Format: int32 */
+            era_rescue: number;
+            eras: components["schemas"]["EraPreference"][];
+            /** Format: int32 */
+            feather_days: number;
+            /** Format: int32 */
+            keep_per_mille: number;
+            /** Format: int32 */
+            minimum_effective: number;
+            profiles: {
+                [key: string]: components["schemas"]["RatingProfile"];
+            };
+            strict_era_targets: boolean;
+        };
+        RankingV2Scores: {
+            /** Format: int32 */
+            created_year?: number | null;
+            /** Format: double */
+            direct_percentile: number;
+            /** Format: int64 */
+            direct_rank: number;
+            /** Format: double */
+            direct_raw: number;
+            /** Format: double */
+            effective_count: number;
+            /** Format: double */
+            era_bonus: number;
+            era_fallback: boolean;
+            /** Format: double */
+            era_percentile: number;
+            /** Format: double */
+            era_raw: number;
+            /** Format: int64 */
+            fused_rank: number;
+            /** Format: double */
+            fused_score: number;
+            layout_protected: boolean;
+            /** Format: double */
+            new_percentile: number;
+            /** Format: int32 */
+            new_period?: number | null;
+            /** Format: double */
+            new_weight: number;
+            /** Format: double */
+            old_percentile: number;
+            /** Format: int32 */
+            old_period?: number | null;
+            /**
+             * Format: int32
+             * @description 0 none/main, 1 direct-only rescue, 2 era-only rescue, 3 random audit.
+             */
+            selection_reason: number;
+            /** Format: int32 */
+            type_hints: number;
+            /** Format: double */
+            type_penalty: number;
+            /** Format: double */
+            year_percentile: number;
+            /** Format: int64 */
+            year_rank: number;
+        };
+        RankingV2Summary: {
+            /** Format: int64 */
+            audit_selected: number;
+            /** Format: int64 */
+            direct_rescued: number;
+            /** Format: int64 */
+            era_rescued: number;
+            /** Format: int64 */
+            era_target_shortfall: number;
+            /** Format: int64 */
+            fallback_count: number;
+            /** @description This release has no visual bridge calibration or inferred aesthetic probabilities. */
+            metadata_only: boolean;
+            /** Format: int64 */
+            protected_count: number;
+            protection_shortfall: number[];
+            /** Format: int64 */
+            type_penalized: number;
+            years: components["schemas"]["RankingYearSummary"][];
+        };
         RankingWorksetRequest: {
             filter?: components["schemas"]["RankingFilter"];
             idempotency_key: string;
             name: string;
+        };
+        RankingYearSummary: {
+            /** Format: int64 */
+            count: number;
+            /** Format: int64 */
+            fallback: number;
+            /** Format: int64 */
+            penalized: number;
+            /** Format: int64 */
+            protected: number;
+            /** Format: int64 */
+            selected: number;
+            /** Format: int64 */
+            top_count: number;
+            /** Format: int32 */
+            year?: number | null;
         };
         RatingBases: {
             builds: components["schemas"]["RatingBuild"][];
@@ -2493,6 +2617,16 @@ export interface components {
             error?: string | null;
             source_id: string;
             state: string;
+        };
+        RatingProfile: {
+            /** Format: double */
+            era_weight: number;
+            /** Format: double */
+            time_down: number;
+            /** Format: double */
+            time_up: number;
+            /** Format: double */
+            vote_weight: number;
         };
         RawMetadata: {
             bytes?: string | null;

@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT = Path(sys.argv[1]).resolve()
 N = int(sys.argv[2]) if len(sys.argv) > 2 else 2048
 SPARSE_BROWSE = '--sparse-browse' in sys.argv[3:]
+V2_TAGS = '--v2-tags' in sys.argv[3:]
 if not OUT.is_relative_to(ROOT / '.local') or not 32 <= N <= 100000:
     raise ValueError('Fixture must use a bounded repository-local directory')
 LAKE = OUT / 'lake'
@@ -99,6 +100,11 @@ def quote(value):
 observations, assets, current = [], [], []
 def add(image, row_id, post_id, rating, tags, created=None, observed=None, quality='exact', fav=None, up=None, down=None, make_current=True):
     n = image['number']
+    if V2_TAGS and n >= 50 and tags is not None:
+        if n % 7 == 0:
+            tags += ' comic full_page_comic vertical_scroll_comic'
+        if n % 11 == 0:
+            tags += ' comic full_page_comic 4koma cut-in'
     created = created or dt.datetime(2024, 1, 1, tzinfo=dt.timezone.utc) + dt.timedelta(days=n % 540, hours=n % 24)
     observed = observed or created + dt.timedelta(days=[1, 5, 12, 25, 60, 300, 800, 1500, 3000][n % 9])
     values = {'row_id': row_id, 'observation_id': f'{row_id:064x}', 'post_id': post_id,

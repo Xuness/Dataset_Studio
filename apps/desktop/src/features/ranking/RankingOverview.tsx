@@ -23,7 +23,15 @@ export function RankingOverview({
   const p = configuration ? parameters : (summary?.parameters ?? parameters);
   const quotas: [number, number, number] =
     p.mode === "select"
-      ? [p.quotas[0] ?? 0, p.quotas[1] ?? 0, p.quotas[2] ?? 0]
+      ? p.v2
+        ? [
+            p.v2.keep_per_mille *
+              (1 - (p.v2.direct_rescue + p.v2.era_rescue + p.v2.audit) / 1000),
+            (p.v2.keep_per_mille * (p.v2.direct_rescue + p.v2.era_rescue)) /
+              1000,
+            (p.v2.keep_per_mille * p.v2.audit) / 1000,
+          ]
+        : [p.quotas[0] ?? 0, p.quotas[1] ?? 0, p.quotas[2] ?? 0]
       : [0, 0, 0];
   const selected =
     summary?.ratings.reduce(
@@ -37,7 +45,9 @@ export function RankingOverview({
           <SlidersHorizontal size={13} />
           {configuration ? "计算属性" : "成果属性"}
         </span>
-        <span className="ranking-dock-caption">MetaRecall</span>
+        <span className="ranking-dock-caption">
+          {p.v2 ? "MetaRecall v2" : "MetaRecall v1"}
+        </span>
       </header>
       <div className="ranking-overview-scroll">
         <section className="ranking-property-section">
@@ -93,6 +103,11 @@ export function RankingOverview({
         </section>
         <section className="ranking-property-section">
           <h3>通道分配</h3>
+          {p.v2 && (
+            <p className="ranking-hint">
+              以下为占原候选池的计划比例；最终数量按每个分级整数分配，独有补救不足时回流主榜。
+            </p>
+          )}
           {p.mode === "select" ? (
             <>
               <div
@@ -127,7 +142,11 @@ export function RankingOverview({
               </dl>
             </>
           ) : (
-            <p className="ranking-hint">为全部合格候选保存主排名和补救排名。</p>
+            <p className="ranking-hint">
+              {p.v2
+                ? "保存直算、年代相对、融合与筛选优先级。"
+                : "为全部合格候选保存主排名和补救排名。"}
+            </p>
           )}
         </section>
         <section className="ranking-property-section">

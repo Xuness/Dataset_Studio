@@ -129,7 +129,10 @@ export default function BasicToolPanel(context: ModuleContext) {
     queryFn: ({ signal }) => client.tools.operators(signal),
     select: (data) => ({
       ...data,
-      items: data.items.filter((o) => o.id !== "danbooru.metarecall"),
+      items: data.items.filter(
+        (o) =>
+          !["danbooru.metarecall", "danbooru.metarecall_v2"].includes(o.id),
+      ),
     }),
   });
   const artifacts = useQuery({

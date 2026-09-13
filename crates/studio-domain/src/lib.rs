@@ -18,6 +18,8 @@ mod resources;
 pub use resources::*;
 mod ranking;
 pub use ranking::*;
+mod ranking_v2;
+pub use ranking_v2::*;
 mod ranking_browse;
 pub use ranking_browse::*;
 mod management;

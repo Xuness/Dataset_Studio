@@ -57,7 +57,12 @@ try {
   const operators = await engine.api("/v1/operators");
   assert.deepEqual(
     operators.items.map((o) => o.id),
-    ["core.manifest", "core.scalar", "danbooru.metarecall"],
+    [
+      "core.manifest",
+      "core.scalar",
+      "danbooru.metarecall",
+      "danbooru.metarecall_v2",
+    ],
   );
   assert.equal(operators.items[1].outputs.length, 2);
   const p = await engine.api("/v1/projects", "POST", {

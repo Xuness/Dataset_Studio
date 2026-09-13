@@ -25,10 +25,11 @@ export default function ToolPanel(context: ModuleContext) {
     const invocation = context.invocation;
     if (!nav.editable || !invocation || applied.current === invocation.sequence)
       return;
-    const tool =
-      invocation.args.operatorId === "danbooru.metarecall"
-        ? "ranking"
-        : "basic";
+    const tool = ["danbooru.metarecall", "danbooru.metarecall_v2"].includes(
+      String(invocation.args.operatorId),
+    )
+      ? "ranking"
+      : "basic";
     if (invocation.args.operatorId) nav.controller.set({ tool });
     applied.current = invocation.sequence;
   }, [context.invocation, nav.controller, nav.editable]);

@@ -111,6 +111,8 @@ impl RankingPosition {
             RankingOrder::Main => scores.main_rank,
             RankingOrder::Rescue => scores.rescue_rank,
             RankingOrder::Input => Some(scores.ordinal),
+            RankingOrder::Direct => scores.v2.map(|v| v.direct_rank).or(scores.main_rank),
+            RankingOrder::Fused => scores.v2.map(|v| v.fused_rank).or(scores.main_rank),
         };
         Self {
             group: scores.rating.clone().unwrap_or_else(|| "z".into()),
@@ -133,7 +135,7 @@ impl RankingPosition {
 
 impl RankingResultTable {
     pub fn matches_filter(&self, ordinal: u64, filter: &RankingFilter) -> Result<bool> {
-        let (predicate, mut values) = filter_sql(filter)?;
+        let (predicate, mut values) = filter_sql(&self.compatible_filter(filter)?)?;
         values.push(SqlValue::Integer(ordinal as i64));
         self.db
             .query_row(
@@ -197,12 +199,23 @@ impl RankingResultTable {
         after: Option<&RankingPosition>,
         limit: usize,
     ) -> Result<RankingScan> {
+        let effective_membership = self.compatible_filter(membership)?;
+        let membership = &effective_membership;
         membership.validate()?;
+        let order = if !self.is_v2()? && matches!(order, RankingOrder::Direct | RankingOrder::Fused)
+        {
+            RankingOrder::Main
+        } else {
+            order
+        };
+        let columns = self.score_columns()?;
         let (predicate, values) = filter_sql(membership)?;
         let position = match order {
             RankingOrder::Main => "coalesce(main_rank,9223372036854775807)",
             RankingOrder::Rescue => "coalesce(rescue_rank,9223372036854775807)",
             RankingOrder::Input => "ordinal",
+            RankingOrder::Direct => "coalesce(direct_rank,9223372036854775807)",
+            RankingOrder::Fused => "coalesce(fused_rank,9223372036854775807)",
         };
         let limit = limit.clamp(1, 512);
         let mut groups = self.browse_groups(membership.rating.as_deref())?;
@@ -247,10 +260,9 @@ impl RankingResultTable {
                         conditions.push(format!("eligibility=?{}", params.len()));
                     }
                 }
-                let top_order = if membership.order == RankingOrder::Rescue {
-                    RankingOrder::Rescue
-                } else {
-                    RankingOrder::Main
+                let top_order = match membership.order {
+                    RankingOrder::Input => RankingOrder::Main,
+                    order => order,
                 };
                 if let Some(top) = membership.top.filter(|_| order == top_order) {
                     params.push(SqlValue::Integer(top as i64));
@@ -264,7 +276,7 @@ impl RankingResultTable {
                 }
                 params.push(SqlValue::Integer(remaining as i64));
                 let sql = format!(
-                    "SELECT {SCORE_COLUMNS},CASE WHEN ({predicate}) THEN 1 ELSE 0 END FROM scores INDEXED BY {} WHERE {} ORDER BY {position} {direction},ordinal {direction} LIMIT ?{}",
+                    "SELECT {columns},CASE WHEN ({predicate}) THEN 1 ELSE 0 END FROM scores INDEXED BY {} WHERE {} ORDER BY {position} {direction},ordinal {direction} LIMIT ?{}",
                     score_index(membership, order),
                     conditions.join(" AND "),
                     params.len()
@@ -272,7 +284,7 @@ impl RankingResultTable {
                 let mut statement = self.db.prepare(&sql).map_err(db_error)?;
                 let rows = statement
                     .query_map(rusqlite::params_from_iter(params), |r| {
-                        Ok((read_scores(r, 0)?, r.get::<_, bool>(21)?))
+                        Ok((read_scores(r, 0)?, r.get::<_, bool>(22)?))
                     })
                     .map_err(db_error)?
                     .collect::<std::result::Result<Vec<_>, _>>()

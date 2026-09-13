@@ -4684,6 +4684,16 @@
               "null"
             ],
             "format": "double"
+          },
+          "v2": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RankingV2Scores"
+              }
+            ]
           }
         }
       },
@@ -5349,6 +5359,37 @@
           },
           "token": {
             "type": "string"
+          }
+        }
+      },
+      "EraPreference": {
+        "type": "object",
+        "required": [
+          "from_year",
+          "through_year",
+          "bonus"
+        ],
+        "properties": {
+          "bonus": {
+            "type": "number",
+            "format": "double"
+          },
+          "from_year": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "target_share": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Thousandths of the final per-rating retained count. Null means soft preference only.",
+            "minimum": 0
+          },
+          "through_year": {
+            "type": "integer",
+            "format": "int32"
           }
         }
       },
@@ -7554,6 +7595,7 @@
       "RankedScope": {
         "type": "object",
         "required": [
+          "schema_version",
           "workset_id",
           "artifact_id",
           "artifact_name",
@@ -7574,6 +7616,11 @@
           },
           "saved_filter": {
             "$ref": "#/components/schemas/RankingFilter"
+          },
+          "schema_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
           },
           "workset_id": {
             "type": "string"
@@ -8005,6 +8052,12 @@
             "format": "int32",
             "minimum": 0
           },
+          "tags": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "tags_known": {
             "type": "boolean"
           },
@@ -8037,7 +8090,9 @@
         "enum": [
           "main",
           "rescue",
-          "input"
+          "input",
+          "direct",
+          "fused"
         ]
       },
       "RankingPage": {
@@ -8186,6 +8241,16 @@
             "type": "number",
             "format": "double"
           },
+          "v2": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RankingV2Parameters"
+              }
+            ]
+          },
           "vote_weight": {
             "type": "number",
             "format": "double"
@@ -8266,6 +8331,16 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          },
+          "v2": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RankingV2Summary"
+              }
+            ]
           },
           "valid_heat": {
             "type": "integer",
@@ -8442,6 +8517,16 @@
               "null"
             ],
             "format": "double"
+          },
+          "v2": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RankingV2Scores"
+              }
+            ]
           }
         }
       },
@@ -8513,6 +8598,272 @@
           }
         }
       },
+      "RankingV2Parameters": {
+        "type": "object",
+        "required": [
+          "profiles",
+          "feather_days",
+          "minimum_effective",
+          "comic_penalty",
+          "keep_per_mille",
+          "direct_rescue",
+          "era_rescue",
+          "audit",
+          "eras",
+          "strict_era_targets"
+        ],
+        "properties": {
+          "audit": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "comic_penalty": {
+            "type": "number",
+            "format": "double"
+          },
+          "direct_rescue": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "era_rescue": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "eras": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EraPreference"
+            }
+          },
+          "feather_days": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "keep_per_mille": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "minimum_effective": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "profiles": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/RatingProfile"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "strict_era_targets": {
+            "type": "boolean"
+          }
+        }
+      },
+      "RankingV2Scores": {
+        "type": "object",
+        "required": [
+          "new_weight",
+          "old_percentile",
+          "new_percentile",
+          "year_percentile",
+          "effective_count",
+          "era_fallback",
+          "type_hints",
+          "layout_protected",
+          "direct_raw",
+          "era_raw",
+          "direct_percentile",
+          "era_percentile",
+          "fused_score",
+          "type_penalty",
+          "era_bonus",
+          "direct_rank",
+          "fused_rank",
+          "year_rank",
+          "selection_reason"
+        ],
+        "properties": {
+          "created_year": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "direct_percentile": {
+            "type": "number",
+            "format": "double"
+          },
+          "direct_rank": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "direct_raw": {
+            "type": "number",
+            "format": "double"
+          },
+          "effective_count": {
+            "type": "number",
+            "format": "double"
+          },
+          "era_bonus": {
+            "type": "number",
+            "format": "double"
+          },
+          "era_fallback": {
+            "type": "boolean"
+          },
+          "era_percentile": {
+            "type": "number",
+            "format": "double"
+          },
+          "era_raw": {
+            "type": "number",
+            "format": "double"
+          },
+          "fused_rank": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "fused_score": {
+            "type": "number",
+            "format": "double"
+          },
+          "layout_protected": {
+            "type": "boolean"
+          },
+          "new_percentile": {
+            "type": "number",
+            "format": "double"
+          },
+          "new_period": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "new_weight": {
+            "type": "number",
+            "format": "double"
+          },
+          "old_percentile": {
+            "type": "number",
+            "format": "double"
+          },
+          "old_period": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "selection_reason": {
+            "type": "integer",
+            "format": "int32",
+            "description": "0 none/main, 1 direct-only rescue, 2 era-only rescue, 3 random audit.",
+            "minimum": 0
+          },
+          "type_hints": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "type_penalty": {
+            "type": "number",
+            "format": "double"
+          },
+          "year_percentile": {
+            "type": "number",
+            "format": "double"
+          },
+          "year_rank": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "RankingV2Summary": {
+        "type": "object",
+        "required": [
+          "metadata_only",
+          "years",
+          "direct_rescued",
+          "era_rescued",
+          "audit_selected",
+          "protection_shortfall",
+          "era_target_shortfall",
+          "fallback_count",
+          "protected_count",
+          "type_penalized"
+        ],
+        "properties": {
+          "audit_selected": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "direct_rescued": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "era_rescued": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "era_target_shortfall": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "fallback_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "metadata_only": {
+            "type": "boolean",
+            "description": "This release has no visual bridge calibration or inferred aesthetic probabilities."
+          },
+          "protected_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "protection_shortfall": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          },
+          "type_penalized": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "years": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RankingYearSummary"
+            }
+          }
+        }
+      },
       "RankingWorksetRequest": {
         "type": "object",
         "required": [
@@ -8531,6 +8882,56 @@
           }
         },
         "additionalProperties": false
+      },
+      "RankingYearSummary": {
+        "type": "object",
+        "required": [
+          "count",
+          "selected",
+          "top_count",
+          "fallback",
+          "protected",
+          "penalized"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "fallback": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "penalized": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "protected": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "selected": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "top_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "year": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          }
+        }
       },
       "RatingBases": {
         "type": "object",
@@ -8635,6 +9036,33 @@
           },
           "state": {
             "type": "string"
+          }
+        }
+      },
+      "RatingProfile": {
+        "type": "object",
+        "required": [
+          "time_up",
+          "time_down",
+          "vote_weight",
+          "era_weight"
+        ],
+        "properties": {
+          "era_weight": {
+            "type": "number",
+            "format": "double"
+          },
+          "time_down": {
+            "type": "number",
+            "format": "double"
+          },
+          "time_up": {
+            "type": "number",
+            "format": "double"
+          },
+          "vote_weight": {
+            "type": "number",
+            "format": "double"
           }
         }
       },

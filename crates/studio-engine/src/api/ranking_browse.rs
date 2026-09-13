@@ -308,6 +308,7 @@ fn annotation(
     scores: domain::RankingScores,
 ) -> AssetRanking {
     AssetRanking {
+        v2: scores.v2.map(Into::into),
         artifact_id: aid.into(),
         ordinal: scores.ordinal,
         post_id: input.post_id.map(|id| id.to_string()),
@@ -364,7 +365,7 @@ pub(super) async fn assets(
             ));
             let index_key = hex::encode(Sha256::digest(
                 serde_json::to_vec(&(
-                    1,
+                    artifact.schema_version,
                     &scope,
                     &basis.workset_id,
                     &basis.artifact_id,
@@ -376,7 +377,7 @@ pub(super) async fn assets(
             ));
             let plan = RankedIndexPlan {
                 meta: RankedIndexMeta {
-                    version: 1,
+                    version: artifact.schema_version,
                     key: index_key,
                     scope: scope.clone(),
                     count: basis.count,

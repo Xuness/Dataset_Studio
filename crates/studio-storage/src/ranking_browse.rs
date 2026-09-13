@@ -60,6 +60,7 @@ impl SqliteStore {
                         .map_err(Error::io)?;
                     saved_filter.validate()?;
                     return Ok(Some(RankedScope {
+                        schema_version: artifact.schema_version,
                         workset_id: collection_id,
                         artifact_id: aid.into(),
                         artifact_name: artifact.name,

@@ -52,6 +52,9 @@ impl Operator for MetaRecall {
     fn normalize(&self, parameters: Value) -> Result<Value> {
         let parameters: RankingParameters = serde_json::from_value(parameters)
             .map_err(|e| Error::invalid(format!("排名参数无效：{e}")))?;
+        if parameters.v2.is_some() {
+            return Err(Error::invalid("v2 参数请使用 MetaRecall v2 方案"));
+        }
         serde_json::to_value(parameters.normalize()?).map_err(Error::io)
     }
     fn required_fields(&self, _: &Value) -> Result<Vec<ScalarInput>> {
@@ -293,6 +296,7 @@ impl Sample {
     }
     pub fn scores(&self, rating: &str) -> RankingScores {
         RankingScores {
+            v2: None,
             ordinal: self.ordinal,
             rating: Some(rating.into()),
             eligibility: RankingEligibility::Eligible,

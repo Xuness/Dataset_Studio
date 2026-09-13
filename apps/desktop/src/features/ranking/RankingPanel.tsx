@@ -1,3 +1,10 @@
+import {
+  isRankingOperator,
+  operatorFor,
+  orderLabel,
+  v2Defaults,
+  v2OperatorId,
+} from "./v2.js";
 import { useEffect, useId, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -40,7 +47,6 @@ import {
   flagNames,
   initial,
   number,
-  operatorId,
   parameterIssue,
   routeNames,
   score,
@@ -134,7 +140,7 @@ export default function RankingPanel(context: ModuleContext) {
     refetchIntervalInBackground: true,
   });
   const runningJob = jobs.data?.items.find(
-    (j) => j.operator === operatorId && isJobActive(j),
+    (j) => isRankingOperator(j.operator) && isJobActive(j),
   );
   const job = runningJob ?? jobs.data?.items.find((j) => j.id === d.lastJob);
   const trackedJobId = job?.id ?? d.lastJob;
@@ -222,7 +228,7 @@ export default function RankingPanel(context: ModuleContext) {
   function applyRun(run: OperatorRun) {
     const value = decode({ ...initial, parameters: run.parameters });
     if (
-      run.operator_id !== operatorId ||
+      !isRankingOperator(run.operator_id) ||
       run.operator_version !== 1 ||
       run.parameters_version !== 1 ||
       !value
@@ -233,6 +239,7 @@ export default function RankingPanel(context: ModuleContext) {
     draft.controller.set((old) => ({
       ...old,
       parameters: value.parameters,
+      v2Saved: value.parameters.v2 ?? old.v2Saved ?? null,
       submission: null,
       tab: "config",
     }));
@@ -271,7 +278,7 @@ export default function RankingPanel(context: ModuleContext) {
       !draft.editable ||
       !invocation ||
       applied.current === invocation.sequence ||
-      invocation.args.operatorId !== operatorId
+      !isRankingOperator(invocation.args.operatorId)
     )
       return;
     if (invocation.args.reuseRun) {
@@ -285,6 +292,19 @@ export default function RankingPanel(context: ModuleContext) {
     }
     draft.controller.set((v) => ({
       ...v,
+      ...(!invocation.args.jobId && !invocation.args.artifactId
+        ? {
+            parameters: {
+              ...v.parameters,
+              v2:
+                invocation.args.operatorId === v2OperatorId
+                  ? (v.parameters.v2 ?? v.v2Saved ?? v2Defaults())
+                  : null,
+            },
+            v2Saved: v.parameters.v2 ?? v.v2Saved ?? null,
+            tab: "config" as const,
+          }
+        : {}),
       ...(invocation.args.artifactId
         ? {
             artifactId: invocation.args.artifactId,
@@ -353,7 +373,12 @@ export default function RankingPanel(context: ModuleContext) {
       setCount(counting.data.count);
   }, [results.data, counting.data]);
   function changeParameters(parameters: RankingParameters) {
-    draft.controller.set((v) => ({ ...v, parameters, submission: null }));
+    draft.controller.set((v) => ({
+      ...v,
+      parameters,
+      v2Saved: parameters.v2 ?? v.v2Saved ?? null,
+      submission: null,
+    }));
   }
   function changeScope(id: string) {
     const selected = context.inputOptions.find((o) => o.value === id);
@@ -414,7 +439,7 @@ export default function RankingPanel(context: ModuleContext) {
     setError("");
     try {
       const run = {
-        operator_id: operatorId,
+        operator_id: operatorFor(d.parameters),
         operator_version: 1,
         parameters_version: 1,
         parameters: d.parameters,
@@ -577,7 +602,7 @@ export default function RankingPanel(context: ModuleContext) {
     d.filter.selected_only ? "仅已入选" : null,
     d.filter.missing_only ? "仅有字段提示" : null,
     d.filter.top
-      ? `${d.filter.order === "rescue" ? "补救排名" : "主排名"}每分级前 ${number(d.filter.top)} 名`
+      ? `${orderLabel(d.filter.order, !!summary.data?.parameters.v2)}每分级前 ${number(d.filter.top)} 名`
       : "不限名次",
   ]
     .filter(Boolean)
@@ -588,7 +613,16 @@ export default function RankingPanel(context: ModuleContext) {
         <div>
           <h2>
             <Calculator size={18} />
-            Danbooru 元数据排名 <small>MetaRecall v1</small>
+            Danbooru 元数据排名{" "}
+            <small>
+              {(
+                d.tab === "config"
+                  ? d.parameters.v2
+                  : summary.data?.parameters.v2
+              )
+                ? "MetaRecall v2 · 元数据模式"
+                : "MetaRecall v1"}
+            </small>
           </h2>
         </div>
         <span className="grow" />
@@ -865,7 +899,7 @@ export default function RankingPanel(context: ModuleContext) {
                   client={client}
                   projectId={projectId}
                   run={{
-                    operator_id: operatorId,
+                    operator_id: operatorFor(d.parameters),
                     operator_version: 1,
                     parameters_version: 1,
                     parameters: d.parameters,
@@ -877,6 +911,7 @@ export default function RankingPanel(context: ModuleContext) {
               <RankingConfig
                 id={formId}
                 parameters={d.parameters}
+                v2Saved={d.v2Saved ?? null}
                 onChange={changeParameters}
                 options={options}
                 scopeId={d.scopeId}
@@ -1027,8 +1062,18 @@ export default function RankingPanel(context: ModuleContext) {
                       })
                     }
                   >
-                    <option value="main">主排名</option>
-                    <option value="rescue">补救排名</option>
+                    <option value="main">
+                      {orderLabel("main", !!summary.data?.parameters.v2)}
+                    </option>
+                    <option value="rescue">
+                      {orderLabel("rescue", !!summary.data?.parameters.v2)}
+                    </option>
+                    {summary.data?.parameters.v2 && (
+                      <>
+                        <option value="direct">直算排名</option>
+                        <option value="fused">融合排名</option>
+                      </>
+                    )}
                     <option value="input">输入顺序</option>
                   </select>
                 </Field>
@@ -1087,10 +1132,21 @@ export default function RankingPanel(context: ModuleContext) {
                   <thead>
                     <tr>
                       <th>分级</th>
-                      <th>主排名</th>
+                      <th>
+                        {orderLabel(
+                          d.filter.order,
+                          !!summary.data?.parameters.v2,
+                        )}
+                      </th>
                       <th>帖子</th>
-                      <th>主分 S</th>
-                      <th>补救分 R</th>
+                      <th>
+                        {summary.data?.parameters.v2 ? "优先级 J" : "主分 S"}
+                      </th>
+                      <th>
+                        {summary.data?.parameters.v2
+                          ? "年代相对分"
+                          : "补救分 R"}
+                      </th>
                       <th>通道 / 资格</th>
                       <th>元数据提示</th>
                       <th />
@@ -1108,7 +1164,17 @@ export default function RankingPanel(context: ModuleContext) {
                         }
                       >
                         <td>{row.input.rating?.toUpperCase() ?? "未知"}</td>
-                        <td>{row.scores.main_rank ?? "—"}</td>
+                        <td>
+                          {(d.filter.order === "rescue"
+                            ? row.scores.rescue_rank
+                            : d.filter.order === "direct"
+                              ? row.scores.v2?.direct_rank
+                              : d.filter.order === "fused"
+                                ? row.scores.v2?.fused_rank
+                                : d.filter.order === "input"
+                                  ? row.input.ordinal + 1
+                                  : row.scores.main_rank) ?? "—"}
+                        </td>
                         <td>{row.input.post_id ?? "无对应记录"}</td>
                         <td className="ranking-main-score">
                           {score(row.scores.main_score)}

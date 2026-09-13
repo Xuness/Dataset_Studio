@@ -39,6 +39,7 @@ impl RankingReader {
             ));
         }
         let dimensions = parameters.minimum_stored_side.is_some();
+        let include_tags = parameters.v2.is_some();
         let ratings = parameters
             .ratings
             .iter()
@@ -80,7 +81,7 @@ impl RankingReader {
                 .filter(|b| b.spec.source_ids.contains(&source.id))
                 .map(|b| (b.index, &b.spec)),
         );
-        let columns = "s.ordinal,s.basis,a.asset_id AS record_id,a.observation_id AS origin_observation_id,o.observation_id,o.post_id,o.rating,epoch_us(o.created_at) AS created_at_us,epoch_us(o.observed_at) AS observed_at_us,epoch_us(o.updated_at) AS updated_at_us,o.time_quality,o.source_priority,o.fav_count,o.up_score,o.down_score,o.score,o.tag_string_artist,o.parent_id,o.is_banned,o.is_deleted,o.is_pending,o.is_flagged,CASE WHEN list_contains(string_split(o.tag_string,' '),'jpeg_artifacts') THEN 1 ELSE 0 END+CASE WHEN list_contains(string_split(o.tag_string,' '),'scan_artifacts') THEN 2 ELSE 0 END AS damage_classes,o.tag_string IS NOT NULL AS tags_known,CASE WHEN length(o.issues_json)>4096 THEN '[\"source_issues_truncated\"]' ELSE o.issues_json END AS source_issues";
+        let columns = "s.ordinal,s.basis,a.asset_id AS record_id,a.observation_id AS origin_observation_id,o.observation_id,o.post_id,o.rating,epoch_us(o.created_at) AS created_at_us,epoch_us(o.observed_at) AS observed_at_us,epoch_us(o.updated_at) AS updated_at_us,o.time_quality,o.source_priority,o.fav_count,o.up_score,o.down_score,o.score,o.tag_string_artist,o.tag_string,o.parent_id,o.is_banned,o.is_deleted,o.is_pending,o.is_flagged,CASE WHEN list_contains(string_split(o.tag_string,' '),'jpeg_artifacts') THEN 1 ELSE 0 END+CASE WHEN list_contains(string_split(o.tag_string,' '),'scan_artifacts') THEN 2 ELSE 0 END AS damage_classes,o.tag_string IS NOT NULL AS tags_known,CASE WHEN length(o.issues_json)>4096 THEN '[\"source_issues_truncated\"]' ELSE o.issues_json END AS source_issues";
         let mut branches = Vec::new();
         for (index, spec) in definitions {
             let predicate = ranking_predicate(spec)?;
@@ -114,6 +115,7 @@ impl RankingReader {
             r#"SELECT to_json(struct_pack(
             ordinal:=m.ordinal,source_id:={source_id},asset_id:=m.sha256,record_id:=c.record_id,
             observation_id:=c.observation_id,post_id:=c.post_id,rating:=c.rating,
+            tags:=CASE WHEN {include_tags} THEN c.tag_string ELSE NULL END,
             created_at_us:=c.created_at_us,observed_at_us:=c.observed_at_us,updated_at_us:=c.updated_at_us,
             time_quality:=coalesce(c.time_quality,'unknown'),source_priority:=c.source_priority,
             fav_count:=c.fav_count,up_score:=c.up_score,down_score:=c.down_score,score:=c.score,

@@ -73,7 +73,11 @@ pub fn prepare(
         remove_partial(staging, name)?;
     }
     let input_path = staging.join("input.sqlite");
-    let mut table = RankingInputTable::create(&input_path)?;
+    let mut table = if p.v2.is_some() {
+        RankingInputTable::create_v2(&input_path)?
+    } else {
+        RankingInputTable::create(&input_path)?
+    };
     let bases = store.ranking_job_bases(&job.project_id, &job.id)?;
     table.set_meta("job_run", &frozen)?;
     table.set_meta("bases", &bases)?;
@@ -330,8 +334,18 @@ pub fn run(plan: &WorkerPlan) -> Result<()> {
     let mut output = if plan.output_path.exists() {
         RankingResultTable::resume(&plan.output_path)?
     } else {
-        RankingResultTable::create(&plan.output_path)?
+        if p.v2.is_some() {
+            RankingResultTable::create_v2(&plan.output_path)?
+        } else {
+            RankingResultTable::create(&plan.output_path)?
+        }
     };
+    if input.is_v2()? != p.v2.is_some() || output.is_v2()? != p.v2.is_some() {
+        return Err(Error::new(
+            "RANKING_FORMAT_UNSUPPORTED",
+            "排名任务与暂存材料版本不一致",
+        ));
+    }
     if !state.initialized {
         emit(plan, 0, "eligibility", 0, plan.total, None)?;
         output.reset()?;
@@ -386,7 +400,13 @@ pub fn run(plan: &WorkerPlan) -> Result<()> {
             continue;
         }
         let estimated = count
-            .saturating_mul(if p.artist_enabled { 768 } else { 512 })
+            .saturating_mul(if p.v2.is_some() {
+                if p.artist_enabled { 896 } else { 704 }
+            } else if p.artist_enabled {
+                768
+            } else {
+                512
+            })
             .saturating_add(128 << 20);
         if estimated > memory {
             return Err(Error::new(
@@ -405,6 +425,7 @@ pub fn run(plan: &WorkerPlan) -> Result<()> {
         atomic_json(&plan.checkpoint_path, &state)?;
         let mut samples = Vec::with_capacity(count as usize);
         let mut works = Vec::new();
+        let mut type_hints = Vec::new();
         let mut names = BTreeMap::<String, u32>::new();
         let mut after = None;
         let base = state.ineligible + state.finished.iter().map(|s| s.eligible).sum::<u64>();
@@ -423,6 +444,11 @@ pub fn run(plan: &WorkerPlan) -> Result<()> {
                 }
                 let item = samples.len();
                 samples.push(Sample::new(row, &p)?);
+                if p.v2.is_some() {
+                    type_hints.push(studio_operators::ranking_v2::type_hints(
+                        row.tags.as_deref(),
+                    ));
+                }
                 if p.artist_enabled {
                     for name in &row.artists {
                         let next = names.len() as u32;
@@ -458,25 +484,54 @@ pub fn run(plan: &WorkerPlan) -> Result<()> {
         drop(names);
         drop(remap);
         let mut current_phase = String::new();
-        let summary = formula::compute_rating(
-            rating,
-            &mut samples,
-            &p,
-            &mut works,
-            &mut |phase, completed, total| {
-                if current_phase != phase || last.elapsed() >= Duration::from_millis(500) {
-                    emit(plan, base, phase, completed, total, Some(rating))?;
-                    last = Instant::now();
-                    current_phase = phase.into();
-                }
-                Ok(())
-            },
-        )?;
+        let mut report_progress = |phase: &str, completed, total| {
+            if current_phase != phase || last.elapsed() >= Duration::from_millis(500) {
+                emit(plan, base, phase, completed, total, Some(rating))?;
+                last = Instant::now();
+                current_phase = phase.into();
+            }
+            Ok(())
+        };
+        let (summary, v2_scores) = if p.v2.is_some() {
+            let (summary, values) = studio_operators::ranking_v2::compute(
+                rating,
+                &mut samples,
+                &type_hints,
+                &p,
+                &mut works,
+                &mut report_progress,
+            )?;
+            (summary, Some(values))
+        } else {
+            (
+                formula::compute_rating(
+                    rating,
+                    &mut samples,
+                    &p,
+                    &mut works,
+                    &mut report_progress,
+                )?,
+                None,
+            )
+        };
+        drop(type_hints);
         drop(works);
         let mut written = 0u64;
         emit(plan, base, "writing", 0, count, Some(rating))?;
-        for batch in samples.chunks(512) {
-            output.append(&batch.iter().map(|s| s.scores(rating)).collect::<Vec<_>>())?;
+        for (batch_index, batch) in samples.chunks(512).enumerate() {
+            output.append(
+                &batch
+                    .iter()
+                    .enumerate()
+                    .map(|(index, s)| {
+                        let mut row = s.scores(rating);
+                        row.v2 = v2_scores
+                            .as_ref()
+                            .map(|values| values[batch_index * 512 + index]);
+                        row
+                    })
+                    .collect::<Vec<_>>(),
+            )?;
             written += batch.len() as u64;
             if plan.delay_ms > 0 {
                 std::thread::sleep(Duration::from_millis(plan.delay_ms.min(1000)));
@@ -504,7 +559,7 @@ pub fn run(plan: &WorkerPlan) -> Result<()> {
     }
     emit(plan, plan.total, "indexing", 0, 1, None)?;
     let summary = RankingSummary {
-        schema_version: 1,
+        schema_version: if p.v2.is_some() { 2 } else { 1 },
         input_count: plan.total,
         eligible_count: state.finished.iter().map(|s| s.eligible).sum(),
         parameters: p,
@@ -543,7 +598,10 @@ pub fn validate_output_progress(
     let output = RankingResultTable::open(path)?;
     let summary: RankingSummary = output.meta("summary")?;
     let p = parameters(&plan.run)?;
-    if !output.meta::<bool>("complete")?
+    if input.is_v2()? != p.v2.is_some()
+        || output.is_v2()? != p.v2.is_some()
+        || summary.schema_version != if p.v2.is_some() { 2 } else { 1 }
+        || !output.meta::<bool>("complete")?
         || summary.parameters != p
         || summary.input_sha256 != plan.input_sha256
         || summary.input_count != plan.total
@@ -557,6 +615,7 @@ pub fn validate_output_progress(
     progress("validating", 0, plan.total)?;
     let mut counts = BTreeMap::<String, (u64, [u64; 3])>::new();
     let mut rank_seen = HashMap::<String, (Vec<bool>, Vec<bool>)>::new();
+    let mut v2_rank_seen = HashMap::<String, (Vec<bool>, Vec<bool>)>::new();
     for s in &summary.ratings {
         let length = usize::try_from(s.eligible)
             .map_err(|_| Error::new("RANKING_INVALID", "排名长度无效"))?;
@@ -564,6 +623,9 @@ pub fn validate_output_progress(
             return Err(Error::new("RANKING_INVALID", "排名数量超出固定范围"));
         }
         rank_seen.insert(s.rating.clone(), (vec![false; length], vec![false; length]));
+        if p.v2.is_some() {
+            v2_rank_seen.insert(s.rating.clone(), (vec![false; length], vec![false; length]));
+        }
     }
     loop {
         let a = input.page(after, None)?;
@@ -600,7 +662,26 @@ pub fn validate_output_progress(
                         .clamp(0.0, 1.0);
                 let rescue = 100.0
                     * (c + p.artist_weight * a * (1.0 - c) - p.vote_weight * v - t).clamp(0.0, 1.0);
-                if s.main_score
+                if p.v2.is_some() {
+                    studio_operators::ranking_v2::validate_scores(i, s, &p)?;
+                    let v = s.v2.expect("validated v2");
+                    let seen = v2_rank_seen
+                        .get_mut(&rating)
+                        .ok_or_else(|| Error::new("RANKING_INVALID", "v2 缺少分级统计"))?;
+                    for (rank, flags) in [(v.direct_rank, &mut seen.0), (v.fused_rank, &mut seen.1)]
+                    {
+                        let at = rank
+                            .checked_sub(1)
+                            .and_then(|n| usize::try_from(n).ok())
+                            .filter(|n| *n < flags.len())
+                            .ok_or_else(|| Error::new("RANKING_INVALID", "v2 名次超出范围"))?;
+                        if flags[at] {
+                            return Err(Error::new("RANKING_INVALID", "v2 名次重复"));
+                        }
+                        flags[at] = true;
+                    }
+                } else if s
+                    .main_score
                     .is_none_or(|x| !x.is_finite() || (x - main).abs() > 1e-9)
                     || s.rescue_score
                         .is_none_or(|x| !x.is_finite() || (x - rescue).abs() > 1e-9)
@@ -648,7 +729,16 @@ pub fn validate_output_progress(
     for s in &summary.ratings {
         let actual = counts.get(&s.rating).copied().unwrap_or_default();
         let q = if p.mode == RankingMode::Select {
-            formula::quotas(s.eligible, p.quotas)
+            if let Some(v2) = &p.v2 {
+                if s.selected.iter().sum::<u64>()
+                    != s.eligible * u64::from(v2.keep_per_mille) / 1000
+                {
+                    return Err(Error::new("RANKING_INVALID", "v2 保留数量与预算不一致"));
+                }
+                s.selected
+            } else {
+                formula::quotas(s.eligible, p.quotas)
+            }
         } else {
             [0; 3]
         };
@@ -667,7 +757,10 @@ pub fn validate_output_progress(
 
 pub fn paths(store: &SqliteStore, pid: &str, aid: &str) -> Result<(Artifact, PathBuf, PathBuf)> {
     let item = store.artifact(pid, aid)?;
-    if item.kind != RANKING_KIND || item.schema_version != 1 || item.state != ArtifactState::Ready {
+    if item.kind != RANKING_KIND
+        || !matches!(item.schema_version, 1 | 2)
+        || item.state != ArtifactState::Ready
+    {
         return Err(Error::new("ARTIFACT_NOT_READY", "排名成果尚不可用"));
     }
     let main = format!("artifacts/{}.ranking.sqlite", item.job_id);
@@ -764,7 +857,7 @@ pub fn publish(
             media_type: "application/json".into(),
         },
     ];
-    let artifact=Artifact{id:new_id(),project_id:job.project_id.clone(),job_id:job.id.clone(),output_id:"data".into(),name:"Danbooru 元数据排名".into(),kind:RANKING_KIND.into(),schema_version:1,state:ArtifactState::Publishing,count:Some(plan.total),created_at:job.created_at.clone(),files,
+    let artifact=Artifact{id:new_id(),project_id:job.project_id.clone(),job_id:job.id.clone(),output_id:"data".into(),name:if summary.schema_version==2 { "Danbooru 元数据排名 · v2" } else { "Danbooru 元数据排名" }.into(),kind:RANKING_KIND.into(),schema_version:summary.schema_version,state:ArtifactState::Publishing,count:Some(plan.total),created_at:job.created_at.clone(),files,
         provenance:ArtifactProvenance{run:Some(plan.run.clone()),input_scope:job.input_scope.clone(),input_sha256:Some(plan.input_sha256.clone()),attempt:Some(store.job(&job.project_id,&job.id)?.attempt),input_artifacts:store.job_scope_artifacts(&job.project_id,&job.id)?,fields_frozen:true,evidence:"immutable_typed_input; scope_and_observation_basis; finite_features_formula_quota_rank_permutation_and_membership_validated".into()},issue:None};
     let artifact = store.begin_artifact(&job.project_id, &artifact)?;
     if artifact.state == ArtifactState::Publishing {

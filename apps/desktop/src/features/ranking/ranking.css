@@ -1111,3 +1111,36 @@
 .ranking-presets .preset-controls {
   padding: 4px 0;
 }
+
+.ranking-v2-config {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ranking-v2-profiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 12px;
+}
+.ranking-v2-profile,
+.ranking-v2-era {
+  border: 1px solid var(--border, #454545);
+  border-radius: 4px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.ranking-v2-profile legend,
+.ranking-v2-era legend {
+  padding: 0 6px;
+  color: var(--text-muted, #b6b6b6);
+}
+.ranking-v2-config input[type="number"] {
+  min-width: 70px;
+  max-width: 120px;
+}
+.ranking-v2-config .ranking-parameter-grid {
+  align-items: start;
+}

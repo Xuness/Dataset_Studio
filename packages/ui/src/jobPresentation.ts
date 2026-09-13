@@ -134,6 +134,48 @@ const stages: Record<
     unit: "步",
     detail: "正在整理主排名、补救排名及候选名额。",
   },
+  v2_periods: {
+    label: "准备年代参考",
+    phase: 2,
+    unit: "项",
+    detail: "正在分配跨年羽化权重。",
+  },
+  v2_feather: {
+    label: "计算羽化分布",
+    phase: 2,
+    unit: "组",
+    detail: "正在统计相近帖龄与年代的加权分布。",
+  },
+  v2_weighted_ranks: {
+    label: "计算年代相对位置",
+    phase: 2,
+    unit: "项",
+    detail: "进度对应当前年代参考群体。",
+  },
+  v2_scores: {
+    label: "计算 v2 分数",
+    phase: 2,
+    unit: "项",
+    detail: "正在合并分级公式与年代相对表现。",
+  },
+  v2_selection: {
+    label: "分配候选预算",
+    phase: 2,
+    unit: "项",
+    detail: "正在执行补救保护与年代目标。",
+  },
+  v2_audit: {
+    label: "分配随机审计",
+    phase: 2,
+    unit: "项",
+    detail: "审计名额包含在保留预算内。",
+  },
+  v2_diagnostics: {
+    label: "汇总年代诊断",
+    phase: 2,
+    unit: "项",
+    detail: "正在记录前段分布、回退与类型保护。",
+  },
   writing: {
     label: "保存评分明细",
     phase: 2,
@@ -181,7 +223,9 @@ export function jobDuration(milliseconds: number) {
   return `${Math.floor(seconds / 3600)} 小时 ${Math.floor((seconds % 3600) / 60)} 分`;
 }
 export function jobPresentation(job: Job) {
-  const ranking = job.operator === "danbooru.metarecall";
+  const ranking = ["danbooru.metarecall", "danbooru.metarecall_v2"].includes(
+    job.operator,
+  );
   const active = isJobActive(job);
   const succeeded = job.status === "succeeded";
   const stage = job.stage;

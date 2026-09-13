@@ -1,3 +1,5 @@
+import { isV2Parameters, v2Issue } from "./v2.js";
+import type { V2Parameters } from "./v2.js";
 import type {
   RankingParameters,
   RankingFilter,
@@ -33,6 +35,7 @@ export const defaultFilter: RankingFilter = {
   order: "main",
 };
 export type RankingDraft = {
+  v2Saved?: V2Parameters | null;
   parameters: RankingParameters;
   scope: ScopeRef | null;
   scopeId: string;
@@ -64,6 +67,8 @@ export function decode(value: unknown): RankingDraft | null {
   if (!record(value) || !record(value.parameters) || !record(value.filter))
     return null;
   const p = value.parameters;
+  if (p.v2 != null && !isV2Parameters(p.v2)) return null;
+  if (value.v2Saved != null && !isV2Parameters(value.v2Saved)) return null;
   if (
     !Array.isArray(p.ratings) ||
     p.ratings.some((r) => !["g", "s", "q", "e"].includes(String(r))) ||
@@ -103,6 +108,10 @@ export function decode(value: unknown): RankingDraft | null {
   return value as unknown as RankingDraft;
 }
 export function parameterIssue(p: RankingParameters): string | null {
+  if (p.v2) {
+    const issue = v2Issue(p.v2);
+    if (issue) return issue;
+  }
   if (!p.ratings.length) return "至少选择一个分级。";
   if (
     p.quotas.some((v) => !Number.isInteger(v) || v < 0 || v > 1000) ||

@@ -610,6 +610,104 @@ try {
   checks.push(
     "offline state preserves the last progress; finalization never reports whole-job completion; cancel/retry acknowledge once; failure and completion have working actions at narrow width (fixture presentation replay)",
   );
+
+  // V2 is tested against the real engine after the v1 presentation-replay checks.
+  jobOverride = null;
+  await page.setViewportSize({ width: 1540, height: 1000 });
+  await page.getByRole("button", { name: "参数配置", exact: true }).click();
+  const scheme = page.getByRole("combobox", { name: "筛选方案", exact: true });
+  await scheme.selectOption("v2");
+  await page
+    .getByRole("spinbutton", { name: "G 年代榜权重", exact: true })
+    .fill("0.65");
+  await page
+    .getByRole("spinbutton", { name: "跨年羽化半宽（天）", exact: true })
+    .fill("45");
+  await scheme.selectOption("v1");
+  await expect(
+    page.getByRole("spinbutton", { name: "G 年代榜权重", exact: true }),
+  ).toHaveCount(0);
+  await scheme.selectOption("v2");
+  await expect(
+    page.getByRole("spinbutton", { name: "G 年代榜权重", exact: true }),
+  ).toHaveValue("0.65");
+  await expect(
+    page.getByRole("spinbutton", { name: "跨年羽化半宽（天）", exact: true }),
+  ).toHaveValue("45");
+  await page
+    .getByRole("spinbutton", { name: "年代有效样本下限", exact: true })
+    .fill("2");
+  await page.getByRole("radio", { name: "仅计算排名", exact: true }).check();
+  await engine.wait(
+    base + "/drafts/core.tools/ranking",
+    (response) =>
+      response.draft?.value.parameters.v2?.feather_days === 45 &&
+      response.draft?.value.parameters.v2?.minimum_effective === 2,
+    15000,
+  );
+  await page.screenshot({ path: resolve(run, "15-v2-config.png") });
+  await page.reload();
+  await expect(
+    page.getByRole("combobox", { name: "筛选方案", exact: true }),
+  ).toHaveValue("v2", { timeout: 15000 });
+  await expect(
+    page.getByRole("spinbutton", { name: "G 年代榜权重", exact: true }),
+  ).toHaveValue("0.65");
+  await page.getByRole("button", { name: "计算排名", exact: true }).click();
+  const v2Jobs = await engine.wait(
+    base + "/jobs",
+    (response) =>
+      response.items.some(
+        (j) =>
+          j.operator === "danbooru.metarecall_v2" &&
+          ["succeeded", "failed"].includes(j.status),
+      ),
+    90000,
+  );
+  const v2Job = v2Jobs.items.find(
+    (j) => j.operator === "danbooru.metarecall_v2",
+  );
+  assert.equal(v2Job.status, "succeeded", JSON.stringify(v2Job));
+  await expect(page.locator(".ranking-job")).toContainText("本次排名已完成", {
+    timeout: 15000,
+  });
+  await page
+    .locator(".ranking-job")
+    .getByRole("button", { name: "查看结果", exact: true })
+    .click();
+  await page
+    .getByRole("combobox", { name: "排序依据", exact: true })
+    .selectOption("direct");
+  await expect(
+    page.getByRole("columnheader", { name: "直算排名", exact: true }),
+  ).toBeVisible();
+  await page
+    .getByRole("combobox", { name: "排序依据", exact: true })
+    .selectOption("fused");
+  await expect(
+    page.getByRole("columnheader", { name: "融合排名", exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "统计诊断", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "v2 · 元数据多阶段", exact: true }),
+  ).toBeVisible();
+  await page.screenshot({ path: resolve(run, "16-v2-diagnostics.png") });
+  await page.setViewportSize({ width: 1000, height: 760 });
+  assert.ok(
+    await page.locator("html").evaluate((e) => e.scrollWidth <= e.clientWidth),
+  );
+  await page.screenshot({ path: resolve(run, "17-v2-diagnostics-narrow.png") });
+  await page.getByRole("button", { name: "参数配置", exact: true }).click();
+  await page
+    .getByRole("combobox", { name: "筛选方案", exact: true })
+    .selectOption("v1");
+  await expect(
+    page.getByRole("spinbutton", { name: "G 年代榜权重", exact: true }),
+  ).toHaveCount(0);
+  checks.push(
+    "v1/v2 switch preserves v2 configuration across reload; real v2 submission exposes direct/fused orders and year diagnostics at wide and narrow widths",
+  );
+
   assert.deepEqual(errors, []);
   await writeFile(
     resolve(run, "report.json"),

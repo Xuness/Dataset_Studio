@@ -112,6 +112,8 @@ pub enum RankingOrder {
     Main,
     Rescue,
     Input,
+    Direct,
+    Fused,
 }
 impl From<RankingOrder> for domain::RankingOrder {
     fn from(v: RankingOrder) -> Self {
@@ -119,6 +121,8 @@ impl From<RankingOrder> for domain::RankingOrder {
             RankingOrder::Main => Self::Main,
             RankingOrder::Rescue => Self::Rescue,
             RankingOrder::Input => Self::Input,
+            RankingOrder::Direct => Self::Direct,
+            RankingOrder::Fused => Self::Fused,
         }
     }
 }
@@ -128,12 +132,16 @@ impl From<domain::RankingOrder> for RankingOrder {
             domain::RankingOrder::Main => Self::Main,
             domain::RankingOrder::Rescue => Self::Rescue,
             domain::RankingOrder::Input => Self::Input,
+            domain::RankingOrder::Direct => Self::Direct,
+            domain::RankingOrder::Fused => Self::Fused,
         }
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct RankingParameters {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub v2: Option<crate::RankingV2Parameters>,
     pub ratings: Vec<String>,
     pub mode: RankingMode,
     pub quotas: [u32; 3],
@@ -153,6 +161,7 @@ pub struct RankingParameters {
 impl From<domain::RankingParameters> for RankingParameters {
     fn from(v: domain::RankingParameters) -> Self {
         Self {
+            v2: v.v2.map(Into::into),
             ratings: v.ratings,
             mode: v.mode.into(),
             quotas: v.quotas,
@@ -174,6 +183,8 @@ impl From<domain::RankingParameters> for RankingParameters {
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct RankingInput {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tags: Option<String>,
     pub ordinal: u64,
     pub source_id: String,
     pub asset_id: String,
@@ -212,6 +223,7 @@ pub struct RankingInput {
 impl From<domain::RankingInput> for RankingInput {
     fn from(v: domain::RankingInput) -> Self {
         Self {
+            tags: v.tags,
             ordinal: v.ordinal,
             source_id: v.source_id,
             asset_id: v.asset_id,
@@ -252,6 +264,8 @@ impl From<domain::RankingInput> for RankingInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct RankingScores {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub v2: Option<crate::RankingV2Scores>,
     pub ordinal: u64,
     pub rating: Option<String>,
     pub eligibility: RankingEligibility,
@@ -277,6 +291,7 @@ pub struct RankingScores {
 impl From<domain::RankingScores> for RankingScores {
     fn from(v: domain::RankingScores) -> Self {
         Self {
+            v2: v.v2.map(Into::into),
             ordinal: v.ordinal,
             rating: v.rating,
             eligibility: v.eligibility.into(),
@@ -318,6 +333,8 @@ impl From<domain::RankingRow> for RankingRow {
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct RankingRatingSummary {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub v2: Option<crate::RankingV2Summary>,
     pub rating: String,
     pub eligible: u64,
     pub valid_heat: u64,
@@ -333,6 +350,7 @@ pub struct RankingRatingSummary {
 impl From<domain::RankingRatingSummary> for RankingRatingSummary {
     fn from(v: domain::RankingRatingSummary) -> Self {
         Self {
+            v2: v.v2.map(Into::into),
             rating: v.rating,
             eligible: v.eligible,
             valid_heat: v.valid_heat,

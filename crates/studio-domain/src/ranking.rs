@@ -16,6 +16,8 @@ pub enum RankingMode {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct RankingParameters {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub v2: Option<crate::RankingV2Parameters>,
     pub ratings: Vec<String>,
     pub mode: RankingMode,
     /// Integer thousandths, e.g. 280 = 28.0 percent.
@@ -36,6 +38,7 @@ pub struct RankingParameters {
 impl Default for RankingParameters {
     fn default() -> Self {
         Self {
+            v2: None,
             ratings: ["g", "s", "q", "e"].map(String::from).into(),
             mode: RankingMode::Rank,
             quotas: [280, 43, 10],
@@ -56,6 +59,10 @@ impl Default for RankingParameters {
 }
 impl RankingParameters {
     pub fn normalize(mut self) -> Result<Self> {
+        self.v2 = self
+            .v2
+            .map(crate::RankingV2Parameters::normalize)
+            .transpose()?;
         if self.ratings.is_empty()
             || self.ratings.len() > 4
             || self
@@ -100,6 +107,8 @@ impl RankingParameters {
 /// Complete snapshot of one chosen observation and of the actual stored object.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RankingInput {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tags: Option<String>,
     pub ordinal: u64,
     pub source_id: String,
     pub asset_id: String,
@@ -178,6 +187,8 @@ pub enum RankingRoute {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RankingScores {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub v2: Option<crate::RankingV2Scores>,
     pub ordinal: u64,
     pub rating: Option<String>,
     pub eligibility: RankingEligibility,
@@ -208,6 +219,8 @@ pub struct RankingRow {
 }
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RankingRatingSummary {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub v2: Option<crate::RankingV2Summary>,
     pub rating: String,
     pub eligible: u64,
     pub valid_heat: u64,
@@ -240,6 +253,8 @@ pub enum RankingOrder {
     Main,
     Rescue,
     Input,
+    Direct,
+    Fused,
 }
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]

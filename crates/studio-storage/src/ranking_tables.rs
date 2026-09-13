@@ -48,16 +48,19 @@ fn score_index(filter: &RankingFilter, order: RankingOrder) -> &'static str {
     match order {
         RankingOrder::Input => "scores_rating",
         RankingOrder::Rescue => "scores_rescue",
+        RankingOrder::Direct => "scores_direct",
+        RankingOrder::Fused => "scores_fused",
         RankingOrder::Main if filter.route.is_some() => "scores_route_main",
         RankingOrder::Main if filter.eligibility.is_some() => "scores_eligibility_main",
         RankingOrder::Main => "scores_main",
     }
 }
-fn input_columns() -> String {
+fn input_columns(v2: bool) -> String {
     INPUT_COLUMNS
         .split(',')
         .map(|s| format!("i.{s}"))
         .chain(std::iter::once("d.duplicate_of".into()))
+        .chain(std::iter::once(if v2 { "i.tags" } else { "NULL" }.into()))
         .collect::<Vec<_>>()
         .join(",")
 }
@@ -78,6 +81,10 @@ fn optional_unsigned(r: &rusqlite::Row<'_>, index: usize) -> rusqlite::Result<Op
         .map(|v| u64::try_from(v).map_err(|_| rusqlite::Error::IntegralValueOutOfRange(index, v)))
         .transpose()
 }
+#[cfg(test)]
+#[path = "ranking_v2_tests.rs"]
+mod v2_material_tests;
+
 fn enum_text(v: &impl Serialize) -> Result<String> {
     serde_json::to_value(v)
         .map_err(Error::io)?
@@ -130,7 +137,7 @@ fn connect(path: &Path, id: i64, create: bool, writable: bool) -> Result<Connect
         let version: i64 = db
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .map_err(db_error)?;
-        if actual != id || version != 1 {
+        if actual != id || !matches!(version, 1 | 2) {
             return Err(Error::new(
                 "RANKING_FORMAT_UNSUPPORTED",
                 "排名材料格式不兼容",
@@ -158,6 +165,7 @@ fn get_meta<T: DeserializeOwned>(db: &Connection, key: &str) -> Result<T> {
 
 fn read_input(r: &rusqlite::Row<'_>, o: usize) -> rusqlite::Result<RankingInput> {
     Ok(RankingInput {
+        tags: r.get(o + 34)?,
         ordinal: unsigned(r, o)?,
         source_id: r.get(o + 1)?,
         asset_id: hex::encode(r.get::<_, Vec<u8>>(o + 2)?),
@@ -196,6 +204,18 @@ fn read_input(r: &rusqlite::Row<'_>, o: usize) -> rusqlite::Result<RankingInput>
 }
 fn read_scores(r: &rusqlite::Row<'_>, o: usize) -> rusqlite::Result<RankingScores> {
     Ok(RankingScores {
+        v2: r
+            .get::<_, Option<String>>(o + 21)?
+            .map(|value| {
+                serde_json::from_str(&value).map_err(|e| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        o + 21,
+                        rusqlite::types::Type::Text,
+                        Box::new(e),
+                    )
+                })
+            })
+            .transpose()?,
         ordinal: unsigned(r, o)?,
         rating: r.get(o + 1)?,
         eligibility: decode_enum(r, o + 2)?,
@@ -319,7 +339,17 @@ impl RankingInputTable {
         }
         self.batch.begin(&self.db)?;
         let result = (|| -> Result<()> {
-            let mut stmt=self.db.prepare_cached("INSERT INTO input_rows VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31,?32,?33)").map_err(db_error)?;
+            let mut stmt=self.db.prepare_cached(&format!("INSERT INTO input_rows({INPUT_COLUMNS}) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31,?32,?33)")).map_err(db_error)?;
+            let v2 = self.is_v2()?;
+            let mut extra = if v2 {
+                Some(
+                    self.db
+                        .prepare_cached("UPDATE input_rows SET tags=?1 WHERE ordinal=?2")
+                        .map_err(db_error)?,
+                )
+            } else {
+                None
+            };
             for v in rows {
                 let asset = bytes(&v.asset_id)?;
                 let record = v.record_id.as_deref().map(bytes).transpose()?;
@@ -361,6 +391,11 @@ impl RankingInputTable {
                     v.source_issues
                 ])
                 .map_err(db_error)?;
+                if let Some(extra) = extra.as_mut() {
+                    extra
+                        .execute(params![v.tags, v.ordinal as i64])
+                        .map_err(db_error)?;
+                }
             }
             Ok(())
         })();
@@ -389,7 +424,7 @@ impl RankingInputTable {
     pub fn page(&self, after: Option<u64>, rating: Option<&str>) -> Result<Vec<RankingInput>> {
         let sql = format!(
             "SELECT {} FROM input_rows i LEFT JOIN duplicate_members d USING(ordinal) WHERE i.ordinal>?1 {} ORDER BY i.ordinal LIMIT 512",
-            input_columns(),
+            input_columns(self.is_v2()?),
             if rating.is_some() {
                 "AND i.rating=?2"
             } else {
@@ -407,7 +442,7 @@ impl RankingInputTable {
             .map_err(db_error)
     }
     pub fn row(&self, ordinal: u64) -> Result<RankingInput> {
-        self.db.query_row(&format!("SELECT {} FROM input_rows i LEFT JOIN duplicate_members d USING(ordinal) WHERE i.ordinal=?1",input_columns()),[ordinal as i64],|r|read_input(r,0)).map_err(db_error)
+        self.db.query_row(&format!("SELECT {} FROM input_rows i LEFT JOIN duplicate_members d USING(ordinal) WHERE i.ordinal=?1",input_columns(self.is_v2()?)),[ordinal as i64],|r|read_input(r,0)).map_err(db_error)
     }
     pub fn rating_counts(&self) -> Result<Vec<(Option<String>, u64)>> {
         let mut stmt = self
@@ -481,7 +516,12 @@ impl RankingResultTable {
         }
         self.batch.begin(&self.db)?;
         let result = (|| -> Result<()> {
-            let mut stmt=self.db.prepare_cached("INSERT INTO scores VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21)").map_err(db_error)?;
+            let mut stmt=self.db.prepare_cached(&format!("INSERT INTO scores({SCORE_COLUMNS}) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21)")).map_err(db_error)?;
+            let mut extra = if self.is_v2()? {
+                Some(self.db.prepare_cached("UPDATE scores SET v2_json=?1,direct_rank=?2,fused_rank=?3,created_year=?4,year_rank=?5 WHERE ordinal=?6").map_err(db_error)?)
+            } else {
+                None
+            };
             for v in rows {
                 for x in [
                     v.g,
@@ -525,6 +565,19 @@ impl RankingResultTable {
                     v.duplicate_of.map(|x| x as i64)
                 ])
                 .map_err(db_error)?;
+                if let Some(extra) = extra.as_mut() {
+                    extra
+                        .execute(params![
+                            v.v2.map(|x| serde_json::to_string(&x).map_err(Error::io))
+                                .transpose()?,
+                            v.v2.map(|x| x.direct_rank as i64),
+                            v.v2.map(|x| x.fused_rank as i64),
+                            v.v2.and_then(|x| x.created_year),
+                            v.v2.map(|x| x.year_rank as i64),
+                            v.ordinal as i64
+                        ])
+                        .map_err(db_error)?;
+                }
             }
             Ok(())
         })();
@@ -562,6 +615,9 @@ impl RankingResultTable {
     pub fn finish(&self, summary: &RankingSummary) -> Result<()> {
         self.flush()?;
         self.db.execute_batch("CREATE INDEX IF NOT EXISTS scores_main ON scores(rating,coalesce(main_rank,9223372036854775807),ordinal); CREATE INDEX IF NOT EXISTS scores_rescue ON scores(rating,coalesce(rescue_rank,9223372036854775807),ordinal); CREATE INDEX IF NOT EXISTS scores_route_main ON scores(rating,selected_route,coalesce(main_rank,9223372036854775807),ordinal); CREATE INDEX IF NOT EXISTS scores_eligibility_main ON scores(rating,eligibility,coalesce(main_rank,9223372036854775807),ordinal);").map_err(db_error)?;
+        if self.is_v2()? {
+            self.db.execute_batch("CREATE INDEX IF NOT EXISTS scores_direct ON scores(rating,coalesce(direct_rank,9223372036854775807),ordinal); CREATE INDEX IF NOT EXISTS scores_fused ON scores(rating,coalesce(fused_rank,9223372036854775807),ordinal); CREATE INDEX IF NOT EXISTS scores_year ON scores(rating,created_year,year_rank,ordinal);").map_err(db_error)?;
+        }
         put_meta(&self.db, "summary", summary)?;
         put_meta(&self.db, "complete", &true)?;
         Ok(())
@@ -592,7 +648,8 @@ impl RankingResultTable {
         let mut stmt = self
             .db
             .prepare(&format!(
-                "SELECT {SCORE_COLUMNS} FROM scores WHERE ordinal>?1 ORDER BY ordinal LIMIT 512"
+                "SELECT {} FROM scores WHERE ordinal>?1 ORDER BY ordinal LIMIT 512",
+                self.score_columns()?
             ))
             .map_err(db_error)?;
         stmt.query_map([after.map(|n| n as i64).unwrap_or(-1)], |r| {
@@ -605,7 +662,10 @@ impl RankingResultTable {
     pub fn row(&self, ordinal: u64) -> Result<RankingScores> {
         self.db
             .query_row(
-                &format!("SELECT {SCORE_COLUMNS} FROM scores WHERE ordinal=?1"),
+                &format!(
+                    "SELECT {} FROM scores WHERE ordinal=?1",
+                    self.score_columns()?
+                ),
                 [ordinal as i64],
                 |r| read_scores(r, 0),
             )
@@ -678,7 +738,7 @@ impl RankingResultTable {
             return Err(Error::invalid("排名统计位置无效"));
         }
         let to = from.saturating_add(262_144).min(total);
-        let (predicate, mut values) = filter_sql(filter)?;
+        let (predicate, mut values) = filter_sql(&self.compatible_filter(filter)?)?;
         values.push(SqlValue::Integer(from as i64));
         let lower = values.len();
         values.push(SqlValue::Integer(to as i64));
@@ -686,6 +746,9 @@ impl RankingResultTable {
         Ok((to, count))
     }
     pub fn filtered_count(&self, filter: &RankingFilter) -> Result<u64> {
+        if !self.is_v2()? && matches!(filter.order, RankingOrder::Direct | RankingOrder::Fused) {
+            return self.filtered_count(&self.compatible_filter(filter)?);
+        }
         filter.validate()?;
         if let Some(count) = self.known_count(filter)? {
             return Ok(count);
@@ -700,16 +763,15 @@ impl RankingResultTable {
                 self.filtered_count(&part).map(|n| count + n)
             });
         }
-        let (sql, values) = filter_sql(filter)?;
+        let (sql, values) = filter_sql(&self.compatible_filter(filter)?)?;
         let index = if filter.top.is_some() {
             format!(
                 " INDEXED BY {}",
                 score_index(
                     filter,
-                    if filter.order == RankingOrder::Rescue {
-                        RankingOrder::Rescue
-                    } else {
-                        RankingOrder::Main
+                    match filter.order {
+                        RankingOrder::Input => RankingOrder::Main,
+                        order => order,
                     }
                 )
             )
@@ -757,10 +819,11 @@ pub(crate) fn filter_sql(f: &RankingFilter) -> Result<(String, Vec<SqlValue>)> {
             // let SQLite seek each rating prefix in pre-existing expression indexes.
             clauses.push("rating IN ('e','g','q','s')".into());
         }
-        let rank = if f.order == RankingOrder::Rescue {
-            "rescue_rank"
-        } else {
-            "main_rank"
+        let rank = match f.order {
+            RankingOrder::Rescue => "rescue_rank",
+            RankingOrder::Direct => "direct_rank",
+            RankingOrder::Fused => "fused_rank",
+            _ => "main_rank",
         };
         values.push(SqlValue::Integer(top as i64));
         clauses.push(format!(
@@ -769,6 +832,49 @@ pub(crate) fn filter_sql(f: &RankingFilter) -> Result<(String, Vec<SqlValue>)> {
         ));
     }
     Ok((clauses.join(" AND "), values))
+}
+
+impl RankingInputTable {
+    pub fn is_v2(&self) -> Result<bool> {
+        self.db
+            .pragma_query_value(None, "user_version", |r| r.get::<_, u32>(0))
+            .map(|v| v == 2)
+            .map_err(db_error)
+    }
+    pub fn create_v2(path: &Path) -> Result<Self> {
+        let table = Self::create(path)?;
+        table
+            .db
+            .execute_batch("ALTER TABLE input_rows ADD COLUMN tags TEXT; PRAGMA user_version=2;")
+            .map_err(db_error)?;
+        Ok(table)
+    }
+}
+impl RankingResultTable {
+    pub fn is_v2(&self) -> Result<bool> {
+        self.db
+            .pragma_query_value(None, "user_version", |r| r.get::<_, u32>(0))
+            .map(|v| v == 2)
+            .map_err(db_error)
+    }
+    fn compatible_filter(&self, filter: &RankingFilter) -> Result<RankingFilter> {
+        let mut f = filter.clone();
+        if !self.is_v2()? && matches!(f.order, RankingOrder::Direct | RankingOrder::Fused) {
+            f.order = RankingOrder::Main;
+        }
+        Ok(f)
+    }
+    fn score_columns(&self) -> Result<String> {
+        Ok(format!(
+            "{SCORE_COLUMNS},{}",
+            if self.is_v2()? { "v2_json" } else { "NULL" }
+        ))
+    }
+    pub fn create_v2(path: &Path) -> Result<Self> {
+        let table = Self::create(path)?;
+        table.db.execute_batch("ALTER TABLE scores ADD COLUMN v2_json TEXT; ALTER TABLE scores ADD COLUMN direct_rank INTEGER; ALTER TABLE scores ADD COLUMN fused_rank INTEGER; ALTER TABLE scores ADD COLUMN created_year INTEGER; ALTER TABLE scores ADD COLUMN year_rank INTEGER; PRAGMA user_version=2;").map_err(db_error)?;
+        Ok(table)
+    }
 }
 
 #[cfg(test)]

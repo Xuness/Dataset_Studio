@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 /// A fixed member scope that can read ordering and scores from an immutable result.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RankedScope {
+    pub schema_version: u32,
     pub workset_id: String,
     pub artifact_id: String,
     pub artifact_name: String,

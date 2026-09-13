@@ -5,12 +5,14 @@ use std::sync::Arc;
 use studio_application::{Operator, OperatorRegistry};
 use studio_domain::*;
 pub mod ranking;
+pub mod ranking_v2;
 
 pub fn registry() -> Result<OperatorRegistry> {
     let mut registry = OperatorRegistry::default();
     registry.register(Arc::new(Manifest))?;
     registry.register(Arc::new(Scalar))?;
     registry.register(Arc::new(ranking::MetaRecall))?;
+    registry.register(Arc::new(ranking_v2::MetaRecallV2))?;
     Ok(registry)
 }
 fn descriptor(
@@ -260,7 +262,19 @@ mod tests {
     #[test]
     fn registry_and_parameter_versions_are_enforced() {
         let mut registry = registry().unwrap();
-        assert_eq!(registry.descriptors().len(), 3);
+        assert_eq!(registry.descriptors().len(), 4);
+        assert!(
+            registry
+                .descriptors()
+                .iter()
+                .any(|d| d.id == RANKING_OPERATOR)
+        );
+        assert!(
+            registry
+                .descriptors()
+                .iter()
+                .any(|d| d.id == RANKING_V2_OPERATOR)
+        );
         assert_eq!(
             registry.register(Arc::new(Manifest)).unwrap_err().code,
             "OPERATOR_DUPLICATE"

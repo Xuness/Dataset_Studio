@@ -182,7 +182,8 @@ export function RankingBadge({
         主 {rank(ranking.main_rank)} <b>{score(ranking.main_score)}</b>
       </span>
       <span>
-        补 {rank(ranking.rescue_rank)} <b>{score(ranking.rescue_score)}</b>
+        {ranking.v2 ? "年" : "补"} {rank(ranking.rescue_rank)}{" "}
+        <b>{score(ranking.rescue_score)}</b>
       </span>
     </div>
   );

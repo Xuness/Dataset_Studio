@@ -143,7 +143,9 @@ fn bidirectional_scans_keep_saved_membership_and_match_independent_sql() {
         ] {
             for descending in [false, true] {
                 let position = match order {
-                    RankingOrder::Main => "coalesce(main_rank,9223372036854775807)",
+                    RankingOrder::Main | RankingOrder::Direct | RankingOrder::Fused => {
+                        "coalesce(main_rank,9223372036854775807)"
+                    }
                     RankingOrder::Rescue => "coalesce(rescue_rank,9223372036854775807)",
                     RankingOrder::Input => "ordinal",
                 };

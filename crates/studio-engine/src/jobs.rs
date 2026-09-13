@@ -142,7 +142,7 @@ fn prepare(
     }
     let path = staging.join("plan.json");
     if path.exists() {
-        if frozen.run.operator_id == RANKING_OPERATOR {
+        if is_ranking_operator(&frozen.run.operator_id) {
             store.job_stage(
                 &job.project_id,
                 &job.id,
@@ -279,7 +279,7 @@ async fn execute(
     resources: Arc<dyn ReadResources>,
 ) -> Result<()> {
     let _attempt = ActiveAttempt::enter(&job)?;
-    let _heartbeat = if job.operator == RANKING_OPERATOR {
+    let _heartbeat = if is_ranking_operator(&job.operator) {
         let heartbeat_store = store.clone();
         let pid = job.project_id.clone();
         let jid = job.id.clone();

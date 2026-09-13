@@ -33,7 +33,7 @@ export type BrowserHistory = {
 };
 export type RankedBrowseSettings = {
   scopeKey: string;
-  sort: "saved" | "main" | "rescue" | "input" | "off";
+  sort: "saved" | "main" | "rescue" | "input" | "direct" | "fused" | "off";
   descending: boolean;
   startPostId: string | null;
   startCursor: string | null;

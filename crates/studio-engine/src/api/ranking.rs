@@ -298,6 +298,7 @@ pub(super) async fn evidence(
             let input = RankingInputTable::open(&input)?;
             let job_run: domain::JobRun = input.meta("job_run")?;
             let bases: Vec<domain::RankingBasis> = input.meta("bases")?;
+            let full_tags = input.is_v2()?;
             Ok(RankingEvidence {
                 job_run: job_run.into(),
                 bases: bases.into_iter().map(Into::into).collect(),
@@ -317,8 +318,10 @@ pub(super) async fn evidence(
                     "status_flags",
                     "observation_and_record_identity",
                 ]
+                .into_iter()
+                .chain(full_tags.then_some("tag_string"))
                 .map(String::from)
-                .into(),
+                .collect(),
             })
         })
         .await?,

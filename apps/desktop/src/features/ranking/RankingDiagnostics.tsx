@@ -1,3 +1,4 @@
+import { RankingV2Diagnostics } from "./RankingV2Diagnostics.js";
 import { useQuery } from "@tanstack/react-query";
 import type { StudioClient } from "@studio/client";
 import type { RankingSummary, RankingEligibility } from "@studio/contracts";
@@ -24,6 +25,7 @@ export function RankingDiagnostics({
   });
   return (
     <div className="ranking-diagnostics">
+      <RankingV2Diagnostics summary={s} />
       <section className="ranking-card">
         <h3>输入资格</h3>
         <p className="ranking-hint">

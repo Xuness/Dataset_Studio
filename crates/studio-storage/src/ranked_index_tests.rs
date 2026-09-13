@@ -1,6 +1,35 @@
 use super::*;
 use std::sync::atomic::AtomicUsize;
 
+#[test]
+fn v2_direct_and_fused_scope_indexes_have_independent_orders_after_reopen() {
+    let (tmp, mut plan) = fixture();
+    plan.meta.version = 2;
+    let db = Connection::open(&plan.scores).unwrap();
+    db.execute_batch("ALTER TABLE scores ADD COLUMN direct_rank INTEGER; ALTER TABLE scores ADD COLUMN fused_rank INTEGER; UPDATE scores SET direct_rank=65537-ordinal,fused_rank=ordinal;").unwrap();
+    drop(db);
+    let file = tmp.path().join("v2-index.sqlite");
+    let cancel = Arc::new(AtomicBool::new(false));
+    RankedIndex::build(
+        &file,
+        &plan,
+        32 << 20,
+        32 << 20,
+        cancel.clone(),
+        Arc::new(RankedIndexProgress::default()),
+    )
+    .unwrap();
+    let index = RankedIndex::open(&file, &plan.meta, cancel.clone()).unwrap();
+    let page = index.page(RankingOrder::Direct, false, None, 12).unwrap();
+    assert_eq!(page[0].ordinal, 65536);
+    assert!(page.windows(2).all(|w| w[0].ordinal > w[1].ordinal));
+    drop(index);
+    let index = RankedIndex::open(&file, &plan.meta, cancel).unwrap();
+    let page = index.page(RankingOrder::Fused, false, None, 12).unwrap();
+    assert_eq!(page[0].ordinal, 1);
+    assert_eq!(page[1].ordinal, 8);
+}
+
 fn fixture() -> (tempfile::TempDir, RankedIndexPlan) {
     let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/test-runs");
     std::fs::create_dir_all(&base).unwrap();
@@ -73,7 +102,7 @@ fn sparse_late_pages_and_large_ties_use_bounded_index_work_and_survive_reopen() 
             )
             .unwrap();
         let key = match order {
-            RankingOrder::Main => 1,
+            RankingOrder::Main | RankingOrder::Direct | RankingOrder::Fused => 1,
             RankingOrder::Rescue => i64::MAX,
             RankingOrder::Input => 64000,
         };

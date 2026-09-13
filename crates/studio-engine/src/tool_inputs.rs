@@ -47,7 +47,7 @@ pub fn capture(
         .into_iter()
         .map(|id| {
             let source = store.source(pid, &id)?;
-            if run.operator_id == RANKING_OPERATOR && source.kind != "danbooru" {
+            if is_ranking_operator(&run.operator_id) && source.kind != "danbooru" {
                 return Err(Error::new(
                     "RANKING_SOURCE_UNSUPPORTED",
                     "排名输入需要 Danbooru 来源",
@@ -55,7 +55,7 @@ pub fn capture(
             }
             reader.query_version(
                 &source,
-                &version_spec(&id, &fields, run.operator_id == RANKING_OPERATOR),
+                &version_spec(&id, &fields, is_ranking_operator(&run.operator_id)),
             )
         })
         .collect::<Result<Vec<_>>>()?;
@@ -73,7 +73,7 @@ pub fn validate_versions(store: &SqliteStore, pid: &str, frozen: &JobRun) -> Res
             &version_spec(
                 &expected.source_id,
                 &frozen.fields,
-                frozen.run.operator_id == RANKING_OPERATOR,
+                is_ranking_operator(&frozen.run.operator_id),
             ),
         )?;
         if &actual != expected {

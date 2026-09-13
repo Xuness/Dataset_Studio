@@ -95,7 +95,7 @@ function decode(value: unknown): WorkspaceState | null {
     (!record(ranked) ||
       typeof ranked.scopeKey !== "string" ||
       ranked.scopeKey.length > 512 ||
-      !["saved", "main", "rescue", "input", "off"].includes(
+      !["saved", "main", "rescue", "input", "direct", "fused", "off"].includes(
         String(ranked.sort),
       ) ||
       typeof ranked.descending !== "boolean" ||

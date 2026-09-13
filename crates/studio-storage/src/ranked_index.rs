@@ -72,6 +72,8 @@ fn order_parts(order: RankingOrder) -> (&'static str, &'static str) {
         RankingOrder::Main => ("main", "main_rank"),
         RankingOrder::Rescue => ("rescue", "rescue_rank"),
         RankingOrder::Input => ("input", "ordinal"),
+        RankingOrder::Direct => ("direct", "direct_rank"),
+        RankingOrder::Fused => ("fused", "fused_rank"),
     }
 }
 impl RankedIndex {
@@ -98,6 +100,9 @@ impl RankedIndex {
         let db = Connection::open(output).map_err(db_error)?;
         let kib = (memory_bytes / 8 / 1024).clamp(2048, 65536);
         db.execute_batch(&format!("PRAGMA main.journal_mode=OFF; PRAGMA main.synchronous=OFF; PRAGMA main.cache_size=-{kib}; PRAGMA temp_store=FILE; CREATE TABLE members(ordinal INTEGER PRIMARY KEY,rating TEXT NOT NULL,main_rank INTEGER NOT NULL,rescue_rank INTEGER NOT NULL,post_id INTEGER); CREATE TABLE meta(key TEXT PRIMARY KEY,value TEXT NOT NULL) WITHOUT ROWID;")).map_err(db_error)?;
+        if plan.meta.version >= 2 {
+            db.execute_batch("ALTER TABLE members ADD COLUMN direct_rank INTEGER NOT NULL DEFAULT 9223372036854775807; ALTER TABLE members ADD COLUMN fused_rank INTEGER NOT NULL DEFAULT 9223372036854775807;").map_err(db_error)?;
+        }
         let page_size: i64 = db
             .pragma_query_value(None, "page_size", |r| r.get(0))
             .map_err(db_error)?;
@@ -138,8 +143,13 @@ impl RankedIndex {
             _ => return Err(Error::invalid("该范围不支持排名索引")),
         };
         progress.phase.store(1, Ordering::Release);
+        let extra_columns = if plan.meta.version >= 2 {
+            ",coalesce(s.direct_rank,9223372036854775807),coalesce(s.fused_rank,9223372036854775807)"
+        } else {
+            ""
+        };
         let sql = format!(
-            "INSERT INTO members SELECT i.ordinal,coalesce(s.rating,'z'),coalesce(s.main_rank,9223372036854775807),coalesce(s.rescue_rank,9223372036854775807),i.post_id FROM scope_db.{relation} m CROSS JOIN fixed_input.input_rows i INDEXED BY input_identity CROSS JOIN fixed_scores.scores s WHERE m.{column}=?1 AND i.source_id=m.source_id AND i.asset_id=unhex(m.asset_id) AND s.ordinal=i.ordinal"
+            "INSERT INTO members SELECT i.ordinal,coalesce(s.rating,'z'),coalesce(s.main_rank,9223372036854775807),coalesce(s.rescue_rank,9223372036854775807),i.post_id{extra_columns} FROM scope_db.{relation} m CROSS JOIN fixed_input.input_rows i INDEXED BY input_identity CROSS JOIN fixed_scores.scores s WHERE m.{column}=?1 AND i.source_id=m.source_id AND i.asset_id=unhex(m.asset_id) AND s.ordinal=i.ordinal"
         );
         let outcome = (|| {
             let copied = db.execute(&sql, [id]).map_err(build_error)? as u64;
@@ -150,14 +160,15 @@ impl RankedIndex {
                 ));
             }
             db.execute_batch("DETACH DATABASE scope_db; DETACH DATABASE fixed_input; DETACH DATABASE fixed_scores;").map_err(db_error)?;
-            for (index, order) in [
+            let mut orders = vec![
                 RankingOrder::Main,
                 RankingOrder::Rescue,
                 RankingOrder::Input,
-            ]
-            .into_iter()
-            .enumerate()
-            {
+            ];
+            if plan.meta.version >= 2 {
+                orders.extend([RankingOrder::Direct, RankingOrder::Fused]);
+            }
+            for (index, order) in orders.into_iter().enumerate() {
                 read_cancelled(&cancelled)?;
                 progress.phase.store(2 + index as u8 * 2, Ordering::Release);
                 let (name, column) = order_parts(order);
@@ -175,7 +186,7 @@ impl RankedIndex {
                 .map_err(build_error)?;
             }
             read_cancelled(&cancelled)?;
-            progress.phase.store(8, Ordering::Release);
+            progress.phase.store(12, Ordering::Release);
             db.execute(
                 "INSERT INTO meta VALUES ('complete',?1)",
                 [serde_json::to_string(&plan.meta).map_err(Error::io)?],
@@ -210,6 +221,12 @@ impl RankedIndex {
         if indices != 6 {
             return Err(invalid());
         }
+        if meta.version >= 2 {
+            let extra:i64=db.query_row("SELECT count(*) FROM sqlite_schema WHERE type='index' AND name IN ('ordered_direct','ordered_fused','post_direct','post_fused')",[],|r|r.get(0)).map_err(|_|invalid())?;
+            if extra != 4 {
+                return Err(invalid());
+            }
+        }
         Ok(Self { db, meta })
     }
     pub fn metadata(path: &Path) -> Result<RankedIndexMeta> {
@@ -237,6 +254,13 @@ impl RankedIndex {
         order: RankingOrder,
         descending: bool,
     ) -> Result<Option<RankingPosition>> {
+        let order = if self.meta.version < 2
+            && matches!(order, RankingOrder::Direct | RankingOrder::Fused)
+        {
+            RankingOrder::Main
+        } else {
+            order
+        };
         let (name, column) = order_parts(order);
         let direction = if descending { "DESC" } else { "ASC" };
         self.db.query_row(&format!("SELECT rating,{column},ordinal FROM members INDEXED BY post_{name} WHERE post_id=?1 ORDER BY rating {direction},{column} {direction},ordinal {direction} LIMIT 1"), [post], |r| Ok(RankingPosition { group:r.get(0)?, position:r.get(1)?, ordinal:unsigned(r,2)? })).optional().map_err(|_|invalid())
@@ -248,6 +272,20 @@ impl RankedIndex {
         after: Option<&RankingPosition>,
         limit: usize,
     ) -> Result<Vec<RankingPosition>> {
+        let order = if self.meta.version < 2
+            && matches!(order, RankingOrder::Direct | RankingOrder::Fused)
+        {
+            RankingOrder::Main
+        } else {
+            order
+        };
+        let order = if self.meta.version < 2
+            && matches!(order, RankingOrder::Direct | RankingOrder::Fused)
+        {
+            RankingOrder::Main
+        } else {
+            order
+        };
         let (name, column) = order_parts(order);
         let direction = if descending { "DESC" } else { "ASC" };
         let op = if descending { "<" } else { ">" };

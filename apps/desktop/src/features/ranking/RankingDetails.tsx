@@ -45,18 +45,34 @@ export function RankingDetails({
   const contributions =
     s.main_score == null
       ? []
-      : [
-          ["绝对热度 G", score((s.g ?? 0) * 100)],
-          [
-            "时间补救",
-            "+" +
-              score(p.time_weight * Math.max(0, (s.c ?? 0) - (s.g ?? 0)) * 100),
-          ],
-          ["负票扣分", "−" + score(p.vote_weight * (s.v ?? 0) * 100)],
-          ["技术损伤扣分", "−" + score((s.t ?? 0) * 100)],
-          ["主分 S", score(s.main_score)],
-          ["补救分 R", score(s.rescue_score)],
-        ];
+      : s.v2
+        ? [
+            ["直算原分", score(s.v2.direct_raw * 100)],
+            ["直榜总体百分位", score(s.v2.direct_percentile * 100) + "%"],
+            ["年代原分", score(s.v2.era_raw * 100)],
+            ["年代榜总体百分位", score(s.v2.era_percentile * 100) + "%"],
+            ["融合分 F", score(s.v2.fused_score)],
+            ["类型软降分", "−" + score(s.v2.type_penalty)],
+            ["年代偏好", score(s.v2.era_bonus)],
+            ["筛选优先级 J", score(s.main_score)],
+            ["直算名次", number(s.v2.direct_rank)],
+            ["融合名次", number(s.v2.fused_rank)],
+            ["年内名次", number(s.v2.year_rank)],
+          ]
+        : [
+            ["绝对热度 G", score((s.g ?? 0) * 100)],
+            [
+              "时间补救",
+              "+" +
+                score(
+                  p.time_weight * Math.max(0, (s.c ?? 0) - (s.g ?? 0)) * 100,
+                ),
+            ],
+            ["负票扣分", "−" + score(p.vote_weight * (s.v ?? 0) * 100)],
+            ["技术损伤扣分", "−" + score((s.t ?? 0) * 100)],
+            ["主分 S", score(s.main_score)],
+            ["补救分 R", score(s.rescue_score)],
+          ];
   const reasons: Record<string, string> = {
     disabled: "本次未启用时间补救",
     time_unknown: "时间未知，C=G",
@@ -102,6 +118,48 @@ export function RankingDetails({
               </div>
             ))}
           </dl>
+        )}
+        {s.v2 && (
+          <div className="ranking-explanation">
+            <p>v2 元数据模式，未进行 Bridge 视觉校准。</p>
+            <p>
+              时期 {s.v2.old_period ?? "未知"} → {s.v2.new_period ?? "未知"}
+              ，后者权重 {score(s.v2.new_weight * 100)}%。
+            </p>
+            <p>
+              收缩后年代表现 {score(s.v2.year_percentile * 100)}%；有效参考数量{" "}
+              {number(Math.round(s.v2.effective_count))}
+              （两侧有贡献时取较小值）。
+            </p>
+            <p>
+              {!p.time_enabled
+                ? "本次关闭时间与年代参考，融合使用直算榜。"
+                : s.v2.era_fallback
+                  ? "部分年代比较缺少时间或样本，已使用条件化表现回退。"
+                  : "本图的年代参考群体达到有效样本下限。"}
+            </p>
+            <p>
+              {s.v2.layout_protected
+                ? "命中分镜／构图保护线索，本次不作漫画类型降分。"
+                : s.v2.type_penalty > 0
+                  ? "命中扩展漫画标签线索，仅施加配置的软降分。"
+                  : "本次没有漫画类型降分。"}
+            </p>
+            {s.v2.selection_reason > 0 && (
+              <p>
+                入选依据：
+                {
+                  (
+                    {
+                      1: "直榜独有补救",
+                      2: "年代榜独有补救",
+                      3: "预算内随机审计",
+                    } as Record<number, string>
+                  )[s.v2.selection_reason]
+                }
+              </p>
+            )}
+          </div>
         )}
         <div className="ranking-explanation">
           <p>{reasons[s.time_reason] ?? s.time_reason}</p>

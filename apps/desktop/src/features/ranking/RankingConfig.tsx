@@ -1,3 +1,6 @@
+import { RankingV2Config } from "./RankingV2Config.js";
+import { v2Defaults } from "./v2.js";
+import type { V2Parameters } from "./v2.js";
 import type { FormEvent, ReactNode } from "react";
 import type { RankingParameters } from "@studio/contracts";
 import { Button, Field } from "@studio/ui";
@@ -25,9 +28,11 @@ export function RankingConfig({
   onSubmit,
   scopeMessage,
   onRebind,
+  v2Saved,
 }: {
   id: string;
   parameters: RankingParameters;
+  v2Saved?: V2Parameters | null;
   onChange: (p: RankingParameters) => void;
   options: ModuleScopeOption[];
   scopeId: string;
@@ -47,6 +52,21 @@ export function RankingConfig({
     <form id={id} className="ranking-config" onSubmit={onSubmit}>
       <fieldset disabled={disabled} className="ranking-config-fields">
         <Section title="输入与输出">
+          <Field label="筛选方案">
+            <select
+              aria-label="筛选方案"
+              value={p.v2 ? "v2" : "v1"}
+              onChange={(e) =>
+                field(
+                  "v2",
+                  e.target.value === "v2" ? (v2Saved ?? v2Defaults()) : null,
+                )
+              }
+            >
+              <option value="v1">MetaRecall v1 · 旧方案</option>
+              <option value="v2">MetaRecall v2 · 元数据多阶段</option>
+            </select>
+          </Field>
           <ScopePicker options={options} value={scopeId} onChange={onScope} />
           {scopeMessage && (
             <div className="ranking-notice">
@@ -169,7 +189,7 @@ export function RankingConfig({
                   checked={p[key]}
                   onChange={(e) => field(key, e.target.checked)}
                 />
-                {label}
+                {key === "time_enabled" && p.v2 ? "时间与年代参考" : label}
               </label>
             ))}
           </div>
@@ -178,7 +198,19 @@ export function RankingConfig({
           </p>
         </Section>
 
-        {p.mode === "select" && (
+        {p.v2 && (
+          <RankingV2Config
+            value={p.v2}
+            selecting={p.mode === "select"}
+            onChange={(value) => field("v2", value)}
+          />
+        )}
+        {p.v2 && !p.time_enabled && (
+          <p className="ranking-hint">
+            时间与年代参考已关闭，本次融合使用直算榜；手动年代偏好仍按独立配置生效。
+          </p>
+        )}
+        {p.mode === "select" && !p.v2 && (
           <Section title="通道名额">
             <div className="ranking-quota-fields">
               {["主通道", "补救通道", "随机审计"].map((label, i) => (
@@ -219,19 +251,24 @@ export function RankingConfig({
                   ["vote_weight", "负票惩罚 β"],
                   ["damage_weight", "单类损伤"],
                 ] as const
-              ).map(([key, label]) => (
-                <Field key={key} label={label}>
-                  <input
-                    aria-label={label}
-                    type="number"
-                    min={0}
-                    max={1}
-                    step={0.01}
-                    value={p[key]}
-                    onChange={(e) => field(key, Number(e.target.value))}
-                  />
-                </Field>
-              ))}
+              )
+                .filter(
+                  ([key]) =>
+                    !p.v2 || (key !== "time_weight" && key !== "vote_weight"),
+                )
+                .map(([key, label]) => (
+                  <Field key={key} label={label}>
+                    <input
+                      aria-label={label}
+                      type="number"
+                      min={0}
+                      max={1}
+                      step={0.01}
+                      value={p[key]}
+                      onChange={(e) => field(key, Number(e.target.value))}
+                    />
+                  </Field>
+                ))}
             </div>
             <Field label="邻域样本下限">
               <input
@@ -256,8 +293,14 @@ export function RankingConfig({
               />
             </Field>
             <div className="ranking-formula">
-              S = 100 × clip[G + α × max(C − G, 0) − βV − T]
-              <br />R = 100 × clip[C + γA(1 − C) − βV − T]
+              {p.v2 ? (
+                "直算 + 年代相对 → 总体百分位融合 → 类型调整 + 年代偏好"
+              ) : (
+                <>
+                  S = 100 × clip[G + α × max(C − G, 0) − βV − T]
+                  <br />R = 100 × clip[C + γA(1 − C) − βV − T]
+                </>
+              )}
             </div>
             <p className="ranking-hint">
               上传邻域依次扩展到 ±6、±12、±24
@@ -266,12 +309,13 @@ export function RankingConfig({
           </div>
         </details>
         <footer className="ranking-config-footer">
-          <span>MetaRecall v1</span>
+          <span>{p.v2 ? "MetaRecall v2 · 元数据模式" : "MetaRecall v1"}</span>
           <Button
             type="button"
             onClick={() =>
               onChange({
                 ...defaults,
+                ...(p.v2 ? { v2: v2Defaults() } : {}),
                 ratings: [...defaults.ratings],
                 quotas: [...defaults.quotas],
               })

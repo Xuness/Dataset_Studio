@@ -617,7 +617,8 @@ function BrowserContent({
   function chooseOrder(value: string) {
     if (value.startsWith("ranking:")) {
       ranked.change({
-        sort: value.slice(8) as "saved" | "main" | "rescue" | "input",
+        sort: value.slice(8) as
+          "saved" | "main" | "rescue" | "input" | "direct" | "fused",
       });
     } else {
       if (ranked.info) ranked.change({ sort: "off", startPostId: null });
@@ -862,8 +863,18 @@ function BrowserContent({
           {ranked.info && (
             <optgroup label="排名排序">
               <option value="ranking:saved">保存时的榜单顺序</option>
-              <option value="ranking:main">主排名</option>
-              <option value="ranking:rescue">补救排名</option>
+              <option value="ranking:main">
+                {ranked.info.schema_version >= 2 ? "筛选优先级" : "主排名"}
+              </option>
+              <option value="ranking:rescue">
+                {ranked.info.schema_version >= 2 ? "年代相对排名" : "补救排名"}
+              </option>
+              {ranked.info.schema_version >= 2 && (
+                <>
+                  <option value="ranking:direct">直算排名</option>
+                  <option value="ranking:fused">融合排名</option>
+                </>
+              )}
               <option value="ranking:input">排名输入顺序</option>
             </optgroup>
           )}

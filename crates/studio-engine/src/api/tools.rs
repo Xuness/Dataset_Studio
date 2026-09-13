@@ -60,7 +60,7 @@ pub(super) async fn submit(
             let job = s
                 .store
                 .submit_registered_job(&pid, &request, &frozen, capture)?;
-            if job.operator == domain::RANKING_OPERATOR && job.stage.is_none() {
+            if domain::is_ranking_operator(&job.operator) && job.stage.is_none() {
                 s.store.job_stage(
                     &pid,
                     &job.id,
