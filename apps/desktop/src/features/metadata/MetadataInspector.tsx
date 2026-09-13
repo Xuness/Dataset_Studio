@@ -4,6 +4,8 @@ import { StudioError } from "@studio/client";
 import type { StudioClient } from "@studio/client";
 import type { Asset, MetadataField, MetadataValue } from "@studio/contracts";
 import { useMetadata } from "./useMetadata.js";
+import { useQuery } from "@tanstack/react-query";
+import { RankingInputEvidence } from "../ranking/RankingInputEvidence.js";
 
 const labels: Record<string, string> = {
   rating: "分级",
@@ -108,7 +110,35 @@ export function MetadataInspector({
   projectId: string;
   asset: Asset;
 }) {
-  const state = useMetadata(client, projectId, asset.key);
+  const ranking = asset.ranking;
+  const snapshot = useQuery({
+    queryKey: [
+      "project",
+      projectId,
+      "ranking-row",
+      ranking?.artifact_id,
+      ranking?.ordinal,
+    ],
+    queryFn: ({ signal }) =>
+      client.ranking.row(
+        projectId,
+        ranking!.artifact_id,
+        ranking!.ordinal,
+        signal,
+      ),
+    enabled: !!ranking?.record_id,
+    staleTime: Infinity,
+  });
+  const fixed = snapshot.data?.input;
+  const matches =
+    fixed?.source_id === asset.key.source_id &&
+    fixed?.asset_id === asset.key.asset_id;
+  const state = useMetadata(
+    client,
+    projectId,
+    asset.key,
+    matches ? fixed : undefined,
+  );
   const { overview, observations, raw, data, record, observation } = state;
   return (
     <section className="metadata-inspector" aria-label="元数据检查">
@@ -123,6 +153,16 @@ export function MetadataInspector({
           <RotateCw size={13} />
         </button>
       </div>
+      {ranking?.record_id && snapshot.isPending && (
+        <p role="status">正在读取评分依据…</p>
+      )}
+      {ranking && snapshot.error && (
+        <Failure
+          error={snapshot.error}
+          refresh={() => void snapshot.refetch()}
+        />
+      )}
+      {matches && fixed && <RankingInputEvidence input={fixed} />}
       {overview.isPending && (
         <p className="metadata-message" role="status">
           正在读取对象关联…
@@ -194,6 +234,14 @@ export function MetadataInspector({
                     value={record?.record_id ?? ""}
                     onChange={(e) => state.selectRecord(e.target.value)}
                   >
+                    {record &&
+                      !data.records.some(
+                        (r) => r.record_id === record.record_id,
+                      ) && (
+                        <option value={record.record_id}>
+                          评分记录 #{record.post_id ?? "未知"}
+                        </option>
+                      )}
                     {data.records.map((r) => (
                       <option key={r.record_id} value={r.record_id}>
                         {r.post_id ? `条目 #${r.post_id}` : "无条目编号"} ·{" "}
@@ -203,6 +251,11 @@ export function MetadataInspector({
                   </select>
                 </label>
                 <div className="metadata-paging">
+                  {state.focused && (
+                    <button onClick={state.browseHistory}>
+                      浏览此帖其他观察
+                    </button>
+                  )}
                   <span>本页 {data.records.length} 条记录</span>
                   {state.recordCursor && (
                     <button onClick={() => state.pageRecords()}>
@@ -363,9 +416,17 @@ export function MetadataInspector({
                           </p>
                         </details>
                         <div className="metadata-raw">
+                          <p className="metadata-basis">
+                            原始元数据：帖子 #{observation.post_id ?? "未知"} ·{" "}
+                            {observation.observed_at?.slice(0, 10) ??
+                              "观察时间未知"}
+                          </p>
                           <Button
                             onClick={state.requestRaw}
-                            disabled={state.rawRequested}
+                            disabled={
+                              state.rawRequested ||
+                              (!!ranking?.record_id && snapshot.isPending)
+                            }
                           >
                             <FileJson2 size={13} />
                             读取原始元数据

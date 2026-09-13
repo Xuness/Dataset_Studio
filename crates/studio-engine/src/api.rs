@@ -426,7 +426,7 @@ async fn metadata(
         .await?,
     ))
 }
-#[utoipa::path(get,path="/v1/projects/{project_id}/sources/{source_id}/assets/{asset_id}/records/{record_id}/observations",params(("project_id"=String,Path),("source_id"=String,Path),("asset_id"=String,Path),("record_id"=String,Path),("cursor"=Option<String>,Query),("limit"=Option<usize>,Query),("version"=Option<String>,Query)),responses((status=200,body=ObservationPage),(status=409,body=ApiError),(status=503,body=ApiError)))]
+#[utoipa::path(get,path="/v1/projects/{project_id}/sources/{source_id}/assets/{asset_id}/records/{record_id}/observations",params(("project_id"=String,Path),("source_id"=String,Path),("asset_id"=String,Path),("record_id"=String,Path),("cursor"=Option<String>,Query),("limit"=Option<usize>,Query),("version"=Option<String>,Query),("observation_id"=Option<String>,Query)),responses((status=200,body=ObservationPage),(status=409,body=ApiError),(status=503,body=ApiError)))]
 async fn observations(
     State(s): State<AppState>,
     Extension(read_context): Extension<RequestReadContext>,
@@ -1373,6 +1373,7 @@ async fn shutdown(State(s): State<AppState>) -> Json<OkResponse> {
         tools::operators,
         ranking::summary,
         ranking::rows,
+        ranking::row,
         ranking::count,
         ranking::evidence,
         ranking::workset,
@@ -1555,6 +1556,10 @@ pub fn routes() -> axum::Router<AppState> {
         .route(
             "/v1/projects/{pid}/artifacts/{aid}/ranking/rows",
             post(ranking::rows),
+        )
+        .route(
+            "/v1/projects/{pid}/artifacts/{aid}/ranking/rows/{ordinal}",
+            get(ranking::row),
         )
         .route(
             "/v1/projects/{pid}/artifacts/{aid}/ranking/count",

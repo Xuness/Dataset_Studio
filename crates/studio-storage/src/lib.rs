@@ -17,7 +17,7 @@ mod artifacts;
 mod browse_scopes;
 mod derived_fields;
 mod drafts;
-pub use derived_fields::{artifact_field_id, native_spec};
+pub use derived_fields::{artifact_field_id, native_spec, ranking_field_id};
 mod cache_cleanup;
 mod job_scopes;
 mod job_telemetry;

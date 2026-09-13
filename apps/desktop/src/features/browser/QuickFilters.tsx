@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Filter, Play, X, Save, LoaderCircle } from "lucide-react";
 import {
@@ -12,12 +12,15 @@ import {
   filterConditions,
   filterError,
   queryCacheLabel,
+  browseScopeIdentity,
 } from "@studio/ui";
 import type { BrowseFilters, BrowseScope, ModuleContext } from "@studio/ui";
 import type { QuerySpec, QueryResult } from "@studio/contracts";
 import type { StudioClient } from "@studio/client";
+import { rankableScope } from "./rankingBrowse.js";
 
 type FilterDraft = {
+  ratingUpgrade?: boolean;
   filters: BrowseFilters;
   baseScope: BrowseScope | null;
   resultId: string | null;
@@ -98,6 +101,19 @@ export function QuickFilters({ context }: { context: ModuleContext }) {
     (browser.scope.id === value.resultId ||
       browser.scope.id === value.retiredResult);
   const base = ownedView && value.baseScope ? value.baseScope : browser.scope;
+  const rankingTarget = rankableScope(projectId, base);
+  const rankingInfo = useQuery({
+    queryKey: ["project", projectId, "quick-filter-ranking", rankingTarget],
+    queryFn: ({ signal }) =>
+      client.ranking.browseInfo(projectId, rankingTarget!, signal),
+    enabled: !!rankingTarget,
+    staleTime: 15000,
+  });
+  const rankingArtifact =
+    typeof rankingInfo.data?.ranking?.current_rating_filter === "boolean"
+      ? rankingInfo.data.ranking.artifact_id
+      : undefined;
+  const checkingRating = !!rankingTarget && rankingInfo.isPending;
   const option =
     base.kind === "all"
       ? undefined
@@ -117,7 +133,12 @@ export function QuickFilters({ context }: { context: ModuleContext }) {
     sourceIds.length > 0 &&
     (base.kind === "all" || !!option) &&
     option?.count !== 0;
-  const clauses = filterConditions(value.filters);
+  const originalClauses = filterConditions(value.filters);
+  const clauses = originalClauses.map((c) =>
+    c.field === "rating" && rankingArtifact
+      ? { ...c, field: `project.${rankingArtifact}.rating` }
+      : c,
+  );
   const signature = JSON.stringify(clauses);
   const issue = filterError(value.filters);
   const result = useQuery({
@@ -133,6 +154,20 @@ export function QuickFilters({ context }: { context: ModuleContext }) {
   const building =
     !!value.resultId &&
     (!result.data || ["queued", "running"].includes(result.data.state));
+  const migrationInfo = useQuery({
+    queryKey: ["project", projectId, "quick-filter-upgrade", value.resultId],
+    queryFn: ({ signal }) =>
+      client.ranking.browseInfo(
+        projectId,
+        {
+          project_id: projectId,
+          target: { kind: "query_result", result_id: value.resultId! },
+        },
+        signal,
+      ),
+    enabled: !!value.ratingUpgrade && result.data?.state === "ready",
+    staleTime: Infinity,
+  });
   const buildSpec = (): QuerySpec => ({
     version: 3,
     source_ids: sourceIds,
@@ -179,6 +214,25 @@ export function QuickFilters({ context }: { context: ModuleContext }) {
         browser.scope.kind === "result" &&
         browser.scope.id !== result.data.id)
     ) {
+      if (value.ratingUpgrade) {
+        if (migrationInfo.isPending) return;
+        const next = migrationInfo.data?.ranking;
+        if (next && browser.rankedBrowse) {
+          browser.onRankedBrowse({
+            ...browser.rankedBrowse,
+            scopeKey: next.view_key,
+            sourceScopeKey: JSON.stringify(
+              browseScopeIdentity({
+                kind: "result",
+                id: result.data.id,
+                name: "筛选",
+              }),
+            ),
+            startPostId: null,
+            startCursor: null,
+          });
+        }
+      }
       context.onResult(result.data, "筛选 · " + scopeName(value.baseScope));
       return;
     }
@@ -189,7 +243,11 @@ export function QuickFilters({ context }: { context: ModuleContext }) {
       value.retiredResult !== result.data.id
     ) {
       const id = value.retiredResult;
-      draft.controller.set((v) => ({ ...v, retiredResult: null }));
+      draft.controller.set((v) => ({
+        ...v,
+        retiredResult: null,
+        ratingUpgrade: false,
+      }));
       void release(id);
     }
   }, [
@@ -200,16 +258,21 @@ export function QuickFilters({ context }: { context: ModuleContext }) {
     context.onResult,
     draft.controller,
     ownedView,
+    value.ratingUpgrade,
+    migrationInfo.data,
+    migrationInfo.isPending,
   ]);
-  async function run() {
+  async function run(upgrade = false) {
     if (!clauses.length) {
       clear();
       return;
     }
-    if (!usable || issue) return;
+    if (!usable || issue || checkingRating) return;
     setPending(true);
     setError(null);
-    setNotice("");
+    setNotice(
+      upgrade ? "正在按评分分级更新旧筛选；完成后复用新的成员缓存。" : "",
+    );
     try {
       if (building && value.resultId)
         await client.queries.cancel(projectId, value.resultId);
@@ -221,6 +284,7 @@ export function QuickFilters({ context }: { context: ModuleContext }) {
         resultId: next.id,
         submitted: signature,
         retiredResult: ownedView ? (v.retiredResult ?? v.resultId) : null,
+        ratingUpgrade: upgrade,
       }));
       await cache.invalidateQueries({
         queryKey: ["project", projectId, "query-results"],
@@ -231,6 +295,44 @@ export function QuickFilters({ context }: { context: ModuleContext }) {
       setPending(false);
     }
   }
+  const upgrading = useRef<string | null>(null);
+  useEffect(() => {
+    // Upgrade only an unchanged browser-owned legacy filter, retaining the old
+    // immutable result. Unsubmitted user edits are never applied automatically.
+    const legacy =
+      JSON.stringify(originalClauses) === value.submitted &&
+      result.data?.spec.conditions.some((c) => c.field === "rating");
+    const interruptedUpgrade =
+      result.data?.state === "interrupted" &&
+      !!value.retiredResult &&
+      signature === value.submitted &&
+      result.data.spec.conditions.some(
+        (c) => c.field === `project.${rankingArtifact}.rating`,
+      );
+    if (
+      !ownedView ||
+      !rankingArtifact ||
+      !draft.editable ||
+      pending ||
+      building ||
+      !value.resultId ||
+      upgrading.current === value.resultId ||
+      (!legacy && !interruptedUpgrade)
+    )
+      return;
+    upgrading.current = value.resultId;
+    void run(true);
+  }, [
+    ownedView,
+    rankingArtifact,
+    draft.editable,
+    pending,
+    building,
+    value.resultId,
+    value.submitted,
+    signature,
+    result.data,
+  ]);
   function clear() {
     const id = value.resultId;
     draft.controller.set(initial);
@@ -305,6 +407,9 @@ export function QuickFilters({ context }: { context: ModuleContext }) {
         )}
       </div>
       <DraftStatus controller={draft.controller} quiet />
+      {rankingInfo.error && (
+        <ErrorDetails error={rankingInfo.error} title="无法读取评分分级依据" />
+      )}
       {expanded && (
         <form
           onSubmit={(e) => {
@@ -314,7 +419,13 @@ export function QuickFilters({ context }: { context: ModuleContext }) {
         >
           <fieldset
             className="draft-fields"
-            disabled={!draft.editable || pending || !usable}
+            disabled={
+              !draft.editable ||
+              pending ||
+              !usable ||
+              checkingRating ||
+              rankingInfo.isError
+            }
           >
             <FiltersEditor
               value={value.filters}
@@ -324,7 +435,9 @@ export function QuickFilters({ context }: { context: ModuleContext }) {
             />
             <div className="quick-filter-actions">
               <span className="subtle">
-                各组条件同时满足；分级多选为任一满足。
+                {rankingArtifact
+                  ? "分级按评分时的快照筛选；标签按当前元数据筛选。"
+                  : "各组条件同时满足；分级多选为任一满足。"}
               </span>
               <span className="grow" />
               {value.resultId && signature !== value.submitted && (

@@ -88,6 +88,7 @@ pub struct RawMetadata {
 }
 #[derive(Debug, Clone, Default)]
 pub struct MetadataRequest {
+    pub observation_id: Option<String>,
     pub cursor: Option<String>,
     pub limit: Option<usize>,
     pub version: Option<String>,

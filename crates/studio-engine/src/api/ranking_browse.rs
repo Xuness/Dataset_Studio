@@ -308,6 +308,8 @@ fn annotation(
     scores: domain::RankingScores,
 ) -> AssetRanking {
     AssetRanking {
+        record_id: input.record_id.clone(),
+        observation_id: input.observation_id.clone(),
         v2: scores.v2.map(Into::into),
         artifact_id: aid.into(),
         ordinal: scores.ordinal,

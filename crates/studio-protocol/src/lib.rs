@@ -14,6 +14,8 @@ mod settings;
 pub use settings::*;
 mod ranking;
 pub use ranking::*;
+mod ranking_evidence;
+pub use ranking_evidence::*;
 mod ranking_v2;
 pub use ranking_v2::*;
 mod ranking_browse;

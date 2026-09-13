@@ -618,6 +618,54 @@
         }
       }
     },
+    "/v1/projects/{project_id}/artifacts/{artifact_id}/ranking/rows/{ordinal}": {
+      "get": {
+        "tags": [
+          "ranking"
+        ],
+        "operationId": "ranking_row",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "artifact_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ordinal",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RankingRow"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/projects/{project_id}/artifacts/{artifact_id}/ranking/worksets": {
       "post": {
         "tags": [
@@ -3608,6 +3656,14 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "observation_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -4653,6 +4709,12 @@
             ],
             "format": "double"
           },
+          "observation_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "ordinal": {
             "type": "integer",
             "format": "int64",
@@ -4665,6 +4727,12 @@
             ]
           },
           "rating": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "record_id": {
             "type": [
               "string",
               "null"
@@ -5390,6 +5458,13 @@
           },
           "value": {}
         }
+      },
+      "DuplicateHeat": {
+        "type": "string",
+        "enum": [
+          "highest",
+          "sum"
+        ]
       },
       "EditObject": {
         "type": "object",
@@ -6194,6 +6269,12 @@
               "null"
             ],
             "minimum": 0
+          },
+          "observation_id": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "version": {
             "type": [
@@ -7696,6 +7777,7 @@
       "RankedScope": {
         "type": "object",
         "required": [
+          "current_rating_filter",
           "view_key",
           "schema_version",
           "workset_id",
@@ -7715,6 +7797,9 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          },
+          "current_rating_filter": {
+            "type": "boolean"
           },
           "saved_filter": {
             "$ref": "#/components/schemas/RankingFilter"
@@ -7873,6 +7958,48 @@
           }
         },
         "additionalProperties": false
+      },
+      "RankingDuplicateEvidence": {
+        "type": "object",
+        "required": [
+          "policy",
+          "metadata",
+          "heat",
+          "post_count",
+          "omitted_posts",
+          "partial_counts",
+          "counts_clamped"
+        ],
+        "properties": {
+          "counts_clamped": {
+            "type": "boolean"
+          },
+          "heat": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RankingObservation"
+            }
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/RankingObservation"
+          },
+          "omitted_posts": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "partial_counts": {
+            "type": "boolean"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/DuplicateHeat"
+          },
+          "post_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
       },
       "RankingEligibility": {
         "type": "string",
@@ -8035,6 +8162,16 @@
             "format": "int64",
             "minimum": 0
           },
+          "evidence": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RankingDuplicateEvidence"
+              }
+            ]
+          },
           "fav_count": {
             "type": [
               "string",
@@ -8190,6 +8327,85 @@
           "select"
         ]
       },
+      "RankingObservation": {
+        "type": "object",
+        "required": [
+          "record_id",
+          "observation_id",
+          "time_quality"
+        ],
+        "properties": {
+          "created_at_us": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "down_score": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fav_count": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "is_deleted": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "observation_id": {
+            "type": "string"
+          },
+          "observed_at_us": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "post_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rating": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "record_id": {
+            "type": "string"
+          },
+          "score": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "time_quality": {
+            "type": "string"
+          },
+          "up_score": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updated_at_us": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "RankingOrder": {
         "type": "string",
         "enum": [
@@ -8307,6 +8523,16 @@
           "damage_weight": {
             "type": "number",
             "format": "double"
+          },
+          "duplicate_heat": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DuplicateHeat"
+              }
+            ]
           },
           "exclude_banned": {
             "type": "boolean"

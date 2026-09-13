@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 /// A fixed member scope that can read ordering and scores from an immutable result.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RankedScope {
+    pub current_rating_filter: bool,
     /// Stable member revision, independent of user-visible query aliases.
     pub index_scope: crate::ScopeRef,
     /// Stable presentation identity across refreshes of the same filter.

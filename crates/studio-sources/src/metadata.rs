@@ -583,7 +583,16 @@ impl MetadataAdapter for MetadataReader {
             .map(|(_, column, _)| format!("left(CAST({column} AS VARCHAR),8193)"))
             .collect::<Vec<_>>()
             .join(",");
-        let rows=session.db.query(&format!("SELECT observation_id,CAST(row_id AS VARCHAR),CAST(post_id AS VARCHAR),source_key,source_kind,CAST(observed_at AS VARCHAR),time_quality,CAST(ingested_at AS VARCHAR),CAST(commit_seq AS VARCHAR),{projection} FROM observations WHERE ({}) AND row_id>{after} ORDER BY row_id LIMIT {}",observation_predicate(&record),limit+1))?;
+        let focus = if let Some(id) = &request.observation_id {
+            sha(id)?;
+            if request.cursor.is_some() {
+                return Err(Error::invalid("指定观察不能同时使用分页游标"));
+            }
+            format!(" AND observation_id={}", quote(id))
+        } else {
+            String::new()
+        };
+        let rows=session.db.query(&format!("SELECT observation_id,CAST(row_id AS VARCHAR),CAST(post_id AS VARCHAR),source_key,source_kind,CAST(observed_at AS VARCHAR),time_quality,CAST(ingested_at AS VARCHAR),CAST(commit_seq AS VARCHAR),{projection} FROM observations WHERE ({}) AND row_id>{after}{focus} ORDER BY row_id LIMIT {}",observation_predicate(&record),limit+1))?;
         let more = rows.len() > limit;
         let items = rows
             .iter()

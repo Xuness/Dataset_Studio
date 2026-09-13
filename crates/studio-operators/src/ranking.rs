@@ -72,7 +72,7 @@ pub const DAY: i64 = 86_400_000_000;
 const BASE: &[i64] = &[0, 3, 7, 14, 30, 90, 365, 1095, 2555, i64::MAX];
 const COARSE: &[i64] = &[0, 7, 30, 365, 2555, i64::MAX];
 const BROAD: &[i64] = &[0, 30, 365, 2555, i64::MAX];
-const FLAG_NAMES: [&str; 14] = [
+const FLAG_NAMES: [&str; 16] = [
     "fav_unknown_or_invalid",
     "up_unknown_or_invalid",
     "down_unknown_or_invalid",
@@ -87,6 +87,8 @@ const FLAG_NAMES: [&str; 14] = [
     "rating_conflict",
     "source_issues",
     "cohort_insufficient",
+    "duplicate_heat_partial",
+    "duplicate_heat_clamped",
 ];
 pub fn flag_names(bits: u64) -> Vec<String> {
     FLAG_NAMES
@@ -170,6 +172,8 @@ pub fn flags(input: &RankingInput) -> u64 {
             .as_deref()
             .is_some_and(|s| !matches!(s.trim(), "" | "[]" | "{}" | "null")),
         false,
+        input.evidence.as_ref().is_some_and(|e| e.partial_counts),
+        input.evidence.as_ref().is_some_and(|e| e.counts_clamped),
     ];
     values
         .iter()

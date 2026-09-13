@@ -40,6 +40,7 @@ export type ReadVersion = Schema["ReadVersion"];
 export type RankingParameters = Schema["RankingParameters"];
 export type RankingFilter = Schema["RankingFilter"];
 export type RankingRow = Schema["RankingRow"];
+export type RankingInput = Schema["RankingInput"];
 export type RankingScores = Schema["RankingScores"];
 export type RankingSummary = Schema["RankingSummary"];
 export type RankingEligibility = Schema["RankingEligibility"];

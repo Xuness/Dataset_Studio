@@ -73,7 +73,9 @@ pub fn prepare(
         remove_partial(staging, name)?;
     }
     let input_path = staging.join("input.sqlite");
-    let mut table = if p.v2.is_some() {
+    let mut table = if p.duplicate_heat.is_some() {
+        RankingInputTable::create_enriched(&input_path, p.v2.is_some())?
+    } else if p.v2.is_some() {
         RankingInputTable::create_v2(&input_path)?
     } else {
         RankingInputTable::create(&input_path)?
@@ -599,6 +601,7 @@ pub fn validate_output_progress(
     let summary: RankingSummary = output.meta("summary")?;
     let p = parameters(&plan.run)?;
     if input.is_v2()? != p.v2.is_some()
+        || input.has_evidence()? != p.duplicate_heat.is_some()
         || output.is_v2()? != p.v2.is_some()
         || summary.schema_version != if p.v2.is_some() { 2 } else { 1 }
         || !output.meta::<bool>("complete")?

@@ -54,6 +54,7 @@ export function validateConnection(value: unknown): EngineConnection {
 export const assetIdentity = (key: AssetKey) =>
   key.source_id + ":" + key.asset_id;
 export type MetadataOptions = {
+  observationId?: string;
   cursor?: string;
   limit?: number;
   version?: string;
@@ -74,6 +75,7 @@ function metadataQuery(options: MetadataOptions) {
   if (options.cursor) query.set("cursor", options.cursor);
   if (options.limit !== undefined) query.set("limit", String(options.limit));
   if (options.version) query.set("version", options.version);
+  if (options.observationId) query.set("observation_id", options.observationId);
   return query;
 }
 export class StudioClient {

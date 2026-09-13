@@ -62,6 +62,16 @@ export function RankingOverview({
           </p>
           <dl className="ranking-property-values">
             <div>
+              <dt>重复帖热度</dt>
+              <dd>
+                {p.duplicate_heat === "sum"
+                  ? "不同帖子求和"
+                  : p.duplicate_heat === "highest"
+                    ? "取较高记录"
+                    : "旧代表记录规则"}
+              </dd>
+            </div>
+            <div>
               <dt>{configuration ? "图片对象" : "固定输入"}</dt>
               <dd>{number(configuration ? count : summary?.input_count)}</dd>
             </div>

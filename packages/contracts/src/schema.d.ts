@@ -255,6 +255,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{project_id}/artifacts/{artifact_id}/ranking/rows/{ordinal}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["ranking_row"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects/{project_id}/artifacts/{artifact_id}/ranking/worksets": {
         parameters: {
             query?: never;
@@ -1517,10 +1533,12 @@ export interface components {
             main_rank?: number | null;
             /** Format: double */
             main_score?: number | null;
+            observation_id?: string | null;
             /** Format: int64 */
             ordinal: number;
             post_id?: string | null;
             rating?: string | null;
+            record_id?: string | null;
             /** Format: int64 */
             rescue_rank?: number | null;
             /** Format: double */
@@ -1702,6 +1720,8 @@ export interface components {
             updated_at: string;
             value: unknown;
         };
+        /** @enum {string} */
+        DuplicateHeat: "highest" | "sum";
         EditObject: {
             /** Format: int64 */
             expected_revision: number;
@@ -1898,6 +1918,7 @@ export interface components {
         MetadataQuery: {
             cursor?: string | null;
             limit?: number | null;
+            observation_id?: string | null;
             version?: string | null;
         };
         MetadataValue: {
@@ -2272,6 +2293,7 @@ export interface components {
             artifact_name: string;
             /** Format: int64 */
             count: number;
+            current_rating_filter: boolean;
             saved_filter: components["schemas"]["RankingFilter"];
             /** Format: int32 */
             schema_version: number;
@@ -2312,6 +2334,17 @@ export interface components {
         RankingCountRequest: {
             filter: components["schemas"]["RankingFilter"];
         };
+        RankingDuplicateEvidence: {
+            counts_clamped: boolean;
+            heat: components["schemas"]["RankingObservation"][];
+            metadata: components["schemas"]["RankingObservation"];
+            /** Format: int64 */
+            omitted_posts: number;
+            partial_counts: boolean;
+            policy: components["schemas"]["DuplicateHeat"];
+            /** Format: int64 */
+            post_count: number;
+        };
         /** @enum {string} */
         RankingEligibility: "eligible" | "metadata_unavailable" | "rating_unknown" | "rating_excluded" | "dimensions_unknown" | "dimensions_excluded" | "policy_excluded" | "duplicate";
         RankingEvidence: {
@@ -2349,6 +2382,7 @@ export interface components {
             down_score?: string | null;
             /** Format: int64 */
             duplicate_of?: number | null;
+            evidence?: null | components["schemas"]["RankingDuplicateEvidence"];
             fav_count?: string | null;
             is_banned?: boolean | null;
             is_deleted?: boolean | null;
@@ -2383,6 +2417,21 @@ export interface components {
         };
         /** @enum {string} */
         RankingMode: "rank" | "select";
+        RankingObservation: {
+            created_at_us?: string | null;
+            down_score?: string | null;
+            fav_count?: string | null;
+            is_deleted?: boolean | null;
+            observation_id: string;
+            observed_at_us?: string | null;
+            post_id?: string | null;
+            rating?: string | null;
+            record_id: string;
+            score?: string | null;
+            time_quality: string;
+            up_score?: string | null;
+            updated_at_us?: string | null;
+        };
         /** @enum {string} */
         RankingOrder: "main" | "rescue" | "input" | "direct" | "fused";
         RankingPage: {
@@ -2408,6 +2457,7 @@ export interface components {
             damage_enabled: boolean;
             /** Format: double */
             damage_weight: number;
+            duplicate_heat?: null | components["schemas"]["DuplicateHeat"];
             exclude_banned: boolean;
             /** Format: int32 */
             minimum_stored_side?: number | null;
@@ -3320,6 +3370,29 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RankingPage"];
+                };
+            };
+        };
+    };
+    ranking_row: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                artifact_id: string;
+                ordinal: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RankingRow"];
                 };
             };
         };
@@ -4936,6 +5009,7 @@ export interface operations {
                 cursor?: string;
                 limit?: number;
                 version?: string;
+                observation_id?: string;
             };
             header?: never;
             path: {

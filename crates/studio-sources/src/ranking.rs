@@ -84,7 +84,17 @@ impl RankingReader {
         let columns = "s.ordinal,s.basis,a.asset_id AS record_id,a.observation_id AS origin_observation_id,o.observation_id,o.post_id,o.rating,epoch_us(o.created_at) AS created_at_us,epoch_us(o.observed_at) AS observed_at_us,epoch_us(o.updated_at) AS updated_at_us,o.time_quality,o.source_priority,o.fav_count,o.up_score,o.down_score,o.score,o.tag_string_artist,o.tag_string,o.parent_id,o.is_banned,o.is_deleted,o.is_pending,o.is_flagged,CASE WHEN list_contains(string_split(o.tag_string,' '),'jpeg_artifacts') THEN 1 ELSE 0 END+CASE WHEN list_contains(string_split(o.tag_string,' '),'scan_artifacts') THEN 2 ELSE 0 END AS damage_classes,o.tag_string IS NOT NULL AS tags_known,CASE WHEN length(o.issues_json)>4096 THEN '[\"source_issues_truncated\"]' ELSE o.issues_json END AS source_issues";
         let mut branches = Vec::new();
         for (index, spec) in definitions {
-            let predicate = ranking_predicate(spec)?;
+            // Membership is already frozen. The new image policy considers all
+            // current posts describing that exact image, even when another post
+            // originally matched the query. Explicit historical scopes retain
+            // their original observation predicates.
+            let predicate = if parameters.duplicate_heat.is_some()
+                && spec.observation_rule == ObservationRule::CurrentPost
+            {
+                "1=1".into()
+            } else {
+                ranking_predicate(spec)?
+            };
             match spec.observation_rule {
                 ObservationRule::CurrentPost=>branches.push(format!("SELECT {columns} FROM ranking_scope s JOIN assets a ON a.sha256=s.sha256 JOIN current_posts cp ON cp.asset_id=a.asset_id JOIN observations o ON o.row_id=cp.row_id WHERE s.basis={index} AND ({predicate})")),
                 ObservationRule::AnyObservation=>{
@@ -102,7 +112,13 @@ impl RankingReader {
         // Such a day uses updated_at as the next comparison key for every peer.
         db.query("CREATE TEMP TABLE ranking_observation_order AS SELECT *,CASE WHEN time_quality IN ('exact','date_only') THEN observed_at_us//86400000000 ELSE NULL END AS observed_day,count(DISTINCT record_id) OVER (PARTITION BY ordinal) AS record_count,count(DISTINCT rating) OVER (PARTITION BY ordinal)>1 AS rating_conflict FROM ranking_observations")?;
         db.query("CREATE TEMP TABLE ranking_observation_precision AS SELECT *,max(CASE WHEN time_quality='date_only' THEN 1 ELSE 0 END) OVER (PARTITION BY ordinal,observed_day) AS coarse_day FROM ranking_observation_order")?;
-        db.query(&format!("CREATE TEMP TABLE ranking_chosen AS SELECT * EXCLUDE(position) FROM (SELECT *,row_number() OVER (PARTITION BY ordinal ORDER BY CASE WHEN rating IN ({ratings}) THEN 0 ELSE 1 END,observed_day DESC NULLS LAST,CASE WHEN coarse_day=0 THEN observed_at_us ELSE NULL END DESC NULLS LAST,updated_at_us DESC NULLS LAST,source_priority DESC NULLS LAST,observation_id,record_id,basis) AS position FROM ranking_observation_precision) WHERE position=1"))?;
+        db.query("DROP TABLE ranking_observations; DROP TABLE ranking_observation_order")?;
+        if let Some(policy) = parameters.duplicate_heat {
+            crate::ranking_duplicates::prepare(&db, policy)?;
+        } else {
+            db.query(&format!("CREATE TEMP TABLE ranking_chosen AS SELECT * EXCLUDE(position) FROM (SELECT *,row_number() OVER (PARTITION BY ordinal ORDER BY CASE WHEN rating IN ({ratings}) THEN 0 ELSE 1 END,observed_day DESC NULLS LAST,CASE WHEN coarse_day=0 THEN observed_at_us ELSE NULL END DESC NULLS LAST,updated_at_us DESC NULLS LAST,source_priority DESC NULLS LAST,observation_id,record_id,basis) AS position FROM ranking_observation_precision) WHERE position=1"))?;
+        }
+        db.query("DROP TABLE ranking_observation_precision")?;
         if dimensions {
             db.query("CREATE TEMP TABLE ranking_direct_dimensions AS SELECT c.ordinal,c.origin_observation_id,TRY_CAST(try(json_extract_string(a.details_json,'$.stored_width')) AS BIGINT) AS w,TRY_CAST(try(json_extract_string(a.details_json,'$.stored_height')) AS BIGINT) AS h FROM ranking_chosen c JOIN assets a ON a.asset_id=c.record_id")?;
             db.query("CREATE TEMP TABLE ranking_raw_dimensions AS SELECT d.ordinal,TRY_CAST(try(json_extract_string(r.source_metadata_json,'$.raw_stored_width')) AS BIGINT) AS w,TRY_CAST(try(json_extract_string(r.source_metadata_json,'$.raw_stored_height')) AS BIGINT) AS h FROM ranking_direct_dimensions d LEFT JOIN raw_metadata r ON r.observation_id=d.origin_observation_id WHERE NOT coalesce(d.w BETWEEN 1 AND 4294967295 AND d.h BETWEEN 1 AND 4294967295,false)")?;
@@ -111,9 +127,15 @@ impl RankingReader {
             db.query("CREATE TEMP TABLE ranking_dimensions AS SELECT ordinal,NULL::BIGINT AS stored_width,NULL::BIGINT AS stored_height,'not_requested' AS dimension_basis FROM ranking_chosen")?;
         }
         let source_id = quote(&source.id);
+        let evidence = if parameters.duplicate_heat.is_some() {
+            "CAST(c.evidence_json AS JSON)"
+        } else {
+            "NULL"
+        };
         let sql = format!(
             r#"SELECT to_json(struct_pack(
             ordinal:=m.ordinal,source_id:={source_id},asset_id:=m.sha256,record_id:=c.record_id,
+            evidence:={evidence},
             observation_id:=c.observation_id,post_id:=c.post_id,rating:=c.rating,
             tags:=CASE WHEN {include_tags} THEN c.tag_string ELSE NULL END,
             created_at_us:=c.created_at_us,observed_at_us:=c.observed_at_us,updated_at_us:=c.updated_at_us,

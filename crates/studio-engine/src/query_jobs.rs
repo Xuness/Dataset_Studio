@@ -425,6 +425,12 @@ impl QueryRunner {
             &cancelled,
         )?;
         let mut basis_pins = Vec::new();
+        let ranking = crate::ranking_query::RankingQuery::open(
+            store,
+            &result.project_id,
+            &result.spec,
+            cancelled.clone(),
+        )?;
         for (expected, source) in result.source_versions.iter().zip(&sources) {
             if retain_bases
                 && source.kind == "danbooru"
@@ -458,9 +464,11 @@ impl QueryRunner {
                 stage.borrow_mut().post_ready = false;
             }
             let native = studio_storage::native_spec(&result.spec);
+            let ranked_candidates = ranking.active() && native.conditions.is_empty();
             let mut sink = |keys: &[AssetKey], processed| {
                 let scoped = store.filter_query_input(&result.project_id, &result.spec, keys)?;
-                let filtered = store.filter_derived(&result.project_id, &result.spec, &scoped)?;
+                let ranked = ranking.filter(&scoped, ranked_candidates)?;
+                let filtered = store.filter_derived(&result.project_id, &result.spec, &ranked)?;
                 let posts = if let Some(index) = &index {
                     index.post_ids(&filtered)?
                 } else {
@@ -479,7 +487,11 @@ impl QueryRunner {
                 }
                 Ok(())
             };
-            if input_count.is_some_and(|count| count <= 4096) {
+            if ranked_candidates {
+                stage.borrow_mut().full_source(&source.id);
+                let evaluated = ranking.stream(&source.id, &cancelled, &mut sink)?;
+                stage.borrow_mut().evaluated += evaluated;
+            } else if input_count.is_some_and(|count| count <= 4096) {
                 stage.borrow_mut().full_source(&source.id);
                 // Small project scopes use indexed identity predicates, not a lake scan.
                 let mut after = None;

@@ -233,6 +233,7 @@ impl From<domain::RawMetadata> for RawMetadata {
 #[derive(Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct MetadataQuery {
+    pub observation_id: Option<String>,
     pub cursor: Option<String>,
     pub limit: Option<usize>,
     pub version: Option<String>,
@@ -240,6 +241,7 @@ pub struct MetadataQuery {
 impl From<MetadataQuery> for domain::MetadataRequest {
     fn from(v: MetadataQuery) -> Self {
         Self {
+            observation_id: v.observation_id,
             cursor: v.cursor,
             limit: v.limit,
             version: v.version,

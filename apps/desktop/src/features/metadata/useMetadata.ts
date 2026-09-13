@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { StudioError, assetIdentity } from "@studio/client";
 import type { StudioClient } from "@studio/client";
-import type { AssetKey } from "@studio/contracts";
+import type { AssetKey, RankingInput } from "@studio/contracts";
 
 const queryPolicy = {
   retry: (attempt: number, error: Error) =>
@@ -20,7 +20,9 @@ export function useMetadata(
   client: StudioClient,
   projectId: string,
   key: AssetKey,
+  preferred?: RankingInput,
 ) {
+  const [followScore, setFollowScore] = useState(true);
   const [epoch, setEpoch] = useState(0);
   const [recordCursor, setRecordCursor] = useState<string>();
   const [recordId, setRecordId] = useState<string>();
@@ -44,8 +46,26 @@ export function useMetadata(
       }),
   });
   const data = overview.isError ? undefined : overview.data;
+  const preferredRecord =
+    followScore && preferred?.record_id
+      ? {
+          record_id: preferred.record_id,
+          origin_observation_id: preferred.observation_id,
+          post_id: preferred.post_id,
+          source_md5: null,
+          storage_profile: null,
+        }
+      : undefined;
   const record =
-    data?.records.find((r) => r.record_id === recordId) ?? data?.records[0];
+    data?.records.find(
+      (r) => r.record_id === (recordId ?? preferredRecord?.record_id),
+    ) ??
+    preferredRecord ??
+    data?.records[0];
+  const focused =
+    followScore && preferred?.record_id === record?.record_id
+      ? preferred?.observation_id
+      : undefined;
   const version = data?.version.token;
   const observations = useQuery({
     ...queryPolicy,
@@ -55,12 +75,14 @@ export function useMetadata(
       version,
       record?.record_id,
       observationCursor,
+      focused,
     ],
     enabled: !!record && !!version,
     queryFn: ({ signal }) =>
       client.observations(projectId, key, record!.record_id, {
         signal,
         version: version!,
+        ...(focused ? { observationId: focused } : {}),
         ...(observationCursor ? { cursor: observationCursor } : {}),
       }),
   });
@@ -104,7 +126,14 @@ export function useMetadata(
     rawRequested,
     recordCursor,
     observationCursor,
+    focused,
+    browseHistory() {
+      setFollowScore(false);
+      setRecordId(record?.record_id);
+      clearObservation();
+    },
     selectRecord(id: string) {
+      setFollowScore(false);
       setRecordId(id);
       clearObservation();
     },
@@ -113,6 +142,7 @@ export function useMetadata(
       setRawRequested(false);
     },
     pageRecords(cursor?: string) {
+      setFollowScore(false);
       setRecordCursor(cursor);
       setRecordId(undefined);
       clearObservation();
@@ -126,6 +156,7 @@ export function useMetadata(
       setRawRequested(true);
     },
     refresh() {
+      setFollowScore(true);
       setEpoch((v) => v + 1);
       setRecordCursor(undefined);
       setRecordId(undefined);

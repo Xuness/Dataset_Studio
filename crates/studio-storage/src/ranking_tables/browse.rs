@@ -13,6 +13,26 @@ pub struct RankingScan {
     pub more: bool,
 }
 
+impl RankingResultTable {
+    pub fn rating(&self, ordinal: u64) -> Result<Option<String>> {
+        self.db
+            .prepare_cached("SELECT rating FROM scores WHERE ordinal=?1")
+            .map_err(db_error)?
+            .query_row([ordinal as i64], |r| r.get(0))
+            .map_err(db_error)
+    }
+    pub fn rating_ordinals(&self, rating: &str, after: Option<u64>) -> Result<Vec<u64>> {
+        let mut s = self.db.prepare_cached("SELECT ordinal FROM scores INDEXED BY scores_rating WHERE rating=?1 AND ordinal>?2 ORDER BY ordinal LIMIT 512").map_err(db_error)?;
+        s.query_map(
+            params![rating, after.map(|n| n as i64).unwrap_or(-1)],
+            |r| unsigned(r, 0),
+        )
+        .map_err(db_error)?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(db_error)
+    }
+}
+
 impl RankingInputTable {
     pub fn ordinal_for_key(&self, key: &AssetKey) -> Result<Option<u64>> {
         self.db

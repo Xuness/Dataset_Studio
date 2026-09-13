@@ -1,6 +1,28 @@
 use super::*;
 use studio_storage::ranking_tables::{RankingInputTable, RankingPosition, RankingResultTable};
 
+#[utoipa::path(get,path="/v1/projects/{project_id}/artifacts/{artifact_id}/ranking/rows/{ordinal}",operation_id="ranking_row",params(("project_id"=String,Path),("artifact_id"=String,Path),("ordinal"=u64,Path)),responses((status=200,body=RankingRow)))]
+pub(super) async fn row(
+    State(s): State<AppState>,
+    Extension(read): Extension<RequestReadContext>,
+    Path((pid, aid, ordinal)): Path<(String, String, u64)>,
+) -> ApiResult<RankingRow> {
+    Ok(Json(
+        blocking(move || {
+            let _permit = read_permit(&s, domain::ReadClass::Index, &read)?;
+            let _lease = s.store.operation_lease(&pid)?;
+            let (artifact, scores, input) = crate::ranking::paths(&s.store, &pid, &aid)?;
+            if ordinal >= artifact.count.unwrap_or(0) {
+                return Err(domain::Error::new("NOT_FOUND", "评分记录不存在"));
+            }
+            let input = RankingInputTable::open(&input)?.row(ordinal)?;
+            let scores = RankingResultTable::open(&scores)?.row(ordinal)?;
+            Ok(domain::RankingRow { input, scores }.into())
+        })
+        .await?,
+    ))
+}
+
 #[utoipa::path(get,path="/v1/projects/{project_id}/artifacts/{artifact_id}/ranking",operation_id="ranking_summary",params(("project_id"=String,Path),("artifact_id"=String,Path)),responses((status=200,body=RankingSummary)))]
 pub(super) async fn summary(
     State(s): State<AppState>,

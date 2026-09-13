@@ -141,6 +141,8 @@ impl From<domain::RankingOrder> for RankingOrder {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct RankingParameters {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duplicate_heat: Option<crate::DuplicateHeat>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub v2: Option<crate::RankingV2Parameters>,
     pub ratings: Vec<String>,
     pub mode: RankingMode,
@@ -161,6 +163,7 @@ pub struct RankingParameters {
 impl From<domain::RankingParameters> for RankingParameters {
     fn from(v: domain::RankingParameters) -> Self {
         Self {
+            duplicate_heat: v.duplicate_heat.map(Into::into),
             v2: v.v2.map(Into::into),
             ratings: v.ratings,
             mode: v.mode.into(),
@@ -183,6 +186,8 @@ impl From<domain::RankingParameters> for RankingParameters {
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct RankingInput {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence: Option<crate::RankingDuplicateEvidence>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tags: Option<String>,
     pub ordinal: u64,
@@ -223,6 +228,7 @@ pub struct RankingInput {
 impl From<domain::RankingInput> for RankingInput {
     fn from(v: domain::RankingInput) -> Self {
         Self {
+            evidence: v.evidence.map(Into::into),
             tags: v.tags,
             ordinal: v.ordinal,
             source_id: v.source_id,

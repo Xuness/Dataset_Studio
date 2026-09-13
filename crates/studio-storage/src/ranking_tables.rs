@@ -55,12 +55,15 @@ fn score_index(filter: &RankingFilter, order: RankingOrder) -> &'static str {
         RankingOrder::Main => "scores_main",
     }
 }
-fn input_columns(v2: bool) -> String {
+fn input_columns(v2: bool, evidence: bool) -> String {
     INPUT_COLUMNS
         .split(',')
         .map(|s| format!("i.{s}"))
         .chain(std::iter::once("d.duplicate_of".into()))
         .chain(std::iter::once(if v2 { "i.tags" } else { "NULL" }.into()))
+        .chain(std::iter::once(
+            if evidence { "i.evidence_json" } else { "NULL" }.into(),
+        ))
         .collect::<Vec<_>>()
         .join(",")
 }
@@ -137,7 +140,8 @@ fn connect(path: &Path, id: i64, create: bool, writable: bool) -> Result<Connect
         let version: i64 = db
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .map_err(db_error)?;
-        if actual != id || !matches!(version, 1 | 2) {
+        if actual != id || !(matches!(version, 1 | 2) || id == INPUT_ID && matches!(version, 3 | 4))
+        {
             return Err(Error::new(
                 "RANKING_FORMAT_UNSUPPORTED",
                 "排名材料格式不兼容",
@@ -165,6 +169,18 @@ fn get_meta<T: DeserializeOwned>(db: &Connection, key: &str) -> Result<T> {
 
 fn read_input(r: &rusqlite::Row<'_>, o: usize) -> rusqlite::Result<RankingInput> {
     Ok(RankingInput {
+        evidence: r
+            .get::<_, Option<String>>(o + 35)?
+            .map(|v| {
+                serde_json::from_str(&v).map_err(|e| {
+                    rusqlite::Error::FromSqlConversionFailure(
+                        o + 35,
+                        rusqlite::types::Type::Text,
+                        Box::new(e),
+                    )
+                })
+            })
+            .transpose()?,
         tags: r.get(o + 34)?,
         ordinal: unsigned(r, o)?,
         source_id: r.get(o + 1)?,
@@ -350,6 +366,15 @@ impl RankingInputTable {
             } else {
                 None
             };
+            let mut evidence = if self.has_evidence()? {
+                Some(
+                    self.db
+                        .prepare_cached("UPDATE input_rows SET evidence_json=?1 WHERE ordinal=?2")
+                        .map_err(db_error)?,
+                )
+            } else {
+                None
+            };
             for v in rows {
                 let asset = bytes(&v.asset_id)?;
                 let record = v.record_id.as_deref().map(bytes).transpose()?;
@@ -396,6 +421,15 @@ impl RankingInputTable {
                         .execute(params![v.tags, v.ordinal as i64])
                         .map_err(db_error)?;
                 }
+                if let Some(stmt) = evidence.as_mut()
+                    && let Some(value) = &v.evidence
+                {
+                    stmt.execute(params![
+                        serde_json::to_string(value).map_err(Error::io)?,
+                        v.ordinal as i64
+                    ])
+                    .map_err(db_error)?;
+                }
             }
             Ok(())
         })();
@@ -424,7 +458,7 @@ impl RankingInputTable {
     pub fn page(&self, after: Option<u64>, rating: Option<&str>) -> Result<Vec<RankingInput>> {
         let sql = format!(
             "SELECT {} FROM input_rows i LEFT JOIN duplicate_members d USING(ordinal) WHERE i.ordinal>?1 {} ORDER BY i.ordinal LIMIT 512",
-            input_columns(self.is_v2()?),
+            input_columns(self.is_v2()?, self.has_evidence()?),
             if rating.is_some() {
                 "AND i.rating=?2"
             } else {
@@ -442,7 +476,7 @@ impl RankingInputTable {
             .map_err(db_error)
     }
     pub fn row(&self, ordinal: u64) -> Result<RankingInput> {
-        self.db.query_row(&format!("SELECT {} FROM input_rows i LEFT JOIN duplicate_members d USING(ordinal) WHERE i.ordinal=?1",input_columns(self.is_v2()?)),[ordinal as i64],|r|read_input(r,0)).map_err(db_error)
+        self.db.query_row(&format!("SELECT {} FROM input_rows i LEFT JOIN duplicate_members d USING(ordinal) WHERE i.ordinal=?1",input_columns(self.is_v2()?,self.has_evidence()?)),[ordinal as i64],|r|read_input(r,0)).map_err(db_error)
     }
     pub fn rating_counts(&self) -> Result<Vec<(Option<String>, u64)>> {
         let mut stmt = self
@@ -838,8 +872,30 @@ impl RankingInputTable {
     pub fn is_v2(&self) -> Result<bool> {
         self.db
             .pragma_query_value(None, "user_version", |r| r.get::<_, u32>(0))
-            .map(|v| v == 2)
+            .map(|v| matches!(v, 2 | 4))
             .map_err(db_error)
+    }
+    pub fn has_evidence(&self) -> Result<bool> {
+        self.db
+            .pragma_query_value(None, "user_version", |r| r.get::<_, u32>(0))
+            .map(|v| v >= 3)
+            .map_err(db_error)
+    }
+    pub fn create_enriched(path: &Path, v2: bool) -> Result<Self> {
+        let table = if v2 {
+            Self::create_v2(path)?
+        } else {
+            Self::create(path)?
+        };
+        table
+            .db
+            .execute_batch("ALTER TABLE input_rows ADD COLUMN evidence_json TEXT;")
+            .map_err(db_error)?;
+        table
+            .db
+            .pragma_update(None, "user_version", if v2 { 4 } else { 3 })
+            .map_err(db_error)?;
+        Ok(table)
     }
     pub fn create_v2(path: &Path) -> Result<Self> {
         let table = Self::create(path)?;

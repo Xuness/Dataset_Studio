@@ -962,7 +962,9 @@ function BrowserContent({
       />
       {ranked.info && (
         <div className="ranking-browse-note">
-          {ranked.info.artifact_name} · 主 / 补救名次与分数按分级独立计算
+          {ranked.info.artifact_name} · 主 /{" "}
+          {ranked.info.schema_version >= 2 ? "年代相对" : "补救"}
+          名次与分数按分级独立计算
           {ranked.active && ranked.settings.descending
             ? " · 当前沿榜单反向查看"
             : ""}

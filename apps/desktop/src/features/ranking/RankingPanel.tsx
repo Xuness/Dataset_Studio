@@ -1285,6 +1285,7 @@ export default function RankingPanel(context: ModuleContext) {
               context.management.content
             ) : focused && summary.data && d.tab === "results" ? (
               <RankingDetails
+                artifactId={d.artifactId}
                 row={focused}
                 summary={summary.data}
                 context={context}

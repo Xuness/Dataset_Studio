@@ -9,6 +9,7 @@ import type {
 } from "@studio/contracts";
 export const operatorId = "danbooru.metarecall";
 export const defaults: RankingParameters = {
+  duplicate_heat: "highest",
   ratings: ["e", "g", "q", "s"],
   mode: "rank",
   quotas: [280, 43, 10],
@@ -67,6 +68,11 @@ export function decode(value: unknown): RankingDraft | null {
   if (!record(value) || !record(value.parameters) || !record(value.filter))
     return null;
   const p = value.parameters;
+  if (
+    p.duplicate_heat != null &&
+    !["highest", "sum"].includes(String(p.duplicate_heat))
+  )
+    return null;
   if (p.v2 != null && !isV2Parameters(p.v2)) return null;
   if (value.v2Saved != null && !isV2Parameters(value.v2Saved)) return null;
   if (
@@ -105,9 +111,21 @@ export function decode(value: unknown): RankingDraft | null {
         !record(value.scope.target)))
   )
     return null;
+  if (p.duplicate_heat === undefined) {
+    return {
+      ...value,
+      parameters: { ...p, duplicate_heat: "highest" },
+      submission: null,
+    } as unknown as RankingDraft;
+  }
   return value as unknown as RankingDraft;
 }
 export function parameterIssue(p: RankingParameters): string | null {
+  if (
+    p.duplicate_heat != null &&
+    !["highest", "sum"].includes(p.duplicate_heat)
+  )
+    return "未知的重复帖热度规则。";
   if (p.v2) {
     const issue = v2Issue(p.v2);
     if (issue) return issue;
@@ -174,6 +192,8 @@ export const flagNames: Record<string, string> = {
   rating_conflict: "存在分级冲突",
   source_issues: "来源字段提示",
   cohort_insufficient: "比较群体不足",
+  duplicate_heat_partial: "重复帖仅合计已知计数",
+  duplicate_heat_clamped: "重复帖合计达到整数上限",
 };
 export const number = (n: number | null | undefined) =>
   n == null ? "待计算" : n.toLocaleString("zh-CN");

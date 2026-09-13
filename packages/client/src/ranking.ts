@@ -4,7 +4,11 @@ const path = (pid: string, aid: string) =>
   `/v1/projects/${encodeURIComponent(pid)}/artifacts/${encodeURIComponent(aid)}/ranking`;
 export class RankingClient {
   constructor(private readonly request: Request) {}
-  browseInfo(pid: string, scope: Schema["ScopeRef"], signal?: AbortSignal) {
+  browseInfo(
+    pid: string,
+    scope: Schema["ScopeRef"],
+    signal?: AbortSignal,
+  ): Promise<Schema["RankingBrowseInfo"]> {
     const query = new URLSearchParams();
     if (scope.target.kind === "workset")
       query.set("collection_id", scope.target.collection_id);
@@ -46,7 +50,11 @@ export class RankingClient {
       },
     );
   }
-  summary(pid: string, aid: string, signal?: AbortSignal) {
+  summary(
+    pid: string,
+    aid: string,
+    signal?: AbortSignal,
+  ): Promise<Schema["RankingSummary"]> {
     return this.request<Schema["RankingSummary"]>(path(pid, aid), {
       signal: signal ?? null,
     });
@@ -56,10 +64,20 @@ export class RankingClient {
     aid: string,
     body: Schema["RankingPageRequest"],
     signal?: AbortSignal,
-  ) {
+  ): Promise<Schema["RankingPage"]> {
     return this.request<Schema["RankingPage"]>(path(pid, aid) + "/rows", {
       method: "POST",
       body: JSON.stringify(body),
+      signal: signal ?? null,
+    });
+  }
+  row(
+    pid: string,
+    aid: string,
+    ordinal: number,
+    signal?: AbortSignal,
+  ): Promise<Schema["RankingRow"]> {
+    return this.request(path(pid, aid) + "/rows/" + ordinal, {
       signal: signal ?? null,
     });
   }

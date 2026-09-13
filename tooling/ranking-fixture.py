@@ -17,6 +17,7 @@ OUT = Path(sys.argv[1]).resolve()
 N = int(sys.argv[2]) if len(sys.argv) > 2 else 2048
 SPARSE_BROWSE = '--sparse-browse' in sys.argv[3:]
 V2_TAGS = '--v2-tags' in sys.argv[3:]
+DUPLICATE_HEAT = '--duplicate-heat' in sys.argv[3:]
 if not OUT.is_relative_to(ROOT / '.local') or not 32 <= N <= 100000:
     raise ValueError('Fixture must use a bounded repository-local directory')
 LAKE = OUT / 'lake'
@@ -172,6 +173,22 @@ extra_post_base = max(20001, 10000 + N)
 add(images[1], N + 1, extra_post_base, 'e', 'common beta', observed=dt.datetime(2040, 1, 1, tzinfo=dt.timezone.utc), fav=999, up=800)
 add(images[2], N + 2, extra_post_base + 1, 'e', 'common beta', observed=dt.datetime(2040, 1, 1, tzinfo=dt.timezone.utc), fav=777, up=700)
 add(images[N], N + 3, 10003, 'e', 'common replacement', observed=dt.datetime(2040, 1, 1, tzinfo=dt.timezone.utc))
+
+if DUPLICATE_HEAT:
+    original = next(o for o in observations if o['post_id'] == 10007)
+    original.update(rating='g', fav_count=50, up_score=32, down_score=0, score=32,
+                    observed_at='2026-05-18T00:00:00Z', time_quality='date_only',
+                    updated_at='2026-01-01T00:00:00Z', created_at='2020-07-22T00:00:00Z', is_deleted=False)
+    duplicate = add(images[7], N + 4, 4529147, 's', 'common duplicate pixel-perfect_duplicate',
+                    created=dt.datetime(2021,5,18,tzinfo=dt.timezone.utc),
+                    observed=dt.datetime(2026,5,18,tzinfo=dt.timezone.utc),quality='date_only',fav=12,up=7,down=0)
+    duplicate.update(score=7,is_deleted=True,parent_id=10007,updated_at='2026-05-11T00:00:00Z')
+    history = add(images[7], N + 5, 10007, 'q', 'old common',
+                  observed=dt.datetime(2024,1,1,tzinfo=dt.timezone.utc),fav=9999,up=9999,down=0,make_current=False)
+    history['score'] = 9999
+    for o in [original,duplicate,history]:
+        o['raw'].update({k:o[k] for k in ['rating','score','fav_count','up_score','down_score','is_deleted','parent_id']})
+        o['raw']['id'] = o['post_id']
 
 try:
     sql("SET threads=2; SET memory_limit='512MB'; CREATE TABLE applied(seq BIGINT,batch_id VARCHAR); INSERT INTO applied VALUES(1,'fixture'); CREATE TABLE objects(sha256 VARCHAR PRIMARY KEY,pack_path VARCHAR,\"offset\" BIGINT,length BIGINT,stored_ext VARCHAR); CREATE TABLE current_posts(post_id BIGINT PRIMARY KEY,row_id BIGINT,asset_id VARCHAR); CREATE TABLE assets(asset_id VARCHAR PRIMARY KEY,observation_id VARCHAR,post_id BIGINT,sha256 VARCHAR,source_md5 VARCHAR,stored_ext VARCHAR,stored_bytes BIGINT,storage_profile VARCHAR,details_json VARCHAR,batch_id VARCHAR,commit_seq BIGINT); CREATE INDEX assets_sha ON assets(sha256); CREATE TABLE raw_metadata(observation_id VARCHAR PRIMARY KEY,source_metadata_json VARCHAR,source_metadata_format VARCHAR,source_schema_id VARCHAR);")

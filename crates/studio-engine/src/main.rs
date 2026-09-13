@@ -8,6 +8,7 @@ mod query_cache;
 mod query_jobs;
 mod ranked_indexes;
 mod ranking;
+mod ranking_query;
 mod ranking_reads;
 mod tool_inputs;
 mod worker;

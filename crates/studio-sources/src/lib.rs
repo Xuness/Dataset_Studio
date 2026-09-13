@@ -3,6 +3,7 @@ mod duckdb;
 mod metadata;
 pub use metadata::MetadataReader;
 mod ranking;
+mod ranking_duplicates;
 pub use ranking::RankingReader;
 mod query;
 pub use query::{ChangeAnchor, QueryReader};

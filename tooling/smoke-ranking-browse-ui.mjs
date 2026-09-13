@@ -10,6 +10,8 @@ import { EngineFixture, sleep } from "./engine-fixture.mjs";
 import { DatabaseSync } from "node:sqlite";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
+const duplicateMode = process.argv.includes("--duplicates");
+const interruptedUpgrade = process.argv.includes("--interrupted-upgrade");
 const run = resolve(
   root,
   ".local/test-runs/smoke-ranking-browse-ui-" + Date.now(),
@@ -19,7 +21,12 @@ const url = "http://127.0.0.1:1432";
 await mkdir(run, { recursive: true });
 await promisify(execFile)(
   "python",
-  [resolve(root, "tooling/ranking-fixture.py"), resolve(run, "fixture"), "512"],
+  [
+    resolve(root, "tooling/ranking-fixture.py"),
+    resolve(run, "fixture"),
+    "512",
+    ...(duplicateMode ? ["--duplicate-heat"] : []),
+  ],
   { cwd: root, windowsHide: true },
 );
 const fixture = JSON.parse(
@@ -118,10 +125,18 @@ try {
       },
     },
     run: {
-      operator_id: "danbooru.metarecall",
+      operator_id: duplicateMode
+        ? "danbooru.metarecall_v2"
+        : "danbooru.metarecall",
       operator_version: 1,
       parameters_version: 1,
-      parameters: { mode: "rank", cohort_minimum: 8 },
+      parameters: {
+        mode: "rank",
+        cohort_minimum: 8,
+        ...(duplicateMode
+          ? { duplicate_heat: "highest", v2: { minimum_effective: 4 } }
+          : {}),
+      },
     },
   });
   const finished = await engine.wait(
@@ -164,6 +179,105 @@ try {
       managementTarget: null,
     },
   });
+  let legacyFilter;
+  if (duplicateMode) {
+    const clauses = [
+      {
+        field: "rating",
+        operator: "in",
+        value: { type: "text_list", value: ["g"] },
+      },
+    ];
+    const queued = await engine.api(base + "/query-results", "POST", {
+      spec: {
+        version: 3,
+        source_ids: [source.id],
+        conditions: clauses,
+        observation_rule: "current_post",
+        order: "asset_key_asc",
+        input_scope: {
+          project_id: project.id,
+          target: { kind: "workset", collection_id: workset.id },
+        },
+      },
+    });
+    legacyFilter = await engine.wait(
+      base + "/query-results/" + queued.id,
+      (r) => r.state === "ready",
+    );
+    const state = (await engine.api(base + "/drafts/studio.session/default"))
+      .draft;
+    const oldInfo = (
+      await engine.api(base + "/ranking-browse?result_id=" + legacyFilter.id)
+    ).ranking;
+    await engine.api(base + "/drafts/studio.session/default", "PUT", {
+      schema_version: 1,
+      expected_revision: state.revision,
+      value: {
+        ...state.value,
+        rankedBrowse: {
+          scopeKey: oldInfo.view_key,
+          sort: "saved",
+          descending: true,
+          startPostId: null,
+          startCursor: null,
+        },
+        scope: {
+          kind: "result",
+          id: legacyFilter.id,
+          name: "旧 G 筛选",
+          count: legacyFilter.count,
+        },
+      },
+    });
+    await engine.api(base + "/drafts/core.browser/default", "PUT", {
+      schema_version: 1,
+      expected_revision: 0,
+      value: {
+        filters: { ratings: ["g"], include: "", exclude: "", tagMode: "all" },
+        baseScope: { kind: "collection", id: workset.id, name: workset.name },
+        resultId: legacyFilter.id,
+        submitted: JSON.stringify(clauses),
+        retiredResult: null,
+      },
+    });
+    if (interruptedUpgrade) {
+      const spec = {
+        ...legacyFilter.spec,
+        conditions: clauses.map((c) => ({
+          ...c,
+          field: "project." + artifact.id + ".rating",
+        })),
+      };
+      const queued = await engine.api(base + "/query-results", "POST", {
+        spec,
+      });
+      const pending = await engine.wait(
+        base + "/query-results/" + queued.id,
+        (r) => r.state === "ready",
+      );
+      const old = (await engine.api(base + "/drafts/core.browser/default"))
+        .draft;
+      await engine.api(base + "/drafts/core.browser/default", "PUT", {
+        schema_version: 1,
+        expected_revision: old.revision,
+        value: {
+          ...old.value,
+          resultId: pending.id,
+          retiredResult: legacyFilter.id,
+          submitted: JSON.stringify(spec.conditions),
+        },
+      });
+      await engine.stop();
+      const db = new DatabaseSync(resolve(project.directory, "project.sqlite"));
+      db.prepare(
+        "UPDATE query_results SET status='interrupted',error='fixture: interrupted migration' WHERE id=?",
+      ).run(pending.id);
+      db.close();
+      await engine.start();
+      await engine.api(base + "/open", "POST");
+    }
+  }
   await engine.api(base + "/close", "POST");
   const log = await open(resolve(run, "vite.log"), "a");
   vite = spawn(
@@ -232,6 +346,34 @@ try {
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(url);
   await page.locator(".recent-row").filter({ hasText: project.name }).click();
+  if (duplicateMode) {
+    await expect
+      .poll(
+        async () =>
+          (await engine.api(base + "/drafts/studio.session/default")).draft
+            .value.scope.id,
+        { timeout: 45000 },
+      )
+      .not.toBe(legacyFilter.id);
+    const current = (await engine.api(base + "/drafts/studio.session/default"))
+      .draft.value.scope;
+    assert.equal(current.kind, "result");
+    const result = await engine.api(base + "/query-results/" + current.id);
+    assert.equal(
+      result.spec.conditions[0].field,
+      "project." + artifact.id + ".rating",
+    );
+    await expect
+      .poll(() => page.locator(".asset-card .ranking-rating").allTextContents())
+      .toEqual(Array(48).fill("G"));
+    await expect(page.getByLabel("排名查看方向")).toHaveValue("desc");
+    await page.getByRole("button", { name: "清除筛选", exact: true }).click();
+    checks.push(
+      interruptedUpgrade
+        ? "interrupted rating upgrade resumes and preserves descending view without overwriting its legacy source"
+        : "legacy browser-owned G filter upgrades to frozen scoring rating without overwriting the old result",
+    );
+  }
   await visible(main.slice(0, 48));
   await expect(page.getByLabel("浏览排序", { exact: true })).toHaveValue(
     "ranking:saved",
@@ -500,6 +642,40 @@ try {
     "equivalent G re-filtering creates a new query ID while preserving direction and reusing the disk index after reload",
   );
 
+  if (duplicateMode) {
+    await page.getByRole("button", { name: "清除筛选", exact: true }).click();
+    await page
+      .getByLabel("浏览排序", { exact: true })
+      .selectOption("ranking:main");
+    await page.getByLabel("排名查看方向").selectOption("asc");
+    await page.getByLabel("起点 Danbooru ID").fill("4529147");
+    await page.getByRole("button", { name: "从此图开始", exact: true }).click();
+    await expect(
+      page.locator(".asset-card .asset-caption > span").first(),
+    ).toHaveText("Danbooru #4529147");
+    await page.locator(".asset-thumb").first().click();
+    const frozen = page.getByLabel("评分使用的冻结数据", { exact: true });
+    await expect(frozen).toContainText("净分 32 · 收藏 50");
+    await expect(frozen).toContainText("分级 S");
+    await expect(frozen).toContainText("取较高记录 #10007");
+    await page
+      .getByRole("button", { name: "读取原始元数据", exact: true })
+      .click();
+    await expect(page.getByLabel("原始元数据", { exact: true })).toContainText(
+      '"id": 4529147',
+    );
+    await expect(page.getByLabel("原始元数据", { exact: true })).toContainText(
+      '"fav_count": 12',
+    );
+    await frozen.getByText("查看热度来源", { exact: true }).click();
+    await shot("10-duplicate-score-evidence");
+    await page.setViewportSize({ width: 1080, height: 800 });
+    await shot("11-duplicate-score-evidence-narrow");
+    await page.setViewportSize({ width: 1540, height: 1000 });
+    checks.push(
+      "v2 properties default to the latest scoring record and distinguish its raw votes from the higher duplicate heat",
+    );
+  }
   const trash = await engine.api(base + "/query-results", "POST", {
     spec: {
       version: 3,

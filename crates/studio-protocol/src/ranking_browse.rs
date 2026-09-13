@@ -4,6 +4,7 @@ use utoipa::ToSchema;
 
 #[derive(Serialize, ToSchema)]
 pub struct RankedScope {
+    pub current_rating_filter: bool,
     pub view_key: String,
     pub schema_version: u32,
     pub workset_id: String,
@@ -15,6 +16,7 @@ pub struct RankedScope {
 impl From<domain::RankedScope> for RankedScope {
     fn from(value: domain::RankedScope) -> Self {
         Self {
+            current_rating_filter: value.current_rating_filter,
             view_key: value.view_key,
             schema_version: value.schema_version,
             workset_id: value.workset_id,
@@ -55,6 +57,10 @@ pub struct RankingBrowseRequest {
 
 #[derive(Serialize, ToSchema)]
 pub struct AssetRanking {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub record_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub observation_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub v2: Option<crate::RankingV2Scores>,
     pub artifact_id: String,

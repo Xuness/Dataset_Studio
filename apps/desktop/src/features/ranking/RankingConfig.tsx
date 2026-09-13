@@ -68,6 +68,27 @@ export function RankingConfig({
             </select>
           </Field>
           <ScopePicker options={options} value={scopeId} onChange={onScope} />
+          <Field label="同图重复帖热度">
+            <select
+              aria-label="同图重复帖热度"
+              value={p.duplicate_heat ?? "legacy"}
+              onChange={(e) =>
+                field(
+                  "duplicate_heat",
+                  e.target.value === "legacy"
+                    ? null
+                    : (e.target.value as "highest" | "sum"),
+                )
+              }
+            >
+              <option value="highest">取较高记录（默认）</option>
+              <option value="sum">不同帖子求和</option>
+              <option value="legacy">旧规则：单一代表记录</option>
+            </select>
+          </Field>
+          <p className="ranking-hint">
+            新规则按最新元数据确定分级；热度只在同一图片的不同帖子间处理，同帖历史不重复累计。求和表示帖子互动合计，无法去重同一用户的重复投票。
+          </p>
           {scopeMessage && (
             <div className="ranking-notice">
               {scopeMessage}

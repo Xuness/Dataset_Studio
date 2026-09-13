@@ -5,6 +5,21 @@ use serde::{Deserialize, Serialize};
 pub const RANKING_OPERATOR: &str = "danbooru.metarecall";
 pub const RANKING_KIND: &str = "ranking_table";
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn new_defaults_and_old_serialized_parameters_keep_distinct_rules() {
+        let current = RankingParameters::default();
+        assert_eq!(current.duplicate_heat, Some(DuplicateHeat::Highest));
+        let mut old = serde_json::to_value(current).unwrap();
+        old.as_object_mut().unwrap().remove("duplicate_heat");
+        let restored: RankingParameters = serde_json::from_value(old.clone()).unwrap();
+        assert_eq!(restored.duplicate_heat, None);
+        assert_eq!(serde_json::to_value(restored).unwrap(), old);
+    }
+}
+
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RankingMode {
@@ -13,9 +28,48 @@ pub enum RankingMode {
     Select,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DuplicateHeat {
+    Highest,
+    Sum,
+}
+
+/// Complete per-post evidence. Metadata identity and heat evidence may differ.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RankingObservation {
+    pub record_id: String,
+    pub observation_id: String,
+    pub post_id: Option<i64>,
+    pub rating: Option<String>,
+    pub fav_count: Option<i64>,
+    pub up_score: Option<i64>,
+    pub down_score: Option<i64>,
+    pub score: Option<i64>,
+    pub created_at_us: Option<i64>,
+    pub observed_at_us: Option<i64>,
+    pub time_quality: String,
+    pub updated_at_us: Option<i64>,
+    pub is_deleted: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RankingDuplicateEvidence {
+    pub policy: DuplicateHeat,
+    pub metadata: RankingObservation,
+    pub heat: Vec<RankingObservation>,
+    pub post_count: u64,
+    pub omitted_posts: u64,
+    pub partial_counts: bool,
+    pub counts_clamped: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct RankingParameters {
+    /// None preserves the original complete-representative rule in old jobs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duplicate_heat: Option<DuplicateHeat>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub v2: Option<crate::RankingV2Parameters>,
     pub ratings: Vec<String>,
@@ -38,6 +92,7 @@ pub struct RankingParameters {
 impl Default for RankingParameters {
     fn default() -> Self {
         Self {
+            duplicate_heat: Some(DuplicateHeat::Highest),
             v2: None,
             ratings: ["g", "s", "q", "e"].map(String::from).into(),
             mode: RankingMode::Rank,
@@ -104,9 +159,11 @@ impl RankingParameters {
     }
 }
 
-/// Complete snapshot of one chosen observation and of the actual stored object.
+/// Frozen metadata and numeric inputs; merged inputs retain separate evidence.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RankingInput {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence: Option<RankingDuplicateEvidence>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tags: Option<String>,
     pub ordinal: u64,

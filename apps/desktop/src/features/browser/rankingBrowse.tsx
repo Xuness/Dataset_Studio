@@ -174,6 +174,12 @@ export function RankingStart({
   if (!state.active) return null;
   return (
     <div className="ranking-start-controls">
+      <span className="subtle">各评分分级分别排序</span>
+      {state.info?.current_rating_filter && (
+        <span role="status" className="ranking-scope-warning">
+          此查询按当前帖子分级匹配，可能含其他评分分级。请重新应用浏览筛选以按评分分级查看。
+        </span>
+      )}
       <label title="同一个 ID 对应多张图片时，定位当前查看顺序中的第一个匹配成员">
         从图片定位
         <input
@@ -246,7 +252,7 @@ export function RankingBadge({
         主 {rank(ranking.main_rank)} <b>{score(ranking.main_score)}</b>
       </span>
       <span>
-        {ranking.v2 ? "年" : "补"} {rank(ranking.rescue_rank)}{" "}
+        {ranking.v2 ? "年代" : "补"} {rank(ranking.rescue_rank)}{" "}
         <b>{score(ranking.rescue_score)}</b>
       </span>
     </div>

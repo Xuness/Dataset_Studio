@@ -36,10 +36,13 @@ impl SqliteStore {
         let mut view_spec = None;
         let mut target = scope.target.clone();
         let mut count = None;
+        let mut current_rating_filter = false;
         for _ in 0..16 {
             match target {
                 ScopeTarget::QueryResult { result_id } => {
                     let result = query::ready_result(&db, pid, &result_id)?;
+                    current_rating_filter |=
+                        result.spec.conditions.iter().any(|c| c.field == "rating");
                     if view_spec.is_none() {
                         let mut spec = result.spec.clone().normalize()?;
                         spec.order = QueryOrder::AssetKeyAsc;
@@ -105,6 +108,7 @@ impl SqliteStore {
                         ))
                     );
                     return Ok(Some(RankedScope {
+                        current_rating_filter,
                         index_scope,
                         view_key,
                         schema_version: artifact.schema_version,

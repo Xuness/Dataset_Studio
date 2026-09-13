@@ -4,6 +4,7 @@ import { Button } from "@studio/ui";
 import type { ModuleContext } from "@studio/ui";
 import type { RankingRow, RankingSummary, Asset } from "@studio/contracts";
 import { AssetImage } from "../browser/AssetImage.js";
+import { RankingInputEvidence } from "./RankingInputEvidence.js";
 import {
   eligibilityNames,
   flagNames,
@@ -16,11 +17,13 @@ import {
 export function RankingDetails({
   row,
   summary,
+  artifactId,
   context,
   onClose,
 }: {
   row: RankingRow;
   summary: RankingSummary;
+  artifactId: string;
   context: ModuleContext;
   onClose: () => void;
 }) {
@@ -41,6 +44,20 @@ export function RankingDetails({
     bytes: i.stored_bytes,
     selected: false,
     extension: i.stored_extension,
+    ranking: {
+      artifact_id: artifactId,
+      ordinal: i.ordinal,
+      post_id: i.post_id ?? null,
+      rating: i.rating ?? null,
+      record_id: i.record_id ?? null,
+      observation_id: i.observation_id ?? null,
+      eligibility: s.eligibility,
+      main_score: s.main_score ?? null,
+      rescue_score: s.rescue_score ?? null,
+      main_rank: s.main_rank ?? null,
+      rescue_rank: s.rescue_rank ?? null,
+      v2: s.v2 ?? null,
+    },
   };
   const contributions =
     s.main_score == null
@@ -177,13 +194,21 @@ export function RankingDetails({
           </p>
         </div>
         <h4>固定元数据</h4>
+        <RankingInputEvidence input={i} />
         <dl className="ranking-input-fields">
           {[
             ["收藏", integer(i.fav_count)],
             ["赞票", integer(i.up_score)],
             ["原始负票", integer(i.down_score)],
             ["原始净分", integer(i.score)],
-            ["创建时间", time(i.created_at_us)],
+            [
+              i.evidence
+                ? i.evidence.policy === "sum"
+                  ? "最早已知发帖时间"
+                  : "热度记录创建时间"
+                : "创建时间",
+              time(i.created_at_us),
+            ],
             [
               "观察时间",
               time(i.observed_at_us, i.time_quality === "date_only"),
