@@ -87,6 +87,7 @@ pub(super) fn query_cache_status(s: &AppState) -> domain::Result<QueryCacheStatu
         ranked_index_reuses: ranked.reuses,
         cleanup_pending: s.queries.cache.busy.load(Ordering::Acquire)
             || s.queries.cache.requested.load(Ordering::Acquire)
+            || records.iter().any(|p| p.cleanup_pending)
             || s.queries.ranked_indexes.busy(),
         reclaimed_queries: s.queries.cache.reclaimed.load(Ordering::Relaxed),
     })

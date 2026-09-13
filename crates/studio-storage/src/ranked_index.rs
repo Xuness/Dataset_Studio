@@ -24,6 +24,7 @@ pub struct RankedIndexMeta {
 }
 #[derive(Clone)]
 pub struct RankedIndexPlan {
+    pub requested_scope: ScopeRef,
     pub meta: RankedIndexMeta,
     pub project: PathBuf,
     pub input: PathBuf,
@@ -238,6 +239,18 @@ impl RankedIndex {
             })
             .map_err(|_| invalid())?;
         serde_json::from_str(&raw).map_err(|_| invalid())
+    }
+    /// Rebind only application-owned derived metadata, without copying members.
+    pub fn rebind(path: &Path, old: &RankedIndexMeta, new: &RankedIndexMeta) -> Result<()> {
+        let checked = Self::open(path, old, Arc::new(AtomicBool::new(false)))?;
+        drop(checked);
+        let db = Connection::open(path).map_err(db_error)?;
+        db.execute(
+            "UPDATE meta SET value=?1 WHERE key='complete'",
+            [serde_json::to_string(new).map_err(Error::io)?],
+        )
+        .map_err(db_error)?;
+        Ok(())
     }
     pub fn contains(&self, ordinal: u64) -> Result<bool> {
         self.db

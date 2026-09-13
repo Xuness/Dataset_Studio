@@ -10,24 +10,32 @@ const basis = (sourceId: string, rating: string) =>
 
 export class SettingsClient {
   constructor(private readonly request: Request) {}
-  read(signal?: AbortSignal) {
+  read(signal?: AbortSignal): Promise<Schema["SettingsStatus"]> {
     return this.request<Schema["SettingsStatus"]>("/v1/settings", {
       signal: signal ?? null,
     });
   }
-  configureCache(value: Schema["CacheSettings"]) {
+  configureCache(
+    value: Schema["CacheSettings"],
+  ): Promise<Schema["SettingsStatus"]> {
     return this.request<Schema["SettingsStatus"]>("/v1/settings/cache", {
       method: "PUT",
       body: JSON.stringify(value),
     });
   }
-  clear(tier: "long_term" | "temporary" | null) {
+  clear(
+    tier: "long_term" | "temporary" | null,
+  ): Promise<Schema["SettingsStatus"]> {
     return this.request<Schema["SettingsStatus"]>("/v1/settings/cache/clear", {
       method: "POST",
       body: JSON.stringify({ tier }),
     });
   }
-  entries(projectId: string, cursor?: string, signal?: AbortSignal) {
+  entries(
+    projectId: string,
+    cursor?: string,
+    signal?: AbortSignal,
+  ): Promise<Schema["CacheEntries"]> {
     const query = new URLSearchParams({ limit: "32" });
     if (cursor) query.set("cursor", cursor);
     return this.request<Schema["CacheEntries"]>(

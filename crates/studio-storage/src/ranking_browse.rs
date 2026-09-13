@@ -1,18 +1,50 @@
 use crate::*;
+use sha2::{Digest, Sha256};
+
+fn canonical(db: &Connection, scope: &ScopeRef) -> Result<ScopeRef> {
+    let mut canonical = scope.clone();
+    if let ScopeTarget::QueryResult { result_id } = &scope.target {
+        let id: String = db.query_row("SELECT original.id FROM query_results current JOIN query_results original ON original.family_id=current.family_id AND original.member_revision=current.member_revision WHERE current.id=?1 ORDER BY original.cache_mode='reused',original.created_at,original.id LIMIT 1", [result_id], |r| r.get(0)).map_err(db_error)?;
+        canonical.target = ScopeTarget::QueryResult { result_id: id };
+    }
+    Ok(canonical)
+}
 
 impl SqliteStore {
+    pub fn ranked_members_available(&self, pid: &str, scope: &ScopeRef) -> Result<bool> {
+        scope.validate_project(pid)?;
+        let project = self.handle(pid)?;
+        let db = project.read()?;
+        match &scope.target {
+            ScopeTarget::QueryResult{result_id} => db.query_row("SELECT EXISTS(SELECT 1 FROM query_results owner JOIN query_results alias ON alias.family_id=owner.family_id AND alias.member_revision=owner.member_revision WHERE owner.id=?1 AND alias.status='ready')", [result_id], |r| r.get(0)).map_err(db_error),
+            ScopeTarget::Workset{collection_id} => db.query_row("SELECT EXISTS(SELECT 1 FROM collections WHERE id=?1)", [collection_id], |r|r.get(0)).map_err(db_error),
+            _ => Ok(false),
+        }
+    }
+    pub fn canonical_ranked_scope(&self, pid: &str, scope: &ScopeRef) -> Result<ScopeRef> {
+        scope.validate_project(pid)?;
+        let project = self.handle(pid)?;
+        canonical(&*project.read()?, scope)
+    }
     /// Follow only the explicit, fixed input scope. Other artifact references do
     /// not imply that their scores define the order of this member set.
     pub fn ranked_scope(&self, pid: &str, scope: &ScopeRef) -> Result<Option<RankedScope>> {
         scope.validate_project(pid)?;
         let project = self.handle(pid)?;
         let db = project.read()?;
+        let index_scope = canonical(&db, scope)?;
+        let mut view_spec = None;
         let mut target = scope.target.clone();
         let mut count = None;
         for _ in 0..16 {
             match target {
                 ScopeTarget::QueryResult { result_id } => {
                     let result = query::ready_result(&db, pid, &result_id)?;
+                    if view_spec.is_none() {
+                        let mut spec = result.spec.clone().normalize()?;
+                        spec.order = QueryOrder::AssetKeyAsc;
+                        view_spec = Some(spec);
+                    }
                     count.get_or_insert(result.count.unwrap_or(0));
                     let Some(parent) = result.spec.input_scope else {
                         return Ok(None);
@@ -59,7 +91,22 @@ impl SqliteStore {
                         )?)
                         .map_err(Error::io)?;
                     saved_filter.validate()?;
+                    let view_key = format!(
+                        "ranked:{}",
+                        hex::encode(Sha256::digest(
+                            serde_json::to_vec(&(
+                                pid,
+                                &collection_id,
+                                aid,
+                                &saved_filter,
+                                &view_spec
+                            ))
+                            .map_err(Error::io)?
+                        ))
+                    );
                     return Ok(Some(RankedScope {
+                        index_scope,
+                        view_key,
                         schema_version: artifact.schema_version,
                         workset_id: collection_id,
                         artifact_id: aid.into(),

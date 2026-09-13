@@ -85,6 +85,84 @@ fn phase(progress: &RankedIndexProgress) -> &'static str {
     }
 }
 impl RankedIndexes {
+    pub fn prune_released(&self, store: &SqliteStore) -> Result<()> {
+        if !self.root.exists() {
+            return Ok(());
+        }
+        for entry in fs::read_dir(&self.root).map_err(Error::io)?.take(256) {
+            let entry = entry.map_err(Error::io)?;
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let Some(key) = name.strip_suffix(".sqlite") else {
+                continue;
+            };
+            if self.path(key).is_err() {
+                continue;
+            }
+            let Ok(meta) = RankedIndex::metadata(&entry.path()) else {
+                continue;
+            };
+            if store
+                .ranked_members_available(&meta.scope.project_id, &meta.scope)
+                .ok()
+                != Some(false)
+            {
+                continue;
+            }
+            let state = self.state.lock().map_err(|_| lock_error())?;
+            if state.pins.contains_key(key) {
+                continue;
+            }
+            drop(state);
+            self.invalidate(key)?;
+        }
+        Ok(())
+    }
+    /// Existing alias caches can be adopted after an O(1) member-revision check.
+    /// No full member scans, hashes or copies; readers pin files during rebinding.
+    pub fn adopt(
+        &self,
+        plan: &RankedIndexPlan,
+        matches: impl Fn(&studio_storage::ranked_index::RankedIndexMeta) -> Result<bool>,
+    ) -> Result<()> {
+        let target = self.path(&plan.meta.key)?;
+        if target.is_file() || !self.root.exists() {
+            return Ok(());
+        }
+        for entry in fs::read_dir(&self.root).map_err(Error::io)?.take(256) {
+            let entry = entry.map_err(Error::io)?;
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let Some(key) = name.strip_suffix(".sqlite") else {
+                continue;
+            };
+            if self.path(key).is_err() {
+                continue;
+            }
+            let path = entry.path();
+            let Ok(meta) = RankedIndex::metadata(&path) else {
+                continue;
+            };
+            if meta.scope.project_id != plan.meta.scope.project_id {
+                continue;
+            }
+            if meta != plan.meta && !matches(&meta).unwrap_or(false) {
+                continue;
+            }
+            let mut state = self.state.lock().map_err(|_| lock_error())?;
+            if target.is_file() {
+                return Ok(());
+            }
+            if state.pins.contains_key(key) {
+                continue;
+            }
+            if RankedIndex::rebind(&path, &meta, &plan.meta).is_err() {
+                continue;
+            }
+            fs::rename(&path, &target).map_err(Error::io)?;
+            state.touched.remove(key);
+            return Ok(());
+        }
+        Ok(())
+    }
     pub fn new(root: PathBuf) -> Self {
         Self {
             root,
@@ -459,7 +537,7 @@ impl RankedIndexes {
                         job.progress.clone(),
                     )?;
                     let live = store
-                        .ranked_scope(&plan.meta.scope.project_id, &plan.meta.scope)?
+                        .ranked_scope(&plan.meta.scope.project_id, &plan.requested_scope)?
                         .ok_or_else(|| Error::new("RANKING_SCOPE_UNSUPPORTED", "排名范围已移除"))?;
                     if live.count != plan.meta.count {
                         return Err(Error::new("SOURCE_CHANGED", "排名范围成员已变化"));

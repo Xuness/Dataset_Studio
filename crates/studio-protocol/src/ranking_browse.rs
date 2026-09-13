@@ -4,6 +4,7 @@ use utoipa::ToSchema;
 
 #[derive(Serialize, ToSchema)]
 pub struct RankedScope {
+    pub view_key: String,
     pub schema_version: u32,
     pub workset_id: String,
     pub artifact_id: String,
@@ -14,6 +15,7 @@ pub struct RankedScope {
 impl From<domain::RankedScope> for RankedScope {
     fn from(value: domain::RankedScope) -> Self {
         Self {
+            view_key: value.view_key,
             schema_version: value.schema_version,
             workset_id: value.workset_id,
             artifact_id: value.artifact_id,

@@ -42,10 +42,10 @@ export function SettingsDialog({
     if (busy) return;
     setBusy(true);
     setError(null);
-    setNotice("");
+    setNotice("正在提交操作…");
     try {
       await run();
-      await Promise.all([
+      void Promise.all([
         cache.invalidateQueries({ queryKey: ["settings"] }),
         cache.invalidateQueries({ queryKey: ["resources"] }),
         ...(project

@@ -646,10 +646,12 @@ fn sweep_cache(
     // Page accounting must finish before taking the lease/eviction gate.
     let owned = store.owned_projects()?;
     for pid in &owned {
+        runner.cache.phase("accounting", Some(pid));
         store.refresh_query_cache_sizes(pid)?;
         runner.cache.track(store, pid)?;
     }
     let config = runner.cache.config()?;
+    runner.cache.phase("planning", None);
     let policy = config.policy();
     let mut projects = runner.cache.projects()?;
     projects.sort_by_key(|p| (p.temporary_families == 0, p.touched));
@@ -661,6 +663,8 @@ fn sweep_cache(
     } else {
         None
     };
+    runner.cache.phase("indexes", None);
+    runner.ranked_indexes.prune_released(store)?;
     runner.ranked_indexes.prune(
         rank_budget,
         force
@@ -684,6 +688,7 @@ fn sweep_cache(
     let now = studio_storage::now().parse::<u64>().unwrap_or(0);
     let needs_closed = |p: &crate::query_cache::CachedProject| {
         force
+            || p.cleanup_pending
             || (p.retained > 0 && p.long_term_families + p.temporary_families == 0)
             || p.session_families > 0
             || (policy.session_only && p.temporary_families > 0)
@@ -744,6 +749,14 @@ fn sweep_cache(
                 clear_tier,
                 ..policy.clone()
             };
+            runner.cache.phase(
+                if p.free_bytes >= 32 << 20 {
+                    "compacting"
+                } else {
+                    "deleting"
+                },
+                Some(&p.id),
+            );
             let outcome = if owned.contains(&p.id) {
                 store
                     .maintain_query_cache_step(&p.id, &local, &runner.cache.live(&p.id), force)
@@ -771,6 +784,7 @@ fn sweep_cache(
                 }
                 Ok(None) => {}
                 Err(error) if error.code == "CACHE_BUSY" => {
+                    runner.cache.phase("waiting", Some(&p.id));
                     runner.cache.requested.store(true, Ordering::Release);
                 }
                 Err(error) => {
@@ -805,10 +819,13 @@ fn sweep_cache(
     // Reinspect after the mutation, outside both locks. A stale snapshot never
     // drives another eviction; the next bounded pass plans from current sizes.
     for p in changed_projects {
+        runner.cache.phase("accounting", Some(&p.id));
         let stats = if owned.contains(&p.id) {
             store.query_cache_stats(&p.id)?
         } else {
-            SqliteStore::inspect_query_cache_after(&p.directory, closed.get(&p.id))?.stats
+            let snapshot = SqliteStore::inspect_query_cache_after(&p.directory, closed.get(&p.id))?;
+            SqliteStore::settle_closed_cache(store.root(), &p.id, &p.directory, &snapshot)?
+                .unwrap_or(snapshot.stats)
         };
         runner.cache.record(&p.id, p.directory.clone(), stats)?;
     }
@@ -844,14 +861,19 @@ pub async fn cache_maintenance(
                 Ok(Err(e)) => {
                     runner.cache.requested.store(true, Ordering::Release);
                     tracing::warn!(%e,"query cache maintenance deferred");
+                    runner.cache.failed(&e.to_string());
                 }
                 Err(e) => {
                     runner.cache.requested.store(true, Ordering::Release);
                     tracing::warn!(%e,"query cache maintenance failed");
+                    runner.cache.failed(&e.to_string());
                 }
             }
             if force && runner.cache.requested.load(Ordering::Acquire) {
                 runner.cache.force.store(true, Ordering::Release);
+            }
+            if !runner.cache.requested.load(Ordering::Acquire) {
+                runner.cache.phase("completed", None);
             }
             runner.cache.busy.store(false, Ordering::Release);
         }

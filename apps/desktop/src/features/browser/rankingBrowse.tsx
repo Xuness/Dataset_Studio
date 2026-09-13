@@ -39,16 +39,51 @@ export function useRankingBrowse(
     enabled: !!target,
     staleTime: 15000,
   });
-  const settings: RankedBrowseSettings =
-    persisted?.scopeKey === identity
+  let legacyTarget: ScopeRef | null = null;
+  if (persisted && !persisted.scopeKey.startsWith("ranked:")) {
+    try {
+      const old = JSON.parse(persisted.scopeKey) as BrowseScope;
+      legacyTarget = rankableScope(projectId, old);
+    } catch {
+      /* Older unrecognized view state uses defaults. */
+    }
+  }
+  const legacy = useQuery({
+    queryKey: [
+      "project",
+      projectId,
+      "ranking-browse-legacy",
+      persisted?.scopeKey,
+    ],
+    queryFn: ({ signal }) =>
+      client.ranking.browseInfo(projectId, legacyTarget!, signal),
+    enabled: !!legacyTarget && persisted?.scopeKey !== identity,
+    retry: false,
+    staleTime: Infinity,
+  });
+  const viewKey = info.data?.ranking?.view_key ?? identity;
+  const previous =
+    persisted?.scopeKey === viewKey ||
+    persisted?.scopeKey === identity ||
+    legacy.data?.ranking?.view_key === viewKey
       ? persisted
-      : {
-          scopeKey: identity,
-          sort: "saved",
-          descending: false,
-          startPostId: null,
-          startCursor: null,
-        };
+      : persisted?.views?.[viewKey];
+  const settings: RankedBrowseSettings = previous
+    ? {
+        ...previous,
+        scopeKey: viewKey,
+        startCursor:
+          previous.sourceScopeKey === identity || previous.scopeKey === identity
+            ? previous.startCursor
+            : null,
+      }
+    : {
+        scopeKey: viewKey,
+        sort: "saved",
+        descending: false,
+        startPostId: null,
+        startCursor: null,
+      };
   const active = !!info.data?.ranking && settings.sort !== "off";
   const key = active
     ? [settings.sort, settings.descending, settings.startPostId]
@@ -61,8 +96,32 @@ export function useRankingBrowse(
   }, [identity, settings.startPostId]);
   function change(patch: Partial<RankedBrowseSettings>) {
     setError("");
-    onChange({ ...settings, ...patch, startCursor: null });
+    save({ ...settings, ...patch, startCursor: null });
   }
+  function save(value: RankedBrowseSettings) {
+    const current = { ...value, sourceScopeKey: identity };
+    delete current.views;
+    const views = { ...persisted?.views };
+    if (persisted?.scopeKey.startsWith("ranked:")) {
+      const old = { ...persisted };
+      delete old.views;
+      views[persisted.scopeKey] = old;
+    }
+    delete views[viewKey];
+    views[viewKey] = current;
+    onChange({
+      ...current,
+      views: Object.fromEntries(Object.entries(views).slice(-32)),
+    });
+  }
+  useEffect(() => {
+    if (
+      previous &&
+      viewKey.startsWith("ranked:") &&
+      (persisted?.scopeKey !== viewKey || persisted.sourceScopeKey !== identity)
+    )
+      save(settings);
+  }, [viewKey, identity, previous, persisted]);
   function start(first: () => void) {
     const text = draft.trim().replace(/^0+(?=\d)/, "");
     if (
@@ -80,7 +139,12 @@ export function useRankingBrowse(
   return {
     target,
     info: info.data?.ranking ?? null,
-    loading: !!target && info.isPending,
+    loading:
+      !!target &&
+      (info.isPending ||
+        (!!legacyTarget &&
+          persisted?.scopeKey !== identity &&
+          legacy.isPending)),
     infoError: target ? info.error : null,
     settings,
     active,
@@ -92,7 +156,7 @@ export function useRankingBrowse(
     start,
     rememberStart: (cursor: string) => {
       if (settings.startPostId && settings.startCursor !== cursor)
-        onChange({ ...settings, startCursor: cursor });
+        save({ ...settings, startCursor: cursor });
     },
   };
 }

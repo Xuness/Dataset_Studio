@@ -7,6 +7,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, expect } from "@playwright/test";
 import { EngineFixture, sleep } from "./engine-fixture.mjs";
+import { DatabaseSync } from "node:sqlite";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const run = resolve(
@@ -469,10 +470,105 @@ try {
   checks.push(
     "filtered G results preserve page sizes and selection changes do not restart member reads",
   );
+  await page.getByLabel("排名查看方向").selectOption("desc");
+  const oldG = (await engine.api(base + "/drafts/studio.session/default")).draft
+    .value.scope.id;
+  const oldBuilds = (await engine.api("/v1/resources")).query_cache
+    .ranked_index_builds;
   await page.getByRole("button", { name: "清除筛选", exact: true }).click();
   await visible(main.slice(0, 48));
   checks.push(
     "quick filters within the workset retain ranked viewing and clearing them restores the workset",
+  );
+  await page.getByRole("button", { name: "分级 G", exact: true }).click();
+  await page.getByRole("button", { name: "应用筛选", exact: true }).click();
+  await expect(page.getByLabel("排名查看方向")).toHaveValue("desc");
+  await expect
+    .poll(
+      async () =>
+        (await engine.api(base + "/drafts/studio.session/default")).draft.value
+          .scope.id,
+    )
+    .not.toBe(oldG);
+  await page.reload();
+  await expect(page.getByLabel("排名查看方向")).toHaveValue("desc");
+  assert.equal(
+    (await engine.api("/v1/resources")).query_cache.ranked_index_builds,
+    oldBuilds,
+  );
+  checks.push(
+    "equivalent G re-filtering creates a new query ID while preserving direction and reusing the disk index after reload",
+  );
+
+  const trash = await engine.api(base + "/query-results", "POST", {
+    spec: {
+      version: 3,
+      source_ids: [source.id],
+      conditions: [
+        {
+          field: "tags",
+          operator: "has_all_tags",
+          value: { type: "text_list", value: ["cleanup_probe"] },
+        },
+      ],
+      observation_rule: "current_post",
+      order: "asset_key_asc",
+    },
+  });
+  await engine.wait(
+    base + "/query-results/" + trash.id,
+    (v) => v.state === "ready",
+    30000,
+  );
+  const db = new DatabaseSync(resolve(project.directory, "project.sqlite"));
+  const family = db
+    .prepare("SELECT family_id FROM query_results WHERE id=?")
+    .get(trash.id).family_id;
+  db.exec("BEGIN IMMEDIATE");
+  db.prepare(
+    "WITH RECURSIVE n(x) AS(VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<200000) INSERT INTO query_member_data(family_id,source_id,asset_id,valid_from,post_id) SELECT ?,?,printf('%064x',x),1,x FROM n",
+  ).run(family, source.id);
+  db.prepare(
+    "UPDATE query_families SET stored_members=200000,latest_count=200000,latest_revision=1 WHERE id=?",
+  ).run(family);
+  db.prepare(
+    "UPDATE query_results SET count=200000,member_revision=1 WHERE family_id=?",
+  ).run(family);
+  db.exec(
+    "INSERT INTO meta VALUES('query_storage_revision','1') ON CONFLICT(key) DO UPDATE SET value=CAST(value AS INTEGER)+1; COMMIT",
+  );
+  db.close();
+  await page.getByRole("menuitem", { name: "设置", exact: true }).click();
+  await page.getByRole("menuitem", { name: "缓存管理…", exact: true }).click();
+  const trashRow = page
+    .locator(".settings-table tbody tr")
+    .filter({ hasText: "cleanup_probe" });
+  await expect(trashRow).toBeVisible();
+  await sleep(10500);
+  await trashRow.getByRole("button", { name: "清理", exact: true }).click();
+  const task = page
+    .locator(".settings-cleanup-progress")
+    .filter({ hasText: "cleanup_probe" });
+  await expect(task).toBeVisible();
+  await expect(task).toContainText("200,000");
+  await engine.wait(
+    base + "/cache-entries",
+    (v) =>
+      v.cleanups.some(
+        (t) =>
+          t.family_id === family && t.state === "deleting" && t.processed > 0,
+      ),
+    30000,
+  );
+  await expect(task).toContainText("正在分批删除");
+  await shot("07-cache-cleanup-progress");
+  await page.setViewportSize({ width: 900, height: 700 });
+  await shot("08-cache-cleanup-narrow");
+  await expect(task).toContainText("清理完成", { timeout: 60000 });
+  await expect(task).toContainText("已移除 200,000 条");
+  await shot("09-cache-cleanup-completed");
+  checks.push(
+    "cache-manager cleanup returns promptly and displays real batch progress and completion at wide and narrow sizes",
   );
   assert.deepEqual(errors, []);
   await writeFile(

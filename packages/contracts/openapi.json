@@ -4863,12 +4863,80 @@
         },
         "additionalProperties": false
       },
+      "CacheCleanup": {
+        "type": "object",
+        "required": [
+          "family_id",
+          "result_id",
+          "state",
+          "total",
+          "processed",
+          "removed",
+          "started_millis",
+          "updated_millis"
+        ],
+        "properties": {
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "family_id": {
+            "type": "string"
+          },
+          "processed": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "removed": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "result_id": {
+            "type": "string"
+          },
+          "spec": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/QuerySpec"
+              }
+            ]
+          },
+          "started_millis": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "updated_millis": {
+            "type": "string"
+          }
+        }
+      },
       "CacheEntries": {
         "type": "object",
         "required": [
-          "items"
+          "items",
+          "cleanups"
         ],
         "properties": {
+          "cleanups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CacheCleanup"
+            }
+          },
           "items": {
             "type": "array",
             "items": {
@@ -4895,17 +4963,23 @@
           "session_only",
           "last_used_millis",
           "members",
-          "estimated_bytes",
+          "in_use",
           "protected_results"
         ],
         "properties": {
           "estimated_bytes": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "family_id": {
             "type": "string"
           },
           "fixed": {
+            "type": "boolean"
+          },
+          "in_use": {
             "type": "boolean"
           },
           "last_used_millis": {
@@ -4935,6 +5009,29 @@
           },
           "tier": {
             "type": "string"
+          }
+        }
+      },
+      "CacheMaintenance": {
+        "type": "object",
+        "required": [
+          "phase"
+        ],
+        "properties": {
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "phase": {
+            "type": "string"
+          },
+          "project_id": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -5000,6 +5097,7 @@
           "rating_basis_bytes",
           "project_member_bytes",
           "ranked_index_bytes",
+          "reusable_bytes",
           "fixed_member_bytes",
           "working_temporary_bytes",
           "protected_results",
@@ -5043,6 +5141,9 @@
             "type": "string"
           },
           "rating_basis_bytes": {
+            "type": "string"
+          },
+          "reusable_bytes": {
             "type": "string"
           },
           "source_index_bytes": {
@@ -7595,6 +7696,7 @@
       "RankedScope": {
         "type": "object",
         "required": [
+          "view_key",
           "schema_version",
           "workset_id",
           "artifact_id",
@@ -7621,6 +7723,9 @@
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          },
+          "view_key": {
+            "type": "string"
           },
           "workset_id": {
             "type": "string"
@@ -9881,11 +9986,15 @@
         "required": [
           "cache",
           "storage",
-          "query_limits"
+          "query_limits",
+          "maintenance"
         ],
         "properties": {
           "cache": {
             "$ref": "#/components/schemas/CacheSettings"
+          },
+          "maintenance": {
+            "$ref": "#/components/schemas/CacheMaintenance"
           },
           "query_limits": {
             "$ref": "#/components/schemas/QueryResourceLimits"

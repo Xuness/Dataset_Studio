@@ -23,6 +23,7 @@ pub struct CacheStorageOverview {
     pub rating_basis_bytes: String,
     pub project_member_bytes: String,
     pub ranked_index_bytes: String,
+    pub reusable_bytes: String,
     pub fixed_member_bytes: String,
     pub working_temporary_bytes: String,
     pub protected_results: u64,
@@ -36,6 +37,26 @@ pub struct SettingsStatus {
     pub cache: CacheSettings,
     pub storage: CacheStorageOverview,
     pub query_limits: crate::QueryResourceLimits,
+    pub maintenance: CacheMaintenance,
+}
+#[derive(Debug, Clone, Default, Serialize, ToSchema)]
+pub struct CacheMaintenance {
+    pub phase: String,
+    pub project_id: Option<String>,
+    pub error: Option<String>,
+}
+#[derive(Serialize, ToSchema)]
+pub struct CacheCleanup {
+    pub family_id: String,
+    pub result_id: String,
+    pub spec: Option<crate::QuerySpec>,
+    pub state: String,
+    pub total: u64,
+    pub processed: u64,
+    pub removed: u64,
+    pub started_millis: String,
+    pub updated_millis: String,
+    pub error: Option<String>,
 }
 #[derive(Deserialize, ToSchema)]
 pub struct ClearCacheTier {
@@ -61,13 +82,15 @@ pub struct CacheEntry {
     pub session_only: bool,
     pub last_used_millis: String,
     pub members: u64,
-    pub estimated_bytes: String,
+    pub estimated_bytes: Option<String>,
+    pub in_use: bool,
     pub protected_results: u64,
 }
 #[derive(Serialize, ToSchema)]
 pub struct CacheEntries {
     pub items: Vec<CacheEntry>,
     pub next_cursor: Option<String>,
+    pub cleanups: Vec<CacheCleanup>,
 }
 #[derive(Serialize, ToSchema)]
 pub struct RatingBasis {

@@ -349,3 +349,30 @@
   border-radius: 3px;
   background: #30343a;
 }
+.settings-cleanup-progress {
+  display: grid;
+  gap: 6px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.settings-cleanup-status {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  max-height: 220px;
+  overflow: auto;
+  margin-bottom: 20px;
+  padding: 12px;
+  background: #30343a;
+  border: 1px solid #667f98;
+  border-radius: 6px;
+}
+.settings-cleanup-status h4 {
+  margin: 0 0 6px;
+}
+.settings-cleanup-progress progress {
+  width: 100%;
+  accent-color: #91b0cf;
+}

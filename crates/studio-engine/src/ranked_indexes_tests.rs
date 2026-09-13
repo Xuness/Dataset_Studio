@@ -10,6 +10,12 @@ fn fixture() -> (tempfile::TempDir, Arc<RankedIndexes>, RankedIndexPlan) {
         .unwrap();
     let cache = Arc::new(RankedIndexes::new(temp.path().into()));
     let plan = RankedIndexPlan {
+        requested_scope: ScopeRef {
+            project_id: new_id(),
+            target: ScopeTarget::Workset {
+                collection_id: new_id(),
+            },
+        },
         meta: RankedIndexMeta {
             version: 1,
             key: "a".repeat(64),
@@ -110,4 +116,38 @@ fn session_only_indexes_are_removed_after_the_project_session_ends() {
         .prune(u64::MAX, false, 3600, Some(&HashSet::new()))
         .unwrap();
     assert_eq!(cache.metrics().unwrap().entries, 0);
+}
+
+#[test]
+fn compatible_alias_index_is_adopted_without_copying_members() {
+    let (_temp, cache, original) = fixture();
+    let mut plan = original.clone();
+    plan.meta.key = "b".repeat(64);
+    plan.meta.scope.target = ScopeTarget::QueryResult {
+        result_id: new_id(),
+    };
+    let old_path = cache.path(&original.meta.key).unwrap();
+    let size = fs::metadata(&old_path).unwrap().len();
+    cache.adopt(&plan, |old| Ok(old == &original.meta)).unwrap();
+    assert!(!old_path.exists());
+    assert_eq!(
+        fs::metadata(cache.path(&plan.meta.key).unwrap())
+            .unwrap()
+            .len(),
+        size
+    );
+    assert!(
+        cache
+            .open(&plan, Arc::new(AtomicBool::new(false)))
+            .unwrap()
+            .is_some()
+    );
+    assert_eq!(cache.metrics().unwrap().builds, 0);
+    let owner = Arc::new(RankedIndexes::new(cache.root.clone()));
+    assert!(
+        owner
+            .open(&plan, Arc::new(AtomicBool::new(false)))
+            .unwrap()
+            .is_some()
+    );
 }

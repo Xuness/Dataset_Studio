@@ -1566,14 +1566,31 @@ export interface components {
             /** Format: int64 */
             expected_revision: number;
         };
+        CacheCleanup: {
+            error?: string | null;
+            family_id: string;
+            /** Format: int64 */
+            processed: number;
+            /** Format: int64 */
+            removed: number;
+            result_id: string;
+            spec?: null | components["schemas"]["QuerySpec"];
+            started_millis: string;
+            state: string;
+            /** Format: int64 */
+            total: number;
+            updated_millis: string;
+        };
         CacheEntries: {
+            cleanups: components["schemas"]["CacheCleanup"][];
             items: components["schemas"]["CacheEntry"][];
             next_cursor?: string | null;
         };
         CacheEntry: {
-            estimated_bytes: string;
+            estimated_bytes?: string | null;
             family_id: string;
             fixed: boolean;
+            in_use: boolean;
             last_used_millis: string;
             /** Format: int64 */
             members: number;
@@ -1584,6 +1601,11 @@ export interface components {
             session_only: boolean;
             spec: components["schemas"]["QuerySpec"];
             tier: string;
+        };
+        CacheMaintenance: {
+            error?: string | null;
+            phase: string;
+            project_id?: string | null;
         };
         CacheSettings: {
             /** Format: int32 */
@@ -1614,6 +1636,7 @@ export interface components {
             protected_results: number;
             ranked_index_bytes: string;
             rating_basis_bytes: string;
+            reusable_bytes: string;
             source_index_bytes: string;
             temporary_bytes: string;
             /** Format: int64 */
@@ -2252,6 +2275,7 @@ export interface components {
             saved_filter: components["schemas"]["RankingFilter"];
             /** Format: int32 */
             schema_version: number;
+            view_key: string;
             workset_id: string;
         };
         RankingBasis: {
@@ -2835,6 +2859,7 @@ export interface components {
         };
         SettingsStatus: {
             cache: components["schemas"]["CacheSettings"];
+            maintenance: components["schemas"]["CacheMaintenance"];
             query_limits: components["schemas"]["QueryResourceLimits"];
             storage: components["schemas"]["CacheStorageOverview"];
         };

@@ -18,12 +18,14 @@ mod browse_scopes;
 mod derived_fields;
 mod drafts;
 pub use derived_fields::{artifact_field_id, native_spec};
+mod cache_cleanup;
 mod job_scopes;
 mod job_telemetry;
 mod lifecycle;
 mod migrations;
 mod query;
 mod query_cache;
+pub use cache_cleanup::QueryCleanup;
 pub use query_cache::{
     QueryCacheEntry, QueryCachePolicy, QueryCacheRequest, QueryCacheStats, QueryStage,
 };

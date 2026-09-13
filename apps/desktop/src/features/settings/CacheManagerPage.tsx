@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Button, ErrorDetails, ratingLabel } from "@studio/ui";
 import type { QuerySpec } from "@studio/contracts";
 import type { SettingsPageProps } from "./types.js";
 import { sizeLabel } from "./types.js";
+import { CacheCleanupProgress, cleanupPhase } from "./CacheCleanupProgress.js";
 
 function describe(spec: QuerySpec) {
   const names: Record<string, string> = {
@@ -66,6 +67,7 @@ export function CacheManagerPage({
   action,
 }: SettingsPageProps) {
   const [chosenSource, setChosenSource] = useState("");
+  const [releasing, setReleasing] = useState<string | null>(null);
   const lakes = sources.filter((s) => s.kind === "danbooru" && s.available);
   const sourceId =
     lakes.find((s) => s.id === chosenSource)?.id ?? lakes[0]?.id ?? "";
@@ -76,7 +78,7 @@ export function CacheManagerPage({
   });
   const entries = useInfiniteQuery({
     staleTime: 0,
-    refetchInterval: 3000,
+    refetchInterval: 1000,
     queryKey: [
       "settings",
       "cache-entries",
@@ -90,6 +92,31 @@ export function CacheManagerPage({
     enabled: !!project,
   });
   const rows = entries.data?.pages.flatMap((p) => p.items) ?? [];
+  const cleanups = entries.data?.pages[0]?.cleanups ?? [];
+  const cleanupPanel = useRef<HTMLElement>(null);
+  const [focusCleanup, setFocusCleanup] = useState("");
+  useEffect(() => {
+    if (
+      focusCleanup &&
+      cleanups.some((task) => task.result_id === focusCleanup)
+    ) {
+      cleanupPanel.current?.scrollIntoView({ block: "nearest" });
+      setFocusCleanup("");
+    }
+  }, [focusCleanup, cleanups]);
+  async function release(resultId: string) {
+    if (!project) return;
+    setReleasing(resultId);
+    setFocusCleanup(resultId);
+    try {
+      await action(
+        () => client.settings.release(project.id, resultId),
+        "已提交后台清理，可以继续使用项目。",
+      );
+    } finally {
+      setReleasing(null);
+    }
+  }
   const builds = bases.data?.builds ?? [];
   const building = builds.find(
     (b) => b.source_id === sourceId && ["queued", "running"].includes(b.state),
@@ -102,6 +129,30 @@ export function CacheManagerPage({
         <h3>缓存管理</h3>
         <p>查看基础分级和查询结果，调整保留类别或清理不再需要的内容。</p>
       </div>
+      {!!cleanups.length && (
+        <section ref={cleanupPanel} className="settings-cleanup-status">
+          <h4>清理进度</h4>
+          {data.storage.cleanup_pending && (
+            <p className="settings-note" role="status">
+              {cleanupPhase(data.maintenance?.phase ?? "queued")}
+              {Number(data.storage.reusable_bytes) > 0
+                ? ` · ${sizeLabel(data.storage.reusable_bytes)} 空间可复用`
+                : ""}
+            </p>
+          )}
+          {[...cleanups]
+            .sort((a, b) => Number(b.started_millis) - Number(a.started_millis))
+            .slice(0, 32)
+            .map((task) => (
+              <CacheCleanupProgress
+                key={task.family_id}
+                task={task}
+                label={task.spec ? describe(task.spec) : "查询缓存"}
+                retry={() => void release(task.result_id)}
+              />
+            ))}
+        </section>
+      )}
       <section className="settings-section">
         <h4>分级基础缓存</h4>
         <p className="settings-note">
@@ -289,7 +340,11 @@ export function CacheManagerPage({
                             : ""}
                         </small>
                       </td>
-                      <td>{sizeLabel(entry.estimated_bytes)}</td>
+                      <td>
+                        {entry.estimated_bytes == null
+                          ? "正在统计…"
+                          : sizeLabel(entry.estimated_bytes)}
+                      </td>
                       <td>
                         <select
                           aria-label={"缓存类别 " + entry.result_id}
@@ -343,22 +398,18 @@ export function CacheManagerPage({
                         <Button
                           disabled={
                             busy ||
+                            entry.in_use ||
                             entry.fixed ||
                             !!entry.protected_results ||
                             entry.result_id === activeResultId
                           }
-                          onClick={() =>
-                            void action(
-                              () =>
-                                client.settings.release(
-                                  project.id,
-                                  entry.result_id,
-                                ),
-                              "查询缓存已清理，保存的查询条件仍然可用。",
-                            )
-                          }
+                          onClick={() => void release(entry.result_id)}
                         >
-                          清理
+                          {releasing === entry.result_id
+                            ? "正在提交…"
+                            : entry.in_use
+                              ? "正在使用"
+                              : "清理"}
                         </Button>
                       </td>
                     </tr>
@@ -381,6 +432,12 @@ export function CacheManagerPage({
       </section>
       <section className="settings-section">
         <h4>批量清理</h4>
+        {Number(data.storage.reusable_bytes) > 0 && (
+          <p className="settings-note">
+            已有 {sizeLabel(data.storage.reusable_bytes)}{" "}
+            空间可供项目复用，后台会逐步归还磁盘空间。
+          </p>
+        )}
         <p className="settings-note">
           后台分批处理所有项目的可回收缓存，包括已关闭的项目。正在使用、已固定或被项目引用的成员会保留。
         </p>
@@ -421,7 +478,17 @@ export function CacheManagerPage({
         </div>
         {data.storage.cleanup_pending && (
           <p className="settings-note" role="status">
-            正在后台回收…
+            {cleanupPhase(data.maintenance?.phase ?? "queued")}
+            {data.maintenance?.project_id &&
+            data.maintenance.project_id !== project?.id
+              ? " · 正在处理其他项目"
+              : ""}
+            。可以继续使用项目。
+          </p>
+        )}
+        {data.maintenance?.error && (
+          <p className="error" role="alert">
+            {data.maintenance.error}
           </p>
         )}
       </section>

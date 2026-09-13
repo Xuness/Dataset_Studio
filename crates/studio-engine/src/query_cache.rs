@@ -16,6 +16,8 @@ use studio_storage::{QueryCacheRequest, QueryCacheStats, SqliteStore};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CachedProject {
+    #[serde(default)]
+    pub cleanup_pending: bool,
     pub id: String,
     pub directory: PathBuf,
     pub bytes: u64,
@@ -44,6 +46,7 @@ pub struct CachedProject {
     pub oldest_temporary_millis: u64,
 }
 pub struct CacheControl {
+    pub maintenance: Mutex<studio_protocol::CacheMaintenance>,
     gate: Mutex<()>,
     lease_clock: LeaseClock,
     path: PathBuf,
@@ -69,6 +72,19 @@ pub struct CacheGuard<'a> {
     _gate: MutexGuard<'a, ()>,
 }
 impl CacheControl {
+    pub fn phase(&self, phase: &str, pid: Option<&str>) {
+        if let Ok(mut status) = self.maintenance.lock() {
+            status.phase = phase.into();
+            status.project_id = pid.map(String::from);
+            status.error = None;
+        }
+    }
+    pub fn failed(&self, error: &str) {
+        if let Ok(mut status) = self.maintenance.lock() {
+            status.phase = "failed".into();
+            status.error = Some(error.into());
+        }
+    }
     pub fn lock(&self) -> Result<CacheGuard<'_>> {
         let gate = self
             .gate
@@ -114,12 +130,13 @@ impl CacheControl {
         };
         config.validate()?;
         let catalog_path = path.with_file_name("query-cache-catalog.json");
-        let catalog = match std::fs::read(&catalog_path) {
+        let catalog: HashMap<String, CachedProject> = match std::fs::read(&catalog_path) {
             Ok(bytes) => serde_json::from_slice(&bytes).map_err(Error::io)?,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => HashMap::new(),
             Err(e) => return Err(Error::io(e)),
         };
         Ok(Self {
+            maintenance: Mutex::new(studio_protocol::CacheMaintenance::default()),
             gate: Mutex::new(()),
             lease_clock: LeaseClock::new(),
             path,
@@ -128,7 +145,7 @@ impl CacheControl {
             sessions: Mutex::new(HashMap::new()),
             server_session: new_id(),
             clear_tier: Mutex::new(None),
-            requested: AtomicBool::new(false),
+            requested: AtomicBool::new(catalog.values().any(|p| p.cleanup_pending)),
             force: AtomicBool::new(false),
             busy: AtomicBool::new(false),
             reclaimed: AtomicU64::new(0),
@@ -149,6 +166,7 @@ impl CacheControl {
             .lock()
             .map_err(|_| Error::new("INTERNAL_ERROR", "查询缓存目录不可用"))?;
         let value = CachedProject {
+            cleanup_pending: stats.cleanup_pending,
             id: id.into(),
             directory,
             bytes: stats.storage_bytes,
@@ -206,6 +224,7 @@ impl CacheControl {
         Ok(())
     }
     pub fn clear(&self) {
+        self.phase("queued", None);
         if let Ok(mut tier) = self.clear_tier.lock() {
             *tier = None;
         }
@@ -213,6 +232,7 @@ impl CacheControl {
         self.requested.store(true, Ordering::Release);
     }
     pub fn request_clear(&self, tier: Option<QueryCacheTier>) -> Result<()> {
+        self.phase("queued", None);
         *self
             .clear_tier
             .lock()

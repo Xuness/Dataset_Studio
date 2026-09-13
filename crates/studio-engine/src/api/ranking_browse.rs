@@ -333,7 +333,9 @@ pub(super) async fn assets(
             let _permit = read_permit(&s, domain::ReadClass::Index, &read)?;
             let _lease = s.store.operation_lease(&pid)?;
             let scope: domain::ScopeRef = body.scope.into();
-            query::validate_scope(&s, &pid, &scope)?;
+            // Reading immutable ranking material does not depend on the current
+            // source watermark. ranked_scope still checks ready fixed members.
+            scope.validate_project(&pid)?;
             let basis = s.store.ranked_scope(&pid, &scope)?.ok_or_else(|| {
                 domain::Error::new("RANKING_SCOPE_UNSUPPORTED", "当前范围没有可用的排名来源")
             })?;
@@ -348,7 +350,7 @@ pub(super) async fn assets(
                 serde_json::to_vec(&(
                     1,
                     &pid,
-                    &scope,
+                    &basis.index_scope,
                     &basis.workset_id,
                     &basis.artifact_id,
                     &basis.saved_filter,
@@ -363,23 +365,27 @@ pub(super) async fn assets(
                 ))
                 .map_err(domain::Error::io)?,
             ));
-            let index_key = hex::encode(Sha256::digest(
-                serde_json::to_vec(&(
-                    artifact.schema_version,
-                    &scope,
-                    &basis.workset_id,
-                    &basis.artifact_id,
-                    &basis.saved_filter,
-                    basis.count,
-                    &artifact.files,
-                ))
-                .map_err(domain::Error::io)?,
-            ));
+            let key_for = |scope: &domain::ScopeRef| -> domain::Result<String> {
+                Ok(hex::encode(Sha256::digest(
+                    serde_json::to_vec(&(
+                        artifact.schema_version,
+                        scope,
+                        &basis.workset_id,
+                        &basis.artifact_id,
+                        &basis.saved_filter,
+                        basis.count,
+                        &artifact.files,
+                    ))
+                    .map_err(domain::Error::io)?,
+                )))
+            };
+            let index_key = key_for(&basis.index_scope)?;
             let plan = RankedIndexPlan {
+                requested_scope: scope.clone(),
                 meta: RankedIndexMeta {
                     version: artifact.schema_version,
                     key: index_key,
-                    scope: scope.clone(),
+                    scope: basis.index_scope.clone(),
                     count: basis.count,
                 },
                 project: s.store.directory(&pid)?.join("project.sqlite"),
@@ -414,6 +420,13 @@ pub(super) async fn assets(
                     },
                 }
             };
+            read_cancelled(&read.cancelled)?;
+            s.queries.ranked_indexes.adopt(&plan, |old| {
+                Ok(old.version == plan.meta.version
+                    && old.count == plan.meta.count
+                    && s.store.canonical_ranked_scope(&pid, &old.scope)? == plan.meta.scope
+                    && key_for(&old.scope)? == old.key)
+            })?;
             let browse = Browse {
                 state: &s,
                 pid: &pid,
@@ -480,9 +493,13 @@ pub(super) async fn lease(
 ) -> ApiResult<OkResponse> {
     let scope: domain::ScopeRef = body.scope.into();
     scope.validate_project(&pid)?;
-    s.queries
-        .ranked_indexes
-        .lease(&scope, &body.lease_id, body.release)?;
+    blocking(move || {
+        let canonical = s.store.canonical_ranked_scope(&pid, &scope)?;
+        s.queries
+            .ranked_indexes
+            .lease(&canonical, &body.lease_id, body.release)
+    })
+    .await?;
     Ok(Json(OkResponse { ok: true }))
 }
 

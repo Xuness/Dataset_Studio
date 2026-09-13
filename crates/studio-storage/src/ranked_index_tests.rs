@@ -52,6 +52,12 @@ fn fixture() -> (tempfile::TempDir, RankedIndexPlan) {
     db.execute_batch("CREATE TABLE scores(ordinal INTEGER PRIMARY KEY,rating TEXT,main_rank INTEGER,rescue_rank INTEGER); WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<65536) INSERT INTO scores SELECT x,'g',1,NULL FROM n;").unwrap();
     drop(db);
     let plan = RankedIndexPlan {
+        requested_scope: ScopeRef {
+            project_id: new_id(),
+            target: ScopeTarget::Workset {
+                collection_id: cid.clone(),
+            },
+        },
         meta: RankedIndexMeta {
             version: 1,
             key: "a".repeat(64),

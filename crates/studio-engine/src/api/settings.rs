@@ -89,6 +89,13 @@ fn settings_status(s: &AppState) -> domain::Result<SettingsStatus> {
         .map(|b| b.bytes)
         .sum::<u64>();
     Ok(SettingsStatus {
+        maintenance: s
+            .queries
+            .cache
+            .maintenance
+            .lock()
+            .map_err(|_| domain::Error::new("INTERNAL_ERROR", "清理状态不可用"))?
+            .clone(),
         cache: cache_settings(config.clone()),
         query_limits: resources::query_limits(s)?,
         storage: CacheStorageOverview {
@@ -107,6 +114,11 @@ fn settings_status(s: &AppState) -> domain::Result<SettingsStatus> {
             rating_basis_bytes: rating_bytes.to_string(),
             project_member_bytes: (member_bytes + ranked.bytes).to_string(),
             ranked_index_bytes: ranked.bytes.to_string(),
+            reusable_bytes: projects
+                .iter()
+                .map(|p| p.free_bytes)
+                .sum::<u64>()
+                .to_string(),
             fixed_member_bytes: (projects.iter().map(|p| p.fixed_bytes).sum::<u64>()
                 + fixed_bases
                 + indexes)
@@ -124,7 +136,7 @@ fn settings_status(s: &AppState) -> domain::Result<SettingsStatus> {
             temporary_results: projects.iter().map(|p| p.temporary_families).sum(),
             cleanup_pending: s.queries.cache.busy.load(Ordering::Acquire)
                 || s.queries.cache.requested.load(Ordering::Acquire)
-                || s.queries.ranked_indexes.busy(),
+                || projects.iter().any(|p| p.cleanup_pending),
         },
     })
 }
@@ -192,9 +204,13 @@ pub(super) async fn entries(
             } else {
                 None
             };
+            let active = s
+                .store
+                .active_query_families(&pid, &s.queries.cache.live(&pid))?;
             let items = rows
                 .into_iter()
                 .map(|r| CacheEntry {
+                    in_use: active.contains(&r.family_id),
                     project_id: r.project_id,
                     family_id: r.family_id,
                     result_id: r.result_id,
@@ -204,13 +220,30 @@ pub(super) async fn entries(
                     session_only: r.session_only,
                     last_used_millis: r.last_used_millis.to_string(),
                     members: r.members,
-                    estimated_bytes: r.estimated_bytes.to_string(),
+                    estimated_bytes: r.estimated_bytes.map(|n| n.to_string()),
                     protected_results: r.protected_results,
                 })
                 .collect();
             Ok(CacheEntries {
                 items,
                 next_cursor: cursor,
+                cleanups: s
+                    .store
+                    .query_cleanup_status(&pid)?
+                    .into_iter()
+                    .map(|t| CacheCleanup {
+                        family_id: t.family_id,
+                        result_id: t.result_id,
+                        spec: t.spec.map(Into::into),
+                        state: t.state,
+                        total: t.total,
+                        processed: t.processed,
+                        removed: t.removed,
+                        started_millis: t.started_millis,
+                        updated_millis: t.updated_millis,
+                        error: t.error,
+                    })
+                    .collect(),
             })
         })
         .await?,
@@ -273,6 +306,11 @@ pub(super) async fn release_entry(
             let result = s
                 .store
                 .release_cache_entry(&pid, &rid, &s.queries.cache.live(&pid))?;
+            s.queries.cache.phase("queued", Some(&pid));
+            s.queries
+                .cache
+                .requested
+                .store(true, std::sync::atomic::Ordering::Release);
             s.queries.cache.track_committed(&s.store, &pid);
             Ok(result.into())
         })

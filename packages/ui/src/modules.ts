@@ -32,6 +32,8 @@ export type BrowserHistory = {
   firstPage: number;
 };
 export type RankedBrowseSettings = {
+  sourceScopeKey?: string;
+  views?: Record<string, Omit<RankedBrowseSettings, "views">>;
   scopeKey: string;
   sort: "saved" | "main" | "rescue" | "input" | "direct" | "fused" | "off";
   descending: boolean;
