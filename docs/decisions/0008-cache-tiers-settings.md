@@ -87,8 +87,10 @@ column reads in the real-lake prototype.
 Shared bases do not replace project result versions: bounded paging, worksets,
 selection, tools and recovery continue to use project membership. This avoids
 cross-project ownership or mutable-scope dependencies. Changing a cache's retention
-does not change the query or its saved definition. New source versions still require
-refresh even for long-term or fixed cache entries.
+does not change the query or its saved definition. Source-dependent queries still
+require refresh when source versions change, including long-term or fixed cache
+entries. Fixed project scopes evaluated only against saved artifact fields reuse
+their membership across lake updates; see decision 0021 for the dependency boundary.
 
 Version 7 adds family tier, fixed state, member counters, session references and
 candidate usage metadata. Migration preserves existing results and business records,

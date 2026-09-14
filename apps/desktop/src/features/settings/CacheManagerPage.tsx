@@ -1,73 +1,15 @@
-import { useEffect, useRef, useState } from "react";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Button, ErrorDetails, ratingLabel } from "@studio/ui";
-import type { QuerySpec } from "@studio/contracts";
 import type { SettingsPageProps } from "./types.js";
 import { sizeLabel } from "./types.js";
-import { CacheCleanupProgress, cleanupPhase } from "./CacheCleanupProgress.js";
+import { CacheProjectManager } from "./CacheProjectManager.js";
+import { usedAt } from "./cacheLabels.js";
+import { cleanupPhase } from "./CacheCleanupProgress.js";
 
-function describe(spec: QuerySpec) {
-  const names: Record<string, string> = {
-    rating: "分级",
-    tags: "标签",
-    "stored.bytes": "文件大小",
-    "stored.extension": "文件格式",
-    "post.id": "帖子 ID",
-    score: "评分",
-  };
-  const operators: Record<string, string> = {
-    eq: "",
-    in: "",
-    has_tag: "包含",
-    has_all_tags: "包含全部",
-    has_any_tags: "包含任一",
-    has_no_tags: "排除",
-    is_missing: "未记录",
-    is_present: "已记录",
-    gte: "≥",
-    lte: "≤",
-    ne: "不等于",
-  };
-  if (!spec.conditions.length) return "浏览排序 · 全部成员";
-  return spec.conditions
-    .map((c) => {
-      const raw =
-        c.value?.type === "text_list"
-          ? c.value.value.join(" / ")
-          : c.value
-            ? String(c.value.value)
-            : "";
-      return [
-        names[c.field] ?? c.field,
-        operators[c.operator] ?? c.operator,
-        c.field === "rating" ? raw.toUpperCase() : raw,
-      ]
-        .filter(Boolean)
-        .join(" ");
-    })
-    .join(" · ");
-}
-const usedAt = (value: string) =>
-  Number(value)
-    ? new Date(Number(value)).toLocaleString("zh-CN", {
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-      })
-    : "尚未使用";
-
-export function CacheManagerPage({
-  client,
-  project,
-  sources,
-  data,
-  activeResultId,
-  busy,
-  action,
-}: SettingsPageProps) {
+export function CacheManagerPage(props: SettingsPageProps) {
+  const { client, project, sources, data, busy, action } = props;
   const [chosenSource, setChosenSource] = useState("");
-  const [releasing, setReleasing] = useState<string | null>(null);
   const lakes = sources.filter((s) => s.kind === "danbooru" && s.available);
   const sourceId =
     lakes.find((s) => s.id === chosenSource)?.id ?? lakes[0]?.id ?? "";
@@ -76,47 +18,6 @@ export function CacheManagerPage({
     queryFn: ({ signal }) => client.settings.ratingBases(signal),
     refetchInterval: 1500,
   });
-  const entries = useInfiniteQuery({
-    staleTime: 0,
-    refetchInterval: 1000,
-    queryKey: [
-      "settings",
-      "cache-entries",
-      client.connection.instance_id,
-      project?.id,
-    ],
-    queryFn: ({ pageParam, signal }) =>
-      client.settings.entries(project!.id, pageParam ?? undefined, signal),
-    initialPageParam: null as string | null,
-    getNextPageParam: (page) => page.next_cursor ?? undefined,
-    enabled: !!project,
-  });
-  const rows = entries.data?.pages.flatMap((p) => p.items) ?? [];
-  const cleanups = entries.data?.pages[0]?.cleanups ?? [];
-  const cleanupPanel = useRef<HTMLElement>(null);
-  const [focusCleanup, setFocusCleanup] = useState("");
-  useEffect(() => {
-    if (
-      focusCleanup &&
-      cleanups.some((task) => task.result_id === focusCleanup)
-    ) {
-      cleanupPanel.current?.scrollIntoView({ block: "nearest" });
-      setFocusCleanup("");
-    }
-  }, [focusCleanup, cleanups]);
-  async function release(resultId: string) {
-    if (!project) return;
-    setReleasing(resultId);
-    setFocusCleanup(resultId);
-    try {
-      await action(
-        () => client.settings.release(project.id, resultId),
-        "已提交后台清理，可以继续使用项目。",
-      );
-    } finally {
-      setReleasing(null);
-    }
-  }
   const builds = bases.data?.builds ?? [];
   const building = builds.find(
     (b) => b.source_id === sourceId && ["queued", "running"].includes(b.state),
@@ -127,32 +28,9 @@ export function CacheManagerPage({
     <div className="settings-page">
       <div className="settings-page-heading">
         <h3>缓存管理</h3>
-        <p>查看基础分级和查询结果，调整保留类别或清理不再需要的内容。</p>
+        <p>按项目核对查询、固定输入和排名索引，管理共享缓存与保留方式。</p>
       </div>
-      {!!cleanups.length && (
-        <section ref={cleanupPanel} className="settings-cleanup-status">
-          <h4>清理进度</h4>
-          {data.storage.cleanup_pending && (
-            <p className="settings-note" role="status">
-              {cleanupPhase(data.maintenance?.phase ?? "queued")}
-              {Number(data.storage.reusable_bytes) > 0
-                ? ` · ${sizeLabel(data.storage.reusable_bytes)} 空间可复用`
-                : ""}
-            </p>
-          )}
-          {[...cleanups]
-            .sort((a, b) => Number(b.started_millis) - Number(a.started_millis))
-            .slice(0, 32)
-            .map((task) => (
-              <CacheCleanupProgress
-                key={task.family_id}
-                task={task}
-                label={task.spec ? describe(task.spec) : "查询缓存"}
-                retry={() => void release(task.result_id)}
-              />
-            ))}
-        </section>
-      )}
+      <CacheProjectManager {...props} />
       <section className="settings-section">
         <h4>分级基础缓存</h4>
         <p className="settings-note">
@@ -300,134 +178,6 @@ export function CacheManagerPage({
           <p className="settings-empty">
             尚未建立分级基础缓存。首次相关查询会按需生成，也可以在这里预先建立。
           </p>
-        )}
-      </section>
-      <section className="settings-section">
-        <h4>{project ? project.name + " · 查询结果" : "项目查询结果"}</h4>
-        <p className="settings-note">
-          调整类别共用原有成员；固定保留会覆盖闲置清理期限。表中空间按共享成员存储分摊估算，合计占用以“缓存与存储”页面为准。
-        </p>
-        {entries.error && <ErrorDetails error={entries.error} />}
-        {!project ? (
-          <p className="settings-empty">
-            打开项目后，可以管理它的查询结果。全局容量与分级基础缓存仍可在这里查看。
-          </p>
-        ) : rows.length ? (
-          <>
-            <div className="settings-table-wrap">
-              <table className="settings-table">
-                <thead>
-                  <tr>
-                    <th>筛选条件</th>
-                    <th>估算占用</th>
-                    <th>保留类别</th>
-                    <th>固定</th>
-                    <th>操作</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((entry) => (
-                    <tr key={entry.family_id}>
-                      <td className="settings-query-name">
-                        <strong title={describe(entry.spec)}>
-                          {describe(entry.spec)}
-                        </strong>
-                        <small>
-                          {entry.members.toLocaleString()} 条成员 ·{" "}
-                          {usedAt(entry.last_used_millis)}
-                          {entry.protected_results
-                            ? " · 项目引用 " + entry.protected_results + " 项"
-                            : ""}
-                        </small>
-                      </td>
-                      <td>
-                        {entry.estimated_bytes == null
-                          ? "正在统计…"
-                          : sizeLabel(entry.estimated_bytes)}
-                      </td>
-                      <td>
-                        <select
-                          aria-label={"缓存类别 " + entry.result_id}
-                          value={entry.tier}
-                          disabled={busy}
-                          onChange={(e) =>
-                            void action(
-                              () =>
-                                client.settings.retention(
-                                  project.id,
-                                  entry.result_id,
-                                  e.target.value === "long_term"
-                                    ? "long_term"
-                                    : "temporary",
-                                  entry.fixed,
-                                ),
-                              "缓存类别已更新，成员无需复制。",
-                            )
-                          }
-                        >
-                          <option value="long_term">长期</option>
-                          <option value="temporary">临时</option>
-                        </select>
-                        {entry.session_only && entry.tier === "temporary" && (
-                          <small>仅本次会话</small>
-                        )}
-                      </td>
-                      <td>
-                        <input
-                          type="checkbox"
-                          aria-label={"固定缓存 " + entry.result_id}
-                          checked={entry.fixed}
-                          disabled={busy}
-                          onChange={(e) =>
-                            void action(
-                              () =>
-                                client.settings.retention(
-                                  project.id,
-                                  entry.result_id,
-                                  entry.tier === "long_term"
-                                    ? "long_term"
-                                    : "temporary",
-                                  e.target.checked,
-                                ),
-                              "固定保留状态已更新。",
-                            )
-                          }
-                        />
-                      </td>
-                      <td>
-                        <Button
-                          disabled={
-                            busy ||
-                            entry.in_use ||
-                            entry.fixed ||
-                            !!entry.protected_results ||
-                            entry.result_id === activeResultId
-                          }
-                          onClick={() => void release(entry.result_id)}
-                        >
-                          {releasing === entry.result_id
-                            ? "正在提交…"
-                            : entry.in_use
-                              ? "正在使用"
-                              : "清理"}
-                        </Button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            {entries.hasNextPage && (
-              <Button
-                disabled={entries.isFetchingNextPage}
-                onClick={() => void entries.fetchNextPage()}
-              >
-                加载更多结果
-              </Button>
-            )}
-          </>
-        ) : (
-          <p className="settings-empty">当前项目尚无保留的查询结果。</p>
         )}
       </section>
       <section className="settings-section">

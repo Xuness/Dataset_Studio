@@ -77,7 +77,7 @@ export function CacheSettingsPage({
           <small>{storage.long_term_results} 组长期查询</small>
         </div>
         <div>
-          <span>临时结果</span>
+          <span>临时类占用</span>
           <strong>{sizeLabel(storage.temporary_bytes)}</strong>
           <small>
             {storage.temporary_results} 组临时查询 · 排名浏览索引{" "}
@@ -93,7 +93,7 @@ export function CacheSettingsPage({
       <p className="settings-note">
         固定保留与必需索引 {sizeLabel(storage.fixed_member_bytes)} · 被项目引用{" "}
         {storage.protected_results} 份结果 · 正在读取 {storage.active_views}{" "}
-        份结果。分类中的查询空间为分摊估算。
+        份结果。临时类也包含项目固定输入；在缓存管理中可按项目查看归属、引用和排名索引。成员空间为分摊估算。
       </p>
       <fieldset disabled={busy} className="settings-fields">
         <section className="settings-section">

@@ -8,7 +8,9 @@ fn validate_input(
 ) -> domain::Result<()> {
     s.store.query_input_count(pid, spec)?;
     if let Some(scope) = &spec.input_scope {
-        validate_scope(s, pid, scope)?;
+        if !spec.uses_only_fixed_project_data() {
+            validate_scope(s, pid, scope)?;
+        }
         if let domain::ScopeTarget::Source {
             source_id,
             revision,
@@ -396,9 +398,11 @@ pub(super) async fn result_assets(
             for (source_id, keys) in groups {
                 let source = s.store.source(&pid, &source_id)?;
                 for item in SourceRouter.freeze(&source, &keys)? {
-                    if !result.source_versions.iter().any(|v| {
-                        v.source_id == source_id && v.catalog_revision == item.source_revision
-                    }) {
+                    if !result.spec.uses_only_fixed_project_data()
+                        && !result.source_versions.iter().any(|v| {
+                            v.source_id == source_id && v.catalog_revision == item.source_revision
+                        })
+                    {
                         return Err(domain::Error::new("SOURCE_CHANGED", "分页期间来源已变化"));
                     }
                     assets.insert(item.asset.key.clone(), item.asset);

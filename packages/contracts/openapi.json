@@ -9,6 +9,197 @@
     "version": "1.0.0"
   },
   "paths": {
+    "/v1/cache/projects": {
+      "get": {
+        "tags": [
+          "cache_storage"
+        ],
+        "operationId": "cache_projects",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CacheProjects"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/cache/projects/{project_id}": {
+      "get": {
+        "tags": [
+          "cache_storage"
+        ],
+        "operationId": "project_cache_inventory",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectCacheInventory"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/cache/projects/{project_id}/members/{result_id}/release": {
+      "post": {
+        "tags": [
+          "cache_storage"
+        ],
+        "operationId": "release_project_cache_member",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "result_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/cache/projects/{project_id}/members/{result_id}/retention": {
+      "put": {
+        "tags": [
+          "cache_storage"
+        ],
+        "operationId": "retain_project_cache_member",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "result_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetResultRetention"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/cache/projects/{project_id}/ranked/{key}/release": {
+      "post": {
+        "tags": [
+          "cache_storage"
+        ],
+        "operationId": "release_project_ranked_index",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/cache/rating-bases": {
       "get": {
         "tags": [
@@ -5103,6 +5294,184 @@
           }
         }
       },
+      "CacheMemberItem": {
+        "type": "object",
+        "required": [
+          "family_id",
+          "result_id",
+          "spec",
+          "cached",
+          "tier",
+          "fixed",
+          "session_only",
+          "members",
+          "last_used_millis",
+          "in_use",
+          "references",
+          "reference_count",
+          "can_release"
+        ],
+        "properties": {
+          "cached": {
+            "type": "boolean"
+          },
+          "can_release": {
+            "type": "boolean"
+          },
+          "estimated_bytes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "family_id": {
+            "type": "string"
+          },
+          "fixed": {
+            "type": "boolean"
+          },
+          "in_use": {
+            "type": "boolean"
+          },
+          "last_used_millis": {
+            "type": "string"
+          },
+          "members": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "reference_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "references": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "result_id": {
+            "type": "string"
+          },
+          "session_only": {
+            "type": "boolean"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/QuerySpec"
+          },
+          "tier": {
+            "type": "string"
+          }
+        }
+      },
+      "CacheProject": {
+        "type": "object",
+        "required": [
+          "project_id",
+          "name",
+          "state",
+          "directory",
+          "member_bytes",
+          "long_term_bytes",
+          "temporary_bytes",
+          "ranked_index_bytes",
+          "total_bytes"
+        ],
+        "properties": {
+          "directory": {
+            "type": "string"
+          },
+          "issue": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "long_term_bytes": {
+            "type": "string"
+          },
+          "member_bytes": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "ranked_index_bytes": {
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/ProjectState"
+          },
+          "temporary_bytes": {
+            "type": "string"
+          },
+          "total_bytes": {
+            "type": "string"
+          }
+        }
+      },
+      "CacheProjects": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CacheProject"
+            }
+          }
+        }
+      },
+      "CacheRankedItem": {
+        "type": "object",
+        "required": [
+          "key",
+          "label",
+          "path",
+          "members",
+          "bytes",
+          "last_used_millis",
+          "in_use"
+        ],
+        "properties": {
+          "bytes": {
+            "type": "string"
+          },
+          "in_use": {
+            "type": "boolean"
+          },
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "last_used_millis": {
+            "type": "string"
+          },
+          "members": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "path": {
+            "type": "string"
+          }
+        }
+      },
       "CacheSettings": {
         "type": "object",
         "required": [
@@ -7140,6 +7509,48 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          }
+        }
+      },
+      "ProjectCacheInventory": {
+        "type": "object",
+        "required": [
+          "project_id",
+          "member_path",
+          "members",
+          "ranked_indexes",
+          "cleanups"
+        ],
+        "properties": {
+          "cleanups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CacheCleanup"
+            }
+          },
+          "member_path": {
+            "type": "string"
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CacheMemberItem"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "ranked_indexes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CacheRankedItem"
+            }
           }
         }
       },

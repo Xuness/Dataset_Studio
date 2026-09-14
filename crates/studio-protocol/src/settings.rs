@@ -118,3 +118,58 @@ pub struct RatingBases {
     pub items: Vec<RatingBasis>,
     pub builds: Vec<RatingBuild>,
 }
+
+#[derive(Serialize, ToSchema)]
+pub struct CacheProject {
+    pub project_id: String,
+    pub name: String,
+    pub state: crate::ProjectState,
+    pub directory: String,
+    pub member_bytes: String,
+    pub long_term_bytes: String,
+    pub temporary_bytes: String,
+    pub ranked_index_bytes: String,
+    pub total_bytes: String,
+    pub issue: Option<String>,
+}
+#[derive(Serialize, ToSchema)]
+pub struct CacheProjects {
+    pub items: Vec<CacheProject>,
+}
+#[derive(Serialize, ToSchema)]
+pub struct CacheMemberItem {
+    pub family_id: String,
+    pub result_id: String,
+    pub spec: crate::QuerySpec,
+    pub cached: bool,
+    pub tier: String,
+    pub fixed: bool,
+    pub session_only: bool,
+    pub members: u64,
+    pub estimated_bytes: Option<String>,
+    pub last_used_millis: String,
+    pub in_use: bool,
+    pub references: Vec<String>,
+    pub reference_count: u64,
+    pub can_release: bool,
+    pub reason: Option<String>,
+}
+#[derive(Serialize, ToSchema)]
+pub struct CacheRankedItem {
+    pub key: String,
+    pub label: String,
+    pub path: String,
+    pub members: u64,
+    pub bytes: String,
+    pub last_used_millis: String,
+    pub in_use: bool,
+}
+#[derive(Serialize, ToSchema)]
+pub struct ProjectCacheInventory {
+    pub project_id: String,
+    pub member_path: String,
+    pub members: Vec<CacheMemberItem>,
+    pub next_cursor: Option<String>,
+    pub ranked_indexes: Vec<CacheRankedItem>,
+    pub cleanups: Vec<CacheCleanup>,
+}

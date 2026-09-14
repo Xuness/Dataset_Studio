@@ -20,6 +20,7 @@ use studio_protocol::*;
 use studio_sources::SourceRouter;
 use studio_storage::SqliteStore;
 use utoipa::OpenApi;
+mod cache_storage;
 mod management;
 mod query;
 mod ranking;
@@ -1402,6 +1403,11 @@ async fn shutdown(State(s): State<AppState>) -> Json<OkResponse> {
         resources::clear,
         resources::cancel,
         settings::read,
+        cache_storage::projects,
+        cache_storage::inventory,
+        cache_storage::release_member,
+        cache_storage::retention,
+        cache_storage::release_ranked,
         settings::configure,
         settings::clear,
         settings::entries,
@@ -1488,6 +1494,23 @@ pub fn routes() -> axum::Router<AppState> {
             post(management::delete_preset),
         )
         .route("/v1/settings", get(settings::read))
+        .route("/v1/cache/projects", get(cache_storage::projects))
+        .route(
+            "/v1/cache/projects/{project_id}",
+            get(cache_storage::inventory),
+        )
+        .route(
+            "/v1/cache/projects/{project_id}/members/{result_id}/release",
+            post(cache_storage::release_member),
+        )
+        .route(
+            "/v1/cache/projects/{project_id}/members/{result_id}/retention",
+            axum::routing::put(cache_storage::retention),
+        )
+        .route(
+            "/v1/cache/projects/{project_id}/ranked/{key}/release",
+            post(cache_storage::release_ranked),
+        )
         .route(
             "/v1/projects/{project_id}/query-results/{result_id}/cache-release",
             post(settings::release_entry),

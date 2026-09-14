@@ -1,4 +1,84 @@
 export interface paths {
+    "/v1/cache/projects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["cache_projects"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/cache/projects/{project_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["project_cache_inventory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/cache/projects/{project_id}/members/{result_id}/release": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["release_project_cache_member"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/cache/projects/{project_id}/members/{result_id}/retention": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["retain_project_cache_member"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/cache/projects/{project_id}/ranked/{key}/release": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["release_project_ranked_index"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/cache/rating-bases": {
         parameters: {
             query?: never;
@@ -1625,6 +1705,50 @@ export interface components {
             phase: string;
             project_id?: string | null;
         };
+        CacheMemberItem: {
+            cached: boolean;
+            can_release: boolean;
+            estimated_bytes?: string | null;
+            family_id: string;
+            fixed: boolean;
+            in_use: boolean;
+            last_used_millis: string;
+            /** Format: int64 */
+            members: number;
+            reason?: string | null;
+            /** Format: int64 */
+            reference_count: number;
+            references: string[];
+            result_id: string;
+            session_only: boolean;
+            spec: components["schemas"]["QuerySpec"];
+            tier: string;
+        };
+        CacheProject: {
+            directory: string;
+            issue?: string | null;
+            long_term_bytes: string;
+            member_bytes: string;
+            name: string;
+            project_id: string;
+            ranked_index_bytes: string;
+            state: components["schemas"]["ProjectState"];
+            temporary_bytes: string;
+            total_bytes: string;
+        };
+        CacheProjects: {
+            items: components["schemas"]["CacheProject"][];
+        };
+        CacheRankedItem: {
+            bytes: string;
+            in_use: boolean;
+            key: string;
+            label: string;
+            last_used_millis: string;
+            /** Format: int64 */
+            members: number;
+            path: string;
+        };
         CacheSettings: {
             /** Format: int32 */
             long_term_idle_days?: number | null;
@@ -2134,6 +2258,14 @@ export interface components {
             name: string;
             /** Format: int64 */
             revision: number;
+        };
+        ProjectCacheInventory: {
+            cleanups: components["schemas"]["CacheCleanup"][];
+            member_path: string;
+            members: components["schemas"]["CacheMemberItem"][];
+            next_cursor?: string | null;
+            project_id: string;
+            ranked_indexes: components["schemas"]["CacheRankedItem"][];
         };
         ProjectClose: {
             project_id: string;
@@ -2966,6 +3098,119 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    cache_projects: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CacheProjects"];
+                };
+            };
+        };
+    };
+    project_cache_inventory: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectCacheInventory"];
+                };
+            };
+        };
+    };
+    release_project_cache_member: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                result_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+        };
+    };
+    retain_project_cache_member: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                result_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetResultRetention"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+        };
+    };
+    release_project_ranked_index: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+        };
+    };
     list_rating_bases: {
         parameters: {
             query?: never;

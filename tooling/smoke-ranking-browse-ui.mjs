@@ -746,6 +746,74 @@ try {
   checks.push(
     "cache-manager cleanup returns promptly and displays real batch progress and completion at wide and narrow sizes",
   );
+  // Global cache management must reach a closed project without switching the
+  // desktop's active project or changing its recency.
+  const closedProject = await engine.api("/v1/projects", "POST", {
+    name: "关闭项目缓存验收",
+  });
+  const closedBase = "/v1/projects/" + closedProject.id;
+  const demoSource = await engine.api(closedBase + "/sources", "POST", {
+    name: "Demo",
+    kind: "demo",
+  });
+  const demoQuery = await engine.api(closedBase + "/query-results", "POST", {
+    spec: {
+      version: 3,
+      source_ids: [demoSource.id],
+      conditions: [],
+      observation_rule: "current_post",
+      order: "asset_key_asc",
+    },
+  });
+  await engine.wait(
+    closedBase + "/query-results/" + demoQuery.id,
+    (v) => v.state === "ready",
+  );
+  await engine.api(closedBase + "/close", "POST");
+  const closedBefore = (await engine.api("/v1/projects")).items.find(
+    (p) => p.id === closedProject.id,
+  );
+  await page.setViewportSize({ width: 1540, height: 1000 });
+  await page
+    .getByRole("button", { name: "关闭项目缓存验收", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", {
+      name: "关闭项目缓存验收 · 缓存明细",
+      exact: true,
+    }),
+  ).toBeVisible();
+  const pin = page.getByRole("checkbox", {
+    name: "固定缓存 " + demoQuery.id,
+    exact: true,
+  });
+  await pin.click();
+  await expect(pin).toBeChecked();
+  const accounted = await engine.wait(
+    "/v1/cache/projects/" + closedProject.id,
+    (v) =>
+      v.members.some(
+        (m) => m.result_id === demoQuery.id && m.estimated_bytes !== null,
+      ),
+  );
+  assert.ok(
+    Number(
+      accounted.members.find((m) => m.result_id === demoQuery.id)
+        .estimated_bytes,
+    ) > 0,
+  );
+  const closedAfter = (await engine.api("/v1/projects")).items.find(
+    (p) => p.id === closedProject.id,
+  );
+  assert.equal(closedAfter.state, "closed");
+  assert.equal(closedAfter.opened_at, closedBefore.opened_at);
+  await page
+    .getByRole("heading", { name: "各项目占用", exact: true })
+    .scrollIntoViewIfNeeded();
+  await shot("10-closed-project-cache-inventory");
+  checks.push(
+    "cache manager selects and changes retention in a closed project without opening it or changing recency",
+  );
   assert.deepEqual(errors, []);
   await writeFile(
     resolve(run, "report.json"),

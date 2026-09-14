@@ -37,6 +37,7 @@ impl Default for QueryCachePolicy {
 }
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct QueryCacheStats {
+    pub unreferenced_members: u64,
     pub cleanup_pending: bool,
     pub last_used_millis: u64,
     pub retained_families: u64,
@@ -58,9 +59,9 @@ pub struct QueryCacheStats {
 }
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 pub struct QuerySizes {
-    revision: u64,
-    bytes: u64,
-    members: u64,
+    pub(super) revision: u64,
+    pub(super) bytes: u64,
+    pub(super) members: u64,
 }
 #[derive(Debug, Clone)]
 pub struct QueryCacheSnapshot {
@@ -252,7 +253,7 @@ impl SqliteStore {
             store.maintain_query_cache_step(pid, policy, &HashSet::new(), force)
         })
     }
-    fn with_closed_cache<T>(
+    pub(super) fn with_closed_cache<T>(
         app_root: &Path,
         pid: &str,
         directory: &Path,
@@ -545,7 +546,11 @@ impl SqliteStore {
                     |r| r.get(0),
                 )
                 .map_err(db_error)?;
-            let hit = basis.source_versions == versions && (!spec.order.by_post() || post_ready);
+            // Fixed workset/result membership and immutable artifact predicates
+            // do not acquire a new member revision when the lake advances. This
+            // also reuses pre-existing caches without rebuilding or migrating them.
+            let hit = (spec.uses_only_fixed_project_data() || basis.source_versions == versions)
+                && (!spec.order.by_post() || post_ready);
             tx.execute("UPDATE query_results SET family_id=?2,member_revision=?3,cache_base=?4,cache_mode=?5,status=?6,count=?7,post_ready=?8 WHERE id=?1",params![result.id,family,revision+i64::from(!hit),base,if hit{"reused"}else{"refresh"},if hit{"ready"}else{"queued"},if hit{count}else{0},post_ready]).map_err(db_error)?;
             tx.execute("DELETE FROM query_families WHERE id=?1", [&result.id])
                 .map_err(db_error)?;
@@ -932,6 +937,11 @@ impl SqliteStore {
             )
             .map_err(db_error)?;
             tx.execute("UPDATE query_results SET count=?2,processed=?3,cache_mode=?4,evaluated_count=?5,changed_members=?6,post_ready=?7 WHERE id=?1",params![rid,count,stage.processed as i64,mode,stage.evaluated as i64,changed as i64,stage.post_ready]).map_err(db_error)?;
+            // An evaluated refresh can also prove that membership AND stored
+            // post associations did not change. Keep the old revision/index.
+            if changed == 0 && revision > 1 {
+                tx.execute("UPDATE query_results SET member_revision=(SELECT latest_revision FROM query_families WHERE id=?2) WHERE id=?1", params![rid, family]).map_err(db_error)?;
+            }
             if changed > 0 {
                 touch_sizes(&tx)?;
             }
@@ -1012,7 +1022,7 @@ impl SqliteStore {
         )
         .map_err(db_error)?;
         let candidates = {
-            let mut stmt=db.prepare("SELECT f.id,f.touched_at,f.cached,f.tier,f.fixed,f.session_only FROM query_families f WHERE (cached=1 OR latest_count>0) AND NOT EXISTS(SELECT 1 FROM query_results r WHERE r.family_id=f.id AND r.status IN ('queued','running')) ORDER BY CASE tier WHEN 'temporary' THEN 0 ELSE 1 END,touched_at,id").map_err(db_error)?;
+            let mut stmt=db.prepare("SELECT f.id,f.touched_at,f.cached,f.tier,f.fixed,f.session_only FROM query_families f WHERE (cached=1 OR latest_count>0 OR (stored_members>0 AND NOT EXISTS(SELECT 1 FROM query_results owner JOIN result_references x ON x.result_id=owner.id WHERE owner.family_id=f.id))) AND NOT EXISTS(SELECT 1 FROM query_results r WHERE r.family_id=f.id AND r.status IN ('queued','running')) ORDER BY CASE tier WHEN 'temporary' THEN 0 ELSE 1 END,touched_at,id").map_err(db_error)?;
             stmt.query_map([], |r| {
                 Ok((
                     r.get::<_, String>(0)?,
@@ -1203,6 +1213,9 @@ fn stats(db: &Connection, sizes: (u64, u64)) -> Result<QueryCacheStats> {
         sizes.1,
     );
     Ok(QueryCacheStats {
+        unreferenced_members: scalar(
+            "SELECT COALESCE(SUM(stored_members),0) FROM query_families f WHERE cached=0 AND fixed=0 AND NOT EXISTS(SELECT 1 FROM query_results r JOIN result_references x ON x.result_id=r.id WHERE r.family_id=f.id) AND NOT EXISTS(SELECT 1 FROM query_results r WHERE r.family_id=f.id AND r.status IN ('queued','running'))",
+        )?,
         cleanup_pending: scalar(
             "SELECT EXISTS(SELECT 1 FROM meta WHERE key>='query_cleanup/' AND key<'query_cleanup0' AND json_extract(value,'$.state') IN ('queued','deleting','accounting'))",
         )? != 0,

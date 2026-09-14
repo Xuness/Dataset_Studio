@@ -359,7 +359,10 @@ impl QueryRunner {
                     .unwrap_or_else(|| "结果尚未完整构建或已释放".into()),
             ));
         }
-        if self.versions(store, &result.project_id, &result.spec)? != result.source_versions {
+        store.validate_derived(&result.project_id, &result.spec)?;
+        if !result.spec.uses_only_fixed_project_data()
+            && self.versions(store, &result.project_id, &result.spec)? != result.source_versions
+        {
             return Err(Error::new(
                 "SOURCE_CHANGED",
                 "来源版本已变化；已有结果保留固定成员，请重新计算后使用查询范围",
@@ -374,13 +377,14 @@ impl QueryRunner {
         cancelled: Arc<AtomicBool>,
     ) -> Result<()> {
         let _lease = store.operation_lease(&result.project_id)?;
+        let fixed = result.spec.uses_only_fixed_project_data();
         let sources = result
             .source_versions
             .iter()
             .map(|v| store.source(&result.project_id, &v.source_id))
             .collect::<Result<Vec<_>>>()?;
         for source in &sources {
-            if source.kind == "danbooru" {
+            if !fixed && source.kind == "danbooru" {
                 store.query_build_phase(&result.project_id, &result.id, "index")?;
                 if let Err(error) = self.ensure_browse_index(source, cancelled.clone())
                     && (studio_storage::native_spec(&result.spec).uses_metadata()
@@ -455,7 +459,7 @@ impl QueryRunner {
             if previous == Some(expected) && !post_refresh {
                 continue;
             }
-            let index = if source.kind == "danbooru" {
+            let index = if !fixed && source.kind == "danbooru" {
                 self.browse_index.reader(source).ok()
             } else {
                 None
@@ -491,7 +495,7 @@ impl QueryRunner {
                 stage.borrow_mut().full_source(&source.id);
                 let evaluated = ranking.stream(&source.id, &cancelled, &mut sink)?;
                 stage.borrow_mut().evaluated += evaluated;
-            } else if input_count.is_some_and(|count| count <= 4096) {
+            } else if fixed || input_count.is_some_and(|count| count <= 4096) {
                 stage.borrow_mut().full_source(&source.id);
                 // Small project scopes use indexed identity predicates, not a lake scan.
                 let mut after = None;
@@ -506,14 +510,18 @@ impl QueryRunner {
                         break;
                     }
                     stage.borrow_mut().evaluated += keys.len() as u64;
-                    reader.execute_query_keys(
-                        source,
-                        &native,
-                        expected,
-                        cancelled.clone(),
-                        &keys,
-                        &mut sink,
-                    )?;
+                    if fixed {
+                        sink(&keys, keys.len() as u64)?;
+                    } else {
+                        reader.execute_query_keys(
+                            source,
+                            &native,
+                            expected,
+                            cancelled.clone(),
+                            &keys,
+                            &mut sink,
+                        )?;
+                    }
                     after = keys.last().map(|k| k.asset_id.clone());
                 }
             } else {
@@ -565,7 +573,9 @@ impl QueryRunner {
         }
         // Multi-source builds have per-source transactions; check every source again
         // before publication. This fence is explicitly not a historical snapshot.
-        if self.versions(store, &result.project_id, &result.spec)? != result.source_versions {
+        if !fixed
+            && self.versions(store, &result.project_id, &result.spec)? != result.source_versions
+        {
             return Err(Error::new(
                 "SOURCE_CHANGED",
                 "构建期间来源已更新，请重新计算",
@@ -584,7 +594,9 @@ impl QueryRunner {
             &cancelled,
             (budget.memory_bytes / 2).min(4 << 30),
         )?;
-        if self.versions(store, &result.project_id, &result.spec)? != result.source_versions {
+        if !fixed
+            && self.versions(store, &result.project_id, &result.spec)? != result.source_versions
+        {
             return Err(Error::new(
                 "SOURCE_CHANGED",
                 "发布查询期间来源已更新，请刷新后重试",
@@ -700,13 +712,16 @@ fn sweep_cache(
     let now = studio_storage::now().parse::<u64>().unwrap_or(0);
     let needs_closed = |p: &crate::query_cache::CachedProject| {
         force
+            || p.unreferenced_members.is_none_or(|n| n > 0)
             || p.cleanup_pending
             || (p.retained > 0 && p.long_term_families + p.temporary_families == 0)
             || p.session_families > 0
             || (policy.session_only && p.temporary_families > 0)
-            || (p.temporary_families > 0
+            || (p.oldest_temporary_millis > 0
+                && p.temporary_families > 0
                 && p.oldest_temporary_millis <= now.saturating_sub(policy.max_age_seconds * 1000))
-            || (p.long_term_families > 0
+            || (p.oldest_long_term_millis > 0
+                && p.long_term_families > 0
                 && policy
                     .long_term_max_age_seconds
                     .is_some_and(|age| p.oldest_long_term_millis <= now.saturating_sub(age * 1000)))
@@ -726,6 +741,9 @@ fn sweep_cache(
         }
         match SqliteStore::inspect_query_cache(&p.directory) {
             Ok(snapshot) => {
+                runner
+                    .cache
+                    .record(&p.id, p.directory.clone(), snapshot.stats.clone())?;
                 closed.insert(p.id.clone(), snapshot);
             }
             Err(error) => {

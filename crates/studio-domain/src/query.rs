@@ -151,6 +151,19 @@ impl QuerySpec {
             .iter()
             .any(|c| !c.field.starts_with("stored.") && c.field != "asset.id")
     }
+    /// Membership and predicates are project-owned snapshots. Post-ID ordering
+    /// still depends on current source associations and is deliberately excluded.
+    pub fn uses_only_fixed_project_data(&self) -> bool {
+        !self.order.by_post()
+            && matches!(
+                self.input_scope.as_ref().map(|s| &s.target),
+                Some(ScopeTarget::Workset { .. } | ScopeTarget::QueryResult { .. })
+            )
+            && self
+                .conditions
+                .iter()
+                .all(|c| c.field.starts_with("project."))
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

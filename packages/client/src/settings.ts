@@ -10,6 +10,54 @@ const basis = (sourceId: string, rating: string) =>
 
 export class SettingsClient {
   constructor(private readonly request: Request) {}
+  projects(signal?: AbortSignal) {
+    return this.request<Schema["CacheProjects"]>("/v1/cache/projects", {
+      signal: signal ?? null,
+    });
+  }
+  inventory(projectId: string, cursor?: string, signal?: AbortSignal) {
+    const query = new URLSearchParams({ limit: "32" });
+    if (cursor) query.set("cursor", cursor);
+    return this.request<Schema["ProjectCacheInventory"]>(
+      "/v1/cache/projects/" + encodeURIComponent(projectId) + "?" + query,
+      { signal: signal ?? null },
+    );
+  }
+  releaseMember(projectId: string, resultId: string) {
+    return this.request<Schema["OkResponse"]>(
+      "/v1/cache/projects/" +
+        encodeURIComponent(projectId) +
+        "/members/" +
+        encodeURIComponent(resultId) +
+        "/release",
+      { method: "POST" },
+    );
+  }
+  retainMember(
+    projectId: string,
+    resultId: string,
+    tier: "long_term" | "temporary",
+    fixed: boolean,
+  ) {
+    return this.request<Schema["OkResponse"]>(
+      "/v1/cache/projects/" +
+        encodeURIComponent(projectId) +
+        "/members/" +
+        encodeURIComponent(resultId) +
+        "/retention",
+      { method: "PUT", body: JSON.stringify({ tier, fixed }) },
+    );
+  }
+  releaseRanked(projectId: string, key: string) {
+    return this.request<Schema["OkResponse"]>(
+      "/v1/cache/projects/" +
+        encodeURIComponent(projectId) +
+        "/ranked/" +
+        encodeURIComponent(key) +
+        "/release",
+      { method: "POST" },
+    );
+  }
   read(signal?: AbortSignal): Promise<Schema["SettingsStatus"]> {
     return this.request<Schema["SettingsStatus"]>("/v1/settings", {
       signal: signal ?? null,

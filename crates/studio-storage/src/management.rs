@@ -570,6 +570,7 @@ impl ManagementRepository for SqliteStore {
             }
             _ => return Err(Error::invalid("此对象不支持删除")),
         }
+        crate::cache_cleanup::queue_unreferenced_inputs(&tx)?;
         event(
             &tx,
             if kind == ObjectKind::Source {

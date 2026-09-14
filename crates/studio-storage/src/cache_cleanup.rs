@@ -122,6 +122,21 @@ pub(super) fn pending(db: &Connection) -> Result<bool> {
         .iter()
         .any(|t| matches!(t.state.as_str(), "queued" | "deleting")))
 }
+/// Removing an owner can expose a version-1 input that was already uncached.
+/// Queue metadata only; the worker rechecks all live and persistent references.
+pub(super) fn queue_unreferenced_inputs(db: &Connection) -> Result<()> {
+    let mut stmt = db.prepare("SELECT id FROM query_families f WHERE cached=0 AND fixed=0 AND stored_members>0 AND NOT EXISTS(SELECT 1 FROM query_results r JOIN result_references x ON x.result_id=r.id WHERE r.family_id=f.id) AND NOT EXISTS(SELECT 1 FROM query_results r WHERE r.family_id=f.id AND r.status IN ('queued','running')) ORDER BY id LIMIT 16").map_err(db_error)?;
+    let ids = stmt
+        .query_map([], |r| r.get::<_, String>(0))
+        .map_err(db_error)?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(db_error)?;
+    drop(stmt);
+    for id in ids {
+        queue(db, &id, false, &HashSet::new())?;
+    }
+    Ok(())
+}
 pub(super) fn finish_accounting(db: &Connection) -> Result<()> {
     for mut task in list(db)? {
         if task.state == "accounting" {
@@ -146,6 +161,15 @@ pub(super) fn step(db: &mut Connection, live: &HashSet<String>) -> Result<Option
     let result: Result<bool> = (|| {
         let tx = db.transaction().map_err(db_error)?;
         let (_, latest, kept) = kept_revisions(&tx, &task.family_id, live)?;
+        if kept.is_empty() {
+            tx.execute("UPDATE query_results SET status='released',count=NULL,error='无引用的输入缓存已回收' WHERE family_id=?1 AND status='ready'", [&task.family_id]).map_err(db_error)?;
+            tx.execute(
+                "UPDATE query_families SET latest_count=0 WHERE id=?1",
+                [&task.family_id],
+            )
+            .map_err(db_error)?;
+            tx.execute("DELETE FROM artifact_references WHERE owner_kind='query_result' AND owner_id IN (SELECT id FROM query_results WHERE family_id=?1 AND status='released')", [&task.family_id]).map_err(db_error)?;
+        }
         let plan = serde_json::to_string(&kept_revisions(&tx, &task.family_id, live)?)
             .map_err(Error::io)?;
         if task.plan != plan {

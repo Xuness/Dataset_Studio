@@ -376,3 +376,39 @@
   width: 100%;
   accent-color: #91b0cf;
 }
+.settings-project-caches tr[aria-selected="true"] {
+  background: #3a4551;
+}
+.settings-cache-project {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+.settings-cache-project:hover {
+  text-decoration: underline;
+}
+.settings-cache-pin {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 6px;
+  white-space: nowrap;
+}
+.settings-cache-path {
+  font-size: 12px;
+  margin: 8px 0;
+}
+.settings-cache-path code {
+  display: block;
+  max-width: 420px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  padding-top: 6px;
+}
+.settings-cache-members {
+  min-width: 590px;
+}

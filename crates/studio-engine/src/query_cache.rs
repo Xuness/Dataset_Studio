@@ -14,8 +14,10 @@ use std::{
 use studio_domain::{Error, QueryCacheTier, Result, new_id, validate_id};
 use studio_storage::{QueryCacheRequest, QueryCacheStats, SqliteStore};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CachedProject {
+    #[serde(default)]
+    pub unreferenced_members: Option<u64>,
     #[serde(default)]
     pub cleanup_pending: bool,
     pub id: String,
@@ -72,6 +74,24 @@ pub struct CacheGuard<'a> {
     _gate: MutexGuard<'a, ()>,
 }
 impl CacheControl {
+    /// A view can close before a just-published size snapshot reaches disk.
+    /// Inventory requests schedule the missing accounting; they never scan pages.
+    pub fn request_audit(&self, id: &str, directory: PathBuf) -> Result<()> {
+        validate_id(id)?;
+        let mut catalog = self
+            .catalog
+            .lock()
+            .map_err(|_| Error::new("INTERNAL_ERROR", "查询缓存目录不可用"))?;
+        let entry = catalog.entry(id.into()).or_insert_with(|| CachedProject {
+            id: id.into(),
+            directory,
+            ..Default::default()
+        });
+        entry.unreferenced_members = None;
+        studio_storage::atomic_json(&self.catalog_path, &*catalog)?;
+        self.requested.store(true, Ordering::Release);
+        Ok(())
+    }
     pub fn phase(&self, phase: &str, pid: Option<&str>) {
         if let Ok(mut status) = self.maintenance.lock() {
             status.phase = phase.into();
@@ -166,6 +186,7 @@ impl CacheControl {
             .lock()
             .map_err(|_| Error::new("INTERNAL_ERROR", "查询缓存目录不可用"))?;
         let value = CachedProject {
+            unreferenced_members: Some(stats.unreferenced_members),
             cleanup_pending: stats.cleanup_pending,
             id: id.into(),
             directory,

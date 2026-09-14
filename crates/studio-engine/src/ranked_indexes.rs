@@ -66,6 +66,13 @@ pub struct Metrics {
     pub builds: u64,
     pub reuses: u64,
 }
+pub struct InventoryEntry {
+    pub meta: studio_storage::ranked_index::RankedIndexMeta,
+    pub path: PathBuf,
+    pub bytes: u64,
+    pub last_used_millis: u64,
+    pub in_use: bool,
+}
 fn lock_error() -> Error {
     Error::new("INTERNAL_ERROR", "排名索引状态不可用")
 }
@@ -85,6 +92,75 @@ fn phase(progress: &RankedIndexProgress) -> &'static str {
     }
 }
 impl RankedIndexes {
+    pub fn inventory(&self) -> Result<Vec<InventoryEntry>> {
+        if !self.root.exists() {
+            return Ok(Vec::new());
+        }
+        let mut items = Vec::new();
+        for entry in fs::read_dir(&self.root).map_err(Error::io)?.take(256) {
+            let entry = entry.map_err(Error::io)?;
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let Some(key) = name.strip_suffix(".sqlite") else {
+                continue;
+            };
+            if self.path(key).is_err() || entry.file_type().map_err(Error::io)?.is_symlink() {
+                continue;
+            }
+            let Ok(meta) = RankedIndex::metadata(&entry.path()) else {
+                continue;
+            };
+            let Ok(file) = entry.metadata() else { continue };
+            let scope = scope_key(&meta.scope)?;
+            let state = self.state.lock().map_err(|_| lock_error())?;
+            let in_use = state.pins.contains_key(key)
+                || state
+                    .leases
+                    .iter()
+                    .any(|((s, _), at)| s == &scope && at.elapsed() < Duration::from_secs(90));
+            items.push(InventoryEntry {
+                meta,
+                path: entry.path(),
+                bytes: file.len(),
+                last_used_millis: file
+                    .modified()
+                    .unwrap_or(SystemTime::UNIX_EPOCH)
+                    .duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as u64,
+                in_use,
+            });
+        }
+        items.sort_by(|a, b| a.meta.key.cmp(&b.meta.key));
+        Ok(items)
+    }
+    pub fn release(&self, pid: &str, key: &str) -> Result<()> {
+        let path = self.path(key)?;
+        if fs::symlink_metadata(&path)
+            .map_err(Error::io)?
+            .file_type()
+            .is_symlink()
+        {
+            return Err(Error::invalid("排名缓存路径无效"));
+        }
+        let meta = RankedIndex::metadata(&path)?;
+        meta.scope.validate_project(pid)?;
+        let scope = scope_key(&meta.scope)?;
+        let mut state = self.state.lock().map_err(|_| lock_error())?;
+        if state.pins.contains_key(key)
+            || state
+                .leases
+                .iter()
+                .any(|((s, _), at)| s == &scope && at.elapsed() < Duration::from_secs(90))
+        {
+            return Err(Error::new(
+                "CACHE_IN_USE",
+                "排名索引正在使用，请离开该排名视图后重试",
+            ));
+        }
+        fs::remove_file(path).map_err(Error::io)?;
+        state.touched.remove(key);
+        Ok(())
+    }
     pub fn prune_released(&self, store: &SqliteStore) -> Result<()> {
         if !self.root.exists() {
             return Ok(());
