@@ -159,6 +159,246 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/llm/generate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["llm_generate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/llm/invocations/{id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["llm_cancel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/llm/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["llm_save_model"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/llm/models/{id}/parameters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["llm_model_parameters"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/llm/models/{id}/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["llm_remove_model"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/llm/parameters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["llm_parameters"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/llm/prepare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["llm_prepare"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/llm/presets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["llm_presets"];
+        put?: never;
+        post: operations["llm_save_preset"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/llm/presets/{id}/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["llm_remove_preset"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/llm/providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["llm_providers"];
+        put?: never;
+        post: operations["llm_save_provider"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/llm/providers/{id}/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["llm_catalog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/llm/providers/{id}/catalog/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["llm_refresh_catalog"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/llm/providers/{id}/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["llm_models"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/llm/providers/{id}/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["llm_remove_provider"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/llm/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["llm_stream"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/operators": {
         parameters: {
             query?: never;
@@ -1833,6 +2073,11 @@ export interface components {
             /** Format: int64 */
             expected_revision: number;
         };
+        DiscoverLlmModels: {
+            /** Format: int64 */
+            expected_revision: number;
+            invocation_id: string;
+        };
         Draft: {
             instance_id: string;
             module_id: string;
@@ -1974,6 +2219,272 @@ export interface components {
         };
         Jobs: {
             items: components["schemas"]["Job"][];
+        };
+        LlmCatalog: {
+            fetched_at: string;
+            models: components["schemas"]["LlmCatalogModel"][];
+            provider_id: string;
+            /** Format: int64 */
+            provider_revision: number;
+        };
+        LlmCatalogModel: {
+            capabilities: {
+                [key: string]: components["schemas"]["LlmSupport"];
+            };
+            id: string;
+            input_modalities: string[];
+            /** Format: int64 */
+            input_token_limit?: number | null;
+            name: string;
+            output_modalities: string[];
+            /** Format: int64 */
+            output_token_limit?: number | null;
+        };
+        LlmCatalogStatus: {
+            catalog?: null | components["schemas"]["LlmCatalog"];
+        };
+        LlmConnectionConfig: {
+            base_url: string;
+            enabled: boolean;
+            headers?: {
+                [key: string]: string;
+            };
+            kind: components["schemas"]["LlmProviderKind"];
+            name: string;
+            network: components["schemas"]["LlmNetworkSettings"];
+        };
+        LlmContent: {
+            text: string;
+            /** @enum {string} */
+            type: "text";
+        } | {
+            detail?: string | null;
+            /** @enum {string} */
+            type: "image";
+            url: string;
+        } | {
+            arguments: unknown;
+            id: string;
+            name: string;
+            signature?: string | null;
+            /** @enum {string} */
+            type: "tool_call";
+        } | {
+            id: string;
+            name: string;
+            /** @enum {string} */
+            type: "tool_result";
+            value: unknown;
+        } | {
+            text: string;
+            /** @enum {string} */
+            type: "reasoning";
+        } | {
+            text: string;
+            /** @enum {string} */
+            type: "refusal";
+        };
+        LlmEvent: {
+            invocation_id: string;
+            /** @enum {string} */
+            type: "started";
+        } | {
+            /** Format: int32 */
+            index: number;
+            kind: string;
+            text: string;
+            tool_call_id?: string | null;
+            /** @enum {string} */
+            type: "delta";
+        } | {
+            response: components["schemas"]["LlmResponse"];
+            /** @enum {string} */
+            type: "completed";
+        } | {
+            error: components["schemas"]["LlmFailure"];
+            /** @enum {string} */
+            type: "failed";
+        };
+        LlmFailure: {
+            code: string;
+            /** Format: int32 */
+            http_status?: number | null;
+            message: string;
+            outcome_unknown: boolean;
+            provider_request_id?: string | null;
+            retryable: boolean;
+        };
+        LlmInvocationRequest: {
+            /** Format: int64 */
+            expected_model_revision?: number | null;
+            /** Format: int64 */
+            expected_preset_revision?: number | null;
+            /** Format: int64 */
+            expected_provider_revision?: number | null;
+            invocation_id: string;
+            messages: components["schemas"]["LlmMessage"][];
+            model_id: string;
+            overrides?: {
+                [key: string]: unknown;
+            };
+            preset_id?: string | null;
+            tools?: components["schemas"]["LlmTool"][];
+        };
+        LlmInvocationSnapshot: {
+            base_url: string;
+            invocation_id: string;
+            messages: components["schemas"]["LlmMessage"][];
+            model_id: string;
+            /** Format: int64 */
+            model_revision: number;
+            parameters?: {
+                [key: string]: unknown;
+            };
+            preset_id?: string | null;
+            /** Format: int64 */
+            preset_revision?: number | null;
+            protocol: components["schemas"]["LlmProtocol"];
+            provider_id: string;
+            provider_kind: components["schemas"]["LlmProviderKind"];
+            /** Format: int64 */
+            provider_revision: number;
+            remote_model_id: string;
+            /** Format: int32 */
+            schema_version: number;
+            tools?: components["schemas"]["LlmTool"][];
+            warnings: string[];
+        };
+        LlmMessage: {
+            content: components["schemas"]["LlmContent"][];
+            role: components["schemas"]["LlmRole"];
+        };
+        LlmModel: {
+            config: components["schemas"]["LlmModelConfig"];
+            id: string;
+            provider_id: string;
+            /** Format: int64 */
+            revision: number;
+        };
+        LlmModelConfig: {
+            capability_overrides?: {
+                [key: string]: components["schemas"]["LlmSupport"];
+            };
+            enabled: boolean;
+            name: string;
+            parameters?: {
+                [key: string]: unknown;
+            };
+            protocol: components["schemas"]["LlmProtocol"];
+            remote_model_id: string;
+        };
+        LlmModels: {
+            items: components["schemas"]["LlmModel"][];
+        };
+        LlmNetworkSettings: {
+            /** Format: int32 */
+            connect_timeout_ms: number;
+            /** Format: int32 */
+            idle_timeout_ms: number;
+            /** Format: int32 */
+            max_concurrency: number;
+            /** Format: int32 */
+            min_interval_ms: number;
+            proxy_url?: string | null;
+            /** Format: int32 */
+            rate_limit_retries: number;
+            /** Format: int32 */
+            request_timeout_ms: number;
+        };
+        LlmOutput: {
+            content: components["schemas"]["LlmContent"][];
+            finish_reason?: string | null;
+            /** Format: int32 */
+            index: number;
+        };
+        LlmParameterSpec: {
+            choices: string[];
+            description: string;
+            evidence: string;
+            group: string;
+            key: string;
+            label: string;
+            /** Format: double */
+            maximum?: number | null;
+            /** Format: double */
+            minimum?: number | null;
+            support: components["schemas"]["LlmSupport"];
+            value_type: string;
+        };
+        LlmParameters: {
+            items: components["schemas"]["LlmParameterSpec"][];
+        };
+        LlmPrepared: {
+            native_request: unknown;
+            snapshot: components["schemas"]["LlmInvocationSnapshot"];
+        };
+        LlmPreset: {
+            config: components["schemas"]["LlmPresetConfig"];
+            id: string;
+            /** Format: int64 */
+            revision: number;
+        };
+        LlmPresetConfig: {
+            name: string;
+            parameters?: {
+                [key: string]: unknown;
+            };
+            protocol: components["schemas"]["LlmProtocol"];
+        };
+        LlmPresets: {
+            items: components["schemas"]["LlmPreset"][];
+        };
+        /** @enum {string} */
+        LlmProtocol: "openai_chat" | "openai_responses" | "gemini";
+        /** @enum {string} */
+        LlmProviderKind: "openai_compatible" | "openai" | "openrouter" | "gemini";
+        LlmProviderView: {
+            config: components["schemas"]["LlmConnectionConfig"];
+            credential_set: boolean;
+            id: string;
+            /** Format: int64 */
+            revision: number;
+        };
+        LlmProviders: {
+            items: components["schemas"]["LlmProviderView"][];
+        };
+        LlmResponse: {
+            model?: string | null;
+            outputs: components["schemas"]["LlmOutput"][];
+            provider_request_id?: string | null;
+            response_id?: string | null;
+            snapshot: components["schemas"]["LlmInvocationSnapshot"];
+            usage: components["schemas"]["LlmUsage"];
+        };
+        LlmRevision: {
+            /** Format: int64 */
+            expected_revision: number;
+        };
+        /** @enum {string} */
+        LlmRole: "system" | "developer" | "user" | "assistant" | "tool";
+        /** @enum {string} */
+        LlmSupport: "supported" | "unsupported" | "unknown";
+        LlmTool: {
+            description: string;
+            name: string;
+            parameters: unknown;
+            strict: boolean;
+        };
+        LlmUsage: {
+            /** Format: int64 */
+            cached_input_tokens?: number | null;
+            /** Format: int64 */
+            input_tokens?: number | null;
+            /** Format: int64 */
+            output_tokens?: number | null;
+            /** Format: int64 */
+            reasoning_tokens?: number | null;
+            /** Format: int64 */
+            total_tokens?: number | null;
         };
         ManagedJob: {
             job: components["schemas"]["Job"];
@@ -2936,6 +3447,27 @@ export interface components {
             schema_version: number;
             value: unknown;
         };
+        SaveLlmModel: {
+            config: components["schemas"]["LlmModelConfig"];
+            /** Format: int64 */
+            expected_revision: number;
+            id?: string | null;
+            provider_id: string;
+        };
+        SaveLlmPreset: {
+            config: components["schemas"]["LlmPresetConfig"];
+            /** Format: int64 */
+            expected_revision: number;
+            id?: string | null;
+        };
+        SaveLlmProvider: {
+            api_key?: string | null;
+            clear_credential?: boolean;
+            config: components["schemas"]["LlmConnectionConfig"];
+            /** Format: int64 */
+            expected_revision: number;
+            id?: string | null;
+        };
         SaveQuery: {
             /** Format: int64 */
             expected_revision?: number | null;
@@ -3314,6 +3846,405 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Health"];
+                };
+            };
+        };
+    };
+    llm_generate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LlmInvocationRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmResponse"];
+                };
+            };
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmFailure"];
+                };
+            };
+        };
+    };
+    llm_cancel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+        };
+    };
+    llm_save_model: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveLlmModel"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmModel"];
+                };
+            };
+        };
+    };
+    llm_model_parameters: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmParameters"];
+                };
+            };
+        };
+    };
+    llm_remove_model: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LlmRevision"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+        };
+    };
+    llm_parameters: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                protocol: components["schemas"]["LlmProtocol"];
+                kind: components["schemas"]["LlmProviderKind"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmParameters"];
+                };
+            };
+        };
+    };
+    llm_prepare: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LlmInvocationRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmPrepared"];
+                };
+            };
+        };
+    };
+    llm_presets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmPresets"];
+                };
+            };
+        };
+    };
+    llm_save_preset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveLlmPreset"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmPreset"];
+                };
+            };
+        };
+    };
+    llm_remove_preset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LlmRevision"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+        };
+    };
+    llm_providers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmProviders"];
+                };
+            };
+        };
+    };
+    llm_save_provider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveLlmProvider"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmProviderView"];
+                };
+            };
+        };
+    };
+    llm_catalog: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmCatalogStatus"];
+                };
+            };
+        };
+    };
+    llm_refresh_catalog: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DiscoverLlmModels"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmCatalog"];
+                };
+            };
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmFailure"];
+                };
+            };
+        };
+    };
+    llm_models: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmModels"];
+                };
+            };
+        };
+    };
+    llm_remove_provider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LlmRevision"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+        };
+    };
+    llm_stream: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LlmInvocationRequest"];
+            };
+        };
+        responses: {
+            /** @description SSE data contains LlmEvent; completion or failure is required */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": components["schemas"]["LlmEvent"];
                 };
             };
         };

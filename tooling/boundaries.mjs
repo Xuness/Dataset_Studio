@@ -31,7 +31,7 @@ for (const name of ["studio-domain", "studio-application"]) {
     "utf8",
   );
   if (
-    /^(tauri|axum|rusqlite|studio-storage|studio-engine|studio-protocol)\s*=/m.test(
+    /^(tauri|axum|reqwest|rusqlite|studio-llm|studio-storage|studio-engine|studio-protocol)\s*=/m.test(
       text,
     )
   )

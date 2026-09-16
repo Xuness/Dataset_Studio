@@ -2,11 +2,11 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile, readdir } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
-import ts from "typescript";
+import { clientFixture } from "./client-fixture.mjs";
 import { EngineFixture, sleep } from "./engine-fixture.mjs";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
@@ -403,29 +403,7 @@ try {
     "Daily source changes update shared bases and existing families incrementally while saved worksets stay fixed; aggregate accounting includes bases and previews",
   );
   const sdkDirectory = resolve(run, "sdk");
-  await mkdir(sdkDirectory, { recursive: true });
-  await writeFile(resolve(sdkDirectory, "package.json"), '{"type":"module"}');
-  const clientFiles = (await readdir(resolve(root, "packages/client/src")))
-    .filter((file) => file.endsWith(".ts") && !file.endsWith(".d.ts"))
-    .map((file) => file.slice(0, -3));
-  for (const file of clientFiles) {
-    const compiled = ts.transpileModule(
-      await readFile(
-        resolve(root, "packages/client/src", file + ".ts"),
-        "utf8",
-      ),
-      {
-        compilerOptions: {
-          target: ts.ScriptTarget.ES2022,
-          module: ts.ModuleKind.ESNext,
-        },
-      },
-    ).outputText;
-    await writeFile(resolve(sdkDirectory, file + ".js"), compiled);
-  }
-  const { StudioClient } = await import(
-    pathToFileURL(resolve(sdkDirectory, "index.js")).href
-  );
+  const { StudioClient } = await clientFixture(root, sdkDirectory);
   const firstClient = new StudioClient(engine.connection);
   let reconnectedClient;
   try {

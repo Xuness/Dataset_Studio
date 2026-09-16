@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use studio_domain::*;
+pub mod llm;
 mod tools;
 pub use tools::*;
 mod resources;

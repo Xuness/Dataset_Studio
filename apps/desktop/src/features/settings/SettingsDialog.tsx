@@ -7,6 +7,7 @@ import type { Schema, Source } from "@studio/contracts";
 import { settingsPages } from "./pages.js";
 import type { SettingsPageId } from "./pages.js";
 import "./settings.css";
+import { emptyLlmDraft, type LlmSettingsDraft } from "./llm/types.js";
 
 export function SettingsDialog({
   client,
@@ -25,6 +26,7 @@ export function SettingsDialog({
 }) {
   const cache = useQueryClient();
   const [page, setPage] = useState(initialPage);
+  const [llmDraft, setLlmDraft] = useState<LlmSettingsDraft>(emptyLlmDraft);
   const [cacheDraft, setCacheDraft] = useState<Schema["CacheSettings"] | null>(
     null,
   );
@@ -61,7 +63,11 @@ export function SettingsDialog({
   }
   const CurrentPage = settingsPages.find((item) => item.id === page)!.Component;
   const dirty =
-    cacheDraft !== null || memoryDraft !== null || undoDraft !== null;
+    cacheDraft !== null ||
+    memoryDraft !== null ||
+    undoDraft !== null ||
+    !!llmDraft.connection ||
+    !!llmDraft.model;
   return (
     <Dialog title="设置" onClose={onClose} className="settings-dialog">
       <div className="settings-layout">
@@ -101,6 +107,8 @@ export function SettingsDialog({
           )}
           {status.data ? (
             <CurrentPage
+              llmDraft={llmDraft}
+              setLlmDraft={setLlmDraft}
               client={client}
               project={project}
               sources={sources}

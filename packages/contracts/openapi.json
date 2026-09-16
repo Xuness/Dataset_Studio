@@ -354,6 +354,560 @@
         }
       }
     },
+    "/v1/llm/generate": {
+      "post": {
+        "tags": [
+          "llm"
+        ],
+        "operationId": "llm_generate",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LlmInvocationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmResponse"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmFailure"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/llm/invocations/{id}/cancel": {
+      "post": {
+        "tags": [
+          "llm"
+        ],
+        "operationId": "llm_cancel",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/llm/models": {
+      "post": {
+        "tags": [
+          "llm"
+        ],
+        "operationId": "llm_save_model",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveLlmModel"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmModel"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/llm/models/{id}/parameters": {
+      "get": {
+        "tags": [
+          "llm"
+        ],
+        "operationId": "llm_model_parameters",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmParameters"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/llm/models/{id}/remove": {
+      "post": {
+        "tags": [
+          "llm"
+        ],
+        "operationId": "llm_remove_model",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LlmRevision"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/llm/parameters": {
+      "get": {
+        "tags": [
+          "llm"
+        ],
+        "operationId": "llm_parameters",
+        "parameters": [
+          {
+            "name": "protocol",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/LlmProtocol"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/LlmProviderKind"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmParameters"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/llm/prepare": {
+      "post": {
+        "tags": [
+          "llm"
+        ],
+        "operationId": "llm_prepare",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LlmInvocationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmPrepared"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/llm/presets": {
+      "get": {
+        "tags": [
+          "llm"
+        ],
+        "operationId": "llm_presets",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmPresets"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "llm"
+        ],
+        "operationId": "llm_save_preset",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveLlmPreset"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmPreset"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/llm/presets/{id}/remove": {
+      "post": {
+        "tags": [
+          "llm"
+        ],
+        "operationId": "llm_remove_preset",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LlmRevision"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/llm/providers": {
+      "get": {
+        "tags": [
+          "llm"
+        ],
+        "operationId": "llm_providers",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmProviders"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "llm"
+        ],
+        "operationId": "llm_save_provider",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveLlmProvider"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmProviderView"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/llm/providers/{id}/catalog": {
+      "get": {
+        "tags": [
+          "llm"
+        ],
+        "operationId": "llm_catalog",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmCatalogStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/llm/providers/{id}/catalog/refresh": {
+      "post": {
+        "tags": [
+          "llm"
+        ],
+        "operationId": "llm_refresh_catalog",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DiscoverLlmModels"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmCatalog"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmFailure"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/llm/providers/{id}/models": {
+      "get": {
+        "tags": [
+          "llm"
+        ],
+        "operationId": "llm_models",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmModels"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/llm/providers/{id}/remove": {
+      "post": {
+        "tags": [
+          "llm"
+        ],
+        "operationId": "llm_remove_provider",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LlmRevision"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/llm/stream": {
+      "post": {
+        "tags": [
+          "llm"
+        ],
+        "operationId": "llm_stream",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LlmInvocationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "SSE data contains LlmEvent; completion or failure is required",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmEvent"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/operators": {
       "get": {
         "tags": [
@@ -5791,6 +6345,24 @@
         },
         "additionalProperties": false
       },
+      "DiscoverLlmModels": {
+        "type": "object",
+        "required": [
+          "invocation_id",
+          "expected_revision"
+        ],
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "invocation_id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
       "Draft": {
         "type": "object",
         "required": [
@@ -6343,6 +6915,1086 @@
             }
           }
         }
+      },
+      "LlmCatalog": {
+        "type": "object",
+        "required": [
+          "provider_id",
+          "provider_revision",
+          "fetched_at",
+          "models"
+        ],
+        "properties": {
+          "fetched_at": {
+            "type": "string"
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LlmCatalogModel"
+            }
+          },
+          "provider_id": {
+            "type": "string"
+          },
+          "provider_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "LlmCatalogModel": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "input_modalities",
+          "output_modalities",
+          "capabilities"
+        ],
+        "properties": {
+          "capabilities": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/LlmSupport"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "id": {
+            "type": "string"
+          },
+          "input_modalities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "input_token_limit": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string"
+          },
+          "output_modalities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "output_token_limit": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "LlmCatalogStatus": {
+        "type": "object",
+        "properties": {
+          "catalog": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LlmCatalog"
+              }
+            ]
+          }
+        }
+      },
+      "LlmConnectionConfig": {
+        "type": "object",
+        "required": [
+          "name",
+          "kind",
+          "base_url",
+          "enabled",
+          "network"
+        ],
+        "properties": {
+          "base_url": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "headers": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "kind": {
+            "$ref": "#/components/schemas/LlmProviderKind"
+          },
+          "name": {
+            "type": "string"
+          },
+          "network": {
+            "$ref": "#/components/schemas/LlmNetworkSettings"
+          }
+        },
+        "additionalProperties": false
+      },
+      "LlmContent": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "text",
+              "type"
+            ],
+            "properties": {
+              "text": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "text"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "url",
+              "type"
+            ],
+            "properties": {
+              "detail": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "image"
+                ]
+              },
+              "url": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "name",
+              "arguments",
+              "type"
+            ],
+            "properties": {
+              "arguments": {},
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "signature": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "tool_call"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "id",
+              "name",
+              "value",
+              "type"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "tool_result"
+                ]
+              },
+              "value": {}
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "text",
+              "type"
+            ],
+            "properties": {
+              "text": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "reasoning"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "text",
+              "type"
+            ],
+            "properties": {
+              "text": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "refusal"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "LlmEvent": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "invocation_id",
+              "type"
+            ],
+            "properties": {
+              "invocation_id": {
+                "type": "string"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "started"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "index",
+              "kind",
+              "text",
+              "type"
+            ],
+            "properties": {
+              "index": {
+                "type": "integer",
+                "format": "int32",
+                "minimum": 0
+              },
+              "kind": {
+                "type": "string"
+              },
+              "text": {
+                "type": "string"
+              },
+              "tool_call_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "delta"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "response",
+              "type"
+            ],
+            "properties": {
+              "response": {
+                "$ref": "#/components/schemas/LlmResponse"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "completed"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "error",
+              "type"
+            ],
+            "properties": {
+              "error": {
+                "$ref": "#/components/schemas/LlmFailure"
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "failed"
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "LlmFailure": {
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "retryable",
+          "outcome_unknown"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "http_status": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "message": {
+            "type": "string"
+          },
+          "outcome_unknown": {
+            "type": "boolean"
+          },
+          "provider_request_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "retryable": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "LlmInvocationRequest": {
+        "type": "object",
+        "required": [
+          "invocation_id",
+          "model_id",
+          "messages"
+        ],
+        "properties": {
+          "expected_model_revision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "expected_preset_revision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "expected_provider_revision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "invocation_id": {
+            "type": "string"
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LlmMessage"
+            }
+          },
+          "model_id": {
+            "type": "string"
+          },
+          "overrides": {
+            "type": "object",
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "preset_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tools": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LlmTool"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "LlmInvocationSnapshot": {
+        "type": "object",
+        "required": [
+          "schema_version",
+          "invocation_id",
+          "provider_id",
+          "provider_revision",
+          "provider_kind",
+          "base_url",
+          "model_id",
+          "model_revision",
+          "remote_model_id",
+          "protocol",
+          "messages",
+          "warnings"
+        ],
+        "properties": {
+          "base_url": {
+            "type": "string"
+          },
+          "invocation_id": {
+            "type": "string"
+          },
+          "messages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LlmMessage"
+            }
+          },
+          "model_id": {
+            "type": "string"
+          },
+          "model_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "parameters": {
+            "type": "object",
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "preset_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "preset_revision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "protocol": {
+            "$ref": "#/components/schemas/LlmProtocol"
+          },
+          "provider_id": {
+            "type": "string"
+          },
+          "provider_kind": {
+            "$ref": "#/components/schemas/LlmProviderKind"
+          },
+          "provider_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "remote_model_id": {
+            "type": "string"
+          },
+          "schema_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "tools": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LlmTool"
+            }
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "LlmMessage": {
+        "type": "object",
+        "required": [
+          "role",
+          "content"
+        ],
+        "properties": {
+          "content": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LlmContent"
+            }
+          },
+          "role": {
+            "$ref": "#/components/schemas/LlmRole"
+          }
+        },
+        "additionalProperties": false
+      },
+      "LlmModel": {
+        "type": "object",
+        "required": [
+          "id",
+          "provider_id",
+          "revision",
+          "config"
+        ],
+        "properties": {
+          "config": {
+            "$ref": "#/components/schemas/LlmModelConfig"
+          },
+          "id": {
+            "type": "string"
+          },
+          "provider_id": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "LlmModelConfig": {
+        "type": "object",
+        "required": [
+          "name",
+          "remote_model_id",
+          "protocol",
+          "enabled"
+        ],
+        "properties": {
+          "capability_overrides": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/LlmSupport"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "parameters": {
+            "type": "object",
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "protocol": {
+            "$ref": "#/components/schemas/LlmProtocol"
+          },
+          "remote_model_id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "LlmModels": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LlmModel"
+            }
+          }
+        }
+      },
+      "LlmNetworkSettings": {
+        "type": "object",
+        "required": [
+          "connect_timeout_ms",
+          "request_timeout_ms",
+          "idle_timeout_ms",
+          "max_concurrency",
+          "min_interval_ms",
+          "rate_limit_retries"
+        ],
+        "properties": {
+          "connect_timeout_ms": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "idle_timeout_ms": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "max_concurrency": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "min_interval_ms": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "proxy_url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "rate_limit_retries": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "request_timeout_ms": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "LlmOutput": {
+        "type": "object",
+        "required": [
+          "index",
+          "content"
+        ],
+        "properties": {
+          "content": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LlmContent"
+            }
+          },
+          "finish_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "index": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "LlmParameterSpec": {
+        "type": "object",
+        "required": [
+          "key",
+          "label",
+          "description",
+          "value_type",
+          "group",
+          "choices",
+          "support",
+          "evidence"
+        ],
+        "properties": {
+          "choices": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "description": {
+            "type": "string"
+          },
+          "evidence": {
+            "type": "string"
+          },
+          "group": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "maximum": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "minimum": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "support": {
+            "$ref": "#/components/schemas/LlmSupport"
+          },
+          "value_type": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "LlmParameters": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LlmParameterSpec"
+            }
+          }
+        }
+      },
+      "LlmPrepared": {
+        "type": "object",
+        "required": [
+          "snapshot",
+          "native_request"
+        ],
+        "properties": {
+          "native_request": {},
+          "snapshot": {
+            "$ref": "#/components/schemas/LlmInvocationSnapshot"
+          }
+        }
+      },
+      "LlmPreset": {
+        "type": "object",
+        "required": [
+          "id",
+          "revision",
+          "config"
+        ],
+        "properties": {
+          "config": {
+            "$ref": "#/components/schemas/LlmPresetConfig"
+          },
+          "id": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "LlmPresetConfig": {
+        "type": "object",
+        "required": [
+          "name",
+          "protocol"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "parameters": {
+            "type": "object",
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "protocol": {
+            "$ref": "#/components/schemas/LlmProtocol"
+          }
+        },
+        "additionalProperties": false
+      },
+      "LlmPresets": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LlmPreset"
+            }
+          }
+        }
+      },
+      "LlmProtocol": {
+        "type": "string",
+        "enum": [
+          "openai_chat",
+          "openai_responses",
+          "gemini"
+        ]
+      },
+      "LlmProviderKind": {
+        "type": "string",
+        "enum": [
+          "openai_compatible",
+          "openai",
+          "openrouter",
+          "gemini"
+        ]
+      },
+      "LlmProviderView": {
+        "type": "object",
+        "required": [
+          "id",
+          "revision",
+          "config",
+          "credential_set"
+        ],
+        "properties": {
+          "config": {
+            "$ref": "#/components/schemas/LlmConnectionConfig"
+          },
+          "credential_set": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "LlmProviders": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LlmProviderView"
+            }
+          }
+        }
+      },
+      "LlmResponse": {
+        "type": "object",
+        "required": [
+          "snapshot",
+          "outputs",
+          "usage"
+        ],
+        "properties": {
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "outputs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LlmOutput"
+            }
+          },
+          "provider_request_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "response_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/LlmInvocationSnapshot"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/LlmUsage"
+          }
+        },
+        "additionalProperties": false
+      },
+      "LlmRevision": {
+        "type": "object",
+        "required": [
+          "expected_revision"
+        ],
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "LlmRole": {
+        "type": "string",
+        "enum": [
+          "system",
+          "developer",
+          "user",
+          "assistant",
+          "tool"
+        ]
+      },
+      "LlmSupport": {
+        "type": "string",
+        "enum": [
+          "supported",
+          "unsupported",
+          "unknown"
+        ]
+      },
+      "LlmTool": {
+        "type": "object",
+        "required": [
+          "name",
+          "description",
+          "parameters",
+          "strict"
+        ],
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "parameters": {},
+          "strict": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "LlmUsage": {
+        "type": "object",
+        "properties": {
+          "cached_input_tokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "input_tokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "output_tokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "reasoning_tokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "total_tokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
       },
       "ManagedJob": {
         "type": "object",
@@ -10200,6 +11852,91 @@
             "minimum": 0
           },
           "value": {}
+        },
+        "additionalProperties": false
+      },
+      "SaveLlmModel": {
+        "type": "object",
+        "required": [
+          "provider_id",
+          "expected_revision",
+          "config"
+        ],
+        "properties": {
+          "config": {
+            "$ref": "#/components/schemas/LlmModelConfig"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "provider_id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "SaveLlmPreset": {
+        "type": "object",
+        "required": [
+          "expected_revision",
+          "config"
+        ],
+        "properties": {
+          "config": {
+            "$ref": "#/components/schemas/LlmPresetConfig"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "SaveLlmProvider": {
+        "type": "object",
+        "required": [
+          "expected_revision",
+          "config"
+        ],
+        "properties": {
+          "api_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "clear_credential": {
+            "type": "boolean"
+          },
+          "config": {
+            "$ref": "#/components/schemas/LlmConnectionConfig"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
         },
         "additionalProperties": false
       },

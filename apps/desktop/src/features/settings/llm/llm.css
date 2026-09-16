@@ -1,0 +1,111 @@
+.llm-editor,
+.llm-probe {
+  border: 1px solid #484e57;
+  border-radius: 6px;
+  padding: 16px;
+  margin: 16px 0;
+  background: #292d33;
+}
+.llm-editor h4,
+.llm-probe h4 {
+  margin: 0 0 14px;
+}
+.llm-editor fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.llm-editor input:not([type="checkbox"]),
+.llm-editor select,
+.llm-editor textarea {
+  width: 100%;
+  box-sizing: border-box;
+}
+.llm-editor textarea {
+  border: 1px solid #555c66;
+  border-radius: 4px;
+  color: #e0e5ed;
+  background: #222529;
+  font: 12px/1.6 monospace;
+  padding: 8px;
+  resize: vertical;
+}
+.llm-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+.llm-check {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 12px 0;
+}
+.llm-settings details {
+  border-top: 1px solid #41454b;
+  padding: 12px 0;
+}
+.llm-settings summary {
+  cursor: pointer;
+  font-size: 12px;
+  padding: 2px 0 10px;
+}
+.llm-parameter {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) 100px minmax(100px, 1fr);
+  align-items: start;
+  gap: 8px;
+  padding: 9px 0;
+}
+.llm-parameter label {
+  font-size: 12px;
+  padding-top: 5px;
+}
+.llm-parameter small {
+  display: block;
+  color: #9aa5b4;
+  font-size: 10px;
+  overflow-wrap: anywhere;
+  margin-top: 4px;
+}
+.llm-parameter p {
+  grid-column: 1/-1;
+  font-size: 11px;
+  color: #a0a8b2;
+  line-height: 1.6;
+  margin: 0;
+}
+.llm-model-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid #41454b;
+  padding: 10px 0;
+}
+.llm-model-row > div {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.llm-model-row strong {
+  font-size: 12px;
+  font-weight: 500;
+}
+.llm-model-row small {
+  display: block;
+  color: #a0a8b2;
+  font-size: 11px;
+  margin-top: 5px;
+}
+.llm-catalog {
+  max-height: 340px;
+  overflow: auto;
+}
+.llm-probe pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+  max-height: 240px;
+  overflow: auto;
+}

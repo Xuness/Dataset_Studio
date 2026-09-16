@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+pub mod llm;
 mod metadata;
 pub use metadata::*;
 mod lifecycle;

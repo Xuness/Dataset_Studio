@@ -6,3 +6,5 @@ publish.workspace = true
 [dependencies]
 studio-domain = { path = "../studio-domain" }
 serde_json.workspace = true
+futures.workspace = true
+zeroize = "1"

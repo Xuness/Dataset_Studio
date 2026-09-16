@@ -2,6 +2,7 @@ mod api;
 mod artifacts;
 mod cache_config;
 mod jobs;
+mod llm_invocations;
 mod previews;
 mod query_budget;
 mod query_cache;
@@ -160,6 +161,18 @@ async fn serve(root: PathBuf, port: u16, cache_dir: Option<PathBuf>) -> Result<(
         .cache
         .set_quota(u64::from(queries.cache.config()?.preview_mib) << 20)?;
     let state = api::AppState {
+        llm: {
+            let credentials = Arc::new(studio_llm::credentials::CredentialVault::new(
+                root.join("llm-credentials"),
+            ));
+            let backend = Arc::new(studio_llm::RemoteLlm::new(credentials.clone()));
+            Arc::new(studio_application::llm::LlmService::new(
+                store.clone(),
+                backend,
+                credentials,
+            ))
+        },
+        llm_invocations: Default::default(),
         store: store.clone(),
         connection: connection.clone(),
         resources: resources.clone(),

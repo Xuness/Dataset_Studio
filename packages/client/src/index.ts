@@ -10,6 +10,9 @@ import { ToolClient, DraftClient } from "./tools.js";
 import { DraftCoordinator } from "./drafts.js";
 import { MediaClient, ResourceClient } from "./media.js";
 import { SettingsClient } from "./settings.js";
+import { LlmClient } from "./llm/index.js";
+export { LlmCallError } from "./llm/index.js";
+export type { LlmInvocationInput } from "./llm/index.js";
 import { RankingClient } from "./ranking.js";
 import { ManagementClient } from "./management.js";
 export type { ObjectTarget, ObjectListOptions } from "./management.js";
@@ -79,6 +82,10 @@ function metadataQuery(options: MetadataOptions) {
   return query;
 }
 export class StudioClient {
+  readonly llm = new LlmClient(
+    <T>(path: string, init?: RequestInit) => this.request<T>(path, init),
+    () => this.connection,
+  );
   readonly management = new ManagementClient(
     <T>(path: string, init?: RequestInit) => this.request<T>(path, init),
   );
@@ -147,6 +154,7 @@ export class StudioClient {
   private mediaClient: MediaClient;
   readonly resources: ResourceClient;
   dispose() {
+    this.llm.dispose();
     if (this.sessionTimer !== null) clearInterval(this.sessionTimer);
     this.sessionTimer = null;
     this.mediaClient.dispose();

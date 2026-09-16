@@ -24,6 +24,7 @@ pub use cache_inventory::{CacheInventory, CacheMember};
 mod job_scopes;
 mod job_telemetry;
 mod lifecycle;
+mod llm;
 mod migrations;
 mod query;
 mod query_cache;

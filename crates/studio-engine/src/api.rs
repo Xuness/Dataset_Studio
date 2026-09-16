@@ -21,6 +21,7 @@ use studio_sources::SourceRouter;
 use studio_storage::SqliteStore;
 use utoipa::OpenApi;
 mod cache_storage;
+mod llm;
 mod management;
 mod query;
 mod ranking;
@@ -33,6 +34,8 @@ mod tools;
 
 #[derive(Clone)]
 pub struct AppState {
+    pub llm: Arc<studio_application::llm::LlmService>,
+    pub llm_invocations: crate::llm_invocations::Invocations,
     pub store: Arc<SqliteStore>,
     pub connection: EngineConnection,
     pub resources: Arc<dyn studio_application::ReadResources>,
@@ -81,7 +84,8 @@ impl IntoResponse for Failure {
             | "SOURCE_LOCATION_CONFLICT"
             | "PROJECT_ID_CONFLICT"
             | "IDEMPOTENCY_CONFLICT" => StatusCode::CONFLICT,
-            "SOURCE_BUSY"
+            "LLM_QUEUE_FULL"
+            | "SOURCE_BUSY"
             | "SOURCE_INDEX_PREPARING"
             | "SOURCE_UNAVAILABLE"
             | "METADATA_RUNTIME_UNAVAILABLE"
@@ -91,7 +95,10 @@ impl IntoResponse for Failure {
             "SOURCE_TIMEOUT" => StatusCode::GATEWAY_TIMEOUT,
             "SOURCE_RESOURCE_LIMIT" | "METADATA_LIMIT" => StatusCode::PAYLOAD_TOO_LARGE,
             "CANCELLED" => StatusCode::CONFLICT,
-            "INVALID_INPUT"
+            "LLM_DISABLED"
+            | "LLM_CREDENTIAL_UNAVAILABLE"
+            | "LLM_CONFIGURATION"
+            | "INVALID_INPUT"
             | "SOURCE_ID_MISMATCH"
             | "SOURCE_PATH_INVALID"
             | "FORMAT_UNSUPPORTED"
@@ -1318,11 +1325,13 @@ async fn events(
 }
 #[utoipa::path(post,path="/v1/shutdown",responses((status=200,body=OkResponse)))]
 async fn shutdown(State(s): State<AppState>) -> Json<OkResponse> {
+    s.llm_invocations.cancel_all();
     let _ = s.shutdown.send(true);
     Json(OkResponse { ok: true })
 }
 #[derive(OpenApi)]
 #[openapi(
+    nest((path = "/v1/llm", api = llm::LlmApiDoc)),
     paths(
         health,
         shutdown,
@@ -1447,6 +1456,7 @@ async fn shutdown(State(s): State<AppState>) -> Json<OkResponse> {
 pub struct ApiDoc;
 pub fn routes() -> axum::Router<AppState> {
     axum::Router::new()
+        .nest("/v1/llm", llm::routes())
         .route(
             "/v1/projects/{pid}/ranking-browse",
             get(ranking_browse::info),

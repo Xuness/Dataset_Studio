@@ -1,4 +1,5 @@
-import { Database, List, Gauge, Undo2 } from "lucide-react";
+import { Database, List, Gauge, Undo2, Plug } from "lucide-react";
+import { LlmSettingsPage } from "./llm/LlmSettingsPage.js";
 import { EditingSettingsPage } from "./EditingSettingsPage.js";
 import { CacheSettingsPage } from "./CacheSettingsPage.js";
 import { CacheManagerPage } from "./CacheManagerPage.js";
@@ -6,6 +7,7 @@ import { PerformanceSettingsPage } from "./PerformanceSettingsPage.js";
 
 /** Register a settings page here; it stays outside the project's business views. */
 export const settingsPages = [
+  { id: "llm", title: "API 与模型", Icon: Plug, Component: LlmSettingsPage },
   {
     id: "editing",
     title: "编辑与撤销",

@@ -1,7 +1,10 @@
 import type { StudioClient } from "@studio/client";
 import type { Schema, Source } from "@studio/contracts";
+import type { LlmSettingsDraft } from "./llm/types.js";
 
 export type SettingsPageProps = {
+  llmDraft: LlmSettingsDraft;
+  setLlmDraft: (value: LlmSettingsDraft) => void;
   client: StudioClient;
   project: { id: string; name: string } | null;
   sources: Source[];

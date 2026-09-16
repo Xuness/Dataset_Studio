@@ -4060,8 +4060,10 @@ checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
 name = "studio-application"
 version = "0.9.1"
 dependencies = [
+ "futures",
  "serde_json",
  "studio-domain",
+ "zeroize",
 ]
 
 [[package]]
@@ -4107,6 +4109,7 @@ dependencies = [
  "sha2",
  "studio-application",
  "studio-domain",
+ "studio-llm",
  "studio-operators",
  "studio-protocol",
  "studio-resources",
@@ -4120,6 +4123,23 @@ dependencies = [
  "tracing-subscriber",
  "utoipa",
  "windows-sys 0.61.2",
+]
+
+[[package]]
+name = "studio-llm"
+version = "0.9.1"
+dependencies = [
+ "async-stream",
+ "base64 0.22.1",
+ "futures",
+ "reqwest 0.12.28",
+ "serde_json",
+ "studio-application",
+ "studio-domain",
+ "tempfile",
+ "tokio",
+ "windows-sys 0.61.2",
+ "zeroize",
 ]
 
 [[package]]
