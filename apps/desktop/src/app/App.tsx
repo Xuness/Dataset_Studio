@@ -820,7 +820,9 @@ function Studio({
               previous.scopeKey !== rankedBrowse.scopeKey ||
               previous.sort !== rankedBrowse.sort ||
               previous.descending !== rankedBrowse.descending ||
-              previous.startPostId !== rankedBrowse.startPostId;
+              previous.startPostId !== rankedBrowse.startPostId ||
+              previous.startRank !== rankedBrowse.startRank ||
+              previous.startRating !== rankedBrowse.startRating;
             return {
               ...v,
               rankedBrowse,

@@ -243,6 +243,126 @@ try {
     "large worksets paginate in both directions for saved, main, rescue and input order",
   );
 
+  let rankBookmark;
+  for (const order of ["main", "rescue", "input", "direct", "fused"]) {
+    for (const descending of [false, true]) {
+      const expected = oracle(
+        full,
+        ["direct", "fused"].includes(order) ? "main" : order,
+        descending,
+      );
+      for (const position of [
+        1,
+        128,
+        129,
+        expected.length - 48,
+        expected.length,
+      ]) {
+        const options = { order, descending, start_rank: String(position) };
+        const anchored = await page(scope(full), options);
+        expectRows(anchored.items, expected.slice(position - 1, position + 12));
+        assert.ok(anchored.start_cursor);
+        const resized = await page(scope(full), {
+          ...options,
+          cursor: anchored.start_cursor,
+          limit: 7,
+        });
+        expectRows(resized.items, expected.slice(position - 1, position + 6));
+        if (anchored.next_cursor) {
+          const next = await page(scope(full), {
+            ...options,
+            cursor: anchored.next_cursor,
+          });
+          expectRows(next.items, expected.slice(position + 12, position + 25));
+        } else assert.equal(position, expected.length);
+        if (order === "main" && !descending && position === 129)
+          rankBookmark = anchored;
+      }
+      if (order === "input") continue;
+      const rankOrder = ["direct", "fused"].includes(order) ? "main" : order;
+      for (const rating of ["g", "s", "q", "e"]) {
+        const n = expected.findIndex(
+          (row) => row.rating === rating && row[rankOrder + "_rank"] === 3,
+        );
+        assert.ok(n >= 0);
+        const value = await page(scope(full), {
+          order,
+          descending,
+          start_rank: "3",
+          start_rating: rating,
+        });
+        expectRows(value.items, expected.slice(n, n + 13));
+      }
+    }
+  }
+  checks.push(
+    "numeric total positions and frozen Rating ranks include their member across orders, directions, bookmark edges, resizing and continuation",
+  );
+  for (const body of [
+    ...["0", "-1", "1e3", "1.5", "9223372036854775808"].map((start_rank) => ({
+      start_rank,
+    })),
+    { start_rank: "1", start_post_id: "1" },
+    { start_rating: "g" },
+    { start_rank: "1", start_rating: "x" },
+    { start_rank: "1", start_rating: "g", order: "input" },
+  ])
+    await engine.expectError(
+      base + "/ranking-browse/assets",
+      "POST",
+      { scope: scope(full), ...body },
+      "INVALID_INPUT",
+    );
+  for (const body of [
+    { start_rank: String(small.count + 1) },
+    { start_rank: "6", start_rating: "g" },
+  ]) {
+    await page(scope(small));
+    await engine.expectError(
+      base + "/ranking-browse/assets",
+      "POST",
+      { scope: scope(small), order: "main", ...body },
+      "RANK_POSITION_NOT_FOUND",
+    );
+  }
+  for (const change of [
+    { start_rank: "130" },
+    { start_rating: "g" },
+    { descending: true },
+    { order: "rescue" },
+    { scope: scope(small) },
+  ])
+    await engine.expectError(
+      base + "/ranking-browse/assets",
+      "POST",
+      {
+        scope: scope(full),
+        order: "main",
+        start_rank: "129",
+        cursor: rankBookmark.start_cursor,
+        ...change,
+      },
+      "INVALID_INPUT",
+    );
+  const forgedRank = JSON.parse(
+    Buffer.from(rankBookmark.start_cursor, "base64url").toString("utf8"),
+  );
+  forgedRank.start = oracle(full)[0].ordinal;
+  await engine.expectError(
+    base + "/ranking-browse/assets",
+    "POST",
+    {
+      scope: scope(full),
+      order: "main",
+      start_rank: "129",
+      cursor: Buffer.from(JSON.stringify(forgedRank)).toString("base64url"),
+    },
+    "INVALID_INPUT",
+  );
+  checks.push(
+    "invalid numeric targets, missing filtered ranks, conflicting anchors and mismatched or forged rank cursors are rejected",
+  );
+
   for (const order of ["main", "rescue", "input"]) {
     for (const descending of [false, true]) {
       const expected = oracle(small, order, descending);
@@ -696,6 +816,21 @@ try {
   );
   const sparseReady = await page(sparseScope, { limit: 96 });
   expectRows(sparseReady.items, sparseExpected.slice(0, 96));
+  const sparseRank = await page(sparseScope, { start_rank: "4097", limit: 12 });
+  expectRows(sparseRank.items, sparseExpected.slice(4096, 4108));
+  const sparseRating = sparseExpected.find((row) => row.rating === "s");
+  const sparseOffset = sparseExpected.indexOf(sparseRating);
+  const sparseByRating = await page(sparseScope, {
+    start_rank: String(sparseRating.main_rank),
+    start_rating: "s",
+  });
+  expectRows(
+    sparseByRating.items,
+    sparseExpected.slice(sparseOffset, sparseOffset + 13),
+  );
+  checks.push(
+    "numeric anchors use the sparse query result's fixed members and retain original Rating rank numbers",
+  );
   assert.equal(
     (await engine.api("/v1/resources")).query_cache.ranked_index_builds,
     beforeBuilds + 1,
@@ -821,6 +956,16 @@ try {
     "restart must reuse completed disk indexes",
   );
   checks.push("a resolved starting cursor survives an engine restart");
+  const resumedRank = await page(scope(full), {
+    order: "main",
+    start_rank: "129",
+    cursor: rankBookmark.start_cursor,
+  });
+  assert.deepEqual(resumedRank.items, rankBookmark.items);
+  assert.equal(resumedRank.preparations, 0);
+  checks.push(
+    "a numeric starting cursor and its sparse positional index survive an engine restart",
+  );
   assert.deepEqual(await Promise.all(artifactFiles.map(hash)), artifactHashes);
   assert.deepEqual(await Promise.all(sourceFiles.map(hash)), sourceHashes);
   checks.push(

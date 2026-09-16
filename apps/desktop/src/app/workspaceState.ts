@@ -102,6 +102,13 @@ function decode(value: unknown): WorkspaceState | null {
       (ranked.startPostId !== null &&
         (typeof ranked.startPostId !== "string" ||
           !/^[1-9][0-9]{0,18}$/.test(ranked.startPostId))) ||
+      (ranked.startRank != null &&
+        (typeof ranked.startRank !== "string" ||
+          !/^[1-9][0-9]{0,18}$/.test(ranked.startRank) ||
+          ranked.startPostId != null)) ||
+      (ranked.startRating != null &&
+        (!ranked.startRank ||
+          !["g", "s", "q", "e"].includes(String(ranked.startRating)))) ||
       (ranked.startCursor !== null &&
         (typeof ranked.startCursor !== "string" ||
           ranked.startCursor.length > 16384)))

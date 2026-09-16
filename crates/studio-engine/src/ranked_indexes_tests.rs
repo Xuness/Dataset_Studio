@@ -33,6 +33,7 @@ fn fixture() -> (tempfile::TempDir, Arc<RankedIndexes>, RankedIndexPlan) {
     };
     let db = rusqlite::Connection::open(cache.path(&plan.meta.key).unwrap()).unwrap();
     db.execute_batch("CREATE TABLE meta(key TEXT PRIMARY KEY,value TEXT); CREATE TABLE members(ordinal INTEGER PRIMARY KEY,rating TEXT,main_rank INTEGER,rescue_rank INTEGER,post_id INTEGER);").unwrap();
+    db.execute_batch("CREATE TABLE rank_positions(order_name TEXT,sequence INTEGER,ordinal INTEGER,PRIMARY KEY(order_name,sequence)) WITHOUT ROWID; INSERT INTO meta VALUES('position_stride','128');").unwrap();
     for (name, column) in [
         ("main", "main_rank"),
         ("rescue", "rescue_rank"),

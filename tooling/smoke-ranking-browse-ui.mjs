@@ -391,6 +391,81 @@ try {
   checks.push(
     "page-size changes retain the saved ranking and display the correct first members",
   );
+  await page.getByLabel("起点排名", { exact: true }).fill("70");
+  await page.getByLabel("起点排名", { exact: true }).press("Enter");
+  await visible(main.slice(69, 117));
+  await page
+    .locator(".browser-view")
+    .getByRole("button", { name: "下一页", exact: true })
+    .click();
+  await visible(main.slice(117, 165));
+  await expect
+    .poll(
+      async () =>
+        (await engine.api(base + "/drafts/studio.session/default")).draft.value
+          .position?.pageNumber,
+    )
+    .toBe(2);
+  await page.reload();
+  await visible(main.slice(117, 165));
+  await expect(page.getByLabel("起点排名", { exact: true })).toHaveValue("70");
+  await page.getByRole("button", { name: "从此排名开始", exact: true }).click();
+  await visible(main.slice(69, 117));
+  await page.getByLabel("每页数量").selectOption("12");
+  await visible(main.slice(69, 81));
+  await page.getByLabel("每页数量").selectOption("48");
+  await page.getByLabel("排名查看方向").selectOption("desc");
+  await visible([...main].reverse().slice(69, 117));
+  await shot("11-total-position");
+  checks.push(
+    "total position anchoring preserves current order, restores page two after reload and supports repeated jumps and resizing",
+  );
+  await page.getByLabel("排名查看方向").selectOption("asc");
+  await page.getByLabel("排名定位范围").selectOption("g");
+  await page.getByLabel("起点排名", { exact: true }).fill("3");
+  await page.getByRole("button", { name: "从此排名开始", exact: true }).click();
+  const ratingOffset = main.findIndex(
+    (row) => row.scores.rating === "g" && row.scores.main_rank === 3,
+  );
+  assert.ok(ratingOffset >= 0);
+  await visible(main.slice(ratingOffset, ratingOffset + 48));
+  await shot("12-rating-position");
+  await page.getByLabel("排名查看方向").selectOption("desc");
+  const reversed = [...main].reverse();
+  const reversedOffset = reversed.findIndex(
+    (row) => row.scores.rating === "g" && row.scores.main_rank === 3,
+  );
+  await visible(reversed.slice(reversedOffset, reversedOffset + 48));
+  await page.getByLabel("起点排名", { exact: true }).fill("999999");
+  await page.getByRole("button", { name: "从此排名开始", exact: true }).click();
+  await expect(page.locator(".browser-view")).toContainText(
+    "当前范围中没有 G 分级的第 999999 名",
+  );
+  await page.getByRole("button", { name: "重置起点", exact: true }).click();
+  await visible(reversed.slice(0, 48));
+  for (const rank of ["0", String(main.length + 1)]) {
+    const before = displayedPageReads();
+    await page.getByLabel("起点排名", { exact: true }).fill(rank);
+    await page
+      .getByRole("button", { name: "从此排名开始", exact: true })
+      .click();
+    await expect(page.locator(".ranking-start-controls .error")).toBeVisible();
+    assert.equal(displayedPageReads(), before);
+  }
+  await page
+    .getByLabel("浏览排序", { exact: true })
+    .selectOption("ranking:input");
+  await expect(
+    page.getByLabel("排名定位范围").locator('option[value="g"]'),
+  ).toHaveJSProperty("disabled", true);
+  await page
+    .getByLabel("浏览排序", { exact: true })
+    .selectOption("ranking:saved");
+  await page.getByLabel("排名查看方向").selectOption("asc");
+  await visible(main.slice(0, 48));
+  checks.push(
+    "Rating anchors use exact frozen ranks in either direction, missing ranks are explained, invalid positions are rejected and input order only offers total positions",
+  );
   await sleep(200);
   const beforeSelection = displayedPageReads();
   const firstThumb = page.locator(".asset-thumb").first();

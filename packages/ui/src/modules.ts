@@ -38,6 +38,8 @@ export type RankedBrowseSettings = {
   sort: "saved" | "main" | "rescue" | "input" | "direct" | "fused" | "off";
   descending: boolean;
   startPostId: string | null;
+  startRank?: string | null;
+  startRating?: string | null;
   startCursor: string | null;
 };
 export type ModuleScopeOption = {

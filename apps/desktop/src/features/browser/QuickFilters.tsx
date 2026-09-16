@@ -229,6 +229,8 @@ export function QuickFilters({ context }: { context: ModuleContext }) {
               }),
             ),
             startPostId: null,
+            startRank: null,
+            startRating: null,
             startCursor: null,
           });
         }

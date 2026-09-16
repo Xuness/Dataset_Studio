@@ -131,7 +131,7 @@ pub struct AssetPage {
     pub result_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scan: Option<BrowseScan>,
-    /// Reusable first-page cursor after a Danbooru ID has been located.
+    /// Reusable first-page cursor after a Danbooru ID or ranking position has been located.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start_cursor: Option<String>,
 }

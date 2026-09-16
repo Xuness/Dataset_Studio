@@ -23,11 +23,43 @@ fn v2_direct_and_fused_scope_indexes_have_independent_orders_after_reopen() {
     let page = index.page(RankingOrder::Direct, false, None, 12).unwrap();
     assert_eq!(page[0].ordinal, 65536);
     assert!(page.windows(2).all(|w| w[0].ordinal > w[1].ordinal));
+    assert_eq!(
+        index
+            .locate_position(129, RankingOrder::Direct, false)
+            .unwrap()
+            .unwrap()
+            .ordinal,
+        64512
+    );
+    assert_eq!(
+        index
+            .locate_rank(1, "g", RankingOrder::Direct, false)
+            .unwrap()
+            .unwrap()
+            .ordinal,
+        65536
+    );
     drop(index);
     let index = RankedIndex::open(&file, &plan.meta, cancel).unwrap();
     let page = index.page(RankingOrder::Fused, false, None, 12).unwrap();
     assert_eq!(page[0].ordinal, 1);
     assert_eq!(page[1].ordinal, 8);
+    assert_eq!(
+        index
+            .locate_position(129, RankingOrder::Fused, false)
+            .unwrap()
+            .unwrap()
+            .ordinal,
+        1024
+    );
+    assert_eq!(
+        index
+            .locate_rank(1024, "g", RankingOrder::Fused, true)
+            .unwrap()
+            .unwrap()
+            .ordinal,
+        1024
+    );
 }
 
 fn fixture() -> (tempfile::TempDir, RankedIndexPlan) {
@@ -136,6 +168,122 @@ fn sparse_late_pages_and_large_ties_use_bounded_index_work_and_survive_reopen() 
     wrong.key = "b".repeat(64);
     assert!(RankedIndex::open(&output, &wrong, cancel).is_err());
 }
+#[test]
+fn numeric_anchors_use_bounded_work_across_sparse_groups_and_bookmark_edges() {
+    let (tmp, plan) = fixture();
+    let db = Connection::open(&plan.scores).unwrap();
+    db.execute_batch("UPDATE scores SET rating=CASE WHEN ordinal<257 THEN 'e' WHEN ordinal<32769 THEN 'g' ELSE 's' END,main_rank=ordinal,rescue_rank=CASE WHEN ordinal%16=0 THEN NULL ELSE ordinal END;").unwrap();
+    drop(db);
+    let output = tmp.path().join("positions.sqlite");
+    let cancel = Arc::new(AtomicBool::new(false));
+    RankedIndex::build(
+        &output,
+        &plan,
+        32 << 20,
+        32 << 20,
+        cancel.clone(),
+        Arc::new(RankedIndexProgress::default()),
+    )
+    .unwrap();
+    let index = RankedIndex::open(&output, &plan.meta, cancel.clone()).unwrap();
+    let steps = Arc::new(AtomicUsize::new(0));
+    let counter = steps.clone();
+    index
+        .db
+        .progress_handler(
+            100,
+            Some(move || {
+                counter.fetch_add(100, Ordering::Relaxed);
+                false
+            }),
+        )
+        .unwrap();
+    for order in [
+        RankingOrder::Main,
+        RankingOrder::Rescue,
+        RankingOrder::Input,
+        RankingOrder::Direct,
+        RankingOrder::Fused,
+    ] {
+        let column = match order {
+            RankingOrder::Rescue => "rescue_rank",
+            _ => "ordinal",
+        };
+        let expected: Vec<u64> = index
+            .db
+            .prepare(&format!(
+                "SELECT ordinal FROM members ORDER BY rating,{column},ordinal"
+            ))
+            .unwrap()
+            .query_map([], |r| unsigned(r, 0))
+            .unwrap()
+            .collect::<std::result::Result<_, _>>()
+            .unwrap();
+        for descending in [false, true] {
+            for target in [
+                1, 2, 32, 33, 127, 128, 129, 130, 4096, 4097, 8191, 8192, 8193,
+            ] {
+                steps.store(0, Ordering::Relaxed);
+                let found = index
+                    .locate_position(target, order, descending)
+                    .unwrap()
+                    .unwrap();
+                let n = if descending {
+                    expected.len() - target as usize
+                } else {
+                    target as usize - 1
+                };
+                assert_eq!(found.ordinal, expected[n]);
+                assert!(
+                    steps.load(Ordering::Relaxed) < 10000,
+                    "large positions must not scan the full prefix"
+                );
+            }
+        }
+        assert!(index.locate_position(0, order, false).unwrap().is_none());
+        assert!(index.locate_position(8194, order, false).unwrap().is_none());
+    }
+    assert_eq!(
+        index
+            .locate_rank(64000, "s", RankingOrder::Main, true)
+            .unwrap()
+            .unwrap()
+            .ordinal,
+        64000
+    );
+    assert!(
+        index
+            .locate_rank(64001, "s", RankingOrder::Main, false)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        index
+            .locate_rank(64000, "g", RankingOrder::Main, false)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        index
+            .locate_rank(i64::MAX as u64, "s", RankingOrder::Rescue, false)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        index
+            .locate_rank(1, "e", RankingOrder::Input, false)
+            .unwrap()
+            .is_none()
+    );
+    drop(index);
+    // Old derived caches are rebuildable, while their original scores are untouched.
+    let db = Connection::open(&output).unwrap();
+    db.execute_batch("DROP TABLE rank_positions; DELETE FROM meta WHERE key='position_stride';")
+        .unwrap();
+    drop(db);
+    assert!(RankedIndex::open(&output, &plan.meta, cancel).is_err());
+}
+
 #[test]
 fn cancelled_or_over_budget_builds_never_have_a_complete_header() {
     let (tmp, plan) = fixture();

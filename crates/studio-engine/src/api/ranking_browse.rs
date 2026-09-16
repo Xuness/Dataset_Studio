@@ -39,6 +39,7 @@ pub(super) async fn info(
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(tag = "phase", rename_all = "snake_case", deny_unknown_fields)]
 enum Phase {
+    SeekRank,
     Seek {
         next_ordinal: u64,
         best: Option<u64>,
@@ -86,6 +87,47 @@ fn missing_anchor() -> domain::Error {
     )
 }
 
+#[derive(Serialize)]
+struct RankAnchor {
+    rank: u64,
+    rating: Option<String>,
+}
+fn parse_rank(
+    rank: Option<String>,
+    rating: Option<String>,
+    post: Option<i64>,
+    order: domain::RankingOrder,
+) -> domain::Result<Option<RankAnchor>> {
+    let Some(rank) = rank else {
+        if rating.is_some() {
+            return Err(domain::Error::invalid("按 Rating 定位时需要填写排名"));
+        }
+        return Ok(None);
+    };
+    if post.is_some() {
+        return Err(domain::Error::invalid("Danbooru ID 与排名起点只能选择一种"));
+    }
+    if rank.is_empty() || rank.len() > 19 || !rank.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(domain::Error::invalid("排名需要填写正整数"));
+    }
+    let rank = rank
+        .parse::<i64>()
+        .ok()
+        .filter(|n| *n > 0)
+        .ok_or_else(|| domain::Error::invalid("排名超出有效范围"))? as u64;
+    if let Some(rating) = &rating {
+        if !matches!(rating.as_str(), "g" | "s" | "q" | "e") {
+            return Err(domain::Error::invalid("Rating 需要选择 G、S、Q 或 E"));
+        }
+        if matches!(order, domain::RankingOrder::Input) {
+            return Err(domain::Error::invalid(
+                "输入顺序没有分级名次，请选择排名顺序或总榜位置",
+            ));
+        }
+    }
+    Ok(Some(RankAnchor { rank, rating }))
+}
+
 struct Browse<'a> {
     state: &'a AppState,
     pid: &'a str,
@@ -97,6 +139,7 @@ struct Browse<'a> {
     order: domain::RankingOrder,
     descending: bool,
     post: Option<i64>,
+    rank: Option<RankAnchor>,
     total: u64,
     limit: usize,
     signature: String,
@@ -138,11 +181,18 @@ impl Browse<'_> {
         }
         if let Some(start) = cursor.start {
             self.validate_member(start)?;
-            if self.post.is_none() || self.input.row(start)?.post_id != self.post {
+            if self.rank.is_none()
+                && (self.post.is_none() || self.input.row(start)?.post_id != self.post)
+            {
                 return Err(domain::Error::invalid("排名起点与 Danbooru ID 不一致"));
             }
         }
         match &cursor.state {
+            Phase::SeekRank => {
+                if self.rank.is_none() || cursor.start.is_some() {
+                    return Err(domain::Error::invalid("无效的排名定位游标"));
+                }
+            }
             Phase::Seek { next_ordinal, best } => {
                 if self.post.is_none() || *next_ordinal > self.total || cursor.start.is_some() {
                     return Err(domain::Error::invalid("无效的排名定位游标"));
@@ -155,6 +205,9 @@ impl Browse<'_> {
                 }
             }
             Phase::Browse { after, pending } => {
+                if self.rank.is_some() && cursor.start.is_none() {
+                    return Err(domain::Error::invalid("排名定位游标缺少起点"));
+                }
                 if pending.len() > 129
                     || pending.iter().copied().collect::<HashSet<_>>().len() != pending.len()
                 {
@@ -268,6 +321,36 @@ impl Browse<'_> {
     }
     fn run(&self, mut cursor: Cursor, index: &RankedIndex) -> domain::Result<AssetPage> {
         read_cancelled(&self.read.cancelled)?;
+        if let Some(anchor) = &self.rank {
+            let position = if let Some(rating) = &anchor.rating {
+                index.locate_rank(anchor.rank, rating, self.order, self.descending)?
+            } else {
+                index.locate_position(anchor.rank, self.order, self.descending)?
+            }
+            .ok_or_else(|| {
+                domain::Error::new(
+                    "RANK_POSITION_NOT_FOUND",
+                    if let Some(rating) = &anchor.rating {
+                        format!(
+                            "当前范围中没有 {} 分级的第 {} 名，该原始名次可能已被筛选排除",
+                            rating.to_uppercase(),
+                            anchor.rank
+                        )
+                    } else {
+                        format!("总榜位置超出当前范围，请输入 1 至 {}", self.basis.count)
+                    },
+                )
+            })?;
+            if matches!(cursor.state, Phase::SeekRank) {
+                cursor.start = Some(position.ordinal);
+                cursor.state = Phase::Browse {
+                    after: Some(position.clone()),
+                    pending: vec![position.ordinal],
+                };
+            } else if cursor.start != Some(position.ordinal) {
+                return Err(domain::Error::invalid("排名起点与指定排名不一致"));
+            }
+        }
         if matches!(cursor.state, Phase::Seek { .. }) {
             let position = index
                 .locate(
@@ -343,12 +426,13 @@ pub(super) async fn assets(
             })?;
             let order = basis.order(body.order.map(Into::into));
             let post = parse_post(body.start_post_id)?;
+            let rank = parse_rank(body.start_rank, body.start_rating, post, order)?;
             let (artifact, table_path, input_path) =
                 crate::ranking::paths(&s.store, &pid, &basis.artifact_id)?;
             let total = artifact
                 .count
                 .ok_or_else(|| domain::Error::new("ARTIFACT_INVALID", "排名输入数量缺失"))?;
-            let signature = hex::encode(Sha256::digest(
+            let mut signature = hex::encode(Sha256::digest(
                 serde_json::to_vec(&(
                     1,
                     &pid,
@@ -367,6 +451,13 @@ pub(super) async fn assets(
                 ))
                 .map_err(domain::Error::io)?,
             ));
+            // Preserve old ID/unanchored cursors; bind only new rank cursors to
+            // their numeric target and Rating as well as the existing view.
+            if let Some(rank) = &rank {
+                signature = hex::encode(Sha256::digest(
+                    serde_json::to_vec(&(&signature, rank)).map_err(domain::Error::io)?,
+                ));
+            }
             let key_for = |scope: &domain::ScopeRef| -> domain::Result<String> {
                 Ok(hex::encode(Sha256::digest(
                     serde_json::to_vec(&(
@@ -409,7 +500,9 @@ pub(super) async fn assets(
                     start: None,
                     examined: 0,
                     first_page: false,
-                    state: if post.is_some() {
+                    state: if rank.is_some() {
+                        Phase::SeekRank
+                    } else if post.is_some() {
                         Phase::Seek {
                             next_ordinal: 0,
                             best: None,
@@ -440,6 +533,7 @@ pub(super) async fn assets(
                 order,
                 descending: body.descending,
                 post,
+                rank,
                 total,
                 limit: body.limit.unwrap_or(48).clamp(1, 128),
                 signature: signature.clone(),

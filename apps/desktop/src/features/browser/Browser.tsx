@@ -217,6 +217,12 @@ function BrowserContent({
             ...(ranked.settings.startPostId
               ? { start_post_id: ranked.settings.startPostId }
               : {}),
+            ...(ranked.settings.startRank
+              ? {
+                  start_rank: ranked.settings.startRank,
+                  start_rating: ranked.settings.startRating ?? null,
+                }
+              : {}),
             ...(continuation ? { cursor: continuation } : {}),
             limit: pageSize,
           },
@@ -562,6 +568,12 @@ function BrowserContent({
                 ...(ranked.settings.startPostId
                   ? { start_post_id: ranked.settings.startPostId }
                   : {}),
+                ...(ranked.settings.startRank
+                  ? {
+                      start_rank: ranked.settings.startRank,
+                      start_rating: ranked.settings.startRating ?? null,
+                    }
+                  : {}),
                 cursor: next,
                 limit: 4,
               },
@@ -613,6 +625,8 @@ function BrowserContent({
     ranked.settings.sort,
     ranked.settings.descending,
     ranked.settings.startPostId,
+    ranked.settings.startRank,
+    ranked.settings.startRating,
   ]);
   function chooseOrder(value: string) {
     if (value.startsWith("ranking:")) {

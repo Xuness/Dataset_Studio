@@ -5421,7 +5421,7 @@
               "string",
               "null"
             ],
-            "description": "Reusable first-page cursor after a Danbooru ID has been located."
+            "description": "Reusable first-page cursor after a Danbooru ID or ranking position has been located."
           }
         }
       },
@@ -9979,6 +9979,20 @@
               "null"
             ],
             "description": "Exact frozen Danbooru post ID; the located row is included as the first item."
+          },
+          "start_rank": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Positive, one-based position in the current scope and viewing direction.\nWith start_rating, this is the original rank within that frozen Rating instead.\nMutually exclusive with start_post_id; the located member is included."
+          },
+          "start_rating": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Frozen scoring Rating (g, s, q, e). Requires start_rank and a ranking order other than input.\nOnly locates a member; it does not filter or change the scope."
           }
         },
         "additionalProperties": false

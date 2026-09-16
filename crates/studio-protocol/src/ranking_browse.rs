@@ -51,6 +51,13 @@ pub struct RankingBrowseRequest {
     pub descending: bool,
     /// Exact frozen Danbooru post ID; the located row is included as the first item.
     pub start_post_id: Option<String>,
+    /// Positive, one-based position in the current scope and viewing direction.
+    /// With start_rating, this is the original rank within that frozen Rating instead.
+    /// Mutually exclusive with start_post_id; the located member is included.
+    pub start_rank: Option<String>,
+    /// Frozen scoring Rating (g, s, q, e). Requires start_rank and a ranking order other than input.
+    /// Only locates a member; it does not filter or change the scope.
+    pub start_rating: Option<String>,
     pub cursor: Option<String>,
     pub limit: Option<usize>,
 }

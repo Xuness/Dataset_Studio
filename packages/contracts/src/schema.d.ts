@@ -1843,7 +1843,7 @@ export interface components {
             result_id?: string | null;
             revision: string;
             scan?: null | components["schemas"]["BrowseScan"];
-            /** @description Reusable first-page cursor after a Danbooru ID has been located. */
+            /** @description Reusable first-page cursor after a Danbooru ID or ranking position has been located. */
             start_cursor?: string | null;
         };
         AssetRanking: {
@@ -2965,6 +2965,17 @@ export interface components {
             scope: components["schemas"]["ScopeRef"];
             /** @description Exact frozen Danbooru post ID; the located row is included as the first item. */
             start_post_id?: string | null;
+            /**
+             * @description Positive, one-based position in the current scope and viewing direction.
+             *     With start_rating, this is the original rank within that frozen Rating instead.
+             *     Mutually exclusive with start_post_id; the located member is included.
+             */
+            start_rank?: string | null;
+            /**
+             * @description Frozen scoring Rating (g, s, q, e). Requires start_rank and a ranking order other than input.
+             *     Only locates a member; it does not filter or change the scope.
+             */
+            start_rating?: string | null;
         };
         RankingCount: {
             /** Format: int64 */

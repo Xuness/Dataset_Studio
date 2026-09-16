@@ -306,9 +306,51 @@ try {
       backward.map((r) => r.ranking.ordinal),
       expected.toReversed(),
     );
+    for (const descending of [false, true]) {
+      const ordered = descending ? expected.toReversed() : expected;
+      const totalAnchor = await engine.api(
+        base + "/ranking-browse/assets",
+        "POST",
+        {
+          scope: target,
+          order,
+          descending,
+          start_rank: "19",
+          limit: 12,
+        },
+      );
+      assert.deepEqual(
+        totalAnchor.items.map((r) => r.ranking.ordinal),
+        ordered.slice(18, 30),
+      );
+      if (order !== "input") {
+        const row = members.find((r) => r.input.ordinal === ordered[18]);
+        const rank = position(row);
+        const start = ordered.findIndex(
+          (ordinal) =>
+            position(members.find((r) => r.input.ordinal === ordinal)) === rank,
+        );
+        const ratingAnchor = await engine.api(
+          base + "/ranking-browse/assets",
+          "POST",
+          {
+            scope: target,
+            order,
+            descending,
+            start_rank: String(rank),
+            start_rating: "g",
+            limit: 12,
+          },
+        );
+        assert.deepEqual(
+          ratingAnchor.items.map((r) => r.ranking.ordinal),
+          ordered.slice(start, start + 12),
+        );
+      }
+    }
   }
   checks.push(
-    "saved v2 worksets paginate in all five orders and both directions",
+    "saved v2 worksets paginate and locate total positions and original Rating ranks in all five orders and both directions",
   );
   await engine.stop();
   await engine.start();

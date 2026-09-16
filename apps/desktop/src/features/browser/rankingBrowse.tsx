@@ -86,17 +86,45 @@ export function useRankingBrowse(
       };
   const active = !!info.data?.ranking && settings.sort !== "off";
   const key = active
-    ? [settings.sort, settings.descending, settings.startPostId]
+    ? [
+        settings.sort,
+        settings.descending,
+        settings.startPostId,
+        ...(settings.startRank
+          ? [settings.startRank, settings.startRating ?? null]
+          : []),
+      ]
     : null;
+  const effectiveOrder =
+    settings.sort === "saved"
+      ? info.data?.ranking?.saved_filter.order
+      : settings.sort;
+  const ratingRanks = effectiveOrder !== "input";
   const [draft, setDraft] = useState(settings.startPostId ?? "");
+  const [rankDraft, setRankDraft] = useState(settings.startRank ?? "");
+  const [ratingDraft, setRatingDraft] = useState(settings.startRating ?? "");
   const [error, setError] = useState("");
   useEffect(() => {
     setDraft(settings.startPostId ?? "");
     setError("");
   }, [identity, settings.startPostId]);
+  useEffect(() => {
+    setRankDraft(settings.startRank ?? "");
+    setRatingDraft(ratingRanks ? (settings.startRating ?? "") : "");
+    setError("");
+  }, [identity, settings.startRank, settings.startRating, ratingRanks]);
   function change(patch: Partial<RankedBrowseSettings>) {
     setError("");
-    save({ ...settings, ...patch, startCursor: null });
+    const next = { ...settings, ...patch, startCursor: null };
+    const order =
+      next.sort === "saved"
+        ? info.data?.ranking?.saved_filter.order
+        : next.sort;
+    if (order === "off" || (order === "input" && next.startRating)) {
+      next.startRank = null;
+      next.startRating = null;
+    }
+    save(next);
   }
   function save(value: RankedBrowseSettings) {
     const current = { ...value, sourceScopeKey: identity };
@@ -134,7 +162,36 @@ export function useRankingBrowse(
     setDraft(text);
     setError("");
     if (text === settings.startPostId) first();
-    else change({ startPostId: text });
+    else change({ startPostId: text, startRank: null, startRating: null });
+  }
+  function startRank(first: () => void) {
+    const text = rankDraft.trim().replace(/^0+(?=\d)/, "");
+    if (
+      !/^[1-9][0-9]{0,18}$/.test(text) ||
+      BigInt(text) > 9223372036854775807n
+    ) {
+      setError("请填写有效的排名正整数。");
+      return;
+    }
+    const rating = ratingRanks && ratingDraft ? ratingDraft : null;
+    if (
+      !rating &&
+      info.data?.ranking &&
+      BigInt(text) > BigInt(info.data.ranking.count)
+    ) {
+      setError(
+        `总榜位置超出当前范围，共 ${info.data.ranking.count.toLocaleString("zh-CN")} 张。`,
+      );
+      return;
+    }
+    setRankDraft(text);
+    setError("");
+    if (
+      text === settings.startRank &&
+      rating === (settings.startRating ?? null)
+    )
+      first();
+    else change({ startRank: text, startRating: rating, startPostId: null });
   }
   return {
     target,
@@ -154,8 +211,17 @@ export function useRankingBrowse(
     error,
     change,
     start,
+    rankDraft,
+    setRankDraft,
+    ratingDraft,
+    setRatingDraft,
+    ratingRanks,
+    startRank,
     rememberStart: (cursor: string) => {
-      if (settings.startPostId && settings.startCursor !== cursor)
+      if (
+        (settings.startPostId || settings.startRank) &&
+        settings.startCursor !== cursor
+      )
         save({ ...settings, startCursor: cursor });
     },
   };
@@ -174,7 +240,6 @@ export function RankingStart({
   if (!state.active) return null;
   return (
     <div className="ranking-start-controls">
-      <span className="subtle">各评分分级分别排序</span>
       {state.info?.current_rating_filter && (
         <span role="status" className="ranking-scope-warning">
           此查询按当前帖子分级匹配，可能含其他评分分级。请重新应用浏览筛选以按评分分级查看。
@@ -202,22 +267,69 @@ export function RankingStart({
       >
         从此图开始
       </button>
-      {state.settings.startPostId ? (
+      <label>
+        按排名定位
+        <select
+          aria-label="排名定位范围"
+          value={state.ratingDraft}
+          onChange={(event) => state.setRatingDraft(event.target.value)}
+        >
+          <option value="">总榜位置</option>
+          {["g", "s", "q", "e"].map((rating) => (
+            <option key={rating} value={rating} disabled={!state.ratingRanks}>
+              {rating.toUpperCase()} 分级名次
+            </option>
+          ))}
+        </select>
+        <input
+          aria-label="起点排名"
+          value={state.rankDraft}
+          inputMode="numeric"
+          placeholder={state.ratingDraft ? "原始第 N 名" : "第 N 位"}
+          onChange={(event) => state.setRankDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !busy) {
+              event.preventDefault();
+              state.startRank(first);
+            }
+          }}
+        />
+      </label>
+      <button
+        disabled={busy || !state.rankDraft.trim()}
+        onClick={() => state.startRank(first)}
+      >
+        从此排名开始
+      </button>
+      <span className="ranking-anchor-help subtle">
+        总榜按当前顺序从 1 计数（共 {number(state.info?.count ?? 0)}{" "}
+        张）；分级名次对应当前排名类型的原始名次。
+      </span>
+      {state.settings.startPostId || state.settings.startRank ? (
         <>
-          <span className="subtle">
-            起点 #{state.settings.startPostId} · 包含这张图
+          <span className="subtle" role="status">
+            {state.settings.startPostId
+              ? `起点 #${state.settings.startPostId}`
+              : state.settings.startRating
+                ? `${state.settings.startRating.toUpperCase()} 分级第 ${state.settings.startRank} 名`
+                : `总榜第 ${state.settings.startRank} 位`}{" "}
+            · 包含这张图
           </span>
           <button
             disabled={busy}
             title="沿当前查看方向，从整张榜单开始"
-            onClick={() => state.change({ startPostId: null })}
+            onClick={() =>
+              state.change({
+                startPostId: null,
+                startRank: null,
+                startRating: null,
+              })
+            }
           >
             重置起点
           </button>
         </>
-      ) : (
-        <span className="subtle">按帖子 ID 定位图片，再沿当前排名方向浏览</span>
-      )}
+      ) : null}
       {state.error && (
         <span className="error" role="alert">
           {state.error}

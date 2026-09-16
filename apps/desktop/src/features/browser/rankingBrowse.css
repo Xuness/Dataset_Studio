@@ -17,8 +17,12 @@
   width: 135px;
 }
 .ranking-start-controls input,
+.ranking-start-controls select,
 .ranking-start-controls button {
   min-height: 28px;
+}
+.ranking-anchor-help {
+  width: 100%;
 }
 .ranking-start-controls .error {
   width: 100%;

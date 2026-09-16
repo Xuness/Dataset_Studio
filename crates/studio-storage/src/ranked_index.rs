@@ -15,6 +15,10 @@ use studio_domain::*;
 #[path = "ranked_index_tests.rs"]
 mod tests;
 
+// One bookmark per page-sized block keeps random positioning bounded even in
+// sparse scopes, without a second dense copy of every ranking order.
+const POSITION_STRIDE: u64 = 128;
+
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RankedIndexMeta {
     pub version: u32,
@@ -161,6 +165,7 @@ impl RankedIndex {
                 ));
             }
             db.execute_batch("DETACH DATABASE scope_db; DETACH DATABASE fixed_input; DETACH DATABASE fixed_scores;").map_err(db_error)?;
+            db.execute_batch("CREATE TABLE rank_positions(order_name TEXT NOT NULL,sequence INTEGER NOT NULL,ordinal INTEGER NOT NULL,PRIMARY KEY(order_name,sequence)) WITHOUT ROWID;").map_err(build_error)?;
             let mut orders = vec![
                 RankingOrder::Main,
                 RankingOrder::Rescue,
@@ -185,12 +190,18 @@ impl RankedIndex {
                     "CREATE INDEX post_{name} ON members(post_id,{keys}) WHERE post_id IS NOT NULL;"
                 ))
                 .map_err(build_error)?;
+                db.execute(&format!("INSERT INTO rank_positions SELECT ?1,sequence,ordinal FROM (SELECT row_number() OVER (ORDER BY {keys}) AS sequence,ordinal FROM members INDEXED BY ordered_{name}) WHERE (sequence-1)%{POSITION_STRIDE}=0"), [name]).map_err(build_error)?;
             }
             read_cancelled(&cancelled)?;
             progress.phase.store(12, Ordering::Release);
             db.execute(
                 "INSERT INTO meta VALUES ('complete',?1)",
                 [serde_json::to_string(&plan.meta).map_err(Error::io)?],
+            )
+            .map_err(db_error)?;
+            db.execute(
+                "INSERT INTO meta VALUES ('position_stride',?1)",
+                [POSITION_STRIDE.to_string()],
             )
             .map_err(db_error)?;
             Ok(())
@@ -218,6 +229,18 @@ impl RankedIndex {
         if &meta != expected {
             return Err(invalid());
         }
+        let stride: String = db
+            .query_row(
+                "SELECT value FROM meta WHERE key='position_stride'",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(|_| invalid())?;
+        if stride != POSITION_STRIDE.to_string() {
+            return Err(invalid());
+        }
+        db.prepare("SELECT ordinal FROM rank_positions WHERE order_name=?1 AND sequence=?2")
+            .map_err(|_| invalid())?;
         let indices:i64=db.query_row("SELECT count(*) FROM sqlite_schema WHERE type='index' AND name IN ('ordered_main','ordered_rescue','ordered_input','post_main','post_rescue','post_input')",[],|r|r.get(0)).map_err(|_|invalid())?;
         if indices != 6 {
             return Err(invalid());
@@ -278,13 +301,17 @@ impl RankedIndex {
         let direction = if descending { "DESC" } else { "ASC" };
         self.db.query_row(&format!("SELECT rating,{column},ordinal FROM members INDEXED BY post_{name} WHERE post_id=?1 ORDER BY rating {direction},{column} {direction},ordinal {direction} LIMIT 1"), [post], |r| Ok(RankingPosition { group:r.get(0)?, position:r.get(1)?, ordinal:unsigned(r,2)? })).optional().map_err(|_|invalid())
     }
-    pub fn page(
+    /// Exact original rank in one frozen Rating, restricted to fixed members.
+    pub fn locate_rank(
         &self,
+        rank: u64,
+        rating: &str,
         order: RankingOrder,
         descending: bool,
-        after: Option<&RankingPosition>,
-        limit: usize,
-    ) -> Result<Vec<RankingPosition>> {
+    ) -> Result<Option<RankingPosition>> {
+        if rank == 0 || rank >= i64::MAX as u64 || matches!(order, RankingOrder::Input) {
+            return Ok(None);
+        }
         let order = if self.meta.version < 2
             && matches!(order, RankingOrder::Direct | RankingOrder::Fused)
         {
@@ -292,6 +319,53 @@ impl RankedIndex {
         } else {
             order
         };
+        let (name, column) = order_parts(order);
+        let direction = if descending { "DESC" } else { "ASC" };
+        self.db.query_row(&format!("SELECT rating,{column},ordinal FROM members INDEXED BY ordered_{name} WHERE rating=?1 AND {column}=?2 ORDER BY ordinal {direction} LIMIT 1"), params![rating,rank as i64], |r| Ok(RankingPosition { group:r.get(0)?, position:r.get(1)?, ordinal:unsigned(r,2)? })).optional().map_err(|_|invalid())
+    }
+    /// One-based position in the displayed order. Seek the nearest bookmark,
+    /// then read at most 127 following members, independent of the target rank.
+    pub fn locate_position(
+        &self,
+        position: u64,
+        order: RankingOrder,
+        descending: bool,
+    ) -> Result<Option<RankingPosition>> {
+        if position == 0 || position > self.meta.count {
+            return Ok(None);
+        }
+        let position = if descending {
+            self.meta.count - position + 1
+        } else {
+            position
+        };
+        let order = if self.meta.version < 2
+            && matches!(order, RankingOrder::Direct | RankingOrder::Fused)
+        {
+            RankingOrder::Main
+        } else {
+            order
+        };
+        let (name, column) = order_parts(order);
+        let sequence = (position - 1) / POSITION_STRIDE * POSITION_STRIDE + 1;
+        let start = self.db.query_row(&format!("SELECT m.rating,m.{column},m.ordinal FROM rank_positions p JOIN members m ON m.ordinal=p.ordinal WHERE p.order_name=?1 AND p.sequence=?2"), params![name, sequence as i64], |r| Ok(RankingPosition { group:r.get(0)?, position:r.get(1)?, ordinal:unsigned(r,2)? })).map_err(|_|invalid())?;
+        let remaining = (position - sequence) as usize;
+        if remaining == 0 {
+            return Ok(Some(start));
+        }
+        let mut page = self.page(order, false, Some(&start), remaining)?;
+        if page.len() != remaining {
+            return Err(invalid());
+        }
+        Ok(page.pop())
+    }
+    pub fn page(
+        &self,
+        order: RankingOrder,
+        descending: bool,
+        after: Option<&RankingPosition>,
+        limit: usize,
+    ) -> Result<Vec<RankingPosition>> {
         let order = if self.meta.version < 2
             && matches!(order, RankingOrder::Direct | RankingOrder::Fused)
         {
