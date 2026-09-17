@@ -2,8 +2,10 @@ use super::*;
 use studio_protocol::llm::*;
 mod configuration;
 mod inference;
+mod system_prompts;
 pub(super) use configuration::*;
 pub(super) use inference::*;
+pub(super) use system_prompts::*;
 
 #[derive(OpenApi)]
 #[openapi(
@@ -17,6 +19,10 @@ pub(super) use inference::*;
         presets,
         save_preset,
         remove_preset,
+        system_prompts,
+        system_prompt,
+        save_system_prompt,
+        remove_system_prompt,
         parameters,
         model_parameters,
         catalog,
@@ -42,6 +48,12 @@ pub(super) fn routes() -> axum::Router<AppState> {
         .route("/models/{id}/parameters", get(model_parameters))
         .route("/presets", get(presets).post(save_preset))
         .route("/presets/{id}/remove", post(remove_preset))
+        .route(
+            "/system-prompts",
+            get(system_prompts).post(save_system_prompt),
+        )
+        .route("/system-prompts/{id}", get(system_prompt))
+        .route("/system-prompts/{id}/remove", post(remove_system_prompt))
         .route("/parameters", get(parameters))
         .route("/prepare", post(prepare))
         .route("/generate", post(generate))

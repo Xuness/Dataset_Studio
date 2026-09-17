@@ -22,6 +22,21 @@
   width: 100%;
   box-sizing: border-box;
 }
+.llm-probe-field {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+  font-size: 12px;
+}
+.llm-probe-field textarea {
+  border: 1px solid #555c66;
+  border-radius: 4px;
+  background: #222529;
+  color: #e0e5ed;
+  font: 12px/1.6 monospace;
+  padding: 8px;
+  resize: vertical;
+}
 .llm-editor textarea {
   border: 1px solid #555c66;
   border-radius: 4px;

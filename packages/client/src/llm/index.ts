@@ -6,6 +6,7 @@ import {
   type Request,
 } from "./configuration.js";
 import { call, readEvents } from "./transport.js";
+import { LlmSystemPromptsClient } from "./system-prompts.js";
 export { LlmCallError } from "./transport.js";
 export type LlmInvocationInput = Omit<
   Schema["LlmInvocationRequest"],
@@ -16,6 +17,7 @@ export class LlmClient {
   readonly providers: LlmProvidersClient;
   readonly models: LlmModelsClient;
   readonly presets: LlmPresetsClient;
+  readonly systemPrompts: LlmSystemPromptsClient;
   private readonly active = new Set<AbortController>();
   constructor(
     private readonly request: Request,
@@ -24,6 +26,7 @@ export class LlmClient {
     this.providers = new LlmProvidersClient(request);
     this.models = new LlmModelsClient(request);
     this.presets = new LlmPresetsClient(request);
+    this.systemPrompts = new LlmSystemPromptsClient(request);
   }
   parameters(
     protocol: Schema["LlmProtocol"],

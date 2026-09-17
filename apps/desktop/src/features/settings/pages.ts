@@ -1,4 +1,5 @@
-import { Database, List, Gauge, Undo2, Plug } from "lucide-react";
+import { Database, List, Gauge, Undo2, Plug, FileText } from "lucide-react";
+import { SystemPromptsPage } from "./system-prompts/SystemPromptsPage.js";
 import { LlmSettingsPage } from "./llm/LlmSettingsPage.js";
 import { EditingSettingsPage } from "./EditingSettingsPage.js";
 import { CacheSettingsPage } from "./CacheSettingsPage.js";
@@ -8,6 +9,12 @@ import { PerformanceSettingsPage } from "./PerformanceSettingsPage.js";
 /** Register a settings page here; it stays outside the project's business views. */
 export const settingsPages = [
   { id: "llm", title: "API 与模型", Icon: Plug, Component: LlmSettingsPage },
+  {
+    id: "system-prompts",
+    title: "System Prompt",
+    Icon: FileText,
+    Component: SystemPromptsPage,
+  },
   {
     id: "editing",
     title: "编辑与撤销",

@@ -8,6 +8,10 @@ import { settingsPages } from "./pages.js";
 import type { SettingsPageId } from "./pages.js";
 import "./settings.css";
 import { emptyLlmDraft, type LlmSettingsDraft } from "./llm/types.js";
+import {
+  emptySystemPromptDraft,
+  type SystemPromptDraft,
+} from "./system-prompts/types.js";
 
 export function SettingsDialog({
   client,
@@ -27,6 +31,9 @@ export function SettingsDialog({
   const cache = useQueryClient();
   const [page, setPage] = useState(initialPage);
   const [llmDraft, setLlmDraft] = useState<LlmSettingsDraft>(emptyLlmDraft);
+  const [systemPromptDraft, setSystemPromptDraft] = useState<SystemPromptDraft>(
+    emptySystemPromptDraft,
+  );
   const [cacheDraft, setCacheDraft] = useState<Schema["CacheSettings"] | null>(
     null,
   );
@@ -67,7 +74,8 @@ export function SettingsDialog({
     memoryDraft !== null ||
     undoDraft !== null ||
     !!llmDraft.connection ||
-    !!llmDraft.model;
+    !!llmDraft.model ||
+    !!systemPromptDraft.editor;
   return (
     <Dialog title="设置" onClose={onClose} className="settings-dialog">
       <div className="settings-layout">
@@ -107,6 +115,8 @@ export function SettingsDialog({
           )}
           {status.data ? (
             <CurrentPage
+              systemPromptDraft={systemPromptDraft}
+              setSystemPromptDraft={setSystemPromptDraft}
               llmDraft={llmDraft}
               setLlmDraft={setLlmDraft}
               client={client}

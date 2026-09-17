@@ -66,6 +66,8 @@ pub struct LlmInvocationRequest {
     pub expected_provider_revision: Option<u64>,
     pub preset_id: Option<String>,
     pub expected_preset_revision: Option<u64>,
+    pub system_prompt_id: Option<String>,
+    pub expected_system_prompt_revision: Option<u64>,
     #[serde(default)]
     pub overrides: LlmParameters,
     pub messages: Vec<LlmMessage>,
@@ -87,6 +89,8 @@ pub struct LlmInvocationSnapshot {
     pub protocol: LlmProtocol,
     pub preset_id: Option<String>,
     pub preset_revision: Option<u64>,
+    pub system_prompt_id: Option<String>,
+    pub system_prompt_revision: Option<u64>,
     pub parameters: LlmParameters,
     pub messages: Vec<LlmMessage>,
     pub tools: Vec<LlmTool>,

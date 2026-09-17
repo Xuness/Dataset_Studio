@@ -239,7 +239,7 @@ try {
   );
   const registry = resolve(run, "state/registry.sqlite");
   const db = new DatabaseSync(registry, { readOnly: true });
-  assert.equal(db.prepare("PRAGMA user_version").get().user_version, 3);
+  assert.equal(db.prepare("PRAGMA user_version").get().user_version, 4);
   db.close();
   assert.equal(
     (await readFile(registry)).includes(Buffer.from("fixture-secret-value")),

@@ -908,6 +908,124 @@
         }
       }
     },
+    "/v1/llm/system-prompts": {
+      "get": {
+        "tags": [
+          "llm"
+        ],
+        "operationId": "llm_system_prompts",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmSystemPrompts"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "llm"
+        ],
+        "operationId": "llm_save_system_prompt",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveLlmSystemPrompt"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmSystemPrompt"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/llm/system-prompts/{id}": {
+      "get": {
+        "tags": [
+          "llm"
+        ],
+        "operationId": "llm_system_prompt",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmSystemPrompt"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/llm/system-prompts/{id}/remove": {
+      "post": {
+        "tags": [
+          "llm"
+        ],
+        "operationId": "llm_remove_system_prompt",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LlmRevision"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/operators": {
       "get": {
         "tags": [
@@ -7351,6 +7469,14 @@
             "format": "int64",
             "minimum": 0
           },
+          "expected_system_prompt_revision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
           "invocation_id": {
             "type": "string"
           },
@@ -7375,6 +7501,13 @@
               "string",
               "null"
             ]
+          },
+          "system_prompt_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional saved System Prompt. Cannot be combined with system/developer messages."
           },
           "tools": {
             "type": "array",
@@ -7463,6 +7596,20 @@
           "schema_version": {
             "type": "integer",
             "format": "int32",
+            "minimum": 0
+          },
+          "system_prompt_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "system_prompt_revision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
             "minimum": 0
           },
           "tools": {
@@ -7927,6 +8074,61 @@
           "unsupported",
           "unknown"
         ]
+      },
+      "LlmSystemPrompt": {
+        "type": "object",
+        "required": [
+          "id",
+          "revision",
+          "config"
+        ],
+        "properties": {
+          "config": {
+            "$ref": "#/components/schemas/LlmSystemPromptConfig"
+          },
+          "id": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "LlmSystemPromptConfig": {
+        "type": "object",
+        "required": [
+          "name",
+          "text"
+        ],
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string",
+            "description": "Literal system instructions, preserved without trimming or variable substitution."
+          }
+        },
+        "additionalProperties": false
+      },
+      "LlmSystemPrompts": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LlmSystemPrompt"
+            }
+          }
+        }
       },
       "LlmTool": {
         "type": "object",
@@ -11939,6 +12141,30 @@
           },
           "config": {
             "$ref": "#/components/schemas/LlmConnectionConfig"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "SaveLlmSystemPrompt": {
+        "type": "object",
+        "required": [
+          "expected_revision",
+          "config"
+        ],
+        "properties": {
+          "config": {
+            "$ref": "#/components/schemas/LlmSystemPromptConfig"
           },
           "expected_revision": {
             "type": "integer",

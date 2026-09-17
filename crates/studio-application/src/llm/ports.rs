@@ -36,6 +36,14 @@ pub trait LlmRepository: Send + Sync {
     fn preset(&self, id: &str) -> Result<LlmPreset>;
     fn save_preset(&self, value: LlmPreset, expected_revision: u64) -> Result<LlmPreset>;
     fn remove_preset(&self, id: &str, expected_revision: u64) -> Result<()>;
+    fn system_prompts(&self) -> Result<Vec<LlmSystemPrompt>>;
+    fn system_prompt(&self, id: &str) -> Result<LlmSystemPrompt>;
+    fn save_system_prompt(
+        &self,
+        value: LlmSystemPrompt,
+        expected_revision: u64,
+    ) -> Result<LlmSystemPrompt>;
+    fn remove_system_prompt(&self, id: &str, expected_revision: u64) -> Result<()>;
     fn catalog(&self, provider_id: &str) -> Result<Option<LlmCatalog>>;
     fn save_catalog(&self, catalog: &LlmCatalog) -> Result<()>;
 }

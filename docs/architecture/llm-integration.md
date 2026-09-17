@@ -1,6 +1,6 @@
 # 使用 LLM 基础层
 
-相关决定：[0023](../decisions/0023-llm-foundation.md)。本阶段不提供 Prompt 保存、拼接或业务模板。
+相关决定：[0023](../decisions/0023-llm-foundation.md)、[0024](../decisions/0024-system-prompt-presets.md)。提供 System Prompt 预设的保存和按次引用；User Prompt 由任务传入。
 
 ## 前端与 SDK
 
@@ -10,12 +10,16 @@
 const providers = await client.llm.providers.list(signal);
 const models = await client.llm.models.list(provider.id, signal);
 const parameters = await client.llm.models.parameters(model.id, signal);
+const systemPrompts = await client.llm.systemPrompts.list(signal);
+const systemPrompt = systemPrompts.items[0]; // 实际由业务模块让用户选择，也可不选。
 
 // preparedMessages 由业务模块准备；基础层不查找工作集或读取图片。
 const input = {
   model_id: model.id,
   expected_model_revision: model.revision,
   expected_provider_revision: provider.revision,
+  system_prompt_id: systemPrompt?.id ?? null,
+  expected_system_prompt_revision: systemPrompt?.revision ?? null,
   messages: preparedMessages,
   tools: [],
   overrides: { temperature: 0 },
@@ -48,10 +52,15 @@ AbortSignal 会取消本机传输并通知引擎；退出异步迭代器也会�
 - `models.list/save/remove/parameters`：独立模型配置及能力描述。
 - `models.catalog`：读取已有目录；`refreshModels(providerId, revision, signal)`：显式从供应商获取目录。
 - `presets.list/save/remove`：命名参数预设。通过 invocation 的 preset_id/expected_preset_revision 应用。
+- `systemPrompts.list/get/save/remove`：独立的 System Prompt 预设，包含名称、备注和原文。通过 system_prompt_id/expected_system_prompt_revision 按次引用，与参数预设无关。
 - `parameters(protocol, kind)`：没有保存模型时查询协议参数描述。
 - `cancel(invocationId)`：幂等取消当前调用，不触发重试。
 
 配置写入传 expected_revision；新建为 0，更新/删除使用读到的版本。Revision conflict 后重新载入并让用户决定，不自动覆盖。
+
+选择 System Prompt 预设时，`messages` 只传任务消息，不能同时传 system/developer。引擎将预设原文解析成首条 system 消息，并把 ID、版本及实际消息固定在快照中。不选预设时仍可直接传入原有标准消息；不会自动套用默认预设。
+
+`prepare`、`generate`、`stream` 使用同一套解析逻辑。准备与发送之间如需固定预设，请传 `expected_system_prompt_revision`；版本不匹配或预设已删除会在请求供应商之前报错。已得到的 Rust plan 不会因预设随后编辑或删除而改变。接口不进行变量替换或业务模板拼接，User Prompt 不写入配置库。
 
 参数键缺失为继承，null 为不发送，具体值为覆盖。协议未定义字段直接拒绝；如需支持新字段，扩展后端参数描述与对应适配器并添加协议测试，不在 UI 拼接原始报文。
 

@@ -1,10 +1,14 @@
+#[cfg(test)]
+mod compatibility_tests;
 mod configuration;
 mod inference;
+mod system_prompts;
 mod types;
 pub use configuration::*;
 pub use inference::*;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+pub use system_prompts::*;
 pub use types::*;
 use utoipa::ToSchema;
 

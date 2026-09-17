@@ -1,0 +1,1 @@
+CREATE TABLE llm_system_prompts(id TEXT PRIMARY KEY,revision INTEGER NOT NULL,json TEXT NOT NULL);

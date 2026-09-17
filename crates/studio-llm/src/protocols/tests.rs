@@ -15,7 +15,7 @@ fn plan(protocol: LlmProtocol, kind: LlmProviderKind, parameters: Value) -> LlmI
             },
         },
         snapshot: LlmInvocationSnapshot {
-            schema_version: 1,
+            schema_version: LLM_SCHEMA_VERSION,
             invocation_id: "request".into(),
             provider_id: "provider".into(),
             provider_revision: 1,
@@ -27,6 +27,8 @@ fn plan(protocol: LlmProtocol, kind: LlmProviderKind, parameters: Value) -> LlmI
             protocol,
             preset_id: None,
             preset_revision: None,
+            system_prompt_id: None,
+            system_prompt_revision: None,
             parameters: serde_json::from_value(parameters).unwrap(),
             messages: vec![LlmMessage {
                 role: LlmRole::User,

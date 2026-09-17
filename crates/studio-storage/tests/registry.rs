@@ -63,7 +63,7 @@ fn legacy_registry_upgrade_backs_up_committed_wal_and_is_idempotent() {
     assert_eq!(
         old.query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0))
             .unwrap(),
-        3
+        4
     );
     let backups = fs::read_dir(root.path().join(".backups"))
         .unwrap()

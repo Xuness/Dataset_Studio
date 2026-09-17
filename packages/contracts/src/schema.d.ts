@@ -399,6 +399,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/llm/system-prompts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["llm_system_prompts"];
+        put?: never;
+        post: operations["llm_save_system_prompt"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/llm/system-prompts/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["llm_system_prompt"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/llm/system-prompts/{id}/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["llm_remove_system_prompt"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/operators": {
         parameters: {
             query?: never;
@@ -2321,6 +2369,8 @@ export interface components {
             expected_preset_revision?: number | null;
             /** Format: int64 */
             expected_provider_revision?: number | null;
+            /** Format: int64 */
+            expected_system_prompt_revision?: number | null;
             invocation_id: string;
             messages: components["schemas"]["LlmMessage"][];
             model_id: string;
@@ -2328,6 +2378,8 @@ export interface components {
                 [key: string]: unknown;
             };
             preset_id?: string | null;
+            /** @description Optional saved System Prompt. Cannot be combined with system/developer messages. */
+            system_prompt_id?: string | null;
             tools?: components["schemas"]["LlmTool"][];
         };
         LlmInvocationSnapshot: {
@@ -2351,6 +2403,9 @@ export interface components {
             remote_model_id: string;
             /** Format: int32 */
             schema_version: number;
+            system_prompt_id?: string | null;
+            /** Format: int64 */
+            system_prompt_revision?: number | null;
             tools?: components["schemas"]["LlmTool"][];
             warnings: string[];
         };
@@ -2468,6 +2523,21 @@ export interface components {
         LlmRole: "system" | "developer" | "user" | "assistant" | "tool";
         /** @enum {string} */
         LlmSupport: "supported" | "unsupported" | "unknown";
+        LlmSystemPrompt: {
+            config: components["schemas"]["LlmSystemPromptConfig"];
+            id: string;
+            /** Format: int64 */
+            revision: number;
+        };
+        LlmSystemPromptConfig: {
+            description?: string;
+            name: string;
+            /** @description Literal system instructions, preserved without trimming or variable substitution. */
+            text: string;
+        };
+        LlmSystemPrompts: {
+            items: components["schemas"]["LlmSystemPrompt"][];
+        };
         LlmTool: {
             description: string;
             name: string;
@@ -3479,6 +3549,12 @@ export interface components {
             expected_revision: number;
             id?: string | null;
         };
+        SaveLlmSystemPrompt: {
+            config: components["schemas"]["LlmSystemPromptConfig"];
+            /** Format: int64 */
+            expected_revision: number;
+            id?: string | null;
+        };
         SaveQuery: {
             /** Format: int64 */
             expected_revision?: number | null;
@@ -4256,6 +4332,94 @@ export interface operations {
                 };
                 content: {
                     "text/event-stream": components["schemas"]["LlmEvent"];
+                };
+            };
+        };
+    };
+    llm_system_prompts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmSystemPrompts"];
+                };
+            };
+        };
+    };
+    llm_save_system_prompt: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveLlmSystemPrompt"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmSystemPrompt"];
+                };
+            };
+        };
+    };
+    llm_system_prompt: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmSystemPrompt"];
+                };
+            };
+        };
+    };
+    llm_remove_system_prompt: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LlmRevision"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
                 };
             };
         };

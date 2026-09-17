@@ -197,8 +197,9 @@ impl LlmService {
         }
         Ok(specs)
     }
-    pub fn prepare(&self, request: LlmInvocationRequest) -> Result<LlmInvocationPlan> {
+    pub fn prepare(&self, mut request: LlmInvocationRequest) -> Result<LlmInvocationPlan> {
         validation::request(&request)?;
+        let system_prompt = self.resolve_system_prompt(&mut request)?;
         let model = self.repository.model(&request.model_id)?;
         let provider = self.repository.provider(&model.provider_id)?;
         if !model.config.enabled || !provider.config.enabled {
@@ -299,6 +300,8 @@ impl LlmService {
             protocol: model.config.protocol,
             preset_id: preset.as_ref().map(|p| p.id.clone()),
             preset_revision: preset.as_ref().map(|p| p.revision),
+            system_prompt_id: system_prompt.as_ref().map(|p| p.id.clone()),
+            system_prompt_revision: system_prompt.as_ref().map(|p| p.revision),
             parameters,
             messages: request.messages,
             tools: request.tools,

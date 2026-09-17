@@ -169,6 +169,45 @@ impl LlmRepository for SqliteStore {
             expected,
         )
     }
+    fn system_prompts(&self) -> Result<Vec<LlmSystemPrompt>> {
+        list(
+            &*self.registry.lock().map_err(lock_error)?,
+            "llm_system_prompts",
+        )
+    }
+    fn system_prompt(&self, id: &str) -> Result<LlmSystemPrompt> {
+        read(
+            &*self.registry.lock().map_err(lock_error)?,
+            "llm_system_prompts",
+            id,
+        )
+    }
+    fn save_system_prompt(
+        &self,
+        mut value: LlmSystemPrompt,
+        expected: u64,
+    ) -> Result<LlmSystemPrompt> {
+        value.revision = expected
+            .checked_add(1)
+            .ok_or_else(|| Error::invalid("版本无效"))?;
+        save(
+            &*self.registry.lock().map_err(lock_error)?,
+            "llm_system_prompts",
+            &value.id,
+            expected,
+            &value,
+            128,
+        )?;
+        Ok(value)
+    }
+    fn remove_system_prompt(&self, id: &str, expected: u64) -> Result<()> {
+        remove(
+            &*self.registry.lock().map_err(lock_error)?,
+            "llm_system_prompts",
+            id,
+            expected,
+        )
+    }
     fn catalog(&self, provider_id: &str) -> Result<Option<LlmCatalog>> {
         catalog::read(&*self.registry.lock().map_err(lock_error)?, provider_id)
     }

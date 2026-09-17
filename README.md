@@ -4,7 +4,7 @@
 
 当前版本：0.9.1，接入排名工作集的评分显示、双向浏览与 Danbooru ID 起点，继续使用开发模式。已有排名工作集默认沿用保存时的顺序，可切换主排名、补救排名、升序或降序；输入帖子 ID 可从该图片在排名中的位置继续查看。使用方法与验证记录见[排名浏览验收](docs/verification-ranking-browse-v0.9.1.md)。
 
-“设置 → API 与模型”提供供应商连接、远端模型获取、独立模型参数和命名参数预设。基础层接入 OpenAI Chat Completions / Responses、OpenRouter 和 Gemini 原生协议，支持完整响应、流式事件与取消；API Key 在 Windows 上通过当前用户 DPAPI 加密保存。调用者直接提供消息，本阶段不管理 System Prompt / User Prompt。见[架构决策](docs/decisions/0023-llm-foundation.md)、[模块接入说明](docs/architecture/llm-integration.md)和[验收记录](docs/verification-llm-foundation.md)。
+“设置 → API 与模型”提供供应商连接、远端模型获取、独立模型参数和命名参数预设。基础层接入 OpenAI Chat Completions / Responses、OpenRouter 和 Gemini 原生协议，支持完整响应、流式事件与取消；API Key 在 Windows 上通过当前用户 DPAPI 加密保存。“设置 → System Prompt”管理可复用的系统指令预设，任务按次选择，User Prompt 由每次任务传入；调用检查支持预设选择和不联网的请求预览。见[架构决策](docs/decisions/0023-llm-foundation.md)、[System Prompt 预设](docs/decisions/0024-system-prompt-presets.md)和[模块接入说明](docs/architecture/llm-integration.md)。
 
 对象条目旁的“⋯”提供快捷操作，右侧相邻的“属性 / 管理”标签提供名称、备注、来源与引用关系、文件位置和删除入口。相关行为见[对象管理验收](docs/verification-object-management-v0.9.md)。
 
@@ -74,7 +74,7 @@ SSD 索引：D:\Dataset\Danbooru
 - `.local/dev/projects/`：默认新建项目的位置；也可以在新建时选择其他父目录。
 - 项目内的 project.json、project.sqlite、artifacts 与 .staging 分别保存身份、项目状态、正式成果与恢复所需暂存。
 - 显式打开旧项目时，数据库 v1–v8 按顺序升级至 v9；升级前的一致备份保存在项目内 `.backups/v*-to-v9-*`，包含 WAL 中已提交的数据，保留以前的迁移账本。清单 format_version 仍为 1。关闭项目的缓存维护也可在取得项目锁后升级 v6–v8。
-- 注册表单独使用模式 v3，旧注册表备份位于应用数据目录的 `.backups/registry-v*-to-v3-*`；升级保留已有项目登记、数据湖位置与偏好，新增 LLM 配置表。最近项目列表不隐式打开或升级项目。
+- 注册表单独使用模式 v4，旧注册表备份位于应用数据目录的 `.backups/registry-v*-to-v4-*`；升级保留已有项目登记、数据湖位置、偏好和 LLM 配置，新增独立 System Prompt 预设表。最近项目列表不隐式打开或升级项目。
 - 查询定义、结果材料、选择基底与排除项、范围依据保存在项目数据库。结果释放前检查引用，已固定的工作集和任务不会随重新查询而变化。
 - 工具草稿和项目会话保存在项目数据库；布局偏好保存在应用注册表。未知草稿版本保留原文，并发冲突需明确选择重新载入或保留本地。
 - 对象名称备注和选择历史保存在项目数据库。项目重命名更新显示名，project.json 保留创建时名称；固定输入和成果文件不随名称编辑重写。撤销历史会保护恢复选择所需的结果材料，可在设置中清空；升级前的选择保持，历史从之后的新操作开始。

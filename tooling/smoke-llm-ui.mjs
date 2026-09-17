@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { chromium, expect } from "@playwright/test";
 import { EngineFixture, sleep } from "./engine-fixture.mjs";
 import { llmFixture } from "./llm-fixture.mjs";
+import { checkSystemPromptsUI } from "./system-prompts-ui.mjs";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const run = resolve(root, ".local/test-runs/smoke-llm-ui-" + Date.now());
@@ -189,6 +190,7 @@ try {
   checks.push(
     "saved model configuration is restored after settings close and reopen",
   );
+  await checkSystemPromptsUI(page, engine, mock, run, checks);
   assert.deepEqual(errors, []);
   await writeFile(
     resolve(run, "report.json"),

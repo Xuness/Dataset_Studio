@@ -1,8 +1,11 @@
 import type { StudioClient } from "@studio/client";
 import type { Schema, Source } from "@studio/contracts";
 import type { LlmSettingsDraft } from "./llm/types.js";
+import type { SystemPromptDraft } from "./system-prompts/types.js";
 
 export type SettingsPageProps = {
+  systemPromptDraft: SystemPromptDraft;
+  setSystemPromptDraft: (value: SystemPromptDraft) => void;
   llmDraft: LlmSettingsDraft;
   setLlmDraft: (value: LlmSettingsDraft) => void;
   client: StudioClient;
