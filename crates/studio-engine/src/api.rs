@@ -20,6 +20,7 @@ use studio_protocol::*;
 use studio_sources::SourceRouter;
 use studio_storage::SqliteStore;
 use utoipa::OpenApi;
+mod aesthetic;
 mod cache_storage;
 mod llm;
 mod management;
@@ -34,6 +35,7 @@ mod tools;
 
 #[derive(Clone)]
 pub struct AppState {
+    pub aesthetic: Arc<crate::aesthetic::Runner>,
     pub llm: Arc<studio_application::llm::LlmService>,
     pub llm_invocations: crate::llm_invocations::Invocations,
     pub store: Arc<SqliteStore>,
@@ -85,6 +87,7 @@ impl IntoResponse for Failure {
             | "PROJECT_ID_CONFLICT"
             | "IDEMPOTENCY_CONFLICT" => StatusCode::CONFLICT,
             "LLM_QUEUE_FULL"
+            | "EVALUATION_BUSY"
             | "SOURCE_BUSY"
             | "SOURCE_INDEX_PREPARING"
             | "SOURCE_UNAVAILABLE"
@@ -1331,7 +1334,7 @@ async fn shutdown(State(s): State<AppState>) -> Json<OkResponse> {
 }
 #[derive(OpenApi)]
 #[openapi(
-    nest((path = "/v1/llm", api = llm::LlmApiDoc)),
+    nest((path = "/v1/llm", api = llm::LlmApiDoc), (path = "/v1/projects/{project_id}/aesthetic", api = aesthetic::AestheticApiDoc)),
     paths(
         health,
         shutdown,
@@ -1457,6 +1460,7 @@ pub struct ApiDoc;
 pub fn routes() -> axum::Router<AppState> {
     axum::Router::new()
         .nest("/v1/llm", llm::routes())
+        .nest("/v1/projects/{project_id}/aesthetic", aesthetic::routes())
         .route(
             "/v1/projects/{pid}/ranking-browse",
             get(ranking_browse::info),

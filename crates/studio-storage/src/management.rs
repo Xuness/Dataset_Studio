@@ -192,6 +192,9 @@ pub(super) fn removable(
     pid: &str,
     item: &ManagedObject,
 ) -> Result<Option<String>> {
+    if crate::aesthetic::reference_reason(db, item.kind, &item.id)? {
+        return Ok(Some("美学评审仍使用此对象，请先完成或取消相关阶段".into()));
+    }
     if matches!(
         item.kind,
         ObjectKind::Project | ObjectKind::Selection | ObjectKind::SelectionHistory

@@ -1224,6 +1224,452 @@
         }
       }
     },
+    "/v1/projects/{project_id}/aesthetic/backup": {
+      "post": {
+        "tags": [
+          "aesthetic"
+        ],
+        "operationId": "aesthetic_backup",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AestheticBackup"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/aesthetic/metrics": {
+      "get": {
+        "tags": [
+          "aesthetic"
+        ],
+        "operationId": "aesthetic_metrics",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AestheticMetrics"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/aesthetic/stages": {
+      "get": {
+        "tags": [
+          "aesthetic"
+        ],
+        "operationId": "aesthetic_stages",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AestheticStages"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "aesthetic"
+        ],
+        "operationId": "aesthetic_create",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AestheticCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AestheticStage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/aesthetic/stages/{id}": {
+      "get": {
+        "tags": [
+          "aesthetic"
+        ],
+        "operationId": "aesthetic_stage",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AestheticStage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/aesthetic/stages/{id}/batches": {
+      "get": {
+        "tags": [
+          "aesthetic"
+        ],
+        "operationId": "aesthetic_batches",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AestheticBatches"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/aesthetic/stages/{id}/batches/{batch}/attempts": {
+      "get": {
+        "tags": [
+          "aesthetic"
+        ],
+        "operationId": "aesthetic_attempts",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "batch",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AestheticAttempts"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/aesthetic/stages/{id}/batches/{batch}/retry": {
+      "post": {
+        "tags": [
+          "aesthetic"
+        ],
+        "operationId": "aesthetic_retry",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "batch",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AestheticRetry"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/aesthetic/stages/{id}/candidates": {
+      "get": {
+        "tags": [
+          "aesthetic"
+        ],
+        "operationId": "aesthetic_candidates",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "protected",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AestheticCandidates"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/aesthetic/stages/{id}/control": {
+      "post": {
+        "tags": [
+          "aesthetic"
+        ],
+        "operationId": "aesthetic_control",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AestheticControl"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AestheticStage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/projects/{project_id}/artifacts": {
       "get": {
         "tags": [
@@ -5154,6 +5600,633 @@
   },
   "components": {
     "schemas": {
+      "AestheticAttempt": {
+        "type": "object",
+        "required": [
+          "id",
+          "batch",
+          "state",
+          "created_at"
+        ],
+        "properties": {
+          "batch": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "failure": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LlmFailure"
+              }
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "receipt": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AestheticReceipt"
+              }
+            ]
+          },
+          "state": {
+            "type": "string"
+          }
+        }
+      },
+      "AestheticAttempts": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AestheticAttempt"
+            }
+          }
+        }
+      },
+      "AestheticBackup": {
+        "type": "object",
+        "required": [
+          "relative_path"
+        ],
+        "properties": {
+          "relative_path": {
+            "type": "string"
+          }
+        }
+      },
+      "AestheticBatch": {
+        "type": "object",
+        "required": [
+          "sequence",
+          "stage_id",
+          "rating",
+          "state",
+          "members"
+        ],
+        "properties": {
+          "attempt_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "members": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AestheticMember"
+            }
+          },
+          "observation": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AestheticObservation"
+              }
+            ]
+          },
+          "rating": {
+            "type": "string"
+          },
+          "sequence": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "stage_id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        }
+      },
+      "AestheticBatches": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AestheticBatch"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "AestheticCandidate": {
+        "type": "object",
+        "required": [
+          "ordinal",
+          "key",
+          "rating",
+          "basis",
+          "content_version",
+          "bytes",
+          "exposures",
+          "protected"
+        ],
+        "properties": {
+          "basis": {
+            "type": "string"
+          },
+          "bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "content_version": {
+            "type": "string"
+          },
+          "exposures": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "key": {
+            "$ref": "#/components/schemas/AssetKey"
+          },
+          "ordinal": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "protected": {
+            "type": "boolean"
+          },
+          "rating": {
+            "type": "string"
+          },
+          "year": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "AestheticCandidates": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AestheticCandidate"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "AestheticConfig": {
+        "type": "object",
+        "required": [
+          "version",
+          "request",
+          "model",
+          "sources",
+          "image_policy",
+          "grouping_policy",
+          "observation_policy",
+          "max_image_bytes",
+          "max_request_bytes"
+        ],
+        "properties": {
+          "grouping_policy": {
+            "type": "string"
+          },
+          "image_policy": {
+            "type": "string"
+          },
+          "max_image_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "max_request_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "model": {
+            "$ref": "#/components/schemas/LlmInvocationSnapshot",
+            "description": "Credential-free, resolved configuration; contains no image bytes."
+          },
+          "observation_policy": {
+            "type": "string"
+          },
+          "request": {
+            "$ref": "#/components/schemas/AestheticCreate"
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/QuerySourceVersion"
+            }
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "AestheticControl": {
+        "type": "object",
+        "required": [
+          "action"
+        ],
+        "properties": {
+          "action": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AestheticCreate": {
+        "type": "object",
+        "required": [
+          "idempotency_key",
+          "name",
+          "collection_id",
+          "model_id",
+          "system_prompt_id",
+          "exposures",
+          "max_calls",
+          "concurrency"
+        ],
+        "properties": {
+          "collection_id": {
+            "type": "string"
+          },
+          "concurrency": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "exposures": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "idempotency_key": {
+            "type": "string"
+          },
+          "max_calls": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "model_id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "overrides": {
+            "type": "object",
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "system_prompt_id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AestheticMember": {
+        "type": "object",
+        "required": [
+          "label",
+          "candidate"
+        ],
+        "properties": {
+          "candidate": {
+            "$ref": "#/components/schemas/AestheticCandidate"
+          },
+          "image_sha256": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "label": {
+            "type": "string"
+          }
+        }
+      },
+      "AestheticMetrics": {
+        "type": "object",
+        "required": [
+          "active_requests",
+          "reserved_request_bytes",
+          "peak_request_bytes",
+          "upload_budget_bytes_per_second",
+          "uploaded_body_bytes",
+          "queued_write_bytes",
+          "peak_write_bytes"
+        ],
+        "properties": {
+          "active_requests": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "peak_request_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "peak_write_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "queued_write_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "reserved_request_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "upload_budget_bytes_per_second": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "uploaded_body_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "AestheticObservation": {
+        "type": "object",
+        "required": [
+          "schema_version",
+          "tiers",
+          "elite_candidates",
+          "unjudgeable"
+        ],
+        "properties": {
+          "elite_candidates": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "schema_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "tiers": {
+            "type": "array",
+            "items": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "unjudgeable": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AestheticUnjudgeable"
+            }
+          }
+        }
+      },
+      "AestheticReceipt": {
+        "type": "object",
+        "required": [
+          "outputs",
+          "usage"
+        ],
+        "properties": {
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "outputs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LlmOutput"
+            }
+          },
+          "provider_request_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "response_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "usage": {
+            "$ref": "#/components/schemas/LlmUsage"
+          }
+        }
+      },
+      "AestheticRetry": {
+        "type": "object",
+        "required": [
+          "acknowledge_possible_charge"
+        ],
+        "properties": {
+          "acknowledge_possible_charge": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AestheticStage": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "state",
+          "created_at",
+          "config",
+          "config_hash",
+          "total",
+          "frozen",
+          "eligible",
+          "attempts",
+          "accepted",
+          "invalid",
+          "unknown",
+          "protected",
+          "input_tokens",
+          "output_tokens",
+          "usage_unknown"
+        ],
+        "properties": {
+          "accepted": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "attempts": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "config": {
+            "$ref": "#/components/schemas/AestheticConfig"
+          },
+          "config_hash": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "eligible": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "frozen": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "id": {
+            "type": "string"
+          },
+          "input_tokens": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "invalid": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "name": {
+            "type": "string"
+          },
+          "output_tokens": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "protected": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "state": {
+            "type": "string"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "unknown": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "usage_unknown": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "AestheticStages": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AestheticStage"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "AestheticUnjudgeable": {
+        "type": "object",
+        "required": [
+          "id",
+          "reason"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        }
+      },
       "ApiError": {
         "type": "object",
         "required": [

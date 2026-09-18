@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use studio_domain as domain;
+pub mod aesthetic;
 pub mod llm;
 mod metadata;
 pub use metadata::*;

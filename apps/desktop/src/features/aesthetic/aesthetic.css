@@ -1,0 +1,185 @@
+.aesthetic-workspace {
+  height: 100%;
+  min-height: 0;
+  overflow: auto;
+  padding: 20px;
+  color: var(--text);
+}
+.aesthetic-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 18px;
+  margin-bottom: 18px;
+}
+.aesthetic-header h2,
+.aesthetic-header h3 {
+  margin: 0 0 8px;
+}
+.aesthetic-header p {
+  margin: 0;
+  opacity: 0.72;
+}
+.aesthetic-layout {
+  display: grid;
+  grid-template-columns: minmax(240px, 285px) minmax(0, 1fr);
+  gap: 24px;
+}
+.aesthetic-sidebar {
+  border-right: 1px solid var(--border);
+  padding-right: 20px;
+}
+.aesthetic-sidebar form {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+.aesthetic-sidebar label {
+  display: grid;
+  gap: 6px;
+}
+.aesthetic-sidebar select,
+.aesthetic-sidebar input {
+  width: 100%;
+  min-width: 0;
+}
+.aesthetic-stage-list {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.aesthetic-stage-list button {
+  display: grid;
+  gap: 6px;
+  text-align: left;
+  padding: 12px;
+}
+.aesthetic-stage-list span {
+  opacity: 0.7;
+  font-size: 12px;
+}
+.aesthetic-stage-list .active,
+.aesthetic-tabs [aria-pressed="true"] {
+  border-color: var(--accent);
+  background: var(--active);
+}
+.aesthetic-help,
+.aesthetic-workspace footer {
+  font-size: 12px;
+  line-height: 1.7;
+  opacity: 0.8;
+}
+.aesthetic-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.aesthetic-tabs {
+  margin: 18px 0;
+}
+.aesthetic-counters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.aesthetic-counters span {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  min-width: 110px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 12px;
+}
+.aesthetic-counters b {
+  font-size: 17px;
+  font-variant-numeric: tabular-nums;
+}
+.aesthetic-notice {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  line-height: 1.6;
+  border-radius: 6px;
+}
+.aesthetic-batch {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px;
+  margin-bottom: 12px;
+}
+.aesthetic-workspace summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+.aesthetic-workspace pre {
+  max-height: 360px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  padding: 12px;
+  background: var(--field);
+}
+.aesthetic-images {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 12px;
+  margin: 12px 0;
+}
+.aesthetic-image {
+  margin: 0;
+  min-width: 0;
+}
+.aesthetic-image > div {
+  height: 145px;
+  display: grid;
+  place-items: center;
+  background: var(--field);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.aesthetic-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.aesthetic-image figcaption {
+  display: grid;
+  gap: 5px;
+  padding-top: 8px;
+  font-size: 12px;
+}
+.aesthetic-image em {
+  color: var(--accent);
+  font-style: normal;
+}
+.aesthetic-image small {
+  opacity: 0.6;
+  overflow: hidden;
+}
+.aesthetic-empty {
+  max-width: 560px;
+  margin: 70px auto;
+  line-height: 1.8;
+}
+.aesthetic-workspace footer {
+  margin-top: 24px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.aesthetic-workspace footer button {
+  margin-left: 12px;
+}
+@media (max-width: 900px) {
+  .aesthetic-layout {
+    grid-template-columns: 1fr;
+  }
+  .aesthetic-sidebar {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+    padding: 0 0 18px;
+  }
+}

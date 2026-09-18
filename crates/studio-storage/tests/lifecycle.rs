@@ -34,7 +34,7 @@ fn listing_never_opens_or_migrates_and_close_waits_for_inflight_requests() {
     drop(store);
     // Downgrade only the fixture's user_version after dropping all newer tables.
     let db = Connection::open(project.directory.join("project.sqlite")).unwrap();
-    db.execute_batch("DROP TABLE collection_scopes; DROP TABLE job_scopes; DROP TABLE result_references; DROP TABLE selection_exclusions; DROP TABLE selection_base; DROP VIEW result_members; DROP TABLE query_member_data; DROP TABLE query_results; DROP TABLE query_families; DROP TABLE query_definitions; PRAGMA user_version=2;").unwrap();
+    db.execute_batch("DROP TABLE evaluation_source_refs; DROP TABLE evaluation_stage_refs; DROP TABLE collection_scopes; DROP TABLE job_scopes; DROP TABLE result_references; DROP TABLE selection_exclusions; DROP TABLE selection_base; DROP VIEW result_members; DROP TABLE query_member_data; DROP TABLE query_results; DROP TABLE query_families; DROP TABLE query_definitions; PRAGMA user_version=2;").unwrap();
     drop(db);
     let before = fs::read(project.directory.join("project.sqlite")).unwrap();
     let store = SqliteStore::new(runtime).unwrap();

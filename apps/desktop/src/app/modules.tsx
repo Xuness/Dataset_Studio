@@ -2,6 +2,32 @@ import { lazy } from "react";
 import { ModuleRegistry } from "@studio/ui";
 const registry = new ModuleRegistry();
 registry.register({
+  id: "core.aesthetic",
+  version: 1,
+  protocolVersion: 1,
+  draftSchema: { version: 1 },
+  contributions: [
+    {
+      kind: "entry",
+      id: "aesthetic",
+      label: "美学排序",
+      icon: "sparkles",
+      command: "aesthetic.open",
+    },
+    {
+      kind: "view",
+      id: "core.aesthetic",
+      ownsInspector: true,
+      load: () => import("../features/aesthetic/AestheticPanel.js"),
+    },
+    {
+      kind: "command",
+      id: "aesthetic.open",
+      execute: (context) => context.activateView("core.aesthetic"),
+    },
+  ],
+});
+registry.register({
   id: "core.browser",
   version: 1,
   protocolVersion: 1,

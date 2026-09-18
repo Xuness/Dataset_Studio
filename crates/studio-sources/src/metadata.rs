@@ -18,6 +18,74 @@ pub struct MetadataReader {
     identity_index: Option<Arc<crate::IdentityIndex>>,
 }
 impl MetadataReader {
+    /// Bounded projection of origin metadata for aesthetic grouping. Missing or conflicting
+    /// ratings remain ineligible; the year is an upload-time proxy, never artwork age.
+    pub fn aesthetic_groups(
+        &self,
+        source: &Source,
+        keys: &[AssetKey],
+        expected: &QuerySourceVersion,
+        cancelled: ReadCancellation,
+    ) -> Result<Vec<(String, Option<i32>, String)>> {
+        if keys.is_empty() || keys.len() > 128 {
+            return Err(Error::invalid("分组投影需要 1–128 个对象"));
+        }
+        if source.kind == "demo" {
+            return keys
+                .iter()
+                .map(|key| {
+                    let n = demo_number(&key.asset_id)?;
+                    Ok((
+                        ["g", "s", "q", "e"][n % 4].into(),
+                        Some(2000 + (n % 24) as i32),
+                        "demo_grouping_v1".into(),
+                    ))
+                })
+                .collect();
+        }
+        for key in keys {
+            sha(&key.asset_id)?;
+        }
+        let session =
+            ReadSession::open_cancelled(self, source, &keys[0].asset_id, None, cancelled)?;
+        if session.catalog.revision != expected.catalog_revision
+            || Some(session.version.analysis_sequence.as_str())
+                != expected.analysis_sequence.as_deref()
+        {
+            return Err(Error::new(
+                "SOURCE_CHANGED",
+                "冻结期间来源版本已变化，请创建新阶段",
+            ));
+        }
+        let ids = keys
+            .iter()
+            .map(|k| quote(&k.asset_id))
+            .collect::<Vec<_>>()
+            .join(",");
+        let rows=session.db.query(&format!("SELECT a.sha256,CASE WHEN count(DISTINCT o.rating)>1 THEN 'conflict' WHEN count(o.rating)<count(*) THEN 'unknown' ELSE coalesce(min(o.rating),'unknown') END,CAST(min(year(o.created_at)) AS VARCHAR),min(a.asset_id),min(o.observation_id),CAST(count(*) AS VARCHAR) FROM assets a LEFT JOIN observations o ON o.observation_id=a.observation_id WHERE a.sha256 IN ({ids}) GROUP BY a.sha256"))?;
+        let mut groups = std::collections::BTreeMap::new();
+        for row in rows {
+            let rating = row[1].clone().unwrap_or_else(|| "unknown".into());
+            let basis=serde_json::json!({"rule":"origin_rating_agreement_min_post_created_year_v1","version":session.version.token,"record_example":row[3],"observation_example":row[4],"record_count":row[5]}).to_string();
+            groups.insert(
+                required(&row, 0)?,
+                (
+                    rating,
+                    row[2].as_deref().and_then(|v| v.parse().ok()),
+                    basis,
+                ),
+            );
+        }
+        session.finish(source)?;
+        Ok(keys
+            .iter()
+            .map(|key| {
+                groups
+                    .remove(&key.asset_id)
+                    .unwrap_or_else(|| ("unknown".into(), None, "origin_metadata_absent".into()))
+            })
+            .collect())
+    }
     pub fn new(dll: PathBuf) -> Self {
         Self {
             runtime: Runtime::new(dll),

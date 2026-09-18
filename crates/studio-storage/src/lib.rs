@@ -13,6 +13,7 @@ use std::{
 };
 use studio_application::ProjectRepository;
 use studio_domain::*;
+pub mod aesthetic;
 mod artifacts;
 mod browse_scopes;
 mod derived_fields;
@@ -103,6 +104,7 @@ struct Manifest {
     created_at: String,
 }
 struct ProjectDb {
+    evaluation: Mutex<Option<Arc<aesthetic::EvaluationDb>>>,
     db: Mutex<Connection>,
     reads: read_pool::ReadPool,
     _lease: File,

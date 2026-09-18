@@ -110,7 +110,13 @@ export type ModuleContribution =
       kind: "entry";
       id: string;
       label: string;
-      icon: "images" | "search" | "calculator" | "archive" | "database";
+      icon:
+        | "images"
+        | "search"
+        | "calculator"
+        | "archive"
+        | "database"
+        | "sparkles";
       command: string;
     }
   | {

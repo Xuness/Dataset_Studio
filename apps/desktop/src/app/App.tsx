@@ -14,6 +14,7 @@ import {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Images,
+  Sparkles,
   FolderOpen,
   FolderPlus,
   Plus,
@@ -88,6 +89,7 @@ type ViewState = {
   view: "grid" | "image";
 };
 const moduleIcons = {
+  sparkles: Sparkles,
   images: Images,
   search: Search,
   calculator: Calculator,

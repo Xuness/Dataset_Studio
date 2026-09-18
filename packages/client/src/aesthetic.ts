@@ -1,0 +1,89 @@
+import type { Schema } from "@studio/contracts";
+type Request = <T>(path: string, init?: RequestInit) => Promise<T>;
+const root = (pid: string) =>
+  `/v1/projects/${encodeURIComponent(pid)}/aesthetic`;
+const stage = (pid: string, id: string) =>
+  `${root(pid)}/stages/${encodeURIComponent(id)}`;
+const post = (body: unknown): RequestInit => ({
+  method: "POST",
+  body: JSON.stringify(body),
+});
+export class AestheticClient {
+  constructor(private readonly request: Request) {}
+  create(pid: string, value: Schema["AestheticCreate"]) {
+    return this.request<Schema["AestheticStage"]>(
+      `${root(pid)}/stages`,
+      post(value),
+    );
+  }
+  stages(pid: string, after?: string, signal?: AbortSignal) {
+    return this.request<Schema["AestheticStages"]>(
+      `${root(pid)}/stages?${new URLSearchParams(after ? { after } : {})}`,
+      { signal: signal ?? null },
+    );
+  }
+  stage(pid: string, id: string, signal?: AbortSignal) {
+    return this.request<Schema["AestheticStage"]>(stage(pid, id), {
+      signal: signal ?? null,
+    });
+  }
+  control(
+    pid: string,
+    id: string,
+    action: "start" | "pause" | "cancel" | "parse",
+  ) {
+    return this.request<Schema["AestheticStage"]>(
+      `${stage(pid, id)}/control`,
+      post({ action }),
+    );
+  }
+  batches(pid: string, id: string, after?: string, signal?: AbortSignal) {
+    return this.request<Schema["AestheticBatches"]>(
+      `${stage(pid, id)}/batches?${new URLSearchParams(after ? { after } : {})}`,
+      { signal: signal ?? null },
+    );
+  }
+  candidates(
+    pid: string,
+    id: string,
+    protectedOnly = false,
+    after?: string,
+    signal?: AbortSignal,
+  ) {
+    const query = new URLSearchParams({
+      protected: String(protectedOnly),
+      ...(after ? { after } : {}),
+    });
+    return this.request<Schema["AestheticCandidates"]>(
+      `${stage(pid, id)}/candidates?${query}`,
+      { signal: signal ?? null },
+    );
+  }
+  attempts(pid: string, id: string, batch: number) {
+    return this.request<Schema["AestheticAttempts"]>(
+      `${stage(pid, id)}/batches/${batch}/attempts`,
+    );
+  }
+  retry(
+    pid: string,
+    id: string,
+    batch: number,
+    acknowledgePossibleCharge: boolean,
+  ) {
+    return this.request<Schema["OkResponse"]>(
+      `${stage(pid, id)}/batches/${batch}/retry`,
+      post({ acknowledge_possible_charge: acknowledgePossibleCharge }),
+    );
+  }
+  metrics(pid: string, signal?: AbortSignal) {
+    return this.request<Schema["AestheticMetrics"]>(`${root(pid)}/metrics`, {
+      signal: signal ?? null,
+    });
+  }
+  backup(pid: string) {
+    return this.request<Schema["AestheticBackup"]>(
+      `${root(pid)}/backup`,
+      post({}),
+    );
+  }
+}

@@ -6,7 +6,7 @@ pub struct ProjectLease {
 }
 
 pub(super) fn has_background(db: &Connection) -> Result<bool> {
-    db.query_row("SELECT EXISTS(SELECT 1 FROM jobs WHERE status IN ('queued','preparing','running','waiting_input')) OR EXISTS(SELECT 1 FROM query_results WHERE status IN ('queued','running'))", [], |r| r.get(0)).map_err(db_error)
+    db.query_row("SELECT EXISTS(SELECT 1 FROM jobs WHERE status IN ('queued','preparing','running','waiting_input')) OR EXISTS(SELECT 1 FROM query_results WHERE status IN ('queued','running')) OR EXISTS(SELECT 1 FROM evaluation_stage_refs WHERE state IN ('preparing','running','pausing','cancelling'))", [], |r| r.get(0)).map_err(db_error)
 }
 
 impl SqliteStore {
@@ -356,12 +356,14 @@ impl SqliteStore {
             created_at: manifest.created_at,
             revision,
         };
+        let evaluation = crate::aesthetic::recover(&project.directory, &db)?;
         let background = has_background(&db)?;
         self.registry.lock().map_err(lock_error)?.execute("INSERT INTO projects(id,directory,opened_at,summary,background_pending) VALUES (?1,?2,?3,?4,?5) ON CONFLICT(id) DO UPDATE SET directory=excluded.directory,opened_at=excluded.opened_at,summary=excluded.summary,background_pending=excluded.background_pending,issue=NULL",params![project.id,project.directory.to_string_lossy(),now(),serde_json::to_string(&project).map_err(Error::io)?,background]).map_err(db_error)?;
         self.invalidate_query_sizes(&project.id);
         projects.insert(
             project.id.clone(),
             Arc::new(ProjectDb {
+                evaluation: Mutex::new(evaluation),
                 db: Mutex::new(db),
                 reads: Default::default(),
                 _lease: lease,

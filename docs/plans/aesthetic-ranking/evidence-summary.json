@@ -1,0 +1,363 @@
+{
+  "schema_version": 1,
+  "archived_on": "2026-09-18",
+  "observed_on": "2026-09-17",
+  "baseline_commit": "ae6fd669e543ad7558c1a739dfc1a472dd18a459",
+  "classification": "Historical evidence and estimates; not a production SLA or implemented aesthetic-ranking feature",
+  "baseline_checks": {
+    "pnpm_check_exit": 0,
+    "rust_tests_passed": 149,
+    "sdk_check_groups": 2,
+    "integration_suites": 17,
+    "integration_exit": 0
+  },
+  "multimodal_probe": {
+    "passed": true,
+    "scope": "Isolated local mock only; synthetic 1-pixel PNG; no commercial API or project data",
+    "combinations": [
+      {
+        "combination": "openai/openai_chat",
+        "prepared": true,
+        "generated": true,
+        "streamed": true,
+        "imageCount": 16,
+        "orderPreserved": true,
+        "schemaForwarded": true,
+        "businessJsonNotValidated": true
+      },
+      {
+        "combination": "openai/openai_responses",
+        "prepared": true,
+        "generated": true,
+        "streamed": true,
+        "imageCount": 16,
+        "orderPreserved": true,
+        "schemaForwarded": true,
+        "businessJsonNotValidated": true
+      },
+      {
+        "combination": "openai_compatible/openai_chat",
+        "prepared": true,
+        "generated": true,
+        "streamed": true,
+        "imageCount": 16,
+        "orderPreserved": true,
+        "schemaForwarded": true,
+        "businessJsonNotValidated": true
+      },
+      {
+        "combination": "openai_compatible/openai_responses",
+        "prepared": true,
+        "generated": true,
+        "streamed": true,
+        "imageCount": 16,
+        "orderPreserved": true,
+        "schemaForwarded": true,
+        "businessJsonNotValidated": true
+      },
+      {
+        "combination": "openrouter/openai_chat",
+        "prepared": true,
+        "generated": true,
+        "streamed": true,
+        "imageCount": 16,
+        "orderPreserved": true,
+        "schemaForwarded": true,
+        "businessJsonNotValidated": true
+      },
+      {
+        "combination": "gemini/gemini",
+        "prepared": true,
+        "generated": true,
+        "streamed": true,
+        "imageCount": 16,
+        "orderPreserved": true,
+        "schemaForwarded": true,
+        "businessJsonNotValidated": true
+      }
+    ],
+    "completed_invocation_id_can_be_sent_again": true,
+    "two_mib_input_accepted_by_llm_route": true,
+    "serialized_content_above_16_mib_rejected": true
+  },
+  "storage_probe": {
+    "arrival": "100 producer threads, each waits for post-COMMIT acknowledgement; no API delay, saturated arrivals",
+    "cases": [
+      {
+        "assets": 1000000,
+        "completed_rounds": 10000,
+        "durable_ack_latency": {
+          "max_ms": 359.6832,
+          "p50_ms": 269.6671,
+          "p95_ms": 317.7023,
+          "p99_ms": 340.1185,
+          "samples": 10000
+        },
+        "final_checkpoint_ms": 15.471300000000001,
+        "final_database_bytes": 228954112,
+        "max_batch": 1,
+        "peak_observed_wal_bytes": 5150032,
+        "producers": 100,
+        "queue_capacity": 256,
+        "queue_peak": 100,
+        "quick_check": "ok",
+        "read_errors": 0,
+        "read_page_latency": {
+          "max_ms": 6.5347,
+          "p50_ms": 1.0455,
+          "p95_ms": 1.7641,
+          "p99_ms": 2.2012,
+          "samples": 9642
+        },
+        "readers": 4,
+        "reopened_round_count": 10000,
+        "response_bytes_per_round": 8262,
+        "rounds_per_second": 364.28374884478797,
+        "rows_per_round": {
+          "candidate_updates": 16,
+          "members": 16,
+          "outcome": 1
+        },
+        "seed_database_bytes": 114810880,
+        "seed_seconds": 6.3803195,
+        "sqlite_version": "3.53.2",
+        "transactions": 10000,
+        "write_seconds": 27.4511285,
+        "write_transaction_latency": {
+          "max_ms": 40.9557,
+          "p50_ms": 1.4221,
+          "p95_ms": 18.224,
+          "p99_ms": 23.323300000000003,
+          "samples": 10000
+        }
+      },
+      {
+        "assets": 1000000,
+        "completed_rounds": 10000,
+        "durable_ack_latency": {
+          "max_ms": 253.56289999999998,
+          "p50_ms": 158.8055,
+          "p95_ms": 199.6992,
+          "p99_ms": 217.1872,
+          "samples": 10000
+        },
+        "final_checkpoint_ms": 1.1827999999999999,
+        "final_database_bytes": 226934784,
+        "max_batch": 16,
+        "peak_observed_wal_bytes": 13324112,
+        "producers": 100,
+        "queue_capacity": 256,
+        "queue_peak": 100,
+        "quick_check": "ok",
+        "read_errors": 0,
+        "read_page_latency": {
+          "max_ms": 2.7434,
+          "p50_ms": 1.0129,
+          "p95_ms": 1.7879,
+          "p99_ms": 2.0804,
+          "samples": 5695
+        },
+        "readers": 4,
+        "reopened_round_count": 10000,
+        "response_bytes_per_round": 8262,
+        "rounds_per_second": 618.7759454687609,
+        "rows_per_round": {
+          "candidate_updates": 16,
+          "members": 16,
+          "outcome": 1
+        },
+        "seed_database_bytes": 114810880,
+        "seed_seconds": 6.7871415,
+        "sqlite_version": "3.53.2",
+        "transactions": 625,
+        "write_seconds": 16.1609385,
+        "write_transaction_latency": {
+          "max_ms": 67.40599999999999,
+          "p50_ms": 13.5142,
+          "p95_ms": 52.3383,
+          "p99_ms": 60.7966,
+          "samples": 625
+        }
+      }
+    ],
+    "durability": "WAL, synchronous=FULL, auto-checkpoint=1000 pages",
+    "exclusions": [
+      "No real HTTP calls",
+      "No image data or base64 in database",
+      "No statistical fitting; score updates are placeholders",
+      "No enqueue/lease/unknown-outcome state machine writes",
+      "No power-loss test",
+      "Not a multi-hour soak test",
+      "Only 10,000 outcomes per scenario on a 1,000,000-candidate synthetic database"
+    ],
+    "kind": "bounded synthetic storage probe; not production executor",
+    "reader_workload": "4 readers, one indexed 64-row page per ~10ms per reader, bounded implicit transactions"
+  },
+  "image_sample": {
+    "captured_at": "2026-09-17T15:42:23.768Z",
+    "method": "2048 deterministic SHA-256 threshold index probes; take next stored object, deduplicate; dispersed approximate sample, not an exact uniform draw; no image bytes read or uploaded; not restricted to a selected workset",
+    "query_plan": [
+      {
+        "id": 4,
+        "parent": 0,
+        "notused": 195,
+        "detail": "SEARCH objects USING PRIMARY KEY (sha256>?)"
+      }
+    ],
+    "count": 2048,
+    "recorded_formats": {
+      "webp": 2048
+    },
+    "size_bytes": {
+      "mean": 256756.5908203125,
+      "p50": 200248,
+      "p90": 514088,
+      "p95": 639672,
+      "p99": 1114324,
+      "max": 1702566
+    }
+  },
+  "transport_estimates": {
+    "assumptions": {
+      "uploadMbps": 40,
+      "utilization": 0.7,
+      "batchImages": 16,
+      "base64Factor": 1.3333333333333333,
+      "excludes": "prompts, HTTP/TLS overhead, retries, file-reference reuse, provider latency; not an actual bandwidth measurement"
+    },
+    "upload_bandwidth_source": "User-reported approximately 40 Mbps; not measured",
+    "sustained_utilization_source": "Planning assumption of 70%; not measured",
+    "at_sample_mean": {
+      "imageKiB": 250.73885822296143,
+      "requestMiB": 5.223726212978363,
+      "uploadSeconds": 1.5649925535714286,
+      "requestsPerSecond": 0.6389806761175484,
+      "concurrencyAt30Seconds": 19.169420283526453,
+      "concurrencyAt60Seconds": 38.338840567052905,
+      "concurrencyAt180Seconds": 115.01652170115871,
+      "totalUploadTiBFor1MImages4Exposures": 1.2454333813138874,
+      "uploadHoursFor1MImages4Exposures": 108.68003844246032
+    },
+    "scenarios": [
+      {
+        "imageKiB": 64,
+        "requestMiB": 1.3333333333333333,
+        "uploadSeconds": 0.3994575238095238,
+        "requestsPerSecond": 2.5033950805664062,
+        "concurrencyAt30Seconds": 75.10185241699219,
+        "concurrencyAt60Seconds": 150.20370483398438,
+        "concurrencyAt180Seconds": 450.6111145019531,
+        "totalUploadTiBFor1MImages4Exposures": 0.3178914388020833,
+        "uploadHoursFor1MImages4Exposures": 27.740105820105818
+      },
+      {
+        "imageKiB": 128,
+        "requestMiB": 2.6666666666666665,
+        "uploadSeconds": 0.7989150476190476,
+        "requestsPerSecond": 1.2516975402832031,
+        "concurrencyAt30Seconds": 37.550926208496094,
+        "concurrencyAt60Seconds": 75.10185241699219,
+        "concurrencyAt180Seconds": 225.30555725097656,
+        "totalUploadTiBFor1MImages4Exposures": 0.6357828776041666,
+        "uploadHoursFor1MImages4Exposures": 55.480211640211635
+      },
+      {
+        "imageKiB": 256,
+        "requestMiB": 5.333333333333333,
+        "uploadSeconds": 1.5978300952380953,
+        "requestsPerSecond": 0.6258487701416016,
+        "concurrencyAt30Seconds": 18.775463104248047,
+        "concurrencyAt60Seconds": 37.550926208496094,
+        "concurrencyAt180Seconds": 112.65277862548828,
+        "totalUploadTiBFor1MImages4Exposures": 1.2715657552083333,
+        "uploadHoursFor1MImages4Exposures": 110.96042328042327
+      },
+      {
+        "imageKiB": 512,
+        "requestMiB": 10.666666666666666,
+        "uploadSeconds": 3.1956601904761905,
+        "requestsPerSecond": 0.3129243850708008,
+        "concurrencyAt30Seconds": 9.387731552124023,
+        "concurrencyAt60Seconds": 18.775463104248047,
+        "concurrencyAt180Seconds": 56.32638931274414,
+        "totalUploadTiBFor1MImages4Exposures": 2.5431315104166665,
+        "uploadHoursFor1MImages4Exposures": 221.92084656084654
+      }
+    ]
+  },
+  "call_volume_estimates": {
+    "note": "arithmetic estimates, fully packed rounds; not measured API throughput",
+    "scenarios": [
+      {
+        "n": 10000,
+        "exposures": 4,
+        "batchSize": 16,
+        "firstPassRounds": 2500,
+        "top20Extra2Rounds": 250,
+        "totalRounds": 2750,
+        "inducedPairs": 300000,
+        "unseenIfIndependentSampling": 182.57060127996127,
+        "maxDistinctOpponentsPerItem": 60
+      },
+      {
+        "n": 1000000,
+        "exposures": 4,
+        "batchSize": 16,
+        "firstPassRounds": 250000,
+        "top20Extra2Rounds": 25000,
+        "totalRounds": 275000,
+        "inducedPairs": 30000000,
+        "unseenIfIndependentSampling": 18315.05279134237,
+        "maxDistinctOpponentsPerItem": 60
+      },
+      {
+        "n": 5000000,
+        "exposures": 4,
+        "batchSize": 16,
+        "firstPassRounds": 1250000,
+        "top20Extra2Rounds": 125000,
+        "totalRounds": 1375000,
+        "inducedPairs": 150000000,
+        "unseenIfIndependentSampling": 91577.60834602709,
+        "maxDistinctOpponentsPerItem": 60
+      }
+    ]
+  },
+  "local_artifact_hashes": [
+    {
+      "path": ".local/reports/aesthetic-ranking-review-20260917/review.md",
+      "sha256": "a0a717a9b918f9a2a3219323dc0a4f55fc92cd5f2b232508935fe745c76b0ca7"
+    },
+    {
+      "path": ".local/reports/aesthetic-ranking-review-20260917/verification.json",
+      "sha256": "0a3545b459cb788eea652fdf174d9a6347f2f7a0cb42a5b1b8c4f2cf2565a201"
+    },
+    {
+      "path": ".local/reports/aesthetic-ranking-review-20260917/multimodal-probe.json",
+      "sha256": "4d0357b3f9d60138c2dcada9100ff9a04687e798e8d495e401d3f8c77e484cdf"
+    },
+    {
+      "path": ".local/reports/aesthetic-ranking-review-20260917/scale-estimates.json",
+      "sha256": "56a3909674620fb4df2d24a42e8c6074ff6a873b19ab98da7b3cf74a42d3b89e"
+    },
+    {
+      "path": ".local/reports/aesthetic-storage-20260917/storage-and-transport.md",
+      "sha256": "333476a064988bac95424b8cac183cac205d04ff68c432eda413a8d730c93869"
+    },
+    {
+      "path": ".local/reports/aesthetic-storage-20260917/capacity-probe.json",
+      "sha256": "05c67d27125b7a76ed675174269265ab1aada4ec69cfa093b380b8343aa19810"
+    },
+    {
+      "path": ".local/reports/aesthetic-storage-20260917/image-size-and-bandwidth.json",
+      "sha256": "56f592986451594040c2a7bca47c514a3522eb679532ae94b17b9bb35d5a068e"
+    }
+  ],
+  "exclusions": [
+    "No raw image identities or image files",
+    "No production project identifiers or database copies",
+    "No local absolute paths, credentials or full logs",
+    "No commercial model calls in the recorded audit",
+    "No new tests or benchmarks during this documentation archival"
+  ]
+}

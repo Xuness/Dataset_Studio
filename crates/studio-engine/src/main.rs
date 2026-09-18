@@ -1,3 +1,4 @@
+mod aesthetic;
 mod api;
 mod artifacts;
 mod cache_config;
@@ -160,7 +161,9 @@ async fn serve(root: PathBuf, port: u16, cache_dir: Option<PathBuf>) -> Result<(
     previews
         .cache
         .set_quota(u64::from(queries.cache.config()?.preview_mib) << 20)?;
+    let aesthetic = Arc::new(aesthetic::Runner::default());
     let state = api::AppState {
+        aesthetic: aesthetic.clone(),
         llm: {
             let credentials = Arc::new(studio_llm::credentials::CredentialVault::new(
                 root.join("llm-credentials"),
@@ -344,6 +347,7 @@ async fn serve(root: PathBuf, port: u16, cache_dir: Option<PathBuf>) -> Result<(
     let abort = scheduler.abort_handle();
     let query_shutdown = queries.clone();
     let preview_shutdown = previews.clone();
+    let aesthetic_shutdown = aesthetic.clone();
     let result = axum::serve(listener, app)
         .with_graceful_shutdown(async move {
             tokio::select!{_ = tokio::signal::ctrl_c()=>{let _=shutdown_tx.send(true);},_ = shutdown_rx.changed()=>{}}
@@ -352,6 +356,7 @@ async fn serve(root: PathBuf, port: u16, cache_dir: Option<PathBuf>) -> Result<(
             store.stop_member_writes();
             query_shutdown.shutdown();
             preview_shutdown.shutdown();
+            aesthetic_shutdown.shutdown();
         })
         .await
         .map_err(Error::io);
@@ -366,6 +371,9 @@ async fn serve(root: PathBuf, port: u16, cache_dir: Option<PathBuf>) -> Result<(
     let _ = recovery.await;
     previews.shutdown();
     let _ = preview_scheduler.await;
+    while aesthetic.busy() {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
     drop(lease);
     result
 }

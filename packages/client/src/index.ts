@@ -14,6 +14,7 @@ import { LlmClient } from "./llm/index.js";
 export { LlmCallError } from "./llm/index.js";
 export type { LlmInvocationInput } from "./llm/index.js";
 import { RankingClient } from "./ranking.js";
+import { AestheticClient } from "./aesthetic.js";
 import { ManagementClient } from "./management.js";
 export type { ObjectTarget, ObjectListOptions } from "./management.js";
 import type { MediaOptions, MediaHandle } from "./media.js";
@@ -82,6 +83,9 @@ function metadataQuery(options: MetadataOptions) {
   return query;
 }
 export class StudioClient {
+  readonly aesthetic = new AestheticClient(
+    <T>(path: string, init?: RequestInit) => this.request<T>(path, init),
+  );
   readonly llm = new LlmClient(
     <T>(path: string, init?: RequestInit) => this.request<T>(path, init),
     () => this.connection,
