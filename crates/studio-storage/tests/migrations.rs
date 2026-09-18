@@ -34,6 +34,10 @@ fn v8_upgrade_adds_management_without_rewriting_fixed_data() {
 fn v9_upgrade_adds_evaluation_references_without_changing_worksets() {
     upgrade_preserves_every_relationship(9);
 }
+#[test]
+fn v10_upgrade_adds_offline_references_without_changing_worksets() {
+    upgrade_preserves_every_relationship(10);
+}
 fn upgrade_preserves_every_relationship(from: u32) {
     let root = tempfile::tempdir().unwrap();
     let dir = root.path().join("中文旧项目");
@@ -132,6 +136,7 @@ fn upgrade_preserves_every_relationship(from: u32) {
         (7, include_str!("../src/schema_v7.sql")),
         (8, include_str!("../src/schema_v8.sql")),
         (9, include_str!("../src/schema_v9.sql")),
+        (10, include_str!("../src/schema_v10.sql")),
     ] {
         if from >= version {
             db.execute_batch(sql).unwrap();
@@ -200,7 +205,7 @@ fn upgrade_preserves_every_relationship(from: u32) {
         after
             .query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0))
             .unwrap(),
-        10
+        11
     );
     // Exact rows, including drafts, idempotency keys, event sequences and artifact references.
     if from >= 2 {

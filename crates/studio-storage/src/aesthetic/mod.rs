@@ -6,6 +6,8 @@ use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use studio_application::aesthetic::{AestheticRepository, parse_observation};
 use studio_domain::{Error, Result, aesthetic::*, llm::LlmFailure};
+pub mod analysis;
+mod analysis_project;
 mod dispatch;
 mod evidence;
 mod project;

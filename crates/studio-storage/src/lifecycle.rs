@@ -6,7 +6,7 @@ pub struct ProjectLease {
 }
 
 pub(super) fn has_background(db: &Connection) -> Result<bool> {
-    db.query_row("SELECT EXISTS(SELECT 1 FROM jobs WHERE status IN ('queued','preparing','running','waiting_input')) OR EXISTS(SELECT 1 FROM query_results WHERE status IN ('queued','running')) OR EXISTS(SELECT 1 FROM evaluation_stage_refs WHERE state IN ('preparing','running','pausing','cancelling'))", [], |r| r.get(0)).map_err(db_error)
+    db.query_row("SELECT EXISTS(SELECT 1 FROM jobs WHERE status IN ('queued','preparing','running','waiting_input')) OR EXISTS(SELECT 1 FROM query_results WHERE status IN ('queued','running')) OR EXISTS(SELECT 1 FROM evaluation_stage_refs WHERE state IN ('preparing','running','pausing','cancelling')) OR EXISTS(SELECT 1 FROM evaluation_analysis_refs WHERE state IN ('queued','running','cancelling'))", [], |r| r.get(0)).map_err(db_error)
 }
 
 impl SqliteStore {
@@ -216,8 +216,10 @@ impl SqliteStore {
                     .query_row("PRAGMA user_version", [], |r| r.get(0))
                     .map_err(db_error)?;
                 let queries: bool = version >= 3 && db.query_row("SELECT EXISTS(SELECT 1 FROM query_results WHERE status IN ('queued','running'))", [], |r| r.get(0)).map_err(db_error)?;
+                let evaluation:bool=version>=10 && db.query_row("SELECT EXISTS(SELECT 1 FROM evaluation_stage_refs WHERE state IN ('preparing','running','pausing','cancelling'))",[],|r|r.get(0)).map_err(db_error)?;
+                let analysis:bool=version>=11 && db.query_row("SELECT EXISTS(SELECT 1 FROM evaluation_analysis_refs WHERE state IN ('queued','running','cancelling'))",[],|r|r.get(0)).map_err(db_error)?;
                 drop(db);
-                if jobs || queries {
+                if jobs || queries || evaluation || analysis {
                     self.open_tracked(directory, false)?;
                 } else {
                     self.registry

@@ -50,7 +50,7 @@ pub(super) fn view(kind: ObjectKind) -> Result<String> {
             "json_extract(t.json,'$.kind')",
         ),
         ObjectKind::Workset => (
-            "collections",
+            "(SELECT * FROM collections WHERE NOT EXISTS(SELECT 1 FROM evaluation_workset_builds b WHERE b.collection_id=collections.id AND b.state!='ready'))",
             "t.name",
             "'ready'",
             "t.count",
@@ -395,7 +395,7 @@ impl ManagementRepository for SqliteStore {
                 .unwrap_or(serde_json::Value::Null),
             ObjectKind::Project => {
                 paths.push(p.project.directory.to_string_lossy().into_owned());
-                let (sources,worksets,artifacts):(u64,u64,u64)=db.query_row("SELECT (SELECT COUNT(*) FROM sources WHERE NOT EXISTS(SELECT 1 FROM object_metadata m WHERE m.kind='source' AND m.id=sources.id AND m.deleted=1)),(SELECT COUNT(*) FROM collections),(SELECT COUNT(*) FROM artifacts WHERE status!='released')",[],|r|Ok((unsigned(r,0)?,unsigned(r,1)?,unsigned(r,2)?))).map_err(db_error)?;
+                let (sources,worksets,artifacts):(u64,u64,u64)=db.query_row("SELECT (SELECT COUNT(*) FROM sources WHERE NOT EXISTS(SELECT 1 FROM object_metadata m WHERE m.kind='source' AND m.id=sources.id AND m.deleted=1)),(SELECT COUNT(*) FROM collections WHERE NOT EXISTS(SELECT 1 FROM evaluation_workset_builds b WHERE b.collection_id=collections.id AND b.state!='ready')),(SELECT COUNT(*) FROM artifacts WHERE status!='released')",[],|r|Ok((unsigned(r,0)?,unsigned(r,1)?,unsigned(r,2)?))).map_err(db_error)?;
                 serde_json::json!({"sources":sources,"worksets":worksets,"artifacts":artifacts})
             }
             _ => serde_json::Value::Null,

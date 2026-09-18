@@ -1,0 +1,245 @@
+use super::*;
+use studio_application::aesthetic_analysis::estimator::replay;
+use studio_domain::aesthetic_analysis::*;
+fn fit_request(stage: &str) -> AestheticAnalysisCreate {
+    AestheticAnalysisCreate {
+        idempotency_key: new_id(),
+        name: "重放".into(),
+        spec: AestheticAnalysisSpec::Fit {
+            config: AestheticFit {
+                stage_id: stage.into(),
+                estimator: AestheticEstimator {
+                    kind: "davidson_v1".into(),
+                    iterations: 32,
+                    regularization: 0.1,
+                    tie_strength: 1.0,
+                },
+                stability_seed: Some(7),
+            },
+            experiment_id: None,
+            variant: None,
+        },
+    }
+}
+fn complete(db: &EvaluationDb, id: &str) -> AestheticAnalysisJob {
+    let job = db.analysis_start(id).unwrap();
+    while db.analysis_reset_page(id).unwrap() {}
+    let AestheticAnalysisSpec::Fit { config, .. } = &job.request.spec else {
+        panic!("fit")
+    };
+    let summary = replay(
+        db,
+        &job.input,
+        config,
+        &|| Ok(()),
+        &mut |_, _, _| Ok(()),
+        &mut |rows| db.append_ranking_rows(id, rows),
+    )
+    .unwrap();
+    db.analysis_finish(id, AestheticAnalysisSummary::Fit(summary))
+        .unwrap();
+    db.analysis_job(id).unwrap()
+}
+#[test]
+fn frozen_watermark_excludes_later_paid_results_and_rebuild_is_idempotent() {
+    let (_dir, db, stage) = fixture(32);
+    let (a, aid) = sent(&db, &stage);
+    db.receive(&stage, &aid, receipt(&a)).unwrap();
+    db.parse_received(&stage).unwrap();
+    let request = fit_request(&stage);
+    let job = db.analysis_create(request.clone()).unwrap();
+    assert_eq!(job.input.observations, 1);
+    let (b, bid) = sent(&db, &stage);
+    db.receive(&stage, &bid, receipt(&b)).unwrap();
+    db.parse_received(&stage).unwrap();
+    assert_eq!(
+        db.analysis_create(request.clone())
+            .unwrap()
+            .input
+            .evidence_watermark,
+        job.input.evidence_watermark
+    );
+    let mut conflict = request;
+    conflict.name = "另一个请求".into();
+    assert_eq!(
+        db.analysis_create(conflict).unwrap_err().code,
+        "IDEMPOTENCY_CONFLICT"
+    );
+    complete(&db, &job.id);
+    let rows = db.ranking_page(&job.id, 0, None, 256).unwrap();
+    assert_eq!(rows.len(), 32);
+    let read = db.read().unwrap();
+    let plan = {
+        let mut statement = read
+            .prepare(&format!(
+                "EXPLAIN QUERY PLAN {}",
+                crate::aesthetic::analysis::ranking_page_sql(true)
+            ))
+            .unwrap();
+        statement
+            .query_map(params![job.id, 0, "g", 64], |r| r.get::<_, String>(3))
+            .unwrap()
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .unwrap()
+    };
+    assert!(
+        plan.iter().any(|line| line.contains("ranking_rating")),
+        "{plan:?}"
+    );
+    drop(read);
+    assert_eq!(rows.iter().map(|r| u64::from(r.exposures)).sum::<u64>(), 16);
+    assert_eq!(rows.iter().filter(|r| r.protected).count(), 1);
+    assert!(rows.iter().all(|r| r.rating_rank_min.is_none()));
+    assert_eq!(
+        db.append_ranking_rows(&job.id, vec![rows[0].clone()])
+            .unwrap_err()
+            .code,
+        "CANCELLED"
+    );
+    let next = db.analysis_create(fit_request(&stage)).unwrap();
+    complete(&db, &next.id);
+    assert_eq!(
+        db.ranking_page(&next.id, 0, None, 256)
+            .unwrap()
+            .iter()
+            .map(|r| u64::from(r.exposures))
+            .sum::<u64>(),
+        32
+    );
+    assert_eq!(db.stage(&stage).unwrap().attempts, 2);
+}
+#[test]
+fn partial_projection_recovers_without_publishing_or_network_retries() {
+    let (dir, db, stage) = fixture(16);
+    let (batch, attempt) = sent(&db, &stage);
+    db.receive(&stage, &attempt, receipt(&batch)).unwrap();
+    db.parse_received(&stage).unwrap();
+    let job = db.analysis_create(fit_request(&stage)).unwrap();
+    db.analysis_start(&job.id).unwrap();
+    assert_eq!(
+        db.ranking_page(&job.id, 0, None, 64).unwrap_err().code,
+        "RESULT_NOT_READY"
+    );
+    drop(db);
+    let db = EvaluationDb::open(&dir.path().join("evaluation.sqlite")).unwrap();
+    let restored = db.analysis_job(&job.id).unwrap();
+    assert_eq!(restored.state, "interrupted");
+    assert_eq!(
+        restored.input.evidence_watermark,
+        job.input.evidence_watermark
+    );
+    db.analysis_control(&job.id, "resume").unwrap();
+    complete(&db, &job.id);
+    assert_eq!(db.stage(&stage).unwrap().attempts, 1);
+    assert_eq!(db.ranking_page(&job.id, 0, None, 64).unwrap().len(), 16);
+}
+#[test]
+fn experiments_and_review_watermarks_are_frozen_and_review_has_no_score_effect() {
+    let (_dir, db, stage) = fixture(16);
+    let (batch, attempt) = sent(&db, &stage);
+    db.receive(&stage, &attempt, receipt(&batch)).unwrap();
+    db.parse_received(&stage).unwrap();
+    let request = fit_request(&stage);
+    let AestheticAnalysisSpec::Fit { config, .. } = request.spec.clone() else {
+        panic!("fit")
+    };
+    let experiment = db
+        .experiment_create(AestheticExperimentCreate {
+            idempotency_key: new_id(),
+            name: "对照".into(),
+            description: "fixture".into(),
+            variants: vec![AestheticExperimentVariant {
+                label: "A".into(),
+                fit: config,
+            }],
+        })
+        .unwrap();
+    let job = db.analysis_create(request).unwrap();
+    complete(&db, &job.id);
+    let rows = db.ranking_page(&job.id, 0, None, 64).unwrap();
+    let row = rows.iter().find(|r| !r.protected).unwrap();
+    let derive = db
+        .analysis_create(AestheticAnalysisCreate {
+            idempotency_key: new_id(),
+            name: "候选".into(),
+            spec: AestheticAnalysisSpec::Derive {
+                snapshot_id: job.id.clone(),
+                filter: Default::default(),
+                review_watermark: None,
+            },
+        })
+        .unwrap();
+    let review = AestheticReviewCreate {
+        idempotency_key: new_id(),
+        snapshot_id: job.id.clone(),
+        ordinal: row.ordinal,
+        decision: "protect".into(),
+        reviewer: "test human".into(),
+        reason: "校准参考".into(),
+    };
+    let saved = db.review_create(review.clone()).unwrap();
+    assert_eq!(db.review_create(review).unwrap().sequence, saved.sequence);
+    assert!(
+        !db.effective_protection(
+            &job.id,
+            std::slice::from_ref(row),
+            derive.input.review_watermark
+        )
+        .unwrap()[0]
+    );
+    assert!(
+        db.effective_protection(&job.id, std::slice::from_ref(row), saved.sequence)
+            .unwrap()[0]
+    );
+    let unchanged = db.ranking_candidate(&job.id, row.ordinal).unwrap();
+    assert_eq!(row.score, unchanged.score);
+    assert!(!unchanged.protected);
+    assert_eq!(
+        experiment.inputs[0].evidence_watermark,
+        job.input.evidence_watermark
+    );
+}
+#[test]
+fn ledger_v1_upgrade_backs_up_paid_evidence_before_creating_projections() {
+    let (dir, db, stage) = fixture(16);
+    let (batch, attempt) = sent(&db, &stage);
+    db.receive(&stage, &attempt, receipt(&batch)).unwrap();
+    db.parse_received(&stage).unwrap();
+    drop(db);
+    let path = dir.path().join("evaluation.sqlite");
+    let old = Connection::open(&path).unwrap();
+    old.execute_batch("DROP TABLE reviews; DROP TABLE ranking_rows; DROP TABLE comparison_rows; DROP TABLE experiments; DROP TABLE analysis_jobs; PRAGMA user_version=1;").unwrap();
+    drop(old);
+    let db = EvaluationDb::open(&path).unwrap();
+    assert_eq!(db.stage(&stage).unwrap().accepted, 1);
+    let backups = std::fs::read_dir(dir.path().join(".backups"))
+        .unwrap()
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(backups.len(), 1);
+    let backup = Connection::open(backups[0].path()).unwrap();
+    assert_eq!(
+        backup
+            .query_row("PRAGMA user_version", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        backup
+            .query_row("SELECT COUNT(*) FROM evidence", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
+    drop(backup);
+    drop(db);
+    let future = Connection::open(&path).unwrap();
+    future.execute_batch("PRAGMA user_version=3;").unwrap();
+    drop(future);
+    assert!(matches!(
+        EvaluationDb::open(&path),
+        Err(Error {
+            code: "FORMAT_UNSUPPORTED",
+            ..
+        })
+    ));
+}

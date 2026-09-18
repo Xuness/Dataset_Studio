@@ -49,7 +49,7 @@ impl SqliteStore {
         }
         let total: u64 = tx
             .query_row(
-                "SELECT count FROM collections WHERE id=?1",
+                "SELECT count FROM collections WHERE id=?1 AND NOT EXISTS(SELECT 1 FROM evaluation_workset_builds b WHERE b.collection_id=collections.id AND b.state!='ready')",
                 [&request.collection_id],
                 |r| crate::unsigned(r, 0),
             )
@@ -155,6 +155,17 @@ pub(crate) fn recover(directory: &Path, project: &Connection) -> Result<Option<A
                     .map_err(db_error)?;
             }
             Err(e) => return Err(e),
+        }
+    }
+    let mut after = String::new();
+    loop {
+        let jobs = db.analysis_jobs(&after, None, 50)?;
+        if jobs.is_empty() {
+            break;
+        }
+        for item in jobs {
+            project.execute("INSERT INTO evaluation_analysis_refs VALUES (?1,?2) ON CONFLICT(id) DO UPDATE SET state=excluded.state",params![item.id,item.state]).map_err(db_error)?;
+            after = item.id;
         }
     }
     Ok(Some(db))

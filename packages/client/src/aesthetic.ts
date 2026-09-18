@@ -1,4 +1,5 @@
 import type { Schema } from "@studio/contracts";
+import { AestheticAnalysisClient } from "./aesthetic-analysis.js";
 type Request = <T>(path: string, init?: RequestInit) => Promise<T>;
 const root = (pid: string) =>
   `/v1/projects/${encodeURIComponent(pid)}/aesthetic`;
@@ -9,7 +10,10 @@ const post = (body: unknown): RequestInit => ({
   body: JSON.stringify(body),
 });
 export class AestheticClient {
-  constructor(private readonly request: Request) {}
+  readonly analysis: AestheticAnalysisClient;
+  constructor(private readonly request: Request) {
+    this.analysis = new AestheticAnalysisClient(request);
+  }
   create(pid: string, value: Schema["AestheticCreate"]) {
     return this.request<Schema["AestheticStage"]>(
       `${root(pid)}/stages`,

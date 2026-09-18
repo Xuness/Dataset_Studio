@@ -14,6 +14,7 @@ use studio_application::{
 use studio_domain::{Error, Result, aesthetic::*, llm::*};
 use studio_storage::aesthetic::EvaluationDb;
 use tokio::sync::Semaphore;
+pub mod analysis;
 mod media;
 
 const REQUEST_KIB: u32 = 104 * 1024; // Native JSON copies, encoded inputs, and a 32 MiB receipt reserve.

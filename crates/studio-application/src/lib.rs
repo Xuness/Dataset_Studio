@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 use studio_domain::*;
 pub mod aesthetic;
+pub mod aesthetic_analysis;
 pub mod llm;
 mod tools;
 pub use tools::*;

@@ -42,7 +42,7 @@ impl Writer {
                     |r| r.get(0),
                 )
                 .map_err(db_error)?;
-            if version > 1 || (version == 0 && occupied) {
+            if version > 2 || (version == 0 && occupied) {
                 return Err(Error::new("FORMAT_UNSUPPORTED", "评审账本版本不兼容"));
             }
         }
@@ -50,12 +50,58 @@ impl Writer {
         let version: u32 = db
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .map_err(db_error)?;
-        if version == 0 {
+        if version == 1 {
+            let parent = path
+                .parent()
+                .ok_or_else(|| Error::invalid("评审路径无效"))?;
+            let directory = parent.join(".backups");
+            std::fs::create_dir_all(&directory).map_err(Error::io)?;
+            if !directory
+                .canonicalize()
+                .map_err(Error::io)?
+                .starts_with(parent.canonicalize().map_err(Error::io)?)
+            {
+                return Err(Error::invalid("评审备份目录必须在项目内"));
+            }
+            let destination = directory.join(format!(
+                "evaluation-v1-to-v2-{}-{}.sqlite",
+                crate::now(),
+                studio_domain::new_id()
+            ));
+            let mut target = rusqlite::Connection::open(&destination).map_err(db_error)?;
+            {
+                let backup = rusqlite::backup::Backup::new(&db, &mut target).map_err(db_error)?;
+                backup
+                    .run_to_completion(128, std::time::Duration::from_millis(10), None)
+                    .map_err(db_error)?;
+            }
+            target
+                .execute_batch("PRAGMA journal_mode=DELETE")
+                .map_err(db_error)?;
+            let integrity: String = target
+                .query_row("PRAGMA quick_check", [], |r| r.get(0))
+                .map_err(db_error)?;
+            if integrity != "ok" {
+                return Err(Error::new("BACKUP_INVALID", "评审升级备份校验失败"));
+            }
+            drop(target);
+            std::fs::OpenOptions::new()
+                .write(true)
+                .open(&destination)
+                .map_err(Error::io)?
+                .sync_all()
+                .map_err(Error::io)?;
+        }
+        if version < 2 {
             let tx = db.transaction().map_err(db_error)?;
-            tx.execute_batch(include_str!("schema.sql"))
+            if version == 0 {
+                tx.execute_batch(include_str!("schema.sql"))
+                    .map_err(db_error)?;
+            }
+            tx.execute_batch(include_str!("schema_v2.sql"))
                 .map_err(db_error)?;
             tx.commit().map_err(db_error)?;
-        } else if version != 1 {
+        } else if version != 2 {
             return Err(Error::new("FORMAT_UNSUPPORTED", "评审账本版本不兼容"));
         }
         // A new writer is created only under the exclusive project lease.
@@ -65,7 +111,8 @@ impl Writer {
           UPDATE batches SET state='queued' WHERE state='preparing';
           UPDATE stages SET state='paused',error='执行已中断；本地结果可以重新解析，远端请求不会自动重发' WHERE state IN ('preparing','running','pausing');
           UPDATE stages SET state='cancelled' WHERE state='cancelling';
-          UPDATE stages SET unknown=(SELECT count(*) FROM batches b WHERE b.stage_id=stages.id AND b.state='outcome_unknown');").map_err(db_error)?;
+          UPDATE stages SET unknown=(SELECT count(*) FROM batches b WHERE b.stage_id=stages.id AND b.state='outcome_unknown');
+          UPDATE analysis_jobs SET state='interrupted',error='引擎中断；可从冻结证据重算，不会调用远端模型' WHERE state IN ('queued','running','cancelling');").map_err(db_error)?;
         tx.commit().map_err(db_error)?;
         let (sender, receiver) = mpsc::sync_channel::<Command>(64);
         let stats = Arc::new(Mutex::new(QueueStats::default()));

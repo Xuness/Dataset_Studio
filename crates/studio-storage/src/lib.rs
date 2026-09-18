@@ -201,6 +201,12 @@ impl SqliteStore {
     ) -> Result<Vec<AssetKey>> {
         let p = self.handle(project_id)?;
         let db = p.read()?;
+        if let Some(("collection", id)) = owner {
+            let pending:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM evaluation_workset_builds WHERE collection_id=?1 AND state!='ready')",[id],|r|r.get(0)).map_err(db_error)?;
+            if pending {
+                return Err(Error::new("RESULT_NOT_READY", "工作集成员尚未完整发布"));
+            }
+        }
         let (source, asset) = after
             .map(|a| (a.source_id.as_str(), a.asset_id.as_str()))
             .unwrap_or(("", ""));
@@ -581,7 +587,7 @@ impl ProjectRepository for SqliteStore {
         let p = self.handle(project_id)?;
         let db = p.read()?;
         let mut stmt = db
-            .prepare("SELECT c.id,COALESCE(m.name,c.name),c.count FROM collections c LEFT JOIN object_metadata m ON m.kind='workset' AND m.id=c.id ORDER BY c.rowid")
+            .prepare("SELECT c.id,COALESCE(m.name,c.name),c.count FROM collections c LEFT JOIN object_metadata m ON m.kind='workset' AND m.id=c.id WHERE NOT EXISTS(SELECT 1 FROM evaluation_workset_builds b WHERE b.collection_id=c.id AND b.state!='ready') ORDER BY c.rowid")
             .map_err(db_error)?;
         stmt.query_map([], |r| {
             Ok(Collection {

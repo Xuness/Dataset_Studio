@@ -6,7 +6,7 @@
 
 “设置 → API 与模型”提供供应商连接、远端模型获取、独立模型参数和命名参数预设。基础层接入 OpenAI Chat Completions / Responses、OpenRouter 和 Gemini 原生协议，支持完整响应、流式事件与取消；API Key 在 Windows 上通过当前用户 DPAPI 加密保存。“设置 → System Prompt”管理可复用的系统指令预设，任务按次选择，User Prompt 由每次任务传入；调用检查支持预设选择和不联网的请求预览。见[架构决策](docs/decisions/0023-llm-foundation.md)、[System Prompt 预设](docs/decisions/0024-system-prompt-presets.md)和[模块接入说明](docs/architecture/llm-integration.md)。
 
-“美学排序”提供第一阶段评审执行：从固定工作集冻结候选和模型配置，按 Rating 独立组批，持久保存梯队与顶级提名，支持暂停、结果不明恢复和显式重试。全量统计榜单与自适应采样尚未接入。见[第一阶段实施说明](docs/plans/aesthetic-ranking/phase-1-implementation.md)。
+“美学排序”可从固定工作集冻结候选和模型配置，按 Rating 独立评审并持久保存梯队与顶级提名。后端已支持离线估计、不可变排名快照、实验对照、保护复核、筛选及工作集派生；第二阶段前端和真实模型校准待接入，自适应付费采样仍待开发。见[后端与 SDK 接入说明](docs/plans/aesthetic-ranking/phase-2-backend.md)。
 
 对象条目旁的“⋯”提供快捷操作，右侧相邻的“属性 / 管理”标签提供名称、备注、来源与引用关系、文件位置和删除入口。相关行为见[对象管理验收](docs/verification-object-management-v0.9.md)。
 
@@ -75,7 +75,7 @@ SSD 索引：D:\Dataset\Danbooru
 - `.local/dev/registry.sqlite`：开发环境的项目注册表与本机数据源位置。
 - `.local/dev/projects/`：默认新建项目的位置；也可以在新建时选择其他父目录。
 - 项目内的 project.json、project.sqlite、artifacts 与 .staging 分别保存身份、项目状态、正式成果与恢复所需暂存。`evaluation.sqlite` 独立保存付费评审证据，属于必须随项目保留和备份的权威数据。
-- 显式打开旧项目时，数据库 v1–v9 按顺序升级至 v10；升级前的一致备份保存在项目内 `.backups/v*-to-v10-*`，包含 WAL 中已提交的数据，保留以前的迁移账本。清单 format_version 仍为 1。关闭项目的缓存维护也可在取得项目锁后升级 v6–v9。
+- 显式打开旧项目时，数据库 v1–v10 按顺序升级至 v11；升级前的一致备份保存在项目内 `.backups/v*-to-v11-*`，包含 WAL 中已提交的数据，保留以前的迁移账本。清单 format_version 仍为 1。关闭项目的缓存维护也可在取得项目锁后升级 v6–v10。
 - 注册表单独使用模式 v4，旧注册表备份位于应用数据目录的 `.backups/registry-v*-to-v4-*`；升级保留已有项目登记、数据湖位置、偏好和 LLM 配置，新增独立 System Prompt 预设表。最近项目列表不隐式打开或升级项目。
 - 查询定义、结果材料、选择基底与排除项、范围依据保存在项目数据库。结果释放前检查引用，已固定的工作集和任务不会随重新查询而变化。
 - 工具草稿和项目会话保存在项目数据库；布局偏好保存在应用注册表。未知草稿版本保留原文，并发冲突需明确选择重新载入或保留本地。
@@ -118,7 +118,7 @@ Windows 原生剪贴板验收为 `pnpm test:clipboard`，要求已开启系统�
 
 接口以 Rust DTO 和 Utoipa 定义为准。生成的 OpenAPI 和 TypeScript 类型纳入 Git，CI 重新生成后检查漂移。前端功能通过 SDK 调用引擎，原生目录选择由应用层注入。
 
-测试覆盖旧项目升级、只读元数据、范围与结果、算子注册和固定字段、成果发布恢复、草稿冲突、读取公平性和取消、持久缓存与引用隔离。`test:integration` 包含 18 组独立引擎脚本，覆盖增量查询、分层预算、每日分级更新、真实 SDK 会话重连、MetaRecall 排名、有界范围排序、对象管理、撤销和排名起点浏览。夹具默认使用 Debug，引擎已构建时可用 `STUDIO_ENGINE_PROFILE=release` 验证优化产物。界面检查包括 `node tooling/smoke-ranking-ui.mjs`、`node tooling/smoke-management-ui.mjs` 和 `node tooling/smoke-ranking-browse-ui.mjs`，使用独立引擎与无头 Edge 上下文；真实有界元数据检查为 `tooling/verify-ranking.mjs`。可选的原生设置窗口检查为 `node tooling/smoke-settings-ui.mjs`，先关闭现有开发窗口与前端服务；它只使用独立的合成图片与项目。
+测试覆盖旧项目升级、只读元数据、范围与结果、算子注册和固定字段、成果发布恢复、草稿冲突、读取公平性和取消、持久缓存与引用隔离。`test:integration` 包含 19 组独立引擎脚本，覆盖增量查询、分层预算、每日分级更新、真实 SDK 会话重连、MetaRecall 排名、有界范围排序、对象管理、撤销和排名起点浏览。夹具默认使用 Debug，引擎已构建时可用 `STUDIO_ENGINE_PROFILE=release` 验证优化产物。界面检查包括 `node tooling/smoke-ranking-ui.mjs`、`node tooling/smoke-management-ui.mjs` 和 `node tooling/smoke-ranking-browse-ui.mjs`，使用独立引擎与无头 Edge 上下文；真实有界元数据检查为 `tooling/verify-ranking.mjs`。可选的原生设置窗口检查为 `node tooling/smoke-settings-ui.mjs`，先关闭现有开发窗口与前端服务；它只使用独立的合成图片与项目。
 
 真实数据湖可使用 `node tooling/verify-metadata.mjs --index-root <索引根目录> --media-root <图片湖根目录> --asset <SHA256>` 做有界验证，最多传入 8 个 `--asset`。脚本使用隔离运行目录与真实引擎 API，报告写入 `.local/test-runs/metadata-verification-*`。
 
@@ -129,7 +129,7 @@ Windows 原生剪贴板验收为 `pnpm test:clipboard`，要求已开启系统�
 目录职责与实现边界见：
 
 - [基础架构方案](docs/architecture/foundation-proposal.md)
-- [美学排序规划与第一阶段实现](docs/plans/aesthetic-ranking/README.md)
+- [美学排序规划与后端接入](docs/plans/aesthetic-ranking/README.md)
 - [0.1 实现状态](docs/architecture/foundation-status.md)
 - [0.2 实现与验证](docs/verification-project-data-layer-v0.2.md)
 - [0.3 实现与验证](docs/verification-project-data-scopes-v0.3.md)
@@ -154,13 +154,13 @@ Windows 原生剪贴板验收为 `pnpm test:clipboard`，要求已开启系统�
 
 ## 当前边界
 
-任意元数据公式、模型打标和审美评估尚未实现。
+任意元数据公式和通用模型打标尚未接入。美学评审与离线统计后端已实现，真实质量校准和第二阶段界面待完成。
 
 结果每页最多 128 项，界面可选 12/48/96 项。单项选择修改每次最多 1000 项；全选结果通过后端引用完成，不枚举全部 ID。查询协议最多 8 个来源、12 个联合条件，界面当前支持单湖编辑。每个引擎同时运行一个结果构建和一个算子执行器。预览单图及单批编码输入上限均为 64 MiB，每批最多 16 项，另有解码及队列预算。
 
 标量成果采用有模式的 JSONL 加 SQLite 整数投影。MetaRecall 使用独立的固定输入表、浮点评分与排名表和摘要文件，提供多列分页及工作集转换；任意宽表算子、向量成果尚未接入。正常关闭等待已接受的草稿保存；强制终止或页面突然重载仅保证此前已落盘的编辑。运行时第三方插件和完整模型环境继续按实际工具需求扩展。
 
-成果始终保存在项目 artifacts 目录中。界面另存下载目前限制为 64 MiB，较大成果直接使用项目内的原文件，以控制前端内存。
+算子成果保存在项目 artifacts 目录中，美学证据和统计快照保存在 evaluation.sqlite。界面另存下载目前限制为 64 MiB，较大成果直接使用项目内的原文件，以控制前端内存。
 
 已经验证本机真实 Danbooru 的只读分页、包偏移读取、内容校验、预览及大规模分级查询，也验证了较大合成目录上的结果和范围操作。各验收报告标明构建类型、查询条件和缓存边界，不代表全条件或长时间运行压测。
 

@@ -32,7 +32,7 @@ fn raw(kind: ObjectKind, incoming: bool) -> String {
         (ObjectKind::Artifact,true)=>vec![owners("artifact_references","artifact_id")],
         (ObjectKind::QueryResult,true)=>vec![owners("result_references","result_id")],
         (ObjectKind::Source,true)=>vec![
-            "SELECT 'workset' AS kind,c.id,'包含此来源的图片' AS relation,0 AS blocking FROM collections c WHERE EXISTS(SELECT 1 FROM collection_members m WHERE m.collection_id=c.id AND m.source_id=?1)".into(),
+            "SELECT 'workset' AS kind,c.id,'包含此来源的图片' AS relation,0 AS blocking FROM collections c WHERE NOT EXISTS(SELECT 1 FROM evaluation_workset_builds b WHERE b.collection_id=c.id AND b.state!='ready') AND EXISTS(SELECT 1 FROM collection_members m WHERE m.collection_id=c.id AND m.source_id=?1)".into(),
             "SELECT 'job' AS kind,j.id,'任务输入来源' AS relation,j.status IN ('queued','waiting_input','preparing','running') AS blocking FROM jobs j LEFT JOIN job_scopes s ON s.job_id=j.id WHERE NOT EXISTS(SELECT 1 FROM object_metadata o WHERE o.kind='job' AND o.id=j.id AND o.deleted=1) AND (EXISTS(SELECT 1 FROM job_inputs i WHERE i.job_id=j.id AND i.source_id=?1) OR json_extract(s.scope_json,'$.target.source_id')=?1 OR EXISTS(SELECT 1 FROM query_results r,json_each(r.spec_json,'$.source_ids') x WHERE r.id=s.result_id AND x.value=?1))".into(),
             "SELECT 'query' AS kind,q.id,'查询来源' AS relation,0 AS blocking FROM query_definitions q WHERE EXISTS(SELECT 1 FROM json_each(q.spec_json,'$.source_ids') WHERE value=?1) AND NOT EXISTS(SELECT 1 FROM object_metadata m WHERE m.kind='query' AND m.id=q.id AND m.deleted=1)".into(),
             "SELECT 'query_result' AS kind,q.id,'查询结果来源' AS relation,q.status IN ('queued','running') AS blocking FROM query_results q WHERE q.status!='released' AND EXISTS(SELECT 1 FROM json_each(q.spec_json,'$.source_ids') WHERE value=?1)".into(),
@@ -83,7 +83,7 @@ fn raw(kind: ObjectKind, incoming: bool) -> String {
         ],
         (ObjectKind::Project,false)=>vec![
             "SELECT 'source' AS kind,id,'项目数据湖' AS relation,0 AS blocking FROM sources WHERE ?1 IS NOT NULL".into(),
-            "SELECT 'workset' AS kind,id,'项目工作集' AS relation,0 AS blocking FROM collections WHERE ?1 IS NOT NULL".into(),
+            "SELECT 'workset' AS kind,id,'项目工作集' AS relation,0 AS blocking FROM collections WHERE ?1 IS NOT NULL AND NOT EXISTS(SELECT 1 FROM evaluation_workset_builds b WHERE b.collection_id=collections.id AND b.state!='ready')".into(),
             "SELECT 'artifact' AS kind,id,'项目成果' AS relation,0 AS blocking FROM artifacts WHERE status!='released' AND ?1 IS NOT NULL".into(),
         ],
         _=>Vec::new(),

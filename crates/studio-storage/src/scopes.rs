@@ -34,7 +34,7 @@ pub(super) fn resolve(db: &Connection, pid: &str, scope: &ScopeRef) -> Result<Re
         ScopeTarget::Workset { collection_id } => {
             let count = db
                 .query_row(
-                    "SELECT count FROM collections WHERE id=?1",
+                    "SELECT count FROM collections WHERE id=?1 AND NOT EXISTS(SELECT 1 FROM evaluation_workset_builds b WHERE b.collection_id=collections.id AND b.state!='ready')",
                     [collection_id],
                     |r| unsigned(r, 0),
                 )

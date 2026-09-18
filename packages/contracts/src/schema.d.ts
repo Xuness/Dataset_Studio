@@ -527,6 +527,214 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{project_id}/aesthetic/analysis/experiments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["aesthetic_experiments"];
+        put?: never;
+        post: operations["aesthetic_experiment_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/aesthetic/analysis/experiments/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["aesthetic_experiment"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/aesthetic/analysis/experiments/{id}/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["aesthetic_experiment_run"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/aesthetic/analysis/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["aesthetic_analysis_jobs"];
+        put?: never;
+        post: operations["aesthetic_analysis_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/aesthetic/analysis/jobs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["aesthetic_analysis_job"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/aesthetic/analysis/jobs/{id}/comparison": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["aesthetic_comparison_rows"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/aesthetic/analysis/jobs/{id}/control": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["aesthetic_analysis_control"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/aesthetic/analysis/reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["aesthetic_review_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/aesthetic/analysis/snapshots/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["aesthetic_snapshot"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/aesthetic/analysis/snapshots/{id}/candidates/{ordinal}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["aesthetic_ranking_candidate"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/aesthetic/analysis/snapshots/{id}/reviews": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["aesthetic_reviews"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/aesthetic/analysis/snapshots/{id}/rows": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["aesthetic_ranking_rows"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/aesthetic/analysis/snapshots/{id}/select": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["aesthetic_ranking_select"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects/{project_id}/aesthetic/backup": {
         parameters: {
             query?: never;
@@ -1955,6 +2163,77 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AestheticAnalysisControl: {
+            action: string;
+        };
+        AestheticAnalysisCreate: {
+            idempotency_key: string;
+            name: string;
+            spec: components["schemas"]["AestheticAnalysisSpec"];
+        };
+        AestheticAnalysisInput: {
+            /** Format: int64 */
+            candidates: number;
+            /** Format: int64 */
+            evidence_watermark: number;
+            /** Format: int64 */
+            observations: number;
+            /** Format: int64 */
+            review_watermark: number;
+            stage_config_hash: string;
+            stage_id: string;
+        };
+        AestheticAnalysisJob: {
+            created_at: string;
+            error?: string | null;
+            id: string;
+            input: components["schemas"]["AestheticAnalysisInput"];
+            phase: string;
+            /** Format: int64 */
+            progress: number;
+            request: components["schemas"]["AestheticAnalysisCreate"];
+            result?: null | components["schemas"]["AestheticAnalysisSummary"];
+            state: string;
+            /** Format: int64 */
+            total: number;
+        };
+        AestheticAnalysisJobs: {
+            items: components["schemas"]["AestheticAnalysisJob"][];
+            next_cursor?: string | null;
+        };
+        AestheticAnalysisSpec: {
+            config: components["schemas"]["AestheticFit"];
+            experiment_id?: string | null;
+            /** @enum {string} */
+            kind: "fit";
+            variant?: string | null;
+        } | {
+            /** @enum {string} */
+            kind: "compare";
+            left: string;
+            right: string;
+        } | {
+            filter: components["schemas"]["AestheticRankingFilter"];
+            /** @enum {string} */
+            kind: "derive";
+            /** Format: int64 */
+            review_watermark?: number | null;
+            snapshot_id: string;
+        };
+        AestheticAnalysisSummary: (components["schemas"]["AestheticFitSummary"] & {
+            /** @enum {string} */
+            kind: "fit";
+        }) | {
+            groups: components["schemas"]["AestheticComparisonGroup"][];
+            /** @enum {string} */
+            kind: "compare";
+        } | {
+            collection_id: string;
+            /** Format: int64 */
+            count: number;
+            /** @enum {string} */
+            kind: "derive";
+        };
         AestheticAttempt: {
             /** Format: int64 */
             batch: number;
@@ -2004,6 +2283,43 @@ export interface components {
             items: components["schemas"]["AestheticCandidate"][];
             next_cursor?: string | null;
         };
+        AestheticComparisonGroup: {
+            comparable: boolean;
+            /** Format: int64 */
+            elite_disagreements: number;
+            /** Format: int64 */
+            matched: number;
+            /** Format: double */
+            mean_absolute_percentile_delta?: number | null;
+            /** Format: double */
+            middle_mean_absolute_percentile_delta?: number | null;
+            /** Format: double */
+            rank_correlation?: number | null;
+            rating: string;
+            reason?: string | null;
+            /** Format: double */
+            top20_jaccard?: number | null;
+        };
+        AestheticComparisonRow: {
+            comparable: boolean;
+            key: components["schemas"]["AssetKey"];
+            /** Format: double */
+            left_percentile?: number | null;
+            left_protected: boolean;
+            /** Format: double */
+            percentile_delta?: number | null;
+            /** Format: int64 */
+            position: number;
+            rating: string;
+            reason?: string | null;
+            /** Format: double */
+            right_percentile?: number | null;
+            right_protected?: boolean | null;
+        };
+        AestheticComparisonRows: {
+            items: components["schemas"]["AestheticComparisonRow"][];
+            next_cursor?: string | null;
+        };
         AestheticConfig: {
             grouping_policy: string;
             image_policy: string;
@@ -2038,6 +2354,57 @@ export interface components {
             };
             system_prompt_id: string;
         };
+        AestheticEstimator: {
+            /** Format: int32 */
+            iterations: number;
+            /** @description davidson_v1 (batch-normalized composite objective) or borda_v1 (baseline). */
+            kind: string;
+            /** Format: double */
+            regularization: number;
+            /** Format: double */
+            tie_strength: number;
+        };
+        AestheticExperiment: {
+            created_at: string;
+            id: string;
+            inputs: components["schemas"]["AestheticAnalysisInput"][];
+            request: components["schemas"]["AestheticExperimentCreate"];
+        };
+        AestheticExperimentCreate: {
+            description: string;
+            idempotency_key: string;
+            name: string;
+            variants: components["schemas"]["AestheticExperimentVariant"][];
+        };
+        AestheticExperimentVariant: {
+            fit: components["schemas"]["AestheticFit"];
+            label: string;
+        };
+        AestheticExperiments: {
+            items: components["schemas"]["AestheticExperiment"][];
+            next_cursor?: string | null;
+        };
+        AestheticFit: {
+            estimator: components["schemas"]["AestheticEstimator"];
+            /**
+             * Format: int32
+             * @description Refit two deterministic, disjoint sets of whole batches. Not a confidence interval.
+             */
+            stability_seed?: number | null;
+            stage_id: string;
+        };
+        AestheticFitSummary: {
+            converged: boolean;
+            estimator_version: string;
+            groups: components["schemas"]["AestheticRatingSummary"][];
+            /** Format: int32 */
+            iterations_completed: number;
+            /** Format: double */
+            max_update: number;
+            stability_method: string;
+            /** Format: int64 */
+            working_bytes_estimate: number;
+        };
         AestheticMember: {
             candidate: components["schemas"]["AestheticCandidate"];
             image_sha256?: string | null;
@@ -2066,6 +2433,116 @@ export interface components {
             tiers: string[][];
             unjudgeable: components["schemas"]["AestheticUnjudgeable"][];
         };
+        AestheticRankingFilter: {
+            /** Format: int64 */
+            component?: number | null;
+            /**
+             * @description Union protected candidates into the selection after quality filters;
+             *     Rating and year restrictions still apply.
+             */
+            include_protected?: boolean;
+            /** Format: int32 */
+            max_exposures?: number | null;
+            /** Format: double */
+            min_split_delta?: number | null;
+            needs_review?: boolean;
+            protected_only?: boolean;
+            /** Format: int64 */
+            rank_from?: number | null;
+            /** Format: int64 */
+            rank_to?: number | null;
+            ratings?: string[];
+            /** Format: double */
+            top_percent?: number | null;
+            /** Format: int32 */
+            year_from?: number | null;
+            /** Format: int32 */
+            year_to?: number | null;
+        };
+        AestheticRankingQuery: {
+            after?: string | null;
+            filter: components["schemas"]["AestheticRankingFilter"];
+            /** Format: int32 */
+            limit?: number | null;
+        };
+        AestheticRankingRow: {
+            /** Format: int64 */
+            component?: number | null;
+            /** Format: double */
+            component_percentile?: number | null;
+            /** Format: int64 */
+            component_size: number;
+            content_version: string;
+            /** Format: int32 */
+            cross_year_exposures: number;
+            /** Format: double */
+            disagreement?: number | null;
+            /** Format: int32 */
+            exposures: number;
+            key: components["schemas"]["AssetKey"];
+            needs_review: boolean;
+            /** Format: int32 */
+            opponent_bins: number;
+            /** Format: double */
+            opponent_diversity_estimate?: number | null;
+            /** Format: int64 */
+            ordinal: number;
+            /** Format: double */
+            percentile?: number | null;
+            /**
+             * Format: int64
+             * @description Pagination position only, never a cross-Rating/global aesthetic rank.
+             */
+            position: number;
+            protected: boolean;
+            /** Format: int64 */
+            rank_max?: number | null;
+            /** Format: int64 */
+            rank_min?: number | null;
+            rating: string;
+            /** Format: int64 */
+            rating_rank_max?: number | null;
+            /** Format: int64 */
+            rating_rank_min?: number | null;
+            /** Format: double */
+            score?: number | null;
+            /** Format: double */
+            split_percentile_delta?: number | null;
+            /** Format: int32 */
+            unjudgeable: number;
+            /** Format: int32 */
+            year?: number | null;
+        };
+        AestheticRankingRows: {
+            items: components["schemas"]["AestheticRankingRow"][];
+            next_cursor?: string | null;
+        };
+        AestheticRankingSelection: {
+            items: components["schemas"]["AestheticSelectionRow"][];
+            next_cursor?: string | null;
+            /** Format: int64 */
+            review_watermark: number;
+            /** Format: int64 */
+            scanned: number;
+        };
+        AestheticRatingSummary: {
+            /** Format: int64 */
+            candidates: number;
+            /** Format: int64 */
+            compared: number;
+            /** Format: int64 */
+            components: number;
+            /** Format: int64 */
+            cross_year_batches: number;
+            fully_connected: boolean;
+            /** Format: int64 */
+            judged: number;
+            /** Format: int64 */
+            protected: number;
+            rating: string;
+            /** Format: int64 */
+            split_comparable: number;
+        };
         AestheticReceipt: {
             model?: string | null;
             outputs: components["schemas"]["LlmOutput"][];
@@ -2075,6 +2552,30 @@ export interface components {
         };
         AestheticRetry: {
             acknowledge_possible_charge: boolean;
+        };
+        AestheticReview: {
+            created_at: string;
+            request: components["schemas"]["AestheticReviewCreate"];
+            /** Format: int64 */
+            sequence: number;
+        };
+        AestheticReviewCreate: {
+            /** @description protect, confirm_elite, release, defer. Decisions never change statistical scores. */
+            decision: string;
+            idempotency_key: string;
+            /** Format: int64 */
+            ordinal: number;
+            reason: string;
+            reviewer: string;
+            snapshot_id: string;
+        };
+        AestheticReviews: {
+            items: components["schemas"]["AestheticReview"][];
+            next_cursor?: string | null;
+        };
+        AestheticSelectionRow: {
+            effective_protected: boolean;
+            ranking: components["schemas"]["AestheticRankingRow"];
         };
         AestheticStage: {
             /** Format: int64 */
@@ -4883,6 +5384,367 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Project"];
+                };
+            };
+        };
+    };
+    aesthetic_experiments: {
+        parameters: {
+            query?: {
+                after?: string;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AestheticExperiments"];
+                };
+            };
+        };
+    };
+    aesthetic_experiment_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AestheticExperimentCreate"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AestheticExperiment"];
+                };
+            };
+        };
+    };
+    aesthetic_experiment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AestheticExperiment"];
+                };
+            };
+        };
+    };
+    aesthetic_experiment_run: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AestheticAnalysisJobs"];
+                };
+            };
+        };
+    };
+    aesthetic_analysis_jobs: {
+        parameters: {
+            query?: {
+                after?: string;
+                limit?: number;
+                experiment_id?: string;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AestheticAnalysisJobs"];
+                };
+            };
+        };
+    };
+    aesthetic_analysis_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AestheticAnalysisCreate"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AestheticAnalysisJob"];
+                };
+            };
+        };
+    };
+    aesthetic_analysis_job: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AestheticAnalysisJob"];
+                };
+            };
+        };
+    };
+    aesthetic_comparison_rows: {
+        parameters: {
+            query?: {
+                after?: string;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AestheticComparisonRows"];
+                };
+            };
+        };
+    };
+    aesthetic_analysis_control: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AestheticAnalysisControl"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AestheticAnalysisJob"];
+                };
+            };
+        };
+    };
+    aesthetic_review_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AestheticReviewCreate"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AestheticReview"];
+                };
+            };
+        };
+    };
+    aesthetic_snapshot: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AestheticAnalysisJob"];
+                };
+            };
+        };
+    };
+    aesthetic_ranking_candidate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                id: string;
+                ordinal: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AestheticRankingRow"];
+                };
+            };
+        };
+    };
+    aesthetic_reviews: {
+        parameters: {
+            query?: {
+                after?: string;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AestheticReviews"];
+                };
+            };
+        };
+    };
+    aesthetic_ranking_rows: {
+        parameters: {
+            query?: {
+                after?: string;
+                limit?: number;
+                rating?: string;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AestheticRankingRows"];
+                };
+            };
+        };
+    };
+    aesthetic_ranking_select: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AestheticRankingQuery"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AestheticRankingSelection"];
                 };
             };
         };

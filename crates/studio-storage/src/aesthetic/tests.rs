@@ -1,5 +1,6 @@
 use super::*;
 use studio_domain::{AssetKey, llm::*, new_id};
+mod analysis;
 
 fn fixture(count: u64) -> (tempfile::TempDir, EvaluationDb, String) {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/test-runs");

@@ -1224,6 +1224,675 @@
         }
       }
     },
+    "/v1/projects/{project_id}/aesthetic/analysis/experiments": {
+      "get": {
+        "tags": [
+          "aesthetic_analysis"
+        ],
+        "operationId": "aesthetic_experiments",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AestheticExperiments"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "aesthetic_analysis"
+        ],
+        "operationId": "aesthetic_experiment_create",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AestheticExperimentCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AestheticExperiment"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/aesthetic/analysis/experiments/{id}": {
+      "get": {
+        "tags": [
+          "aesthetic_analysis"
+        ],
+        "operationId": "aesthetic_experiment",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AestheticExperiment"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/aesthetic/analysis/experiments/{id}/run": {
+      "post": {
+        "tags": [
+          "aesthetic_analysis"
+        ],
+        "operationId": "aesthetic_experiment_run",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AestheticAnalysisJobs"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/aesthetic/analysis/jobs": {
+      "get": {
+        "tags": [
+          "aesthetic_analysis"
+        ],
+        "operationId": "aesthetic_analysis_jobs",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "experiment_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AestheticAnalysisJobs"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "aesthetic_analysis"
+        ],
+        "operationId": "aesthetic_analysis_create",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AestheticAnalysisCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AestheticAnalysisJob"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/aesthetic/analysis/jobs/{id}": {
+      "get": {
+        "tags": [
+          "aesthetic_analysis"
+        ],
+        "operationId": "aesthetic_analysis_job",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AestheticAnalysisJob"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/aesthetic/analysis/jobs/{id}/comparison": {
+      "get": {
+        "tags": [
+          "aesthetic_analysis"
+        ],
+        "operationId": "aesthetic_comparison_rows",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AestheticComparisonRows"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/aesthetic/analysis/jobs/{id}/control": {
+      "post": {
+        "tags": [
+          "aesthetic_analysis"
+        ],
+        "operationId": "aesthetic_analysis_control",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AestheticAnalysisControl"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AestheticAnalysisJob"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/aesthetic/analysis/reviews": {
+      "post": {
+        "tags": [
+          "aesthetic_analysis"
+        ],
+        "operationId": "aesthetic_review_create",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AestheticReviewCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AestheticReview"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/aesthetic/analysis/snapshots/{id}": {
+      "get": {
+        "tags": [
+          "aesthetic_analysis"
+        ],
+        "operationId": "aesthetic_snapshot",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AestheticAnalysisJob"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/aesthetic/analysis/snapshots/{id}/candidates/{ordinal}": {
+      "get": {
+        "tags": [
+          "aesthetic_analysis"
+        ],
+        "operationId": "aesthetic_ranking_candidate",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ordinal",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AestheticRankingRow"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/aesthetic/analysis/snapshots/{id}/reviews": {
+      "get": {
+        "tags": [
+          "aesthetic_analysis"
+        ],
+        "operationId": "aesthetic_reviews",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AestheticReviews"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/aesthetic/analysis/snapshots/{id}/rows": {
+      "get": {
+        "tags": [
+          "aesthetic_analysis"
+        ],
+        "operationId": "aesthetic_ranking_rows",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "rating",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AestheticRankingRows"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/aesthetic/analysis/snapshots/{id}/select": {
+      "post": {
+        "tags": [
+          "aesthetic_analysis"
+        ],
+        "operationId": "aesthetic_ranking_select",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AestheticRankingQuery"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AestheticRankingSelection"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/projects/{project_id}/aesthetic/backup": {
       "post": {
         "tags": [
@@ -5600,6 +6269,312 @@
   },
   "components": {
     "schemas": {
+      "AestheticAnalysisControl": {
+        "type": "object",
+        "required": [
+          "action"
+        ],
+        "properties": {
+          "action": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AestheticAnalysisCreate": {
+        "type": "object",
+        "required": [
+          "idempotency_key",
+          "name",
+          "spec"
+        ],
+        "properties": {
+          "idempotency_key": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/AestheticAnalysisSpec"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AestheticAnalysisInput": {
+        "type": "object",
+        "required": [
+          "stage_id",
+          "stage_config_hash",
+          "evidence_watermark",
+          "observations",
+          "candidates",
+          "review_watermark"
+        ],
+        "properties": {
+          "candidates": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "evidence_watermark": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "observations": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "review_watermark": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "stage_config_hash": {
+            "type": "string"
+          },
+          "stage_id": {
+            "type": "string"
+          }
+        }
+      },
+      "AestheticAnalysisJob": {
+        "type": "object",
+        "required": [
+          "id",
+          "created_at",
+          "state",
+          "phase",
+          "progress",
+          "total",
+          "request",
+          "input"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "input": {
+            "$ref": "#/components/schemas/AestheticAnalysisInput"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "progress": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "request": {
+            "$ref": "#/components/schemas/AestheticAnalysisCreate"
+          },
+          "result": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AestheticAnalysisSummary"
+              }
+            ]
+          },
+          "state": {
+            "type": "string"
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "AestheticAnalysisJobs": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AestheticAnalysisJob"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "AestheticAnalysisSpec": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "config",
+              "kind"
+            ],
+            "properties": {
+              "config": {
+                "$ref": "#/components/schemas/AestheticFit"
+              },
+              "experiment_id": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "fit"
+                ]
+              },
+              "variant": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "left",
+              "right",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "compare"
+                ]
+              },
+              "left": {
+                "type": "string"
+              },
+              "right": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "snapshot_id",
+              "filter",
+              "kind"
+            ],
+            "properties": {
+              "filter": {
+                "$ref": "#/components/schemas/AestheticRankingFilter"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "derive"
+                ]
+              },
+              "review_watermark": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "minimum": 0
+              },
+              "snapshot_id": {
+                "type": "string"
+              }
+            }
+          }
+        ]
+      },
+      "AestheticAnalysisSummary": {
+        "oneOf": [
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/AestheticFitSummary"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "fit"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "type": "object",
+            "required": [
+              "groups",
+              "kind"
+            ],
+            "properties": {
+              "groups": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/AestheticComparisonGroup"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "compare"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "collection_id",
+              "count",
+              "kind"
+            ],
+            "properties": {
+              "collection_id": {
+                "type": "string"
+              },
+              "count": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "derive"
+                ]
+              }
+            }
+          }
+        ]
+      },
       "AestheticAttempt": {
         "type": "object",
         "required": [
@@ -5816,6 +6791,149 @@
           }
         }
       },
+      "AestheticComparisonGroup": {
+        "type": "object",
+        "required": [
+          "rating",
+          "matched",
+          "comparable",
+          "elite_disagreements"
+        ],
+        "properties": {
+          "comparable": {
+            "type": "boolean"
+          },
+          "elite_disagreements": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "matched": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "mean_absolute_percentile_delta": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "middle_mean_absolute_percentile_delta": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "rank_correlation": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "rating": {
+            "type": "string"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "top20_jaccard": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          }
+        }
+      },
+      "AestheticComparisonRow": {
+        "type": "object",
+        "required": [
+          "position",
+          "key",
+          "rating",
+          "comparable",
+          "left_protected"
+        ],
+        "properties": {
+          "comparable": {
+            "type": "boolean"
+          },
+          "key": {
+            "$ref": "#/components/schemas/AssetKey"
+          },
+          "left_percentile": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "left_protected": {
+            "type": "boolean"
+          },
+          "percentile_delta": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "position": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "rating": {
+            "type": "string"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "right_percentile": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "right_protected": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        }
+      },
+      "AestheticComparisonRows": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AestheticComparisonRow"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "AestheticConfig": {
         "type": "object",
         "required": [
@@ -5934,6 +7052,192 @@
         },
         "additionalProperties": false
       },
+      "AestheticEstimator": {
+        "type": "object",
+        "required": [
+          "kind",
+          "iterations",
+          "regularization",
+          "tie_strength"
+        ],
+        "properties": {
+          "iterations": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "kind": {
+            "type": "string",
+            "description": "davidson_v1 (batch-normalized composite objective) or borda_v1 (baseline)."
+          },
+          "regularization": {
+            "type": "number",
+            "format": "double"
+          },
+          "tie_strength": {
+            "type": "number",
+            "format": "double"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AestheticExperiment": {
+        "type": "object",
+        "required": [
+          "id",
+          "created_at",
+          "request",
+          "inputs"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "inputs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AestheticAnalysisInput"
+            }
+          },
+          "request": {
+            "$ref": "#/components/schemas/AestheticExperimentCreate"
+          }
+        }
+      },
+      "AestheticExperimentCreate": {
+        "type": "object",
+        "required": [
+          "idempotency_key",
+          "name",
+          "description",
+          "variants"
+        ],
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "idempotency_key": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "variants": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AestheticExperimentVariant"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "AestheticExperimentVariant": {
+        "type": "object",
+        "required": [
+          "label",
+          "fit"
+        ],
+        "properties": {
+          "fit": {
+            "$ref": "#/components/schemas/AestheticFit"
+          },
+          "label": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AestheticExperiments": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AestheticExperiment"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "AestheticFit": {
+        "type": "object",
+        "required": [
+          "stage_id",
+          "estimator"
+        ],
+        "properties": {
+          "estimator": {
+            "$ref": "#/components/schemas/AestheticEstimator"
+          },
+          "stability_seed": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Refit two deterministic, disjoint sets of whole batches. Not a confidence interval.",
+            "minimum": 0
+          },
+          "stage_id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AestheticFitSummary": {
+        "type": "object",
+        "required": [
+          "estimator_version",
+          "groups",
+          "iterations_completed",
+          "converged",
+          "max_update",
+          "working_bytes_estimate",
+          "stability_method"
+        ],
+        "properties": {
+          "converged": {
+            "type": "boolean"
+          },
+          "estimator_version": {
+            "type": "string"
+          },
+          "groups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AestheticRatingSummary"
+            }
+          },
+          "iterations_completed": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "max_update": {
+            "type": "number",
+            "format": "double"
+          },
+          "stability_method": {
+            "type": "string"
+          },
+          "working_bytes_estimate": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "AestheticMember": {
         "type": "object",
         "required": [
@@ -6041,6 +7345,382 @@
           }
         }
       },
+      "AestheticRankingFilter": {
+        "type": "object",
+        "properties": {
+          "component": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "include_protected": {
+            "type": "boolean",
+            "description": "Union protected candidates into the selection after quality filters;\nRating and year restrictions still apply."
+          },
+          "max_exposures": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "min_split_delta": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "needs_review": {
+            "type": "boolean"
+          },
+          "protected_only": {
+            "type": "boolean"
+          },
+          "rank_from": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "rank_to": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "ratings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "top_percent": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "year_from": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "year_to": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AestheticRankingQuery": {
+        "type": "object",
+        "required": [
+          "filter"
+        ],
+        "properties": {
+          "after": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "filter": {
+            "$ref": "#/components/schemas/AestheticRankingFilter"
+          },
+          "limit": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "AestheticRankingRow": {
+        "type": "object",
+        "required": [
+          "position",
+          "ordinal",
+          "key",
+          "rating",
+          "content_version",
+          "component_size",
+          "exposures",
+          "unjudgeable",
+          "protected",
+          "opponent_bins",
+          "cross_year_exposures",
+          "needs_review"
+        ],
+        "properties": {
+          "component": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "component_percentile": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "component_size": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "content_version": {
+            "type": "string"
+          },
+          "cross_year_exposures": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "disagreement": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "exposures": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "key": {
+            "$ref": "#/components/schemas/AssetKey"
+          },
+          "needs_review": {
+            "type": "boolean"
+          },
+          "opponent_bins": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "opponent_diversity_estimate": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "ordinal": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "percentile": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "position": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Pagination position only, never a cross-Rating/global aesthetic rank.",
+            "minimum": 0
+          },
+          "protected": {
+            "type": "boolean"
+          },
+          "rank_max": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "rank_min": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "rating": {
+            "type": "string"
+          },
+          "rating_rank_max": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "rating_rank_min": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "score": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "split_percentile_delta": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "unjudgeable": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "year": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          }
+        }
+      },
+      "AestheticRankingRows": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AestheticRankingRow"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "AestheticRankingSelection": {
+        "type": "object",
+        "required": [
+          "items",
+          "review_watermark",
+          "scanned"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AestheticSelectionRow"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "review_watermark": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "scanned": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "AestheticRatingSummary": {
+        "type": "object",
+        "required": [
+          "rating",
+          "candidates",
+          "judged",
+          "compared",
+          "components",
+          "protected",
+          "cross_year_batches",
+          "split_comparable",
+          "fully_connected"
+        ],
+        "properties": {
+          "candidates": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "compared": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "components": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "cross_year_batches": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "fully_connected": {
+            "type": "boolean"
+          },
+          "judged": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "protected": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "rating": {
+            "type": "string"
+          },
+          "split_comparable": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "AestheticReceipt": {
         "type": "object",
         "required": [
@@ -6088,6 +7768,97 @@
           }
         },
         "additionalProperties": false
+      },
+      "AestheticReview": {
+        "type": "object",
+        "required": [
+          "sequence",
+          "created_at",
+          "request"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "request": {
+            "$ref": "#/components/schemas/AestheticReviewCreate"
+          },
+          "sequence": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "AestheticReviewCreate": {
+        "type": "object",
+        "required": [
+          "idempotency_key",
+          "snapshot_id",
+          "ordinal",
+          "decision",
+          "reviewer",
+          "reason"
+        ],
+        "properties": {
+          "decision": {
+            "type": "string",
+            "description": "protect, confirm_elite, release, defer. Decisions never change statistical scores."
+          },
+          "idempotency_key": {
+            "type": "string"
+          },
+          "ordinal": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "reason": {
+            "type": "string"
+          },
+          "reviewer": {
+            "type": "string"
+          },
+          "snapshot_id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AestheticReviews": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AestheticReview"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "AestheticSelectionRow": {
+        "type": "object",
+        "required": [
+          "ranking",
+          "effective_protected"
+        ],
+        "properties": {
+          "effective_protected": {
+            "type": "boolean"
+          },
+          "ranking": {
+            "$ref": "#/components/schemas/AestheticRankingRow"
+          }
+        }
       },
       "AestheticStage": {
         "type": "object",
