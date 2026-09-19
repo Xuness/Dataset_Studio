@@ -1,5 +1,5 @@
 //! Project-owned paid evidence. Never part of the disposable query/preview caches.
-use crate::{db_error, now, read_pool::ReadPool};
+use crate::{now, read_pool::ReadPool};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Serialize, de::DeserializeOwned};
 use sha2::{Digest, Sha256};
@@ -8,6 +8,8 @@ use studio_application::aesthetic::{AestheticRepository, parse_observation};
 use studio_domain::{Error, Result, aesthetic::*, llm::LlmFailure};
 pub mod analysis;
 mod analysis_project;
+mod creation;
+mod decisions;
 mod dispatch;
 mod evidence;
 mod project;
@@ -20,6 +22,22 @@ pub struct EvaluationDb {
     path: PathBuf,
     writer: writer::Writer,
     reads: ReadPool,
+}
+fn db_error(error: rusqlite::Error) -> Error {
+    let code = match error.sqlite_error_code() {
+        Some(rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked) => {
+            "EVALUATION_BUSY"
+        }
+        Some(rusqlite::ErrorCode::DiskFull) => "EVALUATION_STORAGE_FULL",
+        Some(rusqlite::ErrorCode::SystemIoFailure | rusqlite::ErrorCode::CannotOpen) => {
+            "EVALUATION_STORAGE_IO"
+        }
+        Some(rusqlite::ErrorCode::DatabaseCorrupt | rusqlite::ErrorCode::NotADatabase) => {
+            "EVALUATION_CORRUPT"
+        }
+        _ => "DATABASE_ERROR",
+    };
+    Error::new(code, error.to_string())
 }
 fn encode(value: &impl Serialize) -> Result<String> {
     serde_json::to_string(value).map_err(Error::io)
@@ -54,7 +72,12 @@ impl EvaluationDb {
             let old: Option<String> = db.query_row("SELECT request_json FROM stages WHERE id=?1", [&id], |r| r.get(0)).optional().map_err(db_error)?;
             if let Some(old) = old {
                 if old != request { return Err(Error::new("IDEMPOTENCY_CONFLICT", "评审创建键已被不同请求使用")); }
+                let saved=read_stage(db,&id)?;
+                if saved.total!=total || serde_json::to_value(&saved.config).map_err(Error::io)?!=serde_json::to_value(&config).map_err(Error::io)? {
+                    return Err(Error::new("EVALUATION_RECONCILIATION_FAILED","两库的冻结配置或总量不一致"));
+                }
             } else {
+                studio_application::aesthetic::validate_capacity(total)?;
                 db.execute("INSERT INTO stages(id,name,state,created_at,config,config_hash,request_json,total) VALUES (?1,?2,'preparing',?3,?4,?5,?6,?7)",
                     params![id,config.request.name,now(),json,hash(&json),request,total as i64]).map_err(db_error)?;
             }
@@ -69,12 +92,16 @@ impl EvaluationDb {
         self.writer.submit(encode(&rows)?.len(), move |db| {
             let stage = read_stage(db, &id)?;
             if stage.state != "preparing" { return Err(Error::new("CANCELLED", "候选冻结已暂停")); }
+            if stage.frozen + rows.len() as u64 > stage.total { return Err(Error::new("SOURCE_CHANGED", "候选数超过创建时冻结的工作集总量")); }
             for (offset, row) in rows.iter().enumerate() {
                 if row.ordinal != stage.frozen + offset as u64 { return Err(Error::invalid("候选冻结游标不连续")); }
                 let eligible = matches!(row.rating.as_str(), "g"|"s"|"q"|"e");
                 db.execute("INSERT INTO candidates(stage_id,ordinal,source_id,asset_id,rating,year,basis,content_version,bytes,blocked,sort_key) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
                     params![id,row.ordinal as i64,row.key.source_id,row.key.asset_id,row.rating,row.year,row.basis,row.content_version,row.bytes as i64,!eligible,hash(&format!("{id}:{}:0",row.ordinal))]).map_err(db_error)?;
                 db.execute("UPDATE stages SET frozen=frozen+1,eligible=eligible+?2 WHERE id=?1", params![id,eligible as u32]).map_err(db_error)?;
+                if !eligible {
+                    db.execute("UPDATE candidates SET disposition='needs_review',disposition_reason='rating_unresolved' WHERE stage_id=?1 AND ordinal=?2", params![id,row.ordinal as i64]).map_err(db_error)?;
+                }
             }
             Ok(())
         })
@@ -111,29 +138,7 @@ impl EvaluationDb {
         let action = action.to_owned();
         self.writer.submit(1024, move |db| {
             let s = read_stage(db, &id)?;
-            let next = match action.as_str() {
-                "start"
-                    if matches!(
-                        s.state.as_str(),
-                        "ready" | "paused" | "needs_attention" | "failed"
-                    ) =>
-                {
-                    if s.attempts >= u64::from(s.config.request.max_calls) {
-                        return Err(Error::invalid("阶段调用预算已用尽，请创建新阶段"));
-                    }
-                    if s.frozen < s.total {
-                        "preparing"
-                    } else {
-                        "running"
-                    }
-                }
-                "pause" if matches!(s.state.as_str(), "running" | "preparing") => "pausing",
-                "cancel" if matches!(s.state.as_str(), "running" | "preparing" | "pausing") => {
-                    "cancelling"
-                }
-                "cancel" if !matches!(s.state.as_str(), "completed" | "cancelled") => "cancelled",
-                _ => return Err(Error::new("REVISION_CONFLICT", "当前评审状态不允许此操作")),
-            };
+            let next = studio_application::aesthetic::control_state(&s, &action)?;
             db.execute(
                 "UPDATE stages SET state=?2,error=NULL WHERE id=?1",
                 params![id, next],
@@ -144,22 +149,27 @@ impl EvaluationDb {
     }
     pub fn settle(&self, id: &str, error: Option<String>) -> Result<AestheticStage> {
         let id = id.to_owned();
-        self.writer.submit(1024, move |db| {
+        self.writer.submit_named(1024, "settle", &id.clone(), move |db| {
             db.execute("UPDATE batches SET state='queued' WHERE stage_id=?1 AND state='preparing'", [&id]).map_err(db_error)?;
             db.execute("UPDATE candidates SET reserved=0,blocked=1 WHERE stage_id=?1 AND ordinal IN (SELECT json_extract(m.value,'$.candidate.ordinal') FROM batches b,json_each(b.members) m WHERE b.stage_id=?1 AND b.state='sent')",[&id]).map_err(db_error)?;
             db.execute("UPDATE attempts SET state='outcome_unknown' WHERE state='sent' AND batch IN (SELECT sequence FROM batches WHERE stage_id=?1)",[&id]).map_err(db_error)?;
             db.execute("UPDATE batches SET state='outcome_unknown',error='执行中断，上游结果尚未确认' WHERE stage_id=?1 AND state='sent'",[&id]).map_err(db_error)?;
             db.execute("UPDATE stages SET unknown=(SELECT count(*) FROM batches WHERE stage_id=?1 AND state='outcome_unknown') WHERE id=?1",[&id]).map_err(db_error)?;
             let s = read_stage(db,&id)?;
-            let pending: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM candidates WHERE stage_id=?1 AND rating IN ('g','s','q','e') AND exposures<?2) OR EXISTS(SELECT 1 FROM batches WHERE stage_id=?1 AND state NOT IN ('accepted'))",params![id,s.config.request.exposures],|r|r.get(0)).map_err(db_error)?;
-            let next = if s.state == "cancelling" { "cancelled" }
-                else if s.state == "pausing" { "paused" }
-                else if error.is_some() { "needs_attention" }
-                else if s.state == "running" && !pending && s.eligible>0 { "completed" }
-                else if s.state == "running" { "needs_attention" }
-                else { &s.state };
+            let pending: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM batches WHERE stage_id=?1 AND state!='accepted')",[&id],|r|r.get(0)).map_err(db_error)?;
+            let next = studio_application::aesthetic::settled_state(&s, pending, error.is_some());
             db.execute("UPDATE stages SET state=?2,error=COALESCE(?3,error) WHERE id=?1",params![id,next,error]).map_err(db_error)?;
             read_stage(db,&id)
+        })
+    }
+    pub fn health_check(&self) -> Result<()> {
+        self.writer.submit(1024, |db| {
+            db.execute(
+                "UPDATE writer_health SET probe=(probe+1)%1000000 WHERE id=1",
+                [],
+            )
+            .map_err(db_error)?;
+            Ok(())
         })
     }
     /// A consistent evidence backup, including WAL contents; destination must not exist.
@@ -188,10 +198,10 @@ impl EvaluationDb {
 }
 
 fn read_stage(db: &Connection, id: &str) -> Result<AestheticStage> {
-    db.query_row("SELECT id,name,state,created_at,config,config_hash,total,frozen,eligible,attempts,accepted,invalid,unknown,protected,input_tokens,output_tokens,usage_unknown,error FROM stages WHERE id=?1",[id],|r| {
+    db.query_row("SELECT id,name,state,created_at,config,config_hash,total,frozen,eligible,attempts,accepted,invalid,unknown,protected,input_tokens,output_tokens,usage_unknown,error,comparable,excluded,unresolved FROM stages WHERE id=?1",[id],|r| {
         let config: String = r.get(4)?;
         let config = serde_json::from_str(&config).map_err(|e| rusqlite::Error::FromSqlConversionFailure(4,rusqlite::types::Type::Text,Box::new(e)))?;
-        Ok(AestheticStage { id:r.get(0)?,name:r.get(1)?,state:r.get(2)?,created_at:r.get(3)?,config,config_hash:r.get(5)?,total:crate::unsigned(r,6)?,frozen:crate::unsigned(r,7)?,eligible:crate::unsigned(r,8)?,attempts:crate::unsigned(r,9)?,accepted:crate::unsigned(r,10)?,invalid:crate::unsigned(r,11)?,unknown:crate::unsigned(r,12)?,protected:crate::unsigned(r,13)?,input_tokens:crate::unsigned(r,14)?,output_tokens:crate::unsigned(r,15)?,usage_unknown:crate::unsigned(r,16)?,error:r.get(17)? })
+        Ok(AestheticStage { id:r.get(0)?,name:r.get(1)?,state:r.get(2)?,created_at:r.get(3)?,config,config_hash:r.get(5)?,total:crate::unsigned(r,6)?,frozen:crate::unsigned(r,7)?,eligible:crate::unsigned(r,8)?,attempts:crate::unsigned(r,9)?,accepted:crate::unsigned(r,10)?,invalid:crate::unsigned(r,11)?,unknown:crate::unsigned(r,12)?,protected:crate::unsigned(r,13)?,input_tokens:crate::unsigned(r,14)?,output_tokens:crate::unsigned(r,15)?,usage_unknown:crate::unsigned(r,16)?,error:r.get(17)?,comparable:crate::unsigned(r,18)?,excluded:crate::unsigned(r,19)?,unresolved:crate::unsigned(r,20)? })
     }).optional().map_err(db_error)?.ok_or_else(|| Error::new("NOT_FOUND","评审阶段不存在"))
 }
 fn candidates(
@@ -199,7 +209,7 @@ fn candidates(
     tail: &str,
     parameters: impl rusqlite::Params,
 ) -> Result<Vec<AestheticCandidate>> {
-    let mut statement = db.prepare(&format!("SELECT ordinal,source_id,asset_id,rating,year,basis,content_version,bytes,exposures,protected FROM candidates {tail}")).map_err(db_error)?;
+    let mut statement = db.prepare(&format!("SELECT ordinal,source_id,asset_id,rating,year,basis,content_version,bytes,exposures,protected,disposition,disposition_reason FROM candidates {tail}")).map_err(db_error)?;
     statement
         .query_map(parameters, |r| {
             Ok(AestheticCandidate {
@@ -215,6 +225,15 @@ fn candidates(
                 bytes: crate::unsigned(r, 7)?,
                 exposures: r.get(8)?,
                 protected: r.get(9)?,
+                disposition: serde_json::from_value(serde_json::Value::String(r.get(10)?))
+                    .map_err(|e| {
+                        rusqlite::Error::FromSqlConversionFailure(
+                            10,
+                            rusqlite::types::Type::Text,
+                            Box::new(e),
+                        )
+                    })?,
+                disposition_reason: r.get(11)?,
             })
         })
         .map_err(db_error)?

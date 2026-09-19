@@ -44,6 +44,8 @@ fn fixture() -> Fixture {
             bytes: 0,
             exposures: 999,
             protected: true,
+            disposition: Default::default(),
+            disposition_reason: None,
         })
         .collect();
     let mut observations = Vec::new();

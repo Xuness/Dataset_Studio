@@ -3,6 +3,8 @@ name = "studio-engine"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+[features]
+test-faults = ["studio-storage/test-faults"]
 [dependencies]
 studio-domain = { path = "../studio-domain" }
 studio-application = { path = "../studio-application" }

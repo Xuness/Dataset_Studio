@@ -751,6 +751,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{project_id}/aesthetic/capabilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["aesthetic_capabilities"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/aesthetic/creation-intents/{id}/abandon": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["aesthetic_abandon_creation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects/{project_id}/aesthetic/metrics": {
         parameters: {
             query?: never;
@@ -761,6 +793,22 @@ export interface paths {
         get: operations["aesthetic_metrics"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/aesthetic/preflight": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["aesthetic_preflight"];
         delete?: never;
         options?: never;
         head?: never;
@@ -857,6 +905,22 @@ export interface paths {
         get: operations["aesthetic_candidates"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/aesthetic/stages/{id}/candidates/{ordinal}/disposition": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["aesthetic_decide_candidate"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2241,6 +2305,7 @@ export interface components {
             failure?: null | components["schemas"]["LlmFailure"];
             id: string;
             receipt?: null | components["schemas"]["AestheticReceipt"];
+            semantic_request_hash?: string | null;
             state: string;
         };
         AestheticAttempts: {
@@ -2269,6 +2334,8 @@ export interface components {
             /** Format: int64 */
             bytes: number;
             content_version: string;
+            disposition: components["schemas"]["AestheticDisposition"];
+            disposition_reason?: string | null;
             /** Format: int32 */
             exposures: number;
             key: components["schemas"]["AssetKey"];
@@ -2279,9 +2346,26 @@ export interface components {
             /** Format: int32 */
             year?: number | null;
         };
+        AestheticCandidateDecision: {
+            action: components["schemas"]["AestheticDispositionAction"];
+            idempotency_key: string;
+            reason: string;
+        };
         AestheticCandidates: {
             items: components["schemas"]["AestheticCandidate"][];
             next_cursor?: string | null;
+        };
+        AestheticCapabilities: {
+            /** Format: int32 */
+            batch_size: number;
+            /** Format: int64 */
+            max_image_bytes: number;
+            /** Format: int64 */
+            max_request_bytes: number;
+            /** Format: int64 */
+            max_stage_candidates: number;
+            /** Format: int32 */
+            version: number;
         };
         AestheticComparisonGroup: {
             comparable: boolean;
@@ -2321,6 +2405,7 @@ export interface components {
             next_cursor?: string | null;
         };
         AestheticConfig: {
+            execution?: null | components["schemas"]["AestheticExecution"];
             grouping_policy: string;
             image_policy: string;
             /** Format: int64 */
@@ -2342,6 +2427,7 @@ export interface components {
             collection_id: string;
             /** Format: int32 */
             concurrency: number;
+            expected_input_version?: string | null;
             /** Format: int32 */
             exposures: number;
             idempotency_key: string;
@@ -2354,6 +2440,10 @@ export interface components {
             };
             system_prompt_id: string;
         };
+        /** @enum {string} */
+        AestheticDisposition: "active" | "needs_review" | "rejudge" | "excluded";
+        /** @enum {string} */
+        AestheticDispositionAction: "rejudge" | "exclude";
         AestheticEstimator: {
             /** Format: int32 */
             iterations: number;
@@ -2363,6 +2453,14 @@ export interface components {
             regularization: number;
             /** Format: double */
             tie_strength: number;
+        };
+        AestheticExecution: {
+            /** Format: int32 */
+            business_schema_version: number;
+            encoder_version: string;
+            input_version: string;
+            sampler_version: string;
+            template_version: string;
         };
         AestheticExperiment: {
             created_at: string;
@@ -2413,6 +2511,7 @@ export interface components {
         AestheticMetrics: {
             /** Format: int64 */
             active_requests: number;
+            dispatch_health: string;
             /** Format: int64 */
             peak_request_bytes: number;
             /** Format: int64 */
@@ -2421,6 +2520,9 @@ export interface components {
             queued_write_bytes: number;
             /** Format: int64 */
             reserved_request_bytes: number;
+            /** Format: int64 */
+            retained_outcomes: number;
+            storage_error_code?: string | null;
             /** Format: int64 */
             upload_budget_bytes_per_second: number;
             /** Format: int64 */
@@ -2432,6 +2534,15 @@ export interface components {
             schema_version: number;
             tiers: string[][];
             unjudgeable: components["schemas"]["AestheticUnjudgeable"][];
+        };
+        AestheticPreflight: {
+            admitted: boolean;
+            capabilities: components["schemas"]["AestheticCapabilities"];
+            input_version: string;
+            rejection_code?: string | null;
+            rejection_reason?: string | null;
+            /** Format: int64 */
+            total: number;
         };
         AestheticRankingFilter: {
             /** Format: int64 */
@@ -2582,12 +2693,16 @@ export interface components {
             accepted: number;
             /** Format: int64 */
             attempts: number;
+            /** Format: int64 */
+            comparable: number;
             config: components["schemas"]["AestheticConfig"];
             config_hash: string;
             created_at: string;
             /** Format: int64 */
             eligible: number;
             error?: string | null;
+            /** Format: int64 */
+            excluded: number;
             /** Format: int64 */
             frozen: number;
             id: string;
@@ -2605,6 +2720,8 @@ export interface components {
             total: number;
             /** Format: int64 */
             unknown: number;
+            /** Format: int64 */
+            unresolved: number;
             /** Format: int64 */
             usage_unknown: number;
         };
@@ -5770,6 +5887,49 @@ export interface operations {
             };
         };
     };
+    aesthetic_capabilities: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AestheticCapabilities"];
+                };
+            };
+        };
+    };
+    aesthetic_abandon_creation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+        };
+    };
     aesthetic_metrics: {
         parameters: {
             query?: never;
@@ -5787,6 +5947,31 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AestheticMetrics"];
+                };
+            };
+        };
+    };
+    aesthetic_preflight: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AestheticCreate"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AestheticPreflight"];
                 };
             };
         };
@@ -5958,6 +6143,33 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AestheticCandidates"];
+                };
+            };
+        };
+    };
+    aesthetic_decide_candidate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                id: string;
+                ordinal: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AestheticCandidateDecision"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AestheticCandidate"];
                 };
             };
         };

@@ -120,7 +120,7 @@ Windows 原生剪贴板验收为 `pnpm test:clipboard`，要求已开启系统�
 
 接口以 Rust DTO 和 Utoipa 定义为准。生成的 OpenAPI 和 TypeScript 类型纳入 Git，CI 重新生成后检查漂移。前端功能通过 SDK 调用引擎，原生目录选择由应用层注入。
 
-测试覆盖旧项目升级、只读元数据、范围与结果、算子注册和固定字段、成果发布恢复、草稿冲突、读取公平性和取消、持久缓存与引用隔离。`test:integration` 包含 19 组独立引擎脚本，覆盖增量查询、分层预算、每日分级更新、真实 SDK 会话重连、MetaRecall 排名、有界范围排序、对象管理、撤销和排名起点浏览。夹具默认使用 Debug，引擎已构建时可用 `STUDIO_ENGINE_PROFILE=release` 验证优化产物。界面检查包括 `node tooling/smoke-ranking-ui.mjs`、`node tooling/smoke-management-ui.mjs` 和 `node tooling/smoke-ranking-browse-ui.mjs`，使用独立引擎与无头 Edge 上下文；真实有界元数据检查为 `tooling/verify-ranking.mjs`。可选的原生设置窗口检查为 `node tooling/smoke-settings-ui.mjs`，先关闭现有开发窗口与前端服务；它只使用独立的合成图片与项目。
+测试覆盖旧项目升级、只读元数据、范围与结果、算子注册和固定字段、成果发布恢复、草稿冲突、读取公平性和取消、持久缓存与引用隔离。`test:integration` 包含 20 组独立引擎脚本，覆盖增量查询、分层预算、每日分级更新、真实 SDK 会话重连、MetaRecall 排名、有界范围排序、对象管理、撤销和排名起点浏览。夹具默认使用 Debug，引擎已构建时可用 `STUDIO_ENGINE_PROFILE=release` 验证优化产物。界面检查包括 `node tooling/smoke-ranking-ui.mjs`、`node tooling/smoke-management-ui.mjs` 和 `node tooling/smoke-ranking-browse-ui.mjs`，使用独立引擎与无头 Edge 上下文；真实有界元数据检查为 `tooling/verify-ranking.mjs`。可选的原生设置窗口检查为 `node tooling/smoke-settings-ui.mjs`，先关闭现有开发窗口与前端服务；它只使用独立的合成图片与项目。
 
 真实数据湖可使用 `node tooling/verify-metadata.mjs --index-root <索引根目录> --media-root <图片湖根目录> --asset <SHA256>` 做有界验证，最多传入 8 个 `--asset`。脚本使用隔离运行目录与真实引擎 API，报告写入 `.local/test-runs/metadata-verification-*`。
 

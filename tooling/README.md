@@ -17,7 +17,7 @@ Python 夹具只依赖标准库，通过 ctypes 加载 `vendor/duckdb/duckdb.dll
 | `pnpm engine:stop`                        | 结束当前开发引擎                                                 |
 | `pnpm contracts` / `pnpm contracts:check` | 生成公开契约 / 核对契约漂移                                      |
 | `pnpm check`                              | 类型、lint、依赖边界、契约、Rust 格式与 Clippy、Rust 和 SDK 测试 |
-| `pnpm test:integration`                   | 19 组隔离引擎集成脚本                                            |
+| `pnpm test:integration`                   | 20 组隔离引擎集成脚本                                            |
 | `pnpm test:launcher`                      | Windows 启动器与引擎进程管理回归                                 |
 | `pnpm test:clipboard`                     | Windows 原生剪贴板及 Win+V 历史验证，会写入系统剪贴板            |
 | `pnpm build`                              | 验证前端构建，不生成安装包                                       |
@@ -46,7 +46,9 @@ Rust 测试位于 crates 内，`pnpm test` 同时执行 SDK 检查 [client-found
 | LLM 与系统指令             | [integration-llm.mjs](integration-llm.mjs)、[integration-system-prompts.mjs](integration-system-prompts.mjs)                                                                                                                                                                                                                                                                                               |
 | 美学评审与离线统计         | [integration-aesthetic.mjs](integration-aesthetic.mjs)、[integration-aesthetic-analysis.mjs](integration-aesthetic-analysis.mjs)                                                                                                                                                                                                                                                                           |
 
-夹具引擎默认使用 Debug；需要验证已有 Release 产物时可设置 `STUDIO_ENGINE_PROFILE=release`。单独执行集成脚本前，应先准备 DuckDB 和相应引擎构建。
+另外包括 [integration-aesthetic-recovery.mjs](integration-aesthetic-recovery.mjs)：R0/R1 创建中断、存储故障、发送屏障、候选处置、冻结模板、请求 ID 和真实百万行容量准入。该脚本显式构建 Debug `test-faults` 引擎，通过隔离文件注入故障，结束后恢复普通构建；不调用商业供应商，不证明百万图片吞吐。
+
+普通夹具引擎默认使用 Debug；需要验证已有 Release 产物时可设置 `STUDIO_ENGINE_PROFILE=release`。单独执行集成脚本前，应先准备 DuckDB 和相应引擎构建。
 
 ## 界面与原生窗口验证
 

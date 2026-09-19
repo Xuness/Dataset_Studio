@@ -22,6 +22,8 @@ impl AestheticReplaySource for Synthetic {
                 bytes: 0,
                 exposures: 0,
                 protected: false,
+                disposition: Default::default(),
+                disposition_reason: None,
             })
             .collect())
     }

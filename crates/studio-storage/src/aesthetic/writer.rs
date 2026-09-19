@@ -1,4 +1,5 @@
-use crate::{db_error, lock_error};
+use super::db_error;
+use crate::lock_error;
 use std::{
     any::Any,
     path::Path,
@@ -13,6 +14,8 @@ struct Command {
     bytes: usize,
     operation: Operation,
     reply: mpsc::SyncSender<Result<Value>>,
+    point: &'static str,
+    key: String,
 }
 #[derive(Default)]
 pub(super) struct QueueStats {
@@ -42,15 +45,26 @@ impl Writer {
                     |r| r.get(0),
                 )
                 .map_err(db_error)?;
-            if version > 2 || (version == 0 && occupied) {
+            if version > 3 || (version == 0 && occupied) {
                 return Err(Error::new("FORMAT_UNSUPPORTED", "评审账本版本不兼容"));
+            }
+            if occupied {
+                let integrity: String = check
+                    .query_row("PRAGMA quick_check", [], |r| r.get(0))
+                    .map_err(db_error)?;
+                if integrity != "ok" {
+                    return Err(Error::new(
+                        "EVALUATION_CORRUPT",
+                        "评审账本完整性校验失败，请恢复备份",
+                    ));
+                }
             }
         }
         let mut db = crate::connection(path)?;
         let version: u32 = db
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .map_err(db_error)?;
-        if version == 1 {
+        if version > 0 && version < 3 {
             let parent = path
                 .parent()
                 .ok_or_else(|| Error::invalid("评审路径无效"))?;
@@ -64,7 +78,7 @@ impl Writer {
                 return Err(Error::invalid("评审备份目录必须在项目内"));
             }
             let destination = directory.join(format!(
-                "evaluation-v1-to-v2-{}-{}.sqlite",
+                "evaluation-v{version}-to-v3-{}-{}.sqlite",
                 crate::now(),
                 studio_domain::new_id()
             ));
@@ -92,16 +106,32 @@ impl Writer {
                 .sync_all()
                 .map_err(Error::io)?;
         }
-        if version < 2 {
+        if version < 3 {
             let tx = db.transaction().map_err(db_error)?;
             if version == 0 {
                 tx.execute_batch(include_str!("schema.sql"))
                     .map_err(db_error)?;
             }
-            tx.execute_batch(include_str!("schema_v2.sql"))
+            if version < 2 {
+                tx.execute_batch(include_str!("schema_v2.sql"))
+                    .map_err(db_error)?;
+            }
+            tx.execute_batch(include_str!("schema_v3.sql"))
                 .map_err(db_error)?;
+            let violations = tx
+                .prepare("PRAGMA foreign_key_check")
+                .map_err(db_error)?
+                .exists([])
+                .map_err(db_error)?;
+            let invalid: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM stages WHERE total<1 OR frozen<0 OR frozen>total OR eligible<0 OR eligible>frozen OR attempts<0 OR accepted<0 OR invalid<0 OR unknown<0 OR protected<0 OR comparable>frozen OR excluded>frozen OR unresolved>frozen) OR EXISTS(SELECT 1 FROM candidates WHERE exposures<0 OR bytes<0 OR ordinal<0)",[],|r|r.get(0)).map_err(db_error)?;
+            if violations || invalid {
+                return Err(Error::new(
+                    "MIGRATION_INVALID",
+                    "评审历史关联或计数校验失败；保留升级备份",
+                ));
+            }
             tx.commit().map_err(db_error)?;
-        } else if version != 2 {
+        } else if version != 3 {
             return Err(Error::new("FORMAT_UNSUPPORTED", "评审账本版本不兼容"));
         }
         // A new writer is created only under the exclusive project lease.
@@ -124,11 +154,19 @@ impl Writer {
                     let result = (|| {
                         let tx = db.transaction().map_err(db_error)?;
                         let value = (command.operation)(&tx)?;
+                        crate::faults::check(
+                            &format!("{}_before_commit", command.point),
+                            &command.key,
+                        )?;
                         tx.commit().map_err(db_error)?;
+                        crate::faults::check(
+                            &format!("{}_after_commit", command.point),
+                            &command.key,
+                        )?;
                         Ok(value)
                     })();
                     if let Ok(mut stats) = shared.lock() {
-                        stats.bytes -= command.bytes;
+                        stats.bytes = stats.bytes.saturating_sub(command.bytes);
                     }
                     // Successful acknowledgement is sent only after the durable commit.
                     let _ = command.reply.send(result);
@@ -147,6 +185,15 @@ impl Writer {
         bytes: usize,
         operation: impl FnOnce(&rusqlite::Transaction<'_>) -> Result<T> + Send + 'static,
     ) -> Result<T> {
+        self.submit_named(bytes, "write", "", operation)
+    }
+    pub fn submit_named<T: Send + 'static>(
+        &self,
+        bytes: usize,
+        point: &'static str,
+        key: &str,
+        operation: impl FnOnce(&rusqlite::Transaction<'_>) -> Result<T> + Send + 'static,
+    ) -> Result<T> {
         let bytes = bytes.max(1024);
         {
             let mut stats = self.stats.lock().map_err(lock_error)?;
@@ -161,20 +208,35 @@ impl Writer {
             bytes,
             reply,
             operation: Box::new(move |db| operation(db).map(|v| Box::new(v) as Value)),
+            point,
+            key: key.into(),
         };
-        if self
+        if let Err(error) = self
             .sender
             .as_ref()
             .expect("writer alive")
             .try_send(command)
-            .is_err()
         {
-            self.stats.lock().map_err(lock_error)?.bytes -= bytes;
-            return Err(Error::new("EVALUATION_BUSY", "评审写入队列已满或已关闭"));
+            let mut stats = self.stats.lock().map_err(lock_error)?;
+            stats.bytes = stats.bytes.saturating_sub(bytes);
+            if matches!(&error, mpsc::TrySendError::Disconnected(_)) {
+                stats.bytes = 0;
+            }
+            return Err(match error {
+                mpsc::TrySendError::Full(_) => Error::new("EVALUATION_BUSY", "评审写入队列已满"),
+                mpsc::TrySendError::Disconnected(_) => Error::new(
+                    "EVALUATION_WRITER_EXITED",
+                    "评审写入线程已退出，需要重新打开项目",
+                ),
+            });
         }
-        let result = receive
-            .recv()
-            .map_err(|_| Error::new("DATABASE_ERROR", "评审写入线程已退出"))??;
+        let result = match receive.recv() {
+            Ok(value) => value?,
+            Err(_) => {
+                self.stats.lock().map_err(lock_error)?.bytes = 0;
+                return Err(Error::new("EVALUATION_WRITER_EXITED", "评审写入线程已退出"));
+            }
+        };
         result
             .downcast::<T>()
             .map(|v| *v)

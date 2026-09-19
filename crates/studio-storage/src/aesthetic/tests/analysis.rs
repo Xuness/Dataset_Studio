@@ -206,13 +206,13 @@ fn ledger_v1_upgrade_backs_up_paid_evidence_before_creating_projections() {
     db.receive(&stage, &attempt, receipt(&batch)).unwrap();
     db.parse_received(&stage).unwrap();
     drop(db);
-    let path = dir.path().join("evaluation.sqlite");
-    let old = Connection::open(&path).unwrap();
-    old.execute_batch("DROP TABLE reviews; DROP TABLE ranking_rows; DROP TABLE comparison_rows; DROP TABLE experiments; DROP TABLE analysis_jobs; PRAGMA user_version=1;").unwrap();
-    drop(old);
+    let legacy = dir.path().join("legacy");
+    std::fs::create_dir(&legacy).unwrap();
+    let path = legacy.join("evaluation.sqlite");
+    legacy_copy(&dir.path().join("evaluation.sqlite"), &path, 1);
     let db = EvaluationDb::open(&path).unwrap();
     assert_eq!(db.stage(&stage).unwrap().accepted, 1);
-    let backups = std::fs::read_dir(dir.path().join(".backups"))
+    let backups = std::fs::read_dir(legacy.join(".backups"))
         .unwrap()
         .collect::<std::result::Result<Vec<_>, _>>()
         .unwrap();
@@ -233,7 +233,7 @@ fn ledger_v1_upgrade_backs_up_paid_evidence_before_creating_projections() {
     drop(backup);
     drop(db);
     let future = Connection::open(&path).unwrap();
-    future.execute_batch("PRAGMA user_version=3;").unwrap();
+    future.execute_batch("PRAGMA user_version=999;").unwrap();
     drop(future);
     assert!(matches!(
         EvaluationDb::open(&path),

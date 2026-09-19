@@ -11,9 +11,10 @@ impl EvaluationDb {
                 db.execute("UPDATE batches SET state='preparing' WHERE sequence=?1",[sequence as i64]).map_err(db_error)?;
                 return read_batch(db,&id,sequence).map(Some);
             }
-            let first=candidates(db,"WHERE stage_id=?1 AND blocked=0 AND reserved=0 AND exposures<?2 ORDER BY exposures,sort_key LIMIT 1",params![id,stage.config.request.exposures])?.pop();
+            for _ in 0..4 {
+            let first=candidates(db,"WHERE stage_id=?1 AND blocked=0 AND reserved=0 AND disposition IN ('active','rejudge') AND (exposures<?2 OR disposition='rejudge') ORDER BY exposures,sort_key LIMIT 1",params![id,stage.config.request.exposures])?.pop();
             let Some(first)=first else { return Ok(None) };
-            let mut rows=candidates(db,"WHERE stage_id=?1 AND rating=?2 AND blocked=0 AND reserved=0 AND exposures<?3 ORDER BY exposures,sort_key LIMIT 64",params![id,first.rating,stage.config.request.exposures])?;
+            let mut rows=candidates(db,"WHERE stage_id=?1 AND rating=?2 AND blocked=0 AND reserved=0 AND disposition IN ('active','rejudge') AND (exposures<?3 OR disposition='rejudge') ORDER BY exposures,sort_key LIMIT 64",params![id,first.rating,stage.config.request.exposures])?;
             // Baseline only: retain a mixed-year tail, do not partition years into isolated ranks.
             let mut picked=Vec::new();
             for same_year in [true,false] {
@@ -23,13 +24,27 @@ impl EvaluationDb {
                     else { index+=1; }
                 }
             }
+            if picked.len() < 2 {
+                // A new observation needs a same-Rating comparator, even when
+                // every other candidate has already reached the exposure target.
+                let anchors=candidates(db,"WHERE stage_id=?1 AND rating=?2 AND disposition='active' AND blocked=0 AND reserved=0 AND exposures>=?3 ORDER BY exposures,sort_key LIMIT 16",params![id,first.rating,stage.config.request.exposures])?;
+                for anchor in anchors { if picked.iter().all(|v|v.ordinal!=anchor.ordinal) && picked.len()<16 { picked.push(anchor); } }
+                if picked.len()<2 {
+                    let waiting:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM candidates WHERE stage_id=?1 AND rating=?2 AND reserved=1)",params![id,first.rating],|r|r.get(0)).map_err(db_error)?;
+                    if !waiting { db.execute("UPDATE candidates SET blocked=1,disposition='needs_review',disposition_reason='no_comparison_peer' WHERE stage_id=?1 AND ordinal=?2",params![id,first.ordinal as i64]).map_err(db_error)?; }
+                    if waiting { return Ok(None); }
+                    continue;
+                }
+            }
             picked.sort_by_key(|c|hash(&format!("{id}:{}:{}:display",c.ordinal,c.exposures)));
             let members: Vec<_>=picked.into_iter().enumerate().map(|(n,c)|AestheticMember {label:format!("img{:02}",n+1),candidate:c,image_sha256:None}).collect();
             for member in &members {
                 db.execute("UPDATE candidates SET reserved=1 WHERE stage_id=?1 AND ordinal=?2",params![id,member.candidate.ordinal as i64]).map_err(db_error)?;
             }
             db.execute("INSERT INTO batches(stage_id,rating,state,members) VALUES (?1,?2,'preparing',?3)",params![id,first.rating,encode(&members)?]).map_err(db_error)?;
-            read_batch(db,&id,db.last_insert_rowid() as u64).map(Some)
+            return read_batch(db,&id,db.last_insert_rowid() as u64).map(Some);
+            }
+            Ok(None)
         })
     }
     pub fn begin_attempt(
@@ -38,10 +53,14 @@ impl EvaluationDb {
         sequence: u64,
         members: Vec<AestheticMember>,
         attempt: String,
+        semantic_request_hash: String,
     ) -> Result<bool> {
         let id = id.to_owned();
-        self.writer.submit(encode(&members)?.len(),move |db| {
+        self.writer.submit_named(encode(&members)?.len(), "dispatch", &id.clone(), move |db| {
             let s=read_stage(db,&id)?;
+            studio_application::aesthetic::validate_capacity(s.total)?;
+            studio_application::aesthetic::validate_execution(&s.config)?;
+            if semantic_request_hash.len()!=64 || !semantic_request_hash.bytes().all(|v|v.is_ascii_hexdigit()) { return Err(Error::invalid("缺少语义请求摘要")); }
             let batch=read_batch(db,&id,sequence)?;
             if batch.state!="preparing" { return Err(Error::new("REVISION_CONFLICT","批次已被领取")); }
             if s.state!="running" || s.attempts>=u64::from(s.config.request.max_calls) {
@@ -51,7 +70,7 @@ impl EvaluationDb {
             if members.len()!=batch.members.len() || members.iter().zip(&batch.members).any(|(a,b)|a.label!=b.label || a.candidate.ordinal!=b.candidate.ordinal || a.image_sha256.as_ref().is_none_or(|h| h.len()!=64)) {
                 return Err(Error::invalid("发送图片映射与固定批次不一致"));
             }
-            db.execute("INSERT INTO attempts(id,batch,state,created_at) VALUES (?1,?2,'sent',?3)",params![attempt,sequence as i64,now()]).map_err(db_error)?;
+            db.execute("INSERT INTO attempts(id,batch,state,created_at,semantic_request_hash) VALUES (?1,?2,'sent',?3,?4)",params![attempt,sequence as i64,now(),semantic_request_hash]).map_err(db_error)?;
             db.execute("UPDATE batches SET state='sent',attempt_id=?2,members=?3,error=NULL WHERE sequence=?1",params![sequence as i64,attempt,encode(&members)?]).map_err(db_error)?;
             db.execute("UPDATE stages SET attempts=attempts+1 WHERE id=?1",[&id]).map_err(db_error)?;
             Ok(true)

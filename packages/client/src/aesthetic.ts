@@ -20,6 +20,39 @@ export class AestheticClient {
       post(value),
     );
   }
+  capabilities(pid: string, signal?: AbortSignal) {
+    return this.request<Schema["AestheticCapabilities"]>(
+      `${root(pid)}/capabilities`,
+      { signal: signal ?? null },
+    );
+  }
+  preflight(
+    pid: string,
+    value: Schema["AestheticCreate"],
+    signal?: AbortSignal,
+  ) {
+    return this.request<Schema["AestheticPreflight"]>(
+      `${root(pid)}/preflight`,
+      { ...post(value), signal: signal ?? null },
+    );
+  }
+  decideCandidate(
+    pid: string,
+    id: string,
+    ordinal: number,
+    value: Schema["AestheticCandidateDecision"],
+  ) {
+    return this.request<Schema["AestheticCandidate"]>(
+      `${stage(pid, id)}/candidates/${ordinal}/disposition`,
+      post(value),
+    );
+  }
+  abandonCreation(pid: string, id: string) {
+    return this.request<Schema["OkResponse"]>(
+      `${root(pid)}/creation-intents/${encodeURIComponent(id)}/abandon`,
+      post({}),
+    );
+  }
   stages(pid: string, after?: string, signal?: AbortSignal) {
     return this.request<Schema["AestheticStages"]>(
       `${root(pid)}/stages?${new URLSearchParams(after ? { after } : {})}`,

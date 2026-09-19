@@ -20,9 +20,8 @@ pub(super) fn prepare_images(
         &cancelled,
     )?;
     let router = studio_sources::SourceRouter;
-    let mut content = vec![LlmContent::Text {
-        text: studio_application::aesthetic::OUTPUT_INSTRUCTIONS.into(),
-    }];
+    studio_application::aesthetic::validate_execution(&stage.config)?;
+    let mut content = Vec::new();
     let mut bytes = 0;
     // Physical source batches remain bounded. The model sees the frozen randomized order.
     let mut media = std::collections::BTreeMap::new();
@@ -100,19 +99,7 @@ pub(super) fn prepare_images(
         });
         content.push(LlmContent::Image { url, detail: None });
     }
-    let mut messages = stage
-        .config
-        .model
-        .messages
-        .iter()
-        .filter(|m| matches!(m.role, LlmRole::System | LlmRole::Developer))
-        .cloned()
-        .collect::<Vec<_>>();
-    messages.push(LlmMessage {
-        role: LlmRole::User,
-        content,
-    });
-    Ok(messages)
+    studio_application::aesthetic::request_messages(&stage.config, content)
 }
 
 pub(super) fn freeze_page(
@@ -180,6 +167,8 @@ pub(super) fn freeze_page(
                 bytes: item.asset.bytes,
                 exposures: 0,
                 protected: false,
+                disposition: Default::default(),
+                disposition_reason: None,
             });
         }
         index = end;

@@ -3,6 +3,109 @@ use serde::{Deserialize, Serialize};
 use studio_domain::aesthetic as domain;
 use utoipa::ToSchema;
 
+#[derive(Serialize, ToSchema)]
+pub struct AestheticExecution {
+    pub template_version: String,
+    pub business_schema_version: u32,
+    pub encoder_version: String,
+    pub sampler_version: String,
+    pub input_version: String,
+}
+impl From<domain::AestheticExecution> for AestheticExecution {
+    fn from(v: domain::AestheticExecution) -> Self {
+        Self {
+            template_version: v.template_version,
+            business_schema_version: v.business_schema_version,
+            encoder_version: v.encoder_version,
+            sampler_version: v.sampler_version,
+            input_version: v.input_version,
+        }
+    }
+}
+#[derive(Serialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AestheticDisposition {
+    Active,
+    NeedsReview,
+    Rejudge,
+    Excluded,
+}
+impl From<domain::AestheticDisposition> for AestheticDisposition {
+    fn from(v: domain::AestheticDisposition) -> Self {
+        match v {
+            domain::AestheticDisposition::Active => Self::Active,
+            domain::AestheticDisposition::NeedsReview => Self::NeedsReview,
+            domain::AestheticDisposition::Rejudge => Self::Rejudge,
+            domain::AestheticDisposition::Excluded => Self::Excluded,
+        }
+    }
+}
+#[derive(Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AestheticDispositionAction {
+    Rejudge,
+    Exclude,
+}
+#[derive(Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct AestheticCandidateDecision {
+    pub idempotency_key: String,
+    pub action: AestheticDispositionAction,
+    pub reason: String,
+}
+impl From<AestheticCandidateDecision> for domain::AestheticCandidateDecision {
+    fn from(v: AestheticCandidateDecision) -> Self {
+        Self {
+            idempotency_key: v.idempotency_key,
+            action: match v.action {
+                AestheticDispositionAction::Rejudge => domain::AestheticDispositionAction::Rejudge,
+                AestheticDispositionAction::Exclude => domain::AestheticDispositionAction::Exclude,
+            },
+            reason: v.reason,
+        }
+    }
+}
+#[derive(Serialize, ToSchema)]
+pub struct AestheticCapabilities {
+    pub version: u32,
+    pub max_stage_candidates: u64,
+    pub batch_size: u32,
+    pub max_image_bytes: u64,
+    pub max_request_bytes: u64,
+}
+impl From<domain::AestheticCapabilities> for AestheticCapabilities {
+    fn from(v: domain::AestheticCapabilities) -> Self {
+        Self {
+            version: v.version,
+            max_stage_candidates: v.max_stage_candidates,
+            batch_size: v.batch_size,
+            max_image_bytes: v.max_image_bytes,
+            max_request_bytes: v.max_request_bytes,
+        }
+    }
+}
+#[derive(Serialize, ToSchema)]
+pub struct AestheticPreflight {
+    pub capabilities: AestheticCapabilities,
+    pub total: u64,
+    pub input_version: String,
+    pub admitted: bool,
+    pub rejection_code: Option<String>,
+    pub rejection_reason: Option<String>,
+}
+impl From<domain::AestheticPreflight> for AestheticPreflight {
+    fn from(v: domain::AestheticPreflight) -> Self {
+        Self {
+            capabilities: v.capabilities.into(),
+            total: v.total,
+            input_version: v.input_version,
+            admitted: v.admitted,
+            rejection_code: v.rejection_code,
+            rejection_reason: v.rejection_reason,
+        }
+    }
+}
+
 #[derive(Serialize, ToSchema, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct AestheticCreate {
@@ -16,6 +119,8 @@ pub struct AestheticCreate {
     pub exposures: u32,
     pub max_calls: u32,
     pub concurrency: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expected_input_version: Option<String>,
 }
 impl From<domain::AestheticCreate> for AestheticCreate {
     fn from(v: domain::AestheticCreate) -> Self {
@@ -29,6 +134,7 @@ impl From<domain::AestheticCreate> for AestheticCreate {
             exposures: v.exposures,
             max_calls: v.max_calls,
             concurrency: v.concurrency,
+            expected_input_version: v.expected_input_version,
         }
     }
 }
@@ -44,6 +150,7 @@ impl From<AestheticCreate> for domain::AestheticCreate {
             exposures: v.exposures,
             max_calls: v.max_calls,
             concurrency: v.concurrency,
+            expected_input_version: v.expected_input_version,
         }
     }
 }
@@ -59,6 +166,7 @@ pub struct AestheticConfig {
     pub observation_policy: String,
     pub max_image_bytes: u64,
     pub max_request_bytes: u64,
+    pub execution: Option<AestheticExecution>,
 }
 impl From<domain::AestheticConfig> for AestheticConfig {
     fn from(v: domain::AestheticConfig) -> Self {
@@ -72,6 +180,7 @@ impl From<domain::AestheticConfig> for AestheticConfig {
             observation_policy: v.observation_policy,
             max_image_bytes: v.max_image_bytes,
             max_request_bytes: v.max_request_bytes,
+            execution: v.execution.map(Into::into),
         }
     }
 }
@@ -86,6 +195,9 @@ pub struct AestheticStage {
     pub total: u64,
     pub frozen: u64,
     pub eligible: u64,
+    pub comparable: u64,
+    pub excluded: u64,
+    pub unresolved: u64,
     pub attempts: u64,
     pub accepted: u64,
     pub invalid: u64,
@@ -108,6 +220,9 @@ impl From<domain::AestheticStage> for AestheticStage {
             total: v.total,
             frozen: v.frozen,
             eligible: v.eligible,
+            comparable: v.comparable,
+            excluded: v.excluded,
+            unresolved: v.unresolved,
             attempts: v.attempts,
             accepted: v.accepted,
             invalid: v.invalid,
@@ -131,6 +246,8 @@ pub struct AestheticCandidate {
     pub bytes: u64,
     pub exposures: u32,
     pub protected: bool,
+    pub disposition: AestheticDisposition,
+    pub disposition_reason: Option<String>,
 }
 impl From<domain::AestheticCandidate> for AestheticCandidate {
     fn from(v: domain::AestheticCandidate) -> Self {
@@ -144,6 +261,8 @@ impl From<domain::AestheticCandidate> for AestheticCandidate {
             bytes: v.bytes,
             exposures: v.exposures,
             protected: v.protected,
+            disposition: v.disposition.into(),
+            disposition_reason: v.disposition_reason,
         }
     }
 }
@@ -244,6 +363,7 @@ pub struct AestheticAttempt {
     pub created_at: String,
     pub receipt: Option<AestheticReceipt>,
     pub failure: Option<LlmFailure>,
+    pub semantic_request_hash: Option<String>,
 }
 impl From<domain::AestheticAttempt> for AestheticAttempt {
     fn from(v: domain::AestheticAttempt) -> Self {
@@ -254,6 +374,7 @@ impl From<domain::AestheticAttempt> for AestheticAttempt {
             created_at: v.created_at,
             receipt: v.receipt.map(Into::into),
             failure: v.failure.map(Into::into),
+            semantic_request_hash: v.semantic_request_hash,
         }
     }
 }
@@ -266,6 +387,9 @@ pub struct AestheticMetrics {
     pub uploaded_body_bytes: u64,
     pub queued_write_bytes: u64,
     pub peak_write_bytes: u64,
+    pub dispatch_health: String,
+    pub storage_error_code: Option<String>,
+    pub retained_outcomes: u64,
 }
 impl From<domain::AestheticMetrics> for AestheticMetrics {
     fn from(v: domain::AestheticMetrics) -> Self {
@@ -277,6 +401,9 @@ impl From<domain::AestheticMetrics> for AestheticMetrics {
             uploaded_body_bytes: v.uploaded_body_bytes,
             queued_write_bytes: v.queued_write_bytes,
             peak_write_bytes: v.peak_write_bytes,
+            dispatch_health: v.dispatch_health,
+            storage_error_code: v.storage_error_code,
+            retained_outcomes: v.retained_outcomes,
         }
     }
 }

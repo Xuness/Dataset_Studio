@@ -1,6 +1,7 @@
 use super::*;
 use studio_domain::{AssetKey, llm::*, new_id};
 mod analysis;
+mod recovery;
 
 fn fixture(count: u64) -> (tempfile::TempDir, EvaluationDb, String) {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/test-runs");
@@ -21,6 +22,7 @@ fn fixture(count: u64) -> (tempfile::TempDir, EvaluationDb, String) {
         exposures: 1,
         max_calls: 1000,
         concurrency: 4,
+        expected_input_version: None,
     };
     let model = LlmInvocationSnapshot {
         schema_version: 1,
@@ -38,7 +40,12 @@ fn fixture(count: u64) -> (tempfile::TempDir, EvaluationDb, String) {
         system_prompt_id: Some(request.system_prompt_id.clone()),
         system_prompt_revision: Some(1),
         parameters: Default::default(),
-        messages: vec![],
+        messages: vec![LlmMessage {
+            role: LlmRole::User,
+            content: vec![LlmContent::Text {
+                text: studio_application::aesthetic::OUTPUT_INSTRUCTIONS.into(),
+            }],
+        }],
         tools: vec![],
         warnings: vec![],
     };
@@ -53,6 +60,7 @@ fn fixture(count: u64) -> (tempfile::TempDir, EvaluationDb, String) {
             observation_policy: "meaningful_indifference_v1".into(),
             max_image_bytes: 2 << 20,
             max_request_bytes: 12 << 20,
+            execution: None,
         },
         count,
     )
@@ -74,6 +82,8 @@ fn fixture(count: u64) -> (tempfile::TempDir, EvaluationDb, String) {
                     bytes: 10,
                     exposures: 0,
                     protected: false,
+                    disposition: Default::default(),
+                    disposition_reason: None,
                 })
                 .collect(),
         )
@@ -90,8 +100,14 @@ fn sent(db: &EvaluationDb, id: &str) -> (AestheticBatch, String) {
     }
     let attempt = new_id();
     assert!(
-        db.begin_attempt(id, batch.sequence, batch.members.clone(), attempt.clone())
-            .unwrap()
+        db.begin_attempt(
+            id,
+            batch.sequence,
+            batch.members.clone(),
+            attempt.clone(),
+            "f".repeat(64)
+        )
+        .unwrap()
     );
     (batch, attempt)
 }
@@ -240,7 +256,7 @@ fn paused_preparation_is_resumable_and_call_budget_is_atomic() {
         m.image_sha256 = Some("b".repeat(64));
     }
     assert!(
-        !db.begin_attempt(&id, batch.sequence, members, new_id())
+        !db.begin_attempt(&id, batch.sequence, members, new_id(), "f".repeat(64))
             .unwrap()
     );
 }
@@ -280,4 +296,29 @@ fn simultaneous_paid_returns_have_bounded_queue_and_durable_counts() {
             .unwrap(),
         "ok"
     );
+}
+
+fn legacy_copy(source: &Path, path: &Path, version: u32) {
+    let old = Connection::open(path).unwrap();
+    old.execute_batch(include_str!("schema.sql")).unwrap();
+    if version == 2 {
+        old.execute_batch(include_str!("schema_v2.sql")).unwrap();
+    }
+    old.execute("ATTACH DATABASE ?1 AS current", [source.to_str().unwrap()])
+        .unwrap();
+    for table in ["stages", "candidates", "batches", "attempts", "evidence"] {
+        let names = old
+            .prepare(&format!("PRAGMA main.table_info({table})"))
+            .unwrap()
+            .query_map([], |r| r.get::<_, String>(1))
+            .unwrap()
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .unwrap()
+            .join(",");
+        old.execute_batch(&format!(
+            "INSERT INTO main.{table}({names}) SELECT {names} FROM current.{table}"
+        ))
+        .unwrap();
+    }
+    drop(old);
 }

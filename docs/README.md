@@ -61,11 +61,13 @@
 - [System Prompt 预设与按次传输](decisions/0024-system-prompt-presets.md)
 - [0025：美学评审的持久执行与图片准入](decisions/0025-aesthetic-evaluation-ledger.md)
 - [0026：美学证据的离线估计、快照与工作集发布](decisions/0026-aesthetic-offline-analysis.md)
+- [0027：评审创建恢复、存储准入与候选处置](decisions/0027-aesthetic-recovery-and-admission.md)
 
 ## 实施计划
 
 早期阶段计划保留当时的范围与验收标准；美学排序目录同时维护阶段说明及后续计划。
 
+- [源码审查后的整体改进路线图（2026-09-19）](plans/architecture-improvement-2026-09-19.md)
 - [cache-settings-v0.7](plans/cache-settings-v0.7.md)
 - [frontend-usability-v0.5](plans/frontend-usability-v0.5.md)
 - [metarecall-v0.8](plans/metarecall-v0.8.md)
@@ -89,6 +91,8 @@
 ## 历史验收
 
 下列记录证明对应日期、版本与样本条件下的行为，不作为当前版本已经重新执行全部测试的声明。美学排序的阶段验收随[第一阶段](plans/aesthetic-ranking/phase-1-implementation.md)和[第二阶段](plans/aesthetic-ranking/phase-2-backend.md)接入文档保存。
+
+- [2026-09-19：R0/R1 基线、故障矩阵与验收](verification/2026-09-19-r0-r1.md)
 
 - [performance-metarecall-workset-v0.8](verification/performance-metarecall-workset-v0.8.md)
 - [ux-review-task-progress-v0.8](verification/ux-review-task-progress-v0.8.md)

@@ -42,6 +42,52 @@ pub struct AestheticBackup {
     relative_path: String,
 }
 
+#[utoipa::path(operation_id="aesthetic_capabilities",get,path="/capabilities",params(("project_id"=String,Path)),responses((status=200,body=AestheticCapabilities)))]
+async fn capabilities(
+    State(s): State<AppState>,
+    Path(pid): Path<String>,
+) -> ApiResult<AestheticCapabilities> {
+    blocking(move || s.store.project(&pid)).await?;
+    Ok(Json(studio_application::aesthetic::capabilities().into()))
+}
+#[utoipa::path(operation_id="aesthetic_preflight",post,path="/preflight",params(("project_id"=String,Path)),request_body=AestheticCreate,responses((status=200,body=AestheticPreflight)))]
+async fn preflight(
+    State(s): State<AppState>,
+    Path(pid): Path<String>,
+    Body(value): Body<AestheticCreate>,
+) -> ApiResult<AestheticPreflight> {
+    Ok(Json(
+        blocking(move || crate::aesthetic::preflight(&s, &pid, value.into()))
+            .await?
+            .into(),
+    ))
+}
+#[utoipa::path(operation_id="aesthetic_decide_candidate",post,path="/stages/{id}/candidates/{ordinal}/disposition",params(("project_id"=String,Path),("id"=String,Path),("ordinal"=u64,Path)),request_body=AestheticCandidateDecision,responses((status=200,body=AestheticCandidate)))]
+async fn decide_candidate(
+    State(s): State<AppState>,
+    Path((pid, id, ordinal)): Path<(String, String, u64)>,
+    Body(value): Body<AestheticCandidateDecision>,
+) -> ApiResult<AestheticCandidate> {
+    Ok(Json(
+        blocking(move || {
+            let db = s.store.evaluation(&pid)?;
+            let candidate = db.decide_candidate(&id, ordinal, value.into())?;
+            s.store.sync_evaluation(&pid, &db.stage(&id)?)?;
+            Ok(candidate)
+        })
+        .await?
+        .into(),
+    ))
+}
+#[utoipa::path(operation_id="aesthetic_abandon_creation",post,path="/creation-intents/{id}/abandon",params(("project_id"=String,Path),("id"=String,Path)),responses((status=200,body=OkResponse)))]
+async fn abandon_creation(
+    State(s): State<AppState>,
+    Path((pid, id)): Path<(String, String)>,
+) -> ApiResult<OkResponse> {
+    blocking(move || s.store.abandon_evaluation_creation(&pid, &id)).await?;
+    Ok(Json(OkResponse { ok: true }))
+}
+
 #[utoipa::path(operation_id="aesthetic_create",post,path="/stages",params(("project_id"=String,Path)),request_body=AestheticCreate,responses((status=200,body=AestheticStage)))]
 async fn create(
     State(s): State<AppState>,
@@ -115,6 +161,9 @@ async fn control(
     let action = value.action.clone();
     let stage = blocking(move || {
         let db = copy.store.evaluation(&p)?;
+        if action == "start" {
+            copy.aesthetic.check_start(&copy, &p)?;
+        }
         let stage = if action == "parse" {
             db.parse_received(&sid)?;
             db.stage(&sid)?
@@ -225,10 +274,14 @@ async fn metrics(
     State(s): State<AppState>,
     Path(pid): Path<String>,
 ) -> ApiResult<AestheticMetrics> {
-    let mut m = s.aesthetic.metrics();
-    let (queued, peak) = blocking(move || s.store.evaluation(&pid)?.metrics()).await?;
-    m.queued_write_bytes = queued;
-    m.peak_write_bytes = peak;
+    let m = blocking(move || {
+        let mut m = s.aesthetic.metrics(&pid, &s.store.directory(&pid)?)?;
+        let (queued, peak) = s.store.evaluation(&pid)?.metrics()?;
+        m.queued_write_bytes = queued;
+        m.peak_write_bytes = peak;
+        Ok(m)
+    })
+    .await?;
     Ok(Json(m.into()))
 }
 #[utoipa::path(operation_id="aesthetic_backup",post,path="/backup",params(("project_id"=String,Path)),responses((status=200,body=AestheticBackup)))]
@@ -257,16 +310,36 @@ async fn backup(State(s): State<AppState>, Path(pid): Path<String>) -> ApiResult
 }
 #[derive(OpenApi)]
 #[openapi(paths(
-    create, stages, stage, control, batches, candidates, attempts, retry, metrics, backup
+    create,
+    stages,
+    stage,
+    control,
+    batches,
+    candidates,
+    attempts,
+    retry,
+    metrics,
+    backup,
+    capabilities,
+    preflight,
+    decide_candidate,
+    abandon_creation
 ))]
 pub struct AestheticApiDoc;
 pub(super) fn routes() -> axum::Router<AppState> {
     axum::Router::new()
+        .route("/capabilities", get(capabilities))
+        .route("/preflight", post(preflight))
+        .route("/creation-intents/{id}/abandon", post(abandon_creation))
         .route("/stages", get(stages).post(create))
         .route("/stages/{id}", get(stage))
         .route("/stages/{id}/control", post(control))
         .route("/stages/{id}/batches", get(batches))
         .route("/stages/{id}/candidates", get(candidates))
+        .route(
+            "/stages/{id}/candidates/{ordinal}/disposition",
+            post(decide_candidate),
+        )
         .route("/stages/{id}/batches/{batch}/attempts", get(attempts))
         .route("/stages/{id}/batches/{batch}/retry", post(retry))
         .route("/metrics", get(metrics))

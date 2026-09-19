@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 
 const TOLERANCE: f64 = 1e-5;
 const SCORE_GRID: f64 = 1e-6;
-pub const MAX_CANDIDATES: u64 = 1_000_000;
+pub const MAX_CANDIDATES: u64 = studio_domain::aesthetic::AESTHETIC_MAX_CANDIDATES;
 pub fn working_bytes(n: u64) -> u64 {
     n.saturating_mul(384).saturating_add(32 << 20)
 }

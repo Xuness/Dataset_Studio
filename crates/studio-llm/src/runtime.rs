@@ -258,6 +258,7 @@ impl LlmBackend for RemoteLlm {
                     .await
                     .map_err(|mut error| {
                         error.outcome_unknown = true;
+                        error.provider_request_id = request_id.clone();
                         error
                     })?;
                 protocols::decode(&plan, &value, request_id.clone()).map_err(|mut error| {

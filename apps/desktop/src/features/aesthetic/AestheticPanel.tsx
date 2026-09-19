@@ -433,7 +433,11 @@ export default function AestheticPanel(context: ModuleContext) {
                   <button
                     disabled={
                       busy ||
-                      ["completed", "cancelled"].includes(selected.state)
+                      [
+                        "completed",
+                        "completed_with_exclusions",
+                        "cancelled",
+                      ].includes(selected.state)
                     }
                     onClick={() =>
                       void perform(() =>

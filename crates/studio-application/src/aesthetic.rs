@@ -1,5 +1,7 @@
 use std::collections::BTreeSet;
 use studio_domain::{Error, Result, aesthetic::*, llm::*};
+mod lifecycle;
+pub use lifecycle::*;
 
 /// Storage implements this port; accepted observations are the replay source of truth.
 pub trait AestheticRepository: Send + Sync {
@@ -28,6 +30,13 @@ pub fn validate_create(value: &AestheticCreate) -> Result<()> {
         return Err(Error::invalid(
             "曝光次数 1–32，并发 1–32，调用上限 1–10000000",
         ));
+    }
+    if value
+        .expected_input_version
+        .as_ref()
+        .is_some_and(|v| v.len() != 64 || !v.bytes().all(|b| b.is_ascii_hexdigit()))
+    {
+        return Err(Error::invalid("预检输入版本必须为 SHA-256"));
     }
     Ok(())
 }
@@ -140,6 +149,8 @@ mod tests {
                     bytes: 1,
                     exposures: 0,
                     protected: false,
+                    disposition: Default::default(),
+                    disposition_reason: None,
                 },
                 image_sha256: None,
             })

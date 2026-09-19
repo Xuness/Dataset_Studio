@@ -3,6 +3,8 @@ name = "studio-storage"
 version.workspace = true
 edition.workspace = true
 publish.workspace = true
+[features]
+test-faults = []
 [dependencies]
 tracing.workspace = true
 studio-domain = { path = "../studio-domain" }

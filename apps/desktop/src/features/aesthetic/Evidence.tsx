@@ -11,6 +11,7 @@ const labels: Record<string, string> = {
   cancelling: "取消中",
   cancelled: "已取消",
   completed: "本阶段已完成",
+  completed_with_exclusions: "本阶段已完成（含排除项）",
   needs_attention: "需要处理",
   failed: "失败",
   queued: "等待派发",

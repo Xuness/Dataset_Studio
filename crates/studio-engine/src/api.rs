@@ -69,6 +69,8 @@ impl IntoResponse for Failure {
             "NOT_FOUND" | "OBJECT_REMOVED" | "RANK_ANCHOR_NOT_FOUND" => StatusCode::NOT_FOUND,
             "UNAUTHORIZED" => StatusCode::UNAUTHORIZED,
             "REVISION_CONFLICT"
+            | "EVALUATION_INPUT_CHANGED"
+            | "EVALUATION_CREATION_INCOMPLETE"
             | "SOURCE_CHANGED"
             | "PROJECT_BUSY"
             | "PROJECT_CLOSED"
@@ -90,6 +92,10 @@ impl IntoResponse for Failure {
             | "IDEMPOTENCY_CONFLICT" => StatusCode::CONFLICT,
             "LLM_QUEUE_FULL"
             | "EVALUATION_BUSY"
+            | "EVALUATION_STORAGE_UNHEALTHY"
+            | "EVALUATION_STORAGE_FULL"
+            | "EVALUATION_STORAGE_IO"
+            | "EVALUATION_WRITER_EXITED"
             | "SOURCE_BUSY"
             | "SOURCE_INDEX_PREPARING"
             | "SOURCE_UNAVAILABLE"
@@ -104,6 +110,10 @@ impl IntoResponse for Failure {
             | "LLM_CREDENTIAL_UNAVAILABLE"
             | "LLM_CONFIGURATION"
             | "INVALID_INPUT"
+            | "EVALUATION_EMPTY"
+            | "EVALUATION_CAPACITY_EXCEEDED"
+            | "EVALUATION_CONFIG_UNSUPPORTED"
+            | "EVALUATION_RATING_UNRESOLVED"
             | "SOURCE_ID_MISMATCH"
             | "SOURCE_PATH_INVALID"
             | "FORMAT_UNSUPPORTED"

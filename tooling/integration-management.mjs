@@ -627,7 +627,7 @@ try {
     within(runDir, resolve(project.directory, "project.sqlite")),
     { readOnly: true },
   );
-  assert.equal(db.prepare("PRAGMA user_version").get().user_version, 11);
+  assert.equal(db.prepare("PRAGMA user_version").get().user_version, 12);
   assert.equal(db.prepare("PRAGMA foreign_key_check").all().length, 0);
   assert.equal(
     db

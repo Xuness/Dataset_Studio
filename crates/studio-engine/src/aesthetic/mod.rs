@@ -15,7 +15,10 @@ use studio_domain::{Error, Result, aesthetic::*, llm::*};
 use studio_storage::aesthetic::EvaluationDb;
 use tokio::sync::Semaphore;
 pub mod analysis;
+mod creation;
+mod health;
 mod media;
+pub use creation::{create, preflight};
 
 const REQUEST_KIB: u32 = 104 * 1024; // Native JSON copies, encoded inputs, and a 32 MiB receipt reserve.
 const UPLOAD_BYTES_PER_SECOND: u64 = 3_500_000;
@@ -33,7 +36,7 @@ pub struct Runner {
     reserved: AtomicU64,
     peak: AtomicU64,
     uploaded: AtomicU64,
-    stopped: AtomicBool,
+    gate: health::DispatchGate,
 }
 impl Default for Runner {
     fn default() -> Self {
@@ -46,7 +49,7 @@ impl Default for Runner {
             reserved: AtomicU64::new(0),
             peak: AtomicU64::new(0),
             uploaded: AtomicU64::new(0),
-            stopped: AtomicBool::new(false),
+            gate: Default::default(),
         }
     }
 }
@@ -54,15 +57,21 @@ async fn work<T: Send + 'static>(f: impl FnOnce() -> Result<T> + Send + 'static)
     tokio::task::spawn_blocking(f).await.map_err(Error::io)?
 }
 impl Runner {
-    pub fn metrics(&self) -> AestheticMetrics {
-        AestheticMetrics {
+    pub fn metrics(&self, pid: &str, directory: &std::path::Path) -> Result<AestheticMetrics> {
+        let volume = health::storage_volume(directory)?;
+        let (dispatch_health, storage_error_code, retained_outcomes) =
+            self.gate.metrics(pid, &volume);
+        Ok(AestheticMetrics {
+            dispatch_health,
+            storage_error_code,
+            retained_outcomes,
             active_requests: self.active_requests.load(Ordering::Relaxed),
             reserved_request_bytes: self.reserved.load(Ordering::Relaxed),
             peak_request_bytes: self.peak.load(Ordering::Relaxed),
             upload_budget_bytes_per_second: UPLOAD_BYTES_PER_SECOND,
             uploaded_body_bytes: self.uploaded.load(Ordering::Relaxed),
             ..Default::default()
-        }
+        })
     }
     pub fn busy(&self) -> bool {
         self.active.lock().is_ok_and(|m| !m.is_empty())
@@ -76,7 +85,7 @@ impl Runner {
         }
     }
     pub fn shutdown(&self) {
-        self.stopped.store(true, Ordering::Release);
+        self.gate.shutdown();
         if let Ok(active) = self.active.lock() {
             for control in active.values() {
                 control.reads.store(true, Ordering::Release);
@@ -85,7 +94,7 @@ impl Runner {
         }
     }
     pub fn launch(self: &Arc<Self>, state: AppState, pid: String, id: String) -> Result<()> {
-        if self.stopped.load(Ordering::Acquire) {
+        if self.gate.is_shutdown() {
             return Err(Error::new("EVALUATION_BUSY", "评审执行器正在停止"));
         }
         let lease = state.store.operation_lease(&pid)?;
@@ -123,16 +132,7 @@ impl Runner {
                     "评审执行发生异常，请核对未完成请求",
                 ))
             });
-            let finish_state = state.clone();
-            let finish_pid = pid.clone();
-            let finish_id = id.clone();
-            if let Err(error) = work(move || {
-                let db = finish_state.store.evaluation(&finish_pid)?;
-                let stage = db.settle(&finish_id, result.err().map(|e| e.to_string()))?;
-                finish_state.store.sync_evaluation(&finish_pid, &stage)
-            })
-            .await
-            {
+            if let Err(error) = runner.finish(&state, &pid, &id, result).await {
                 tracing::error!(%error,"evaluation finish needs recovery");
             }
             if let Ok(mut active) = runner.active.lock() {
@@ -140,6 +140,61 @@ impl Runner {
             }
         });
         Ok(())
+    }
+    async fn finish(
+        &self,
+        state: &AppState,
+        pid: &str,
+        id: &str,
+        result: Result<()>,
+    ) -> Result<()> {
+        let volume = health::storage_volume(&state.store.directory(pid)?)?;
+        let error = result.err();
+        let mut recovering = error
+            .as_ref()
+            .is_some_and(|e| e.code != "IO_ERROR" && health::storage_failure(e));
+        if recovering && let Some(error) = &error {
+            self.gate.fault(pid, &volume, None, error);
+        }
+        let message = error.map(|e| e.to_string());
+        let mut delay = Duration::from_millis(250);
+        loop {
+            let copy = state.clone();
+            let p = pid.to_owned();
+            let sid = id.to_owned();
+            let error = message.clone();
+            let saved = work(move || {
+                let db = copy.store.evaluation(&p)?;
+                let stage = db.settle(&sid, error)?;
+                copy.store.sync_evaluation(&p, &stage)?;
+                if recovering {
+                    db.health_check()?;
+                }
+                Ok(())
+            })
+            .await;
+            match saved {
+                Ok(()) => {
+                    if recovering {
+                        self.gate.recovered(pid, None);
+                    }
+                    return Ok(());
+                }
+                Err(error) if health::storage_failure(&error) => {
+                    self.gate.fault(pid, &volume, None, &error);
+                    if self.gate.is_shutdown() {
+                        return Err(error);
+                    }
+                    if !recovering {
+                        tracing::warn!(stage_id=%id,%error,"evaluation finalization retained for retry");
+                    }
+                    recovering = true;
+                    tokio::time::sleep(delay).await;
+                    delay = (delay * 2).min(Duration::from_secs(2));
+                }
+                Err(error) => return Err(error),
+            }
+        }
     }
     async fn run(
         self: &Arc<Self>,
@@ -151,6 +206,7 @@ impl Runner {
         let store = state.store.clone();
         let p = pid.clone();
         let db = work(move || store.evaluation(&p)).await?;
+        let volume = health::storage_volume(&state.store.project(&pid)?.directory)?;
         loop {
             let ledger = db.clone();
             let sid = id.clone();
@@ -158,7 +214,7 @@ impl Runner {
             if stage.state != "preparing" {
                 break;
             }
-            if self.stopped.load(Ordering::Acquire) {
+            if self.gate.is_shutdown() {
                 return Err(Error::new("CANCELLED", "引擎正在关闭"));
             }
             let copy = state.clone();
@@ -174,9 +230,15 @@ impl Runner {
         let sid = id.clone();
         work(move || ledger.parse_received(&sid)).await?;
         let mut running = FuturesUnordered::new();
-        let mut failure = None;
+        let mut failure: Option<Error> = None;
         loop {
             if failure.is_some() {
+                if let Some(error) = &failure
+                    && error.code != "IO_ERROR"
+                    && health::storage_failure(error)
+                {
+                    self.gate.fault(&pid, &volume, None, error);
+                }
                 if let Some(result) = running.next().await {
                     if let Err(e) = result {
                         tracing::warn!(%e,"evaluation drain failed");
@@ -194,9 +256,13 @@ impl Runner {
                     continue;
                 }
             };
-            let can_start = stage.state == "running"
-                && !self.stopped.load(Ordering::Acquire)
-                && failure.is_none();
+            if stage.state == "running"
+                && let Err(error) = self.gate.check(&pid, &volume)
+            {
+                failure = Some(error);
+                continue;
+            }
+            let can_start = stage.state == "running" && failure.is_none();
             if can_start && running.len() < stage.config.request.concurrency as usize {
                 let ledger = db.clone();
                 let sid = id.clone();
@@ -237,6 +303,7 @@ impl Runner {
         db: Arc<EvaluationDb>,
         control: Control,
     ) -> Result<()> {
+        let volume = health::storage_volume(&state.store.project(&pid)?.directory)?;
         let admitted = async {
             let request = self
                 .requests
@@ -267,17 +334,16 @@ impl Runner {
         let sequence = batch.sequence;
         let ledger = db.clone();
         let id = sid.clone();
-        if work(move || ledger.stage(&id)).await?.state != "running"
-            || self.stopped.load(Ordering::Acquire)
-        {
+        if work(move || ledger.stage(&id)).await?.state != "running" || self.gate.is_shutdown() {
             return Ok(());
         }
         let prepared = {
             let copy = state.clone();
+            let media_pid = pid.clone();
             let config = stage.clone();
             let cancel = control.reads.clone();
             work(move || {
-                let messages = media::prepare_images(&copy, &pid, &config, &mut batch, cancel)?;
+                let messages = media::prepare_images(&copy, &media_pid, &config, &mut batch, cancel)?;
                 let mut plan = copy.llm.prepare(LlmInvocationRequest {
                     invocation_id: studio_domain::new_id(),
                     model_id: config.config.model.model_id.clone(),
@@ -293,17 +359,21 @@ impl Runner {
                 })?;
                 // One ledger attempt is one network attempt; explicit 429 retries are visible here.
                 plan.provider.config.network.rate_limit_retries = 0;
-                let size = serde_json::to_vec(&copy.llm.preview(&plan)?)
-                    .map_err(Error::io)?
-                    .len() as u64;
+                use sha2::{Digest, Sha256};
+                let body = serde_json::to_vec(&copy.llm.preview(&plan)?).map_err(Error::io)?;
+                let size = body.len() as u64;
+                let semantic_hash = hex::encode(Sha256::digest(serde_json::to_vec(&serde_json::json!({
+                    "version": 1, "config_hash": config.config_hash, "batch": batch.sequence,
+                    "members": batch.members, "native_body_sha256": hex::encode(Sha256::digest(&body)),
+                })).map_err(Error::io)?));
                 if size > config.config.max_request_bytes {
                     return Err(Error::invalid("原生请求超过 12 MiB 预算，尚未发送"));
                 }
-                Ok((plan, batch.members, size))
+                Ok((plan, batch.members, size, semantic_hash))
             })
             .await
         };
-        let (plan, members, size) = match prepared {
+        let (plan, members, size, semantic_hash) = match prepared {
             Ok(value) => value,
             Err(error) => {
                 let ledger = db.clone();
@@ -326,34 +396,31 @@ impl Runner {
         let ledger = db.clone();
         let id = sid.clone();
         let aid = attempt.clone();
-        if !work(move || ledger.begin_attempt(&id, sequence, members, aid)).await? {
+        let runner = self.clone();
+        let dispatch_pid = pid.clone();
+        let dispatch_volume = volume.clone();
+        if !work(move || {
+            studio_storage::faults::check("dispatch_after_upload", &id)?;
+            runner.gate.commit(&dispatch_pid, &dispatch_volume, || {
+                ledger.begin_attempt(&id, sequence, members, aid, semantic_hash)
+            })
+        })
+        .await?
+        {
             return Ok(());
         }
         self.uploaded.fetch_add(size, Ordering::Relaxed);
         match state.llm.generate(plan, control.cancel.clone()).await {
             Ok(response) => {
-                let receipt = AestheticReceipt::from(response);
-                // Retain the paid result and its admission reservation until durable storage works.
-                loop {
-                    let ledger = db.clone();
-                    let id = sid.clone();
-                    let aid = attempt.clone();
-                    let value = receipt.clone();
-                    match work(move || ledger.receive(&id, &aid, value)).await {
-                        Ok(()) => break,
-                        Err(error)
-                            if matches!(
-                                error.code,
-                                "DATABASE_ERROR" | "EVALUATION_BUSY" | "IO_ERROR"
-                            ) =>
-                        {
-                            self.stopped.store(true, Ordering::Release);
-                            tracing::error!(stage_id=%sid,attempt_id=%attempt,%error,"paid response retained; dispatch stopped");
-                            tokio::time::sleep(Duration::from_secs(2)).await;
-                        }
-                        Err(error) => return Err(error),
-                    }
-                }
+                self.persist_outcome(
+                    &db,
+                    &pid,
+                    &volume,
+                    &sid,
+                    &attempt,
+                    Outcome::Receipt(AestheticReceipt::from(response)),
+                )
+                .await?;
                 let ledger = db.clone();
                 let id = sid.clone();
                 work(move || ledger.parse_received(&id)).await?;
@@ -369,12 +436,88 @@ impl Runner {
             }
             Err(failure) => {
                 let error = Error::new("EVALUATION_REMOTE", failure.message.clone());
-                let ledger = db.clone();
-                work(move || ledger.fail_attempt(&sid, &attempt, failure)).await?;
+                self.persist_outcome(
+                    &db,
+                    &pid,
+                    &volume,
+                    &sid,
+                    &attempt,
+                    Outcome::Failure(failure),
+                )
+                .await?;
                 Err(error)
             }
         }
     }
+    pub fn check_start(&self, state: &AppState, pid: &str) -> Result<()> {
+        let db = state.store.evaluation(pid)?;
+        let volume = health::storage_volume(&state.store.project(pid)?.directory)?;
+        match db.health_check() {
+            Ok(()) => self.gate.recovered(pid, None),
+            Err(error) => {
+                self.gate.fault(pid, &volume, None, &error);
+                return Err(error);
+            }
+        }
+        self.gate.check(pid, &volume)
+    }
+    async fn persist_outcome(
+        &self,
+        db: &Arc<EvaluationDb>,
+        pid: &str,
+        volume: &str,
+        sid: &str,
+        attempt: &str,
+        outcome: Outcome,
+    ) -> Result<()> {
+        let mut recovering = false;
+        let mut delay = Duration::from_millis(250);
+        loop {
+            let ledger = db.clone();
+            let id = sid.to_owned();
+            let aid = attempt.to_owned();
+            let value = outcome.clone();
+            let result = work(move || {
+                match value {
+                    Outcome::Receipt(v) => ledger.receive(&id, &aid, v)?,
+                    Outcome::Failure(v) => ledger.fail_attempt(&id, &aid, v)?,
+                }
+                if recovering {
+                    ledger.health_check()?;
+                }
+                Ok(())
+            })
+            .await;
+            match result {
+                Ok(()) => {
+                    if recovering {
+                        self.gate.recovered(pid, Some(attempt));
+                    }
+                    return Ok(());
+                }
+                Err(error) if health::storage_failure(&error) => {
+                    self.gate.fault(pid, volume, Some(attempt), &error);
+                    if !recovering {
+                        tracing::error!(stage_id=%sid,attempt_id=%attempt,%error,"paid outcome retained; storage admission closed");
+                    }
+                    recovering = true;
+                    if self.gate.is_shutdown() {
+                        tracing::error!(stage_id=%sid,attempt_id=%attempt,%error,"shutdown with uncommitted outcome; restart must preserve outcome_unknown");
+                        return Err(error);
+                    }
+                    // Keep the existing request's memory reservation; never retry the network.
+                    tokio::time::sleep(delay).await;
+                    delay = (delay * 2).min(Duration::from_secs(2));
+                }
+                Err(error) => return Err(error),
+            }
+        }
+    }
+}
+#[derive(Clone)]
+enum Outcome {
+    Receipt(AestheticReceipt),
+    Failure(LlmFailure),
 }
 struct Admission {
     runner: Arc<Runner>,
@@ -390,84 +533,4 @@ impl Drop for Admission {
             .fetch_sub(u64::from(REQUEST_KIB) * 1024, Ordering::Relaxed);
         self.runner.active_requests.fetch_sub(1, Ordering::Relaxed);
     }
-}
-
-pub fn create(state: &AppState, pid: &str, request: AestheticCreate) -> Result<AestheticStage> {
-    studio_application::aesthetic::validate_create(&request)?;
-    let db = state.store.evaluation(pid)?;
-    match db.stage(&request.idempotency_key) {
-        Ok(stage) => {
-            if serde_json::to_value(&stage.config.request).map_err(Error::io)?
-                != serde_json::to_value(&request).map_err(Error::io)?
-            {
-                return Err(Error::new(
-                    "IDEMPOTENCY_CONFLICT",
-                    "评审创建键已被不同请求使用",
-                ));
-            }
-            return Ok(stage);
-        }
-        Err(e) if e.code == "NOT_FOUND" => {}
-        Err(e) => return Err(e),
-    }
-    let plan = state.llm.prepare(LlmInvocationRequest {
-        invocation_id: request.idempotency_key.clone(),
-        model_id: request.model_id.clone(),
-        expected_model_revision: None,
-        expected_provider_revision: None,
-        preset_id: None,
-        expected_preset_revision: None,
-        system_prompt_id: Some(request.system_prompt_id.clone()),
-        expected_system_prompt_revision: None,
-        overrides: request.overrides.clone(),
-        messages: vec![LlmMessage {
-            role: LlmRole::User,
-            content: vec![LlmContent::Text {
-                text: studio_application::aesthetic::OUTPUT_INSTRUCTIONS.into(),
-            }],
-        }],
-        tools: vec![],
-    })?;
-    let scope = studio_domain::ScopeRef {
-        project_id: pid.into(),
-        target: studio_domain::ScopeTarget::Workset {
-            collection_id: request.collection_id.clone(),
-        },
-    };
-    let mut sources = Vec::new();
-    for id in state.store.scope_source_ids(pid, &scope)? {
-        let source = state.store.source(pid, &id)?;
-        let spec = studio_domain::QuerySpec {
-            version: 1,
-            source_ids: vec![id],
-            conditions: if source.kind == "danbooru" {
-                vec![studio_domain::QueryCondition {
-                    field: "rating".into(),
-                    operator: studio_domain::QueryOperator::IsPresent,
-                    value: None,
-                }]
-            } else {
-                vec![]
-            },
-            observation_rule: studio_domain::ObservationRule::AnyObservation,
-            order: studio_domain::QueryOrder::AssetKeyAsc,
-            input_scope: None,
-        };
-        sources.push(studio_sources::QueryReader::default().query_version(&source, &spec)?);
-    }
-    let total = state.store.register_evaluation(pid, &request)?;
-    db.create(
-        AestheticConfig {
-            version: 1,
-            request,
-            model: plan.snapshot,
-            sources,
-            image_policy: "stored_original_v1".into(),
-            grouping_policy: "origin_rating_agreement_min_post_created_year_v1".into(),
-            observation_policy: "meaningful_indifference_v1".into(),
-            max_image_bytes: 2 << 20,
-            max_request_bytes: 12 << 20,
-        },
-        total,
-    )
 }

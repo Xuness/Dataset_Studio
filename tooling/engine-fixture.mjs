@@ -15,17 +15,21 @@ export function within(root, path) {
   return path;
 }
 export class EngineFixture {
-  constructor(root, dataDir, logDir = dataDir) {
+  constructor(root, dataDir, logDir = dataDir, options = {}) {
     this.root = root;
     this.dataDir = dataDir;
     this.logDir = logDir;
+    this.options = options;
   }
   async start() {
     await mkdir(this.dataDir, { recursive: true });
     await mkdir(this.logDir, { recursive: true });
     const log = await open(resolve(this.logDir, "engine.log"), "a");
     this.child = spawn(
-      engineExecutable(this.root, engineProfile([], process.env, "debug")),
+      engineExecutable(
+        this.root,
+        this.options.profile ?? engineProfile([], process.env, "debug"),
+      ),
       [
         "serve",
         "--data-dir",
@@ -41,6 +45,7 @@ export class EngineFixture {
           STUDIO_DUCKDB_DLL:
             process.env.STUDIO_DUCKDB_DLL ??
             resolve(this.root, "vendor/duckdb/duckdb.dll"),
+          ...this.options.env,
         },
       },
     );

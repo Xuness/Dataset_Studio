@@ -35,7 +35,7 @@ impl AestheticRepository for EvaluationDb {
     fn attempts(&self, id: &str, batch: u64) -> Result<Vec<AestheticAttempt>> {
         let db = self.read()?;
         read_batch(&db, id, batch)?;
-        let mut stmt=db.prepare("SELECT id,state,created_at,receipt,failure FROM attempts WHERE batch=?1 ORDER BY created_at,id LIMIT 8").map_err(db_error)?;
+        let mut stmt=db.prepare("SELECT id,state,created_at,receipt,failure,semantic_request_hash FROM attempts WHERE batch=?1 ORDER BY created_at,id LIMIT 8").map_err(db_error)?;
         let rows = stmt
             .query_map([batch as i64], |r| {
                 Ok((
@@ -44,6 +44,7 @@ impl AestheticRepository for EvaluationDb {
                     r.get::<_, String>(2)?,
                     r.get::<_, Option<String>>(3)?,
                     r.get::<_, Option<String>>(4)?,
+                    r.get::<_, Option<String>>(5)?,
                 ))
             })
             .map_err(db_error)?
@@ -58,6 +59,7 @@ impl AestheticRepository for EvaluationDb {
                     created_at: r.2,
                     receipt: r.3.map(decode).transpose()?,
                     failure: r.4.map(decode).transpose()?,
+                    semantic_request_hash: r.5,
                 })
             })
             .collect()
@@ -66,7 +68,7 @@ impl AestheticRepository for EvaluationDb {
         let id = id.to_owned();
         let attempt = attempt.to_owned();
         let json = encode(&receipt)?;
-        self.writer.submit(json.len(),move |db| {
+        self.writer.submit_named(json.len(), "receipt", &id.clone(), move |db| {
             let (sequence,old):(u64,Option<String>)=db.query_row("SELECT a.batch,a.receipt FROM attempts a JOIN batches b ON a.batch=b.sequence WHERE a.id=?1 AND b.stage_id=?2",params![attempt,id],|r|Ok((crate::unsigned(r,0)?,r.get(1)?))).map_err(db_error)?;
             if let Some(old)=old {
                 if old!=json {return Err(Error::new("IDEMPOTENCY_CONFLICT","调用结果已保存且内容不同"));}
@@ -95,7 +97,7 @@ impl AestheticRepository for EvaluationDb {
             let receipt: AestheticReceipt = decode(json)?;
             let parsed = parse_observation(&receipt, &batch.members);
             let id = id.to_owned();
-            applied+=self.writer.submit(32*1024,move |db| {
+            applied+=self.writer.submit_named(32*1024, "parse", &id.clone(), move |db| {
                 let state:String=db.query_row("SELECT state FROM attempts WHERE id=?1",[&attempt],|r|r.get(0)).map_err(db_error)?;
                 if state!="received" {return Ok(0);}
                 match parsed {
@@ -104,10 +106,11 @@ impl AestheticRepository for EvaluationDb {
                         db.execute("INSERT INTO evidence(batch,attempt_id,observation,parser_version,accepted_at) VALUES (?1,?2,?3,1,?4)",params![sequence as i64,attempt,json,now()]).map_err(db_error)?;
                         let judged:std::collections::BTreeSet<_>=observation.tiers.iter().flatten().collect();
                         for member in &batch.members {
-                            let valid=judged.contains(&member.label);
+                            let valid=judged.contains(&member.label) && judged.len() >= 2;
+                            let reason = if valid { None } else { Some(observation.unjudgeable.iter().find(|v|v.id==member.label).map(|v|v.reason.clone()).unwrap_or_else(||"insufficient_judged_peers".into())) };
                             let elite=observation.elite_candidates.contains(&member.label);
                             let was_protected:bool=db.query_row("SELECT protected FROM candidates WHERE stage_id=?1 AND ordinal=?2",params![id,member.candidate.ordinal as i64],|r|r.get(0)).map_err(db_error)?;
-                            db.execute("UPDATE candidates SET reserved=0,blocked=?3,exposures=exposures+?4,protected=MAX(protected,?5),sort_key=?6 WHERE stage_id=?1 AND ordinal=?2",params![id,member.candidate.ordinal as i64,!valid,valid as u32,elite,hash(&format!("{id}:{}:{}",member.candidate.ordinal,member.candidate.exposures+u32::from(valid)))]).map_err(db_error)?;
+                            db.execute("UPDATE candidates SET reserved=0,blocked=?3,exposures=exposures+?4,protected=MAX(protected,?5),sort_key=?6,disposition=?7,disposition_reason=?8 WHERE stage_id=?1 AND ordinal=?2",params![id,member.candidate.ordinal as i64,!valid,valid as u32,elite,hash(&format!("{id}:{}:{}",member.candidate.ordinal,member.candidate.exposures+u32::from(valid))),if valid {"active"} else {"needs_review"},reason]).map_err(db_error)?;
                             if elite && !was_protected {db.execute("UPDATE stages SET protected=protected+1 WHERE id=?1",[&id]).map_err(db_error)?;}
                         }
                         db.execute("UPDATE batches SET state='accepted',observation=?2,error=NULL WHERE sequence=?1",params![sequence as i64,json]).map_err(db_error)?;
