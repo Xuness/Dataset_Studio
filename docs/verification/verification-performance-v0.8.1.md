@@ -31,7 +31,7 @@
 - 开发启动器默认使用 Release 引擎，缓存身份取自实际二进制 SHA-256。新任务记录阶段时长、分级和心跳；旧任务没有观测信息时不虚构历史耗时。
 - 顶部入口为“保存当前范围”，榜单入口为“保存筛选为工作集”。保存对话框展示实际范围、条件和数量；配置页增加“查看已有排名”。
 
-具体职责及兼容边界见[决策 0010](decisions/0010-bounded-browse-and-ranking-performance.md)。
+具体职责及兼容边界见[决策 0010](../decisions/0010-bounded-browse-and-ranking-performance.md)。
 
 ## 验收
 
@@ -55,9 +55,9 @@
 
 记录集中于 `.local/reports/performance-fix-v0.8.1-20260909/`：
 
-- [验收清单](../.local/reports/performance-fix-v0.8.1-20260909/verification-manifest.json)
-- [真实项目更新后检查](../.local/reports/performance-fix-v0.8.1-20260909/live-after.json)
-- [冻结输入对照](../.local/reports/performance-fix-v0.8.1-20260909/frozen-ranking-comparison.json)
-- [榜单 SQL 执行计划与有界探针](../.local/reports/performance-fix-v0.8.1-20260909/ranking-query-plans.json)
+- 验收清单：`.local/reports/performance-fix-v0.8.1-20260909/verification-manifest.json`（本机证据，不随仓库分发）
+- 真实项目更新后检查：`.local/reports/performance-fix-v0.8.1-20260909/live-after.json`（本机证据，不随仓库分发）
+- 冻结输入对照：`.local/reports/performance-fix-v0.8.1-20260909/frozen-ranking-comparison.json`（本机证据，不随仓库分发）
+- 榜单 SQL 执行计划与有界探针：`.local/reports/performance-fix-v0.8.1-20260909/ranking-query-plans.json`（本机证据，不随仓库分发）
 
 报告目录还保留测试报告、截图、构建日志、运行切换记录和更新前的源码备份。隔离 Git 工作目录已注销，残留构建文件与两份冻结对照目录已按层清理：先删除 17,994 个文件和 496 个目录链接，再从深到浅删除 2,614 个空目录；三个临时根目录均已移除，空的工作目录和测试目录容器也已清理。当前引擎运行于主目录的二进制缓存，实际项目数据、成果与验收材料均保留。详情见 `cleanup.json`。

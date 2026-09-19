@@ -1,6 +1,6 @@
 # 排名缓存与清理状态修复验收
 
-2026-09-13。对应决定：[0019](decisions/0019-ranking-cache-lifecycle.md)。
+2026-09-13。对应决定：[0019](../decisions/0019-ranking-cache-lifecycle.md)。
 
 ## 本次行为
 

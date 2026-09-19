@@ -1,6 +1,6 @@
 # 0.8.1 性能修复
 
-依据 `docs/performance-metarecall-workset-v0.8.md`，在隔离工作目录完成相关代码后统一验证。
+依据 `docs/verification/performance-metarecall-workset-v0.8.md`，在隔离工作目录完成相关代码后统一验证。
 
 - [x] 隔离开发并保留当前未提交的 UI 改动。
 - [x] 工作集/选择的来源查询使用索引存在性判断。
@@ -12,7 +12,7 @@
 - [x] 补充修复真实榜单读取的索引失配，并与历史排序逐项对照。
 - [x] 一次性完成契约、静态检查、完整集成和界面验收，再进行真实项目的有界对照与运行版本更新。
 
-验收证据见 [0.8.1 性能修复与验收](../docs/verification-performance-v0.8.1.md)。
+验收证据见 [0.8.1 性能修复与验收](../verification/verification-performance-v0.8.1.md)。
 
 - [x] 归档源码、报告、测试与运行验证材料，注销隔离 Git 工作目录。
 - [x] 按层删除临时文件与目录链接，再逐层移除空目录；三个残留临时根目录及空容器已清理，结果见验收目录的 `cleanup.json`。

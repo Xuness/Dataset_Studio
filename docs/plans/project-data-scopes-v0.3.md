@@ -1,8 +1,8 @@
 # 0.3 开发计划：项目数据范围层
 
-状态：已完成（2026-09-08，0.3.0）。四项 P0 能力、最小交互、兼容迁移和验收均已实现。实际证据、当前限制和日常项目升级核对见 [0.3 验证记录](../verification-project-data-scopes-v0.3.md)，持久化与接口语义见 [设计决策 0003](../decisions/0003-project-data-scopes.md)。
+状态：已完成（2026-09-08，0.3.0）。四项 P0 能力、最小交互、兼容迁移和验收均已实现。实际证据、当前限制和日常项目升级核对见 [0.3 验证记录](../verification/verification-project-data-scopes-v0.3.md)，持久化与接口语义见 [设计决策 0003](../decisions/0003-project-data-scopes.md)。
 
-基线：0.2.0，项目清单 v1、项目数据库 v2。上一阶段交付见 [0.2 验证记录](../verification-project-data-layer-v0.2.md)。
+基线：0.2.0，项目清单 v1、项目数据库 v2。上一阶段交付见 [0.2 验证记录](../verification/verification-project-data-layer-v0.2.md)。
 
 ## 目标
 

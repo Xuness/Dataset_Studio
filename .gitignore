@@ -11,11 +11,14 @@
 *.sqlite*
 *.db*
 *.pdb
+*.tsbuildinfo
 .env
 .env.*
 !.env.example
 __pycache__/
+*.py[cod]
 **/.venv/
+coverage/
 /test-results/
 /playwright-report/
 /apps/desktop/src-tauri/icons/*

@@ -1,6 +1,6 @@
 # 0.9 对象管理与选择撤销验收
 
-日期：2026-09-10。开发版本：0.9.0。对应[实现决策](decisions/0011-object-management-and-selection-history.md)与[范围清单](../plans/object-management-v0.9.md)。
+日期：2026-09-10。开发版本：0.9.0。对应[实现决策](../decisions/0011-object-management-and-selection-history.md)与[范围清单](../plans/object-management-v0.9.md)。
 
 ## 使用入口
 
@@ -58,6 +58,6 @@ Tauri 打包副本改名为 studio-engine-sidecar，避免桌面构建复制旧�
 
 验证只读取现有工作集和成果，没有用用户对象试做删除或重命名。没有枚举真实图片湖，也没有重新计算排名。
 
-长期记录目录为 [.local/reports/object-management-v0.9-20260910](../.local/reports/object-management-v0.9-20260910/)，包含检查日志、通过的集成报告、界面截图、升级前后核对、源文件回退副本与哈希清单。临时工作树与测试夹具已在归档后逐级清理，移除约 1.14 GB 临时文件；共享构建目录、运行库、真实项目和升级备份保留完整。
+长期记录目录为 `.local/reports/object-management-v0.9-20260910`（本机证据，不随仓库分发），包含检查日志、通过的集成报告、界面截图、升级前后核对、源文件回退副本与哈希清单。临时工作树与测试夹具已在归档后逐级清理，移除约 1.14 GB 临时文件；共享构建目录、运行库、真实项目和升级备份保留完整。
 
 本次继续使用开发环境，没有生成安装包，也没有提交或推送 Git。

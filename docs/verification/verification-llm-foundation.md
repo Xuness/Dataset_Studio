@@ -16,7 +16,7 @@
 
 后台提供调用准备、完整响应、流式响应和取消接口。应用服务、远端协议实现、存储、本机 DTO、SDK 和设置组件分开组织。Prompt 保存、管理、变量替换、拼接及具体业务处理均未纳入本阶段。
 
-架构决定见 [0023](decisions/0023-llm-foundation.md)，后续功能模块的使用方式见 [接入说明](architecture/llm-integration.md)。
+架构决定见 [0023](../decisions/0023-llm-foundation.md)，后续功能模块的使用方式见 [接入说明](../architecture/llm-integration.md)。
 
 ## 验证结果
 

@@ -1,6 +1,6 @@
 # 0.8 Danbooru 元数据排名实施计划
 
-范围依据：[实施设计](../设计文档/Danbooru元数据筛选公式/实施设计%20v0.8.md)。状态：已完成。验证记录：[实现与验证](../docs/verification-metarecall-v0.8.md)。
+范围依据：[实施设计](../design/metarecall/实施设计%20v0.8.md)。状态：已完成。验证记录：[实现与验证](../verification/verification-metarecall-v0.8.md)。
 
 - [x] WP1：确认项目范围、代表记录、时间层级、名额及缺失语义，写入设计文档。
 - [x] WP2：批量工具与有模式排名成果的领域、接口及持久化支持。

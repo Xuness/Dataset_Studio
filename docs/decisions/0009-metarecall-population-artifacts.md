@@ -68,4 +68,4 @@ inspector. The result header and pagination remain fixed around the scrolling ro
 Ranking reports progress inline; the project task panel stays available on demand.
 
 Validation evidence and current limits are recorded in
-[the 0.8 verification report](../verification-metarecall-v0.8.md).
+[the 0.8 verification report](../verification/verification-metarecall-v0.8.md).

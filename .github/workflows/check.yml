@@ -12,6 +12,10 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          architecture: x64
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: "1.94.0"

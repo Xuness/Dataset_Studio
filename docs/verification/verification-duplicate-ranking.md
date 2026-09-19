@@ -1,6 +1,6 @@
 # 重复帖热度与评分分级修复验证
 
-日期：2026-09-13。项目：`D:\Dataset\Dataset_Studio`。变更前本地提交 `3bc6437`，工作树干净。实现决策见 [0020](decisions/0020-duplicate-post-ranking-evidence.md)。
+日期：2026-09-13。项目：`D:\Dataset\Dataset_Studio`。变更前本地提交 `3bc6437`，工作树干净。实现决策见 [0020](../decisions/0020-duplicate-post-ranking-evidence.md)。
 
 ## 交付行为
 

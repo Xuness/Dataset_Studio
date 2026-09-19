@@ -1,6 +1,6 @@
 # 下一阶段计划：项目数据层
 
-状态：本次收敛范围已实现并完成本机验收。结果见 [0.2 验证记录](../verification-project-data-layer-v0.2.md)，读取和升级边界见 [架构决定](../decisions/0002-project-metadata-layer.md)。
+状态：本次收敛范围已实现并完成本机验收。结果见 [0.2 验证记录](../verification/verification-project-data-layer-v0.2.md)，读取和升级边界见 [架构决定](../decisions/0002-project-metadata-layer.md)。
 
 日期：2026-09-07。
 

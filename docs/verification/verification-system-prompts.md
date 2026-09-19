@@ -1,6 +1,6 @@
 # System Prompt 预设验收
 
-日期：2026-09-17。范围与接口见 [0024](decisions/0024-system-prompt-presets.md) 和 [LLM 接入说明](architecture/llm-integration.md)。
+日期：2026-09-17。范围与接口见 [0024](../decisions/0024-system-prompt-presets.md) 和 [LLM 接入说明](../architecture/llm-integration.md)。
 
 ## 使用入口
 

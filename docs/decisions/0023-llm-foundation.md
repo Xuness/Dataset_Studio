@@ -1,6 +1,6 @@
 # LLM 接入与调用基础层
 
-日期：2026-09-16。状态：已实现；验收见 `docs/verification-llm-foundation.md`。
+日期：2026-09-16。状态：已实现；验收见 `docs/verification/verification-llm-foundation.md`。
 
 ## 范围
 

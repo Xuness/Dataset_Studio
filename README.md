@@ -2,21 +2,21 @@
 
 面向大型图片数据湖的桌面工作环境。项目持续保存来源引用、选择、工作集与处理成果，各工具围绕项目中的数据工作。
 
-当前版本：0.9.1，接入排名工作集的评分显示、双向浏览与 Danbooru ID 起点，继续使用开发模式。已有排名工作集默认沿用保存时的顺序，可切换主排名、补救排名、升序或降序；输入帖子 ID 可从该图片在排名中的位置继续查看。使用方法与验证记录见[排名浏览验收](docs/verification-ranking-browse-v0.9.1.md)。
+当前版本：0.9.1，接入排名工作集的评分显示、双向浏览与 Danbooru ID 起点，继续使用开发模式。已有排名工作集默认沿用保存时的顺序，可切换主排名、补救排名、升序或降序；输入帖子 ID 可从该图片在排名中的位置继续查看。使用方法与验证记录见[排名浏览验收](docs/verification/verification-ranking-browse-v0.9.1.md)。
 
 “设置 → API 与模型”提供供应商连接、远端模型获取、独立模型参数和命名参数预设。基础层接入 OpenAI Chat Completions / Responses、OpenRouter 和 Gemini 原生协议，支持完整响应、流式事件与取消；API Key 在 Windows 上通过当前用户 DPAPI 加密保存。“设置 → System Prompt”管理可复用的系统指令预设，任务按次选择，User Prompt 由每次任务传入；调用检查支持预设选择和不联网的请求预览。见[架构决策](docs/decisions/0023-llm-foundation.md)、[System Prompt 预设](docs/decisions/0024-system-prompt-presets.md)和[模块接入说明](docs/architecture/llm-integration.md)。
 
 “美学排序”可从固定工作集冻结候选和模型配置，按 Rating 独立评审并持久保存梯队与顶级提名。后端已支持离线估计、不可变排名快照、实验对照、保护复核、筛选及工作集派生；第二阶段前端和真实模型校准待接入，自适应付费采样仍待开发。见[后端与 SDK 接入说明](docs/plans/aesthetic-ranking/phase-2-backend.md)。
 
-对象条目旁的“⋯”提供快捷操作，右侧相邻的“属性 / 管理”标签提供名称、备注、来源与引用关系、文件位置和删除入口。相关行为见[对象管理验收](docs/verification-object-management-v0.9.md)。
+对象条目旁的“⋯”提供快捷操作，右侧相邻的“属性 / 管理”标签提供名称、备注、来源与引用关系、文件位置和删除入口。相关行为见[对象管理验收](docs/verification/verification-object-management-v0.9.md)。
 
 Ctrl+Z 撤销图片选择，Ctrl+Y 或 Ctrl+Shift+Z 重做。“设置 → 编辑与撤销”可调整历史上限，默认 50 步，可设 0–200 步；输入框仍使用原生文本撤销。工作集、成果和任务记录支持查找与整理，工具可复用历史参数或保存项目内命名预设。
 
-“计算工具 → Danbooru 元数据排名”使用所选数据湖、查询结果、工作集或选择，固定元数据后计算 MetaRecall v1。参数配置、结果榜单、统计诊断和单图评分依据已经接入；排名可按精确名额筛选并保存为工作集，支持取消、重试和离线恢复已准备输入。详情见[实施与验证](docs/verification-metarecall-v0.8.md)。
+“计算工具 → Danbooru 元数据排名”使用所选数据湖、查询结果、工作集或选择，固定元数据后计算 MetaRecall v1。参数配置、结果榜单、统计诊断和单图评分依据已经接入；排名可按精确名额筛选并保存为工作集，支持取消、重试和离线恢复已准备输入。详情见[实施与验证](docs/verification/verification-metarecall-v0.8.md)。
 
 清单与确定性标量算子通过同一注册协议执行，项目成果可分页查看、参与查询和再次消费。工具与查询草稿、查看范围和布局可恢复，正常切换和关闭等待保存。读取服务协调交互和后台工作，提供共享取消、按包偏移批读及 SSD 持久缩略图缓存。
 
-分级基础缓存按数据湖共享，组合筛选使用候选记录缩小查询范围；项目结果按长期、临时或仅本次会话管理。顶部“设置”统一提供容量、缓存管理和查询内存选项。缓存管理可查看所有项目（包括已关闭项目）的查询、固定输入引用和排名索引，并按项调整保留或清理。固定工作集上的成果分级筛选跨每日数据湖更新复用；涉及最新来源字段的条件仍按需刷新。行为与兼容规则见[缓存分层与设置决策](docs/decisions/0008-cache-tiers-settings.md)、[固定查询与缓存明细](docs/decisions/0021-fixed-query-dependencies-and-cache-inventory.md)及[实施与验收清单](plans/cache-settings-v0.7.md)。
+分级基础缓存按数据湖共享，组合筛选使用候选记录缩小查询范围；项目结果按长期、临时或仅本次会话管理。顶部“设置”统一提供容量、缓存管理和查询内存选项。缓存管理可查看所有项目（包括已关闭项目）的查询、固定输入引用和排名索引，并按项调整保留或清理。固定工作集上的成果分级筛选跨每日数据湖更新复用；涉及最新来源字段的条件仍按需刷新。行为与兼容规则见[缓存分层与设置决策](docs/decisions/0008-cache-tiers-settings.md)、[固定查询与缓存明细](docs/decisions/0021-fixed-query-dependencies-and-cache-inventory.md)及[实施与验收清单](docs/plans/cache-settings-v0.7.md)。
 
 ## 启动
 
@@ -29,7 +29,7 @@ Ctrl+Z 撤销图片选择，Ctrl+Y 或 Ctrl+Shift+Z 重做。“设置 → 编�
 命令行完整入口：
 
 ```powershell
-Set-Location 'D:\Dataset\Dataset_Studio'
+Set-Location '<你的仓库目录>\Dataset_Studio'
 pwsh -File tooling/start-dev.ps1
 ```
 
@@ -45,7 +45,9 @@ pwsh -File tooling/start-dev.ps1
 - 仅用浏览器调试：`pnpm dev:web`，入口为 `http://127.0.0.1:1420`。
 - 已准备依赖时可直接运行 `pnpm dev`；首次使用 Danbooru 元数据前运行 `pwsh -File tooling/setup-duckdb.ps1`。
 
-需要 Node.js 22.12 或更新版本、pnpm 10.30.3、Rust 1.94 或更新版本、Visual Studio C++ 工具链与 WebView2。本机已经验证这些构建能力。脚本只调整子进程的 MSVC 编译环境。
+需要 PowerShell 7、Node.js 22.12 或更新版本、pnpm 10.30.3、Rust 1.94 或更新版本、Visual Studio C++ 工具链与 WebView2。脚本只调整子进程的 MSVC 编译环境。
+
+运行集成测试和使用 Python 夹具的界面验证时，还需要可通过 `python` 命令调用的 **Python 3.11 x64**。本机使用 3.11.9；CI 显式选择 3.11 x64。夹具只使用 Python 标准库和 `tooling/setup-duckdb.ps1` 准备的 DuckDB DLL，不需要额外安装 Python 包。开发与验证入口见 [tooling 导航](tooling/README.md)。
 
 ## 首次使用
 
@@ -59,7 +61,7 @@ pwsh -File tooling/start-dev.ps1
 8. 对象旁的“⋯”或右侧“管理”可修改名称备注、查看具体引用关系、取消数据湖关联、删除工作集与计算成果。需要先处理的引用会提供跳转入口。任务可归档、恢复，已结束且成果已释放的任务可清理。
 9. 顶部“设置”调整撤销步数、缓存与查询工作内存；“缓存管理”预建 G/S/Q/E、调整查询类别、固定或清理结果。各工具可独立使用。
 
-当前机器的 Danbooru 位置：
+本机 Danbooru 路径示例（换机后请在应用中关联实际目录）：
 
 ```text
 SSD 索引：D:\Dataset\Danbooru
@@ -126,31 +128,10 @@ Windows 原生剪贴板验收为 `pnpm test:clipboard`，要求已开启系统�
 
 读取检查使用 `node tooling/verify-reads.mjs --index-root <索引根目录> --media-root <图片湖根目录> --asset <SHA256> --max-source-bytes 2097152`，最多八个显式对象；在读图前核对总预算，并比较冷应用缓存、暖缓存和引擎重启。报告位于 `.local/test-runs/read-verification-*`。
 
-目录职责与实现边界见：
+文档与工具入口：
 
-- [基础架构方案](docs/architecture/foundation-proposal.md)
-- [美学排序规划与后端接入](docs/plans/aesthetic-ranking/README.md)
-- [0.1 实现状态](docs/architecture/foundation-status.md)
-- [0.2 实现与验证](docs/verification-project-data-layer-v0.2.md)
-- [0.3 实现与验证](docs/verification-project-data-scopes-v0.3.md)
-- [0.4 实现与验证](docs/verification-tools-resources-v0.4.md)
-- [开发模式决策](docs/decisions/0001-development-foundation.md)
-- [项目升级与元数据读取决策](docs/decisions/0002-project-metadata-layer.md)
-- [查询、数据范围与项目生命周期决策](docs/decisions/0003-project-data-scopes.md)
-- [算子、成果与会话决策](docs/decisions/0004-tools-artifacts-session.md)
-- [读取协调与缓存决策](docs/decisions/0005-read-coordination-cache.md)
-- [增量成员与排序决策](docs/decisions/0007-incremental-query-membership.md)
-- [缓存分层与设置决策](docs/decisions/0008-cache-tiers-settings.md)
-- [总体工具与排名成果决策](docs/decisions/0009-metarecall-population-artifacts.md)
-- [大型工作集与排名浏览性能验收](docs/verification-performance-v0.8.1.md)
-- [对象管理与选择历史决策](docs/decisions/0011-object-management-and-selection-history.md)
-- [对象管理与选择撤销验收](docs/verification-object-management-v0.9.md)
-- [排名工作集浏览决策](docs/decisions/0012-ranked-workset-browsing.md)
-- [桌面剪贴板接入决策](docs/decisions/0013-desktop-clipboard.md)
-- [排名工作集浏览验收](docs/verification-ranking-browse-v0.9.1.md)
-- [项目数据层计划及验收标准](docs/plans/project-data-layer-v0.2.md)
-- [0.3 项目数据范围层计划](docs/plans/project-data-scopes-v0.3.md)
-- [0.4 工具扩展与成果基础层计划](docs/plans/tool-foundation-v0.4.md)
+- [文档导航](docs/README.md)：当前接入说明、架构决策、实施计划、公式原稿与历史验收。
+- [开发与验证工具](tooling/README.md)：环境要求、常用命令、测试夹具与本机证据归档。
 
 ## 当前边界
 
