@@ -18,9 +18,32 @@ pub mod analysis;
 mod creation;
 mod health;
 mod media;
+mod receipts;
 pub use creation::{create, preflight};
+pub use receipts::reparse_batch;
 
-const REQUEST_KIB: u32 = 104 * 1024; // Native JSON copies, encoded inputs, and a 32 MiB receipt reserve.
+fn request_reservation_kib(stage: &AestheticStage, batch: &AestheticBatch) -> Result<u32> {
+    let images = batch
+        .members
+        .iter()
+        .filter(|m| m.candidate.bytes <= stage.config.max_image_bytes)
+        .map(|m| m.candidate.bytes.div_ceil(3) * 4)
+        .sum::<u64>();
+    let configuration = serde_json::to_vec(&stage.config).map_err(Error::io)?.len() as u64;
+    // Admit preparation too: an oversized parent is encoded before it can be split.
+    let bytes = images
+        .saturating_add(configuration)
+        .saturating_add(65536)
+        .saturating_mul(6)
+        .saturating_add(64 << 20);
+    if bytes > 512 << 20 {
+        return Err(Error::new(
+            "EVALUATION_CAPACITY_EXCEEDED",
+            "此批准备内存超过共享预算，尚未发送",
+        ));
+    }
+    Ok(bytes.div_ceil(1024) as u32)
+}
 const UPLOAD_BYTES_PER_SECOND: u64 = 3_500_000;
 #[derive(Clone)]
 struct Control {
@@ -304,6 +327,7 @@ impl Runner {
         control: Control,
     ) -> Result<()> {
         let volume = health::storage_volume(&state.store.project(&pid)?.directory)?;
+        let request_kib = request_reservation_kib(&stage, &batch)?;
         let admitted = async {
             let request = self
                 .requests
@@ -314,7 +338,7 @@ impl Runner {
             let bytes = self
                 .bytes
                 .clone()
-                .acquire_many_owned(REQUEST_KIB)
+                .acquire_many_owned(request_kib)
                 .await
                 .map_err(Error::io)?;
             Ok::<_, Error>((request, bytes))
@@ -322,13 +346,14 @@ impl Runner {
         let permits = tokio::select! {r=admitted=>r?,_=control.cancel.cancelled()=>return Err(Error::new("CANCELLED","评审已取消"))};
         let reserved = self
             .reserved
-            .fetch_add(u64::from(REQUEST_KIB) * 1024, Ordering::Relaxed)
-            + u64::from(REQUEST_KIB) * 1024;
+            .fetch_add(u64::from(request_kib) * 1024, Ordering::Relaxed)
+            + u64::from(request_kib) * 1024;
         self.peak.fetch_max(reserved, Ordering::Relaxed);
         self.active_requests.fetch_add(1, Ordering::Relaxed);
         let _account = Admission {
             runner: self.clone(),
             _permits: permits,
+            request_kib,
         };
         let sid = stage.id.clone();
         let sequence = batch.sequence;
@@ -343,7 +368,20 @@ impl Runner {
             let config = stage.clone();
             let cancel = control.reads.clone();
             work(move || {
-                let messages = media::prepare_images(&copy, &media_pid, &config, &mut batch, cancel)?;
+                let messages = match media::prepare_images(&copy, &media_pid, &config, &mut batch, cancel)? {
+                    media::Prepared::Messages(messages)=>messages,
+                    media::Prepared::Rejected(rejected)=>{
+                        let valid=batch.members.iter().filter(|m|!rejected.iter().any(|r|r.0==m.candidate.ordinal)).cloned().collect();
+                        copy.store.evaluation(&media_pid)?.regroup(&config.id,batch.sequence,vec![valid],rejected,"image_preflight_failed")?;
+                        return Ok(None);
+                    }
+                };
+                if serde_json::to_vec(&messages).map_err(Error::io)?.len() as u64 > config.config.max_request_bytes {
+                    if batch.members.len()<=2 {return Err(Error::invalid("最小比较批次仍超过请求预算"));}
+                    let middle=batch.members.len()/2;
+                    copy.store.evaluation(&media_pid)?.regroup(&config.id,batch.sequence,vec![batch.members[..middle].to_vec(),batch.members[middle..].to_vec()],vec![],"input_byte_limit")?;
+                    return Ok(None);
+                }
                 let mut plan = copy.llm.prepare(LlmInvocationRequest {
                     invocation_id: studio_domain::new_id(),
                     model_id: config.config.model.model_id.clone(),
@@ -367,14 +405,18 @@ impl Runner {
                     "members": batch.members, "native_body_sha256": hex::encode(Sha256::digest(&body)),
                 })).map_err(Error::io)?));
                 if size > config.config.max_request_bytes {
-                    return Err(Error::invalid("原生请求超过 12 MiB 预算，尚未发送"));
+                    if batch.members.len()<=2 {return Err(Error::invalid("最小比较批次仍超过请求预算，请检查冻结提示词与图片规格"));}
+                    let middle=batch.members.len()/2;
+                    copy.store.evaluation(&media_pid)?.regroup(&config.id,batch.sequence,vec![batch.members[..middle].to_vec(),batch.members[middle..].to_vec()],vec![],"native_request_byte_limit")?;
+                    return Ok(None);
                 }
-                Ok((plan, batch.members, size, semantic_hash))
+                Ok(Some((plan, batch.members, size, semantic_hash)))
             })
             .await
         };
         let (plan, members, size, semantic_hash) = match prepared {
-            Ok(value) => value,
+            Ok(Some(value)) => value,
+            Ok(None) => return Ok(()),
             Err(error) => {
                 let ledger = db.clone();
                 let id = sid.clone();
@@ -399,9 +441,11 @@ impl Runner {
         let runner = self.clone();
         let dispatch_pid = pid.clone();
         let dispatch_volume = volume.clone();
+        let dispatch_directory = state.store.directory(&pid)?;
         if !work(move || {
             studio_storage::faults::check("dispatch_after_upload", &id)?;
             runner.gate.commit(&dispatch_pid, &dispatch_volume, || {
+                creation::check_storage(&dispatch_directory)?;
                 ledger.begin_attempt(&id, sequence, members, aid, semantic_hash)
             })
         })
@@ -410,7 +454,19 @@ impl Runner {
             return Ok(());
         }
         self.uploaded.fetch_add(size, Ordering::Relaxed);
-        match state.llm.generate(plan, control.cancel.clone()).await {
+        let sink = Arc::new(ReceiptSink {
+            runner: self.clone(),
+            db: db.clone(),
+            pid: pid.clone(),
+            volume: volume.clone(),
+            stage: sid.clone(),
+            attempt: attempt.clone(),
+        });
+        match state
+            .llm
+            .generate_recorded(plan, control.cancel.clone(), sink)
+            .await
+        {
             Ok(response) => {
                 self.persist_outcome(
                     &db,
@@ -450,6 +506,7 @@ impl Runner {
         }
     }
     pub fn check_start(&self, state: &AppState, pid: &str) -> Result<()> {
+        creation::check_storage(&state.store.directory(pid)?)?;
         let db = state.store.evaluation(pid)?;
         let volume = health::storage_volume(&state.store.project(pid)?.directory)?;
         match db.health_check() {
@@ -481,6 +538,7 @@ impl Runner {
                 match value {
                     Outcome::Receipt(v) => ledger.receive(&id, &aid, v)?,
                     Outcome::Failure(v) => ledger.fail_attempt(&id, &aid, v)?,
+                    Outcome::Raw(v) => ledger.save_raw(&id, &aid, v)?,
                 }
                 if recovering {
                     ledger.health_check()?;
@@ -516,10 +574,37 @@ impl Runner {
 }
 #[derive(Clone)]
 enum Outcome {
+    Raw(LlmRawReceipt),
     Receipt(AestheticReceipt),
     Failure(LlmFailure),
 }
+struct ReceiptSink {
+    runner: Arc<Runner>,
+    db: Arc<EvaluationDb>,
+    pid: String,
+    volume: String,
+    stage: String,
+    attempt: String,
+}
+impl studio_application::llm::LlmReceiptSink for ReceiptSink {
+    fn persist(&self, receipt: LlmRawReceipt) -> futures::future::BoxFuture<'_, Result<()>> {
+        async move {
+            self.runner
+                .persist_outcome(
+                    &self.db,
+                    &self.pid,
+                    &self.volume,
+                    &self.stage,
+                    &self.attempt,
+                    Outcome::Raw(receipt),
+                )
+                .await
+        }
+        .boxed()
+    }
+}
 struct Admission {
+    request_kib: u32,
     runner: Arc<Runner>,
     _permits: (
         tokio::sync::OwnedSemaphorePermit,
@@ -530,7 +615,7 @@ impl Drop for Admission {
     fn drop(&mut self) {
         self.runner
             .reserved
-            .fetch_sub(u64::from(REQUEST_KIB) * 1024, Ordering::Relaxed);
+            .fetch_sub(u64::from(self.request_kib) * 1024, Ordering::Relaxed);
         self.runner.active_requests.fetch_sub(1, Ordering::Relaxed);
     }
 }

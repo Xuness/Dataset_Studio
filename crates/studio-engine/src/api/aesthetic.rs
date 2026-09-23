@@ -292,6 +292,12 @@ async fn metrics(
     let m = blocking(move || {
         let mut m = s.aesthetic.metrics(&pid, &s.store.directory(&pid)?)?;
         let (queued, peak) = s.store.evaluation(&pid)?.metrics()?;
+        (
+            m.queued_write_count,
+            m.oldest_write_wait_ms,
+            m.last_write_commit_ms,
+            m.reserved_receipt_write_bytes,
+        ) = s.store.evaluation(&pid)?.write_metrics()?;
         m.queued_write_bytes = queued;
         m.peak_write_bytes = peak;
         Ok(m)
@@ -339,7 +345,9 @@ async fn backup(State(s): State<AppState>, Path(pid): Path<String>) -> ApiResult
     preflight,
     decide_candidate,
     abandon_creation,
-    candidate
+    candidate,
+    reparse_batch,
+    recovery_package
 ))]
 pub struct AestheticApiDoc;
 pub(super) fn routes() -> axum::Router<AppState> {
@@ -359,6 +367,25 @@ pub(super) fn routes() -> axum::Router<AppState> {
         )
         .route("/stages/{id}/batches/{batch}/attempts", get(attempts))
         .route("/stages/{id}/batches/{batch}/retry", post(retry))
+        .route("/stages/{id}/batches/{batch}/reparse", post(reparse_batch))
         .route("/metrics", get(metrics))
         .route("/backup", post(backup))
+        .route("/recovery-package", post(recovery_package))
+}
+#[utoipa::path(operation_id="aesthetic_reparse_batch",post,path="/stages/{id}/batches/{batch}/reparse",params(("project_id"=String,Path),("id"=String,Path),("batch"=u64,Path)),responses((status=200,body=OkResponse)))]
+async fn reparse_batch(
+    State(s): State<AppState>,
+    Path((pid, id, batch)): Path<(String, String, u64)>,
+) -> ApiResult<OkResponse> {
+    blocking(move || crate::aesthetic::reparse_batch(&s, &pid, &id, batch)).await?;
+    Ok(Json(OkResponse { ok: true }))
+}
+
+#[utoipa::path(operation_id="aesthetic_recovery_package",post,path="/recovery-package",params(("project_id"=String,Path)),responses((status=200,body=AestheticBackup)))]
+async fn recovery_package(
+    State(s): State<AppState>,
+    Path(pid): Path<String>,
+) -> ApiResult<AestheticBackup> {
+    let relative_path = blocking(move || s.store.recovery_package(&pid)).await?;
+    Ok(Json(AestheticBackup { relative_path }))
 }

@@ -69,7 +69,7 @@ fn disposition_queue_seeks_sparse_candidates_and_v3_migration_preserves_evidence
             .run_to_completion(128, std::time::Duration::from_millis(1), None)
             .unwrap();
         target
-            .execute_batch("DROP INDEX candidate_disposition_page; PRAGMA user_version=3;")
+            .execute_batch("DROP TABLE receipt_parses; DROP TABLE raw_receipts; DROP TABLE batch_replacements; DROP INDEX candidate_disposition_page; PRAGMA user_version=3;")
             .unwrap();
     }
     let migrated = EvaluationDb::open(&path).unwrap();
@@ -84,7 +84,7 @@ fn disposition_queue_seeks_sparse_candidates_and_v3_migration_preserves_evidence
             .unwrap()
             .pragma_query_value(None, "user_version", |r| r.get::<_, u32>(0))
             .unwrap(),
-        4
+        6
     );
     let backup = std::fs::read_dir(legacy.join(".backups"))
         .unwrap()
@@ -360,7 +360,7 @@ fn v1_and_v2_ledgers_migrate_paid_history_and_abstentions_with_durable_backups()
                 .unwrap()
                 .pragma_query_value(None, "user_version", |r| r.get::<_, u32>(0))
                 .unwrap(),
-            4
+            6
         );
         let backup = std::fs::read_dir(legacy.join(".backups"))
             .unwrap()

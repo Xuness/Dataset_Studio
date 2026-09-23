@@ -556,14 +556,15 @@ export default function EvaluationPanel(
                 disabled={busy}
                 onClick={() =>
                   void perform(async () => {
-                    const result = await client.aesthetic.backup(projectId);
+                    const result =
+                      await client.aesthetic.recoveryPackage(projectId);
                     setNotice(
-                      `评审账本备份已保存：${result.relative_path}（完整项目备份还需保留项目目录）`,
+                      `项目恢复包已保存：${result.relative_path}（包含两库和项目成果，外部数据湖仍需保留）`,
                     );
                   })
                 }
               >
-                备份评审账本
+                创建项目恢复包
               </button>
             </footer>
           )}

@@ -42,6 +42,7 @@ pub mod ranked_index;
 mod ranking;
 mod ranking_browse;
 pub mod ranking_tables;
+mod recovery;
 mod registry;
 mod scopes;
 mod selection;

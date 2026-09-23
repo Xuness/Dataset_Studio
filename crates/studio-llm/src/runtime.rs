@@ -17,7 +17,7 @@ use studio_domain::{Result, llm::*};
 
 pub struct RemoteLlm {
     credentials: Arc<dyn LlmCredentials>,
-    limits: Limits,
+    pub(crate) limits: Limits,
     clients: Mutex<HashMap<(String, u64), reqwest::Client>>,
 }
 impl RemoteLlm {
@@ -28,7 +28,7 @@ impl RemoteLlm {
             clients: Mutex::new(HashMap::new()),
         }
     }
-    async fn client(&self, provider: &LlmProvider) -> LlmCallResult<reqwest::Client> {
+    pub(crate) async fn client(&self, provider: &LlmProvider) -> LlmCallResult<reqwest::Client> {
         let key = (provider.id.clone(), provider.revision);
         if let Some(client) = self
             .clients
@@ -140,6 +140,21 @@ impl RemoteLlm {
     }
 }
 impl LlmBackend for RemoteLlm {
+    fn generate_recorded(
+        &self,
+        plan: LlmInvocationPlan,
+        cancel: LlmCancellation,
+        sink: Arc<dyn LlmReceiptSink>,
+    ) -> BoxFuture<'_, LlmCallResult<LlmResponse>> {
+        self.recorded(plan, cancel, sink)
+    }
+    fn reparse(
+        &self,
+        plan: &LlmInvocationSnapshot,
+        receipt: &LlmRawReceipt,
+    ) -> LlmCallResult<LlmResponse> {
+        crate::recorded::reparse(plan, receipt)
+    }
     fn validate_connection(&self, config: &LlmConnectionConfig) -> Result<()> {
         http::validate(config)
     }
@@ -293,7 +308,7 @@ impl LlmBackend for RemoteLlm {
         })
     }
 }
-fn interrupted(code: &str, message: &str, attempted: &AtomicBool) -> LlmFailure {
+pub(crate) fn interrupted(code: &str, message: &str, attempted: &AtomicBool) -> LlmFailure {
     let mut error = LlmFailure::new(code, message);
     error.outcome_unknown = attempted.load(Ordering::Acquire);
     error

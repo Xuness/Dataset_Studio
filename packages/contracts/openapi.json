@@ -2072,6 +2072,36 @@
         }
       }
     },
+    "/v1/projects/{project_id}/aesthetic/recovery-package": {
+      "post": {
+        "tags": [
+          "aesthetic"
+        ],
+        "operationId": "aesthetic_recovery_package",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AestheticBackup"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/projects/{project_id}/aesthetic/stages": {
       "get": {
         "tags": [
@@ -2291,6 +2321,54 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AestheticAttempts"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/aesthetic/stages/{id}/batches/{batch}/reparse": {
+      "post": {
+        "tags": [
+          "aesthetic"
+        ],
+        "operationId": "aesthetic_reparse_batch",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "batch",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
                 }
               }
             }
@@ -6204,6 +6282,34 @@
         }
       }
     },
+    "/v1/recovery/restore": {
+      "post": {
+        "tags": [],
+        "operationId": "restore_recovery",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RestoreRecovery"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/resources": {
       "get": {
         "tags": [
@@ -6839,6 +6945,16 @@
           "id": {
             "type": "string"
           },
+          "raw_receipt": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AestheticRawSummary"
+              }
+            ]
+          },
           "receipt": {
             "oneOf": [
               {
@@ -6892,7 +7008,8 @@
           "stage_id",
           "rating",
           "state",
-          "members"
+          "members",
+          "replacement_sequences"
         ],
         "properties": {
           "attempt_id": {
@@ -6923,8 +7040,24 @@
               }
             ]
           },
+          "parent_sequence": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
           "rating": {
             "type": "string"
+          },
+          "replacement_sequences": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
           },
           "sequence": {
             "type": "integer",
@@ -7068,12 +7201,18 @@
           "max_stage_candidates",
           "batch_size",
           "max_image_bytes",
-          "max_request_bytes"
+          "max_request_bytes",
+          "default_request_bytes"
         ],
         "properties": {
           "batch_size": {
             "type": "integer",
             "format": "int32",
+            "minimum": 0
+          },
+          "default_request_bytes": {
+            "type": "integer",
+            "format": "int64",
             "minimum": 0
           },
           "max_image_bytes": {
@@ -7353,6 +7492,14 @@
           },
           "max_calls": {
             "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "max_request_mib": {
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           },
@@ -7636,6 +7783,10 @@
           "upload_budget_bytes_per_second",
           "uploaded_body_bytes",
           "queued_write_bytes",
+          "queued_write_count",
+          "oldest_write_wait_ms",
+          "last_write_commit_ms",
+          "reserved_receipt_write_bytes",
           "peak_write_bytes",
           "dispatch_health",
           "retained_outcomes"
@@ -7649,6 +7800,16 @@
           "dispatch_health": {
             "type": "string"
           },
+          "last_write_commit_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "oldest_write_wait_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
           "peak_request_bytes": {
             "type": "integer",
             "format": "int64",
@@ -7660,6 +7821,16 @@
             "minimum": 0
           },
           "queued_write_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "queued_write_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "reserved_receipt_write_bytes": {
             "type": "integer",
             "format": "int64",
             "minimum": 0
@@ -7735,17 +7906,29 @@
           "capabilities",
           "total",
           "input_version",
-          "admitted"
+          "admitted",
+          "available_storage_bytes",
+          "minimum_calls_lower_bound"
         ],
         "properties": {
           "admitted": {
             "type": "boolean"
+          },
+          "available_storage_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           },
           "capabilities": {
             "$ref": "#/components/schemas/AestheticCapabilities"
           },
           "input_version": {
             "type": "string"
+          },
+          "minimum_calls_lower_bound": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           },
           "rejection_code": {
             "type": [
@@ -8139,6 +8322,33 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          }
+        }
+      },
+      "AestheticRawSummary": {
+        "type": "object",
+        "required": [
+          "sha256",
+          "bytes",
+          "complete",
+          "http_status"
+        ],
+        "properties": {
+          "bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "complete": {
+            "type": "boolean"
+          },
+          "http_status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "sha256": {
+            "type": "string"
           }
         }
       },
@@ -15237,6 +15447,22 @@
             "minimum": 0
           }
         }
+      },
+      "RestoreRecovery": {
+        "type": "object",
+        "required": [
+          "package_directory",
+          "destination"
+        ],
+        "properties": {
+          "destination": {
+            "type": "string"
+          },
+          "package_directory": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
       },
       "ResultAssets": {
         "type": "object",

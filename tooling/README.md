@@ -85,3 +85,10 @@ Rust 测试位于 crates 内，`pnpm test` 同时执行 SDK 检查 [client-found
 运行产物统一保存在 `.local/test-runs/`，命令日志放在 `.local/logs/`。需要长期保留的验收摘要、日志和截图归档到 `.local/reports/` 后，再按明确范围清理本次临时文件与空目录。仓库内的历史验收摘要放在 `docs/verification/`，本机证据位置用普通文本注明。
 
 `.local/dev/` 保存实际项目、成果、注册表和凭据，不能作为测试输出整体清理。夹具脚本的目录校验用于约束隔离运行位置，调用时也应明确指定本次测试目录。
+
+## 评审 R2 验证
+
+- [integration-aesthetic-transport.mjs](integration-aesthetic-transport.mjs)：大图请求预算、逐图身份核对、原始/部分/超限回执、本地重解析、坏图预检、项目恢复和成果摘要。已加入 pnpm test:integration，全程使用本机模拟供应商。
+- [probe-aesthetic-workset.mjs](probe-aesthetic-workset.mjs)：最多 512 张指定真实图片的隔离传输验证。参数依次为元数据审计 JSON、应用数据目录、System Prompt 名称。审计文件包含 collection_name、project_id、summary.errors 和 rows[].key；只读应用注册表及真实图片，评审状态写入独立测试项目，服务端仅监听 loopback，不调用商业 API。此入口不验证模型审美质量。
+
+项目恢复使用公开 SDK 的 aesthetic.recoveryPackage(projectId) 和 aesthetic.restore(packageDirectory, destination)。后者要求同身份项目已关闭、目标目录不存在；验证成功后显式 openProject(destination)。旧的 aesthetic.backup 仍只备份评审账本。外部数据湖和凭据不在恢复包内。

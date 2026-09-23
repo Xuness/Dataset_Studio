@@ -24,6 +24,7 @@ const initial = {
   exposures: 1,
   maxCalls: 100,
   concurrency: 2,
+  maxRequestMiB: 32,
   pending: null as Pending | null,
 };
 function decode(value: unknown): typeof initial | null {
@@ -46,7 +47,17 @@ function decode(value: unknown): typeof initial | null {
       !pending.report.capabilities)
   )
     return null;
-  return { ...initial, ...v, pending };
+  return {
+    ...initial,
+    ...v,
+    maxRequestMiB:
+      typeof v.maxRequestMiB === "number" &&
+      v.maxRequestMiB >= 8 &&
+      v.maxRequestMiB <= 48
+        ? v.maxRequestMiB
+        : 32,
+    pending,
+  };
 }
 
 export function StageCreationDialog({
@@ -125,6 +136,7 @@ export function StageCreationDialog({
       exposures: value.exposures,
       max_calls: value.maxCalls,
       concurrency: value.concurrency,
+      max_request_mib: value.maxRequestMiB,
       overrides: {},
     };
     // Invalidate an older report even when this check fails.
@@ -304,6 +316,23 @@ export function StageCreationDialog({
                   />
                 </label>
               ))}
+              <label>
+                每批请求体预算
+                <select
+                  aria-label="每批请求体预算"
+                  disabled={!editable}
+                  value={value.maxRequestMiB}
+                  onChange={(e) =>
+                    edit({ maxRequestMiB: Number(e.target.value) })
+                  }
+                >
+                  {[8, 12, 16, 24, 32, 48].map((n) => (
+                    <option key={n} value={n}>
+                      {n} MiB{n === 32 ? "（默认）" : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </div>
           </details>
           <button type="submit" disabled={!editable}>
@@ -316,6 +345,24 @@ export function StageCreationDialog({
             <dl className="wb-property-list">
               <dt>工作集候选</dt>
               <dd>{report.total.toLocaleString()}</dd>
+              {report.available_storage_bytes !== undefined && (
+                <>
+                  <dt>可用磁盘空间</dt>
+                  <dd>
+                    {(report.available_storage_bytes / 1073741824).toFixed(1)}{" "}
+                    GiB
+                  </dd>
+                </>
+              )}
+              {report.minimum_calls_lower_bound !== undefined && (
+                <>
+                  <dt>完整曝光调用下界</dt>
+                  <dd>
+                    至少 {report.minimum_calls_lower_bound.toLocaleString()}{" "}
+                    次；分组、拆批和重评可能增加
+                  </dd>
+                </>
+              )}
               <dt>阶段候选上限</dt>
               <dd>
                 {report.capabilities.max_stage_candidates.toLocaleString()}
@@ -326,7 +373,10 @@ export function StageCreationDialog({
               <dd>{report.capabilities.max_image_bytes / 1048576} MiB / 图</dd>
               <dt>请求上限</dt>
               <dd>
-                {report.capabilities.max_request_bytes / 1048576} MiB / 批
+                {pending?.request.max_request_mib ??
+                  (report.capabilities.default_request_bytes ??
+                    report.capabilities.max_request_bytes) / 1048576}{" "}
+                MiB / 批（本地预算）
               </dd>
               <dt>调用次数上限</dt>
               <dd>{pending.request.max_calls}</dd>
@@ -340,7 +390,7 @@ export function StageCreationDialog({
               此预检核对工作集版本及候选数量。图片可读取性、实际编码大小和模型配置在后续准备时验证；通过不代表每张图片均可发送。
             </p>
             <p className="aesthetic-help">
-              创建只冻结候选与配置。准备完成后，点击“开始评审”才会调用模型。
+              创建会冻结候选与配置，并逐页检查图片可读取性、格式和内容版本。准备完成后，点击“开始评审”才会调用模型。
             </p>
             <button
               type="button"

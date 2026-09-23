@@ -150,6 +150,10 @@ pub fn status_error(response: &reqwest::Response) -> LlmFailure {
     let status = response.status().as_u16();
     let (code, message) = match status {
         401 | 403 => ("LLM_AUTHENTICATION", "供应商拒绝认证或账号无权限"),
+        413 => (
+            "LLM_REQUEST_TOO_LARGE",
+            "供应商拒绝请求体大小，请降低此端点的阶段预算",
+        ),
         404 => ("LLM_NOT_FOUND", "供应商模型或接口不存在"),
         429 => ("LLM_RATE_LIMITED", "供应商限流或额度不足"),
         400 | 422 => (

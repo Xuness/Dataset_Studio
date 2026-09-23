@@ -22,6 +22,8 @@ pub struct AestheticCreate {
     pub concurrency: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expected_input_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_request_mib: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -133,6 +135,7 @@ pub struct AestheticCapabilities {
     pub batch_size: u32,
     pub max_image_bytes: u64,
     pub max_request_bytes: u64,
+    pub default_request_bytes: u64,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AestheticPreflight {
@@ -142,6 +145,8 @@ pub struct AestheticPreflight {
     pub admitted: bool,
     pub rejection_code: Option<String>,
     pub rejection_reason: Option<String>,
+    pub available_storage_bytes: u64,
+    pub minimum_calls_lower_bound: u64,
 }
 
 /// A project transaction durably records this before creating the other database's stage.
@@ -169,6 +174,8 @@ pub struct AestheticBatch {
     pub attempt_id: Option<String>,
     pub error: Option<String>,
     pub observation: Option<AestheticObservation>,
+    pub parent_sequence: Option<u64>,
+    pub replacement_sequences: Vec<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -217,6 +224,14 @@ pub struct AestheticAttempt {
     pub receipt: Option<AestheticReceipt>,
     pub failure: Option<LlmFailure>,
     pub semantic_request_hash: Option<String>,
+    pub raw_receipt: Option<AestheticRawSummary>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AestheticRawSummary {
+    pub sha256: String,
+    pub bytes: u64,
+    pub complete: bool,
+    pub http_status: u16,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -227,6 +242,10 @@ pub struct AestheticMetrics {
     pub upload_budget_bytes_per_second: u64,
     pub uploaded_body_bytes: u64,
     pub queued_write_bytes: u64,
+    pub queued_write_count: u64,
+    pub oldest_write_wait_ms: u64,
+    pub last_write_commit_ms: u64,
+    pub reserved_receipt_write_bytes: u64,
     pub peak_write_bytes: u64,
     pub dispatch_health: String,
     pub storage_error_code: Option<String>,

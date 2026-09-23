@@ -23,6 +23,12 @@ pub fn validate_create(value: &AestheticCreate) -> Result<()> {
         studio_domain::validate_id(id)?;
     }
     studio_domain::validate_name(&value.name)?;
+    if value
+        .max_request_mib
+        .is_some_and(|v| !(8..=48).contains(&v))
+    {
+        return Err(Error::invalid("请求体预算须为 8–48 MiB"));
+    }
     if !(1..=32).contains(&value.exposures)
         || !(1..=32).contains(&value.concurrency)
         || !(1..=10_000_000).contains(&value.max_calls)
@@ -42,6 +48,7 @@ pub fn validate_create(value: &AestheticCreate) -> Result<()> {
 }
 
 pub const OUTPUT_INSTRUCTIONS: &str = r#"
+每个图片 ID 文本只标识紧随其后的那一张图片。严格原样复制 ID，禁止使用文件名、附件编号或自行编号。
 返回一个 JSON 对象，不使用 Markdown：
 {"schema_version":1,"tiers":[["img01","img02"],["img03"]],"elite_candidates":[],"unjudgeable":[]}
 tiers 从审美高到低排列。同梯队表示在本次审美标准下没有有意义的差异，而非省略内部排序。

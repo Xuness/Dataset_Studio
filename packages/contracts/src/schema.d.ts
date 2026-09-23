@@ -815,6 +815,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{project_id}/aesthetic/recovery-package": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["aesthetic_recovery_package"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects/{project_id}/aesthetic/stages": {
         parameters: {
             query?: never;
@@ -873,6 +889,22 @@ export interface paths {
         get: operations["aesthetic_attempts"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/aesthetic/stages/{id}/batches/{batch}/reparse": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["aesthetic_reparse_batch"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2063,6 +2095,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/recovery/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["restore_recovery"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/resources": {
         parameters: {
             query?: never;
@@ -2320,6 +2368,7 @@ export interface components {
             created_at: string;
             failure?: null | components["schemas"]["LlmFailure"];
             id: string;
+            raw_receipt?: null | components["schemas"]["AestheticRawSummary"];
             receipt?: null | components["schemas"]["AestheticReceipt"];
             semantic_request_hash?: string | null;
             state: string;
@@ -2335,7 +2384,10 @@ export interface components {
             error?: string | null;
             members: components["schemas"]["AestheticMember"][];
             observation?: null | components["schemas"]["AestheticObservation"];
+            /** Format: int64 */
+            parent_sequence?: number | null;
             rating: string;
+            replacement_sequences: number[];
             /** Format: int64 */
             sequence: number;
             stage_id: string;
@@ -2374,6 +2426,8 @@ export interface components {
         AestheticCapabilities: {
             /** Format: int32 */
             batch_size: number;
+            /** Format: int64 */
+            default_request_bytes: number;
             /** Format: int64 */
             max_image_bytes: number;
             /** Format: int64 */
@@ -2449,6 +2503,8 @@ export interface components {
             idempotency_key: string;
             /** Format: int32 */
             max_calls: number;
+            /** Format: int32 */
+            max_request_mib?: number | null;
             model_id: string;
             name: string;
             overrides?: {
@@ -2529,11 +2585,19 @@ export interface components {
             active_requests: number;
             dispatch_health: string;
             /** Format: int64 */
+            last_write_commit_ms: number;
+            /** Format: int64 */
+            oldest_write_wait_ms: number;
+            /** Format: int64 */
             peak_request_bytes: number;
             /** Format: int64 */
             peak_write_bytes: number;
             /** Format: int64 */
             queued_write_bytes: number;
+            /** Format: int64 */
+            queued_write_count: number;
+            /** Format: int64 */
+            reserved_receipt_write_bytes: number;
             /** Format: int64 */
             reserved_request_bytes: number;
             /** Format: int64 */
@@ -2553,8 +2617,12 @@ export interface components {
         };
         AestheticPreflight: {
             admitted: boolean;
+            /** Format: int64 */
+            available_storage_bytes: number;
             capabilities: components["schemas"]["AestheticCapabilities"];
             input_version: string;
+            /** Format: int64 */
+            minimum_calls_lower_bound: number;
             rejection_code?: string | null;
             rejection_reason?: string | null;
             /** Format: int64 */
@@ -2669,6 +2737,14 @@ export interface components {
             rating: string;
             /** Format: int64 */
             split_comparable: number;
+        };
+        AestheticRawSummary: {
+            /** Format: int64 */
+            bytes: number;
+            complete: boolean;
+            /** Format: int32 */
+            http_status: number;
+            sha256: string;
         };
         AestheticReceipt: {
             model?: string | null;
@@ -4435,6 +4511,10 @@ export interface components {
             /** Format: int64 */
             work_ms: number;
         };
+        RestoreRecovery: {
+            destination: string;
+            package_directory: string;
+        };
         ResultAssets: {
             /** Format: int64 */
             count: number;
@@ -5994,6 +6074,27 @@ export interface operations {
             };
         };
     };
+    aesthetic_recovery_package: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AestheticBackup"];
+                };
+            };
+        };
+    };
     aesthetic_stages: {
         parameters: {
             query?: {
@@ -6109,6 +6210,29 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AestheticAttempts"];
+                };
+            };
+        };
+    };
+    aesthetic_reparse_batch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                id: string;
+                batch: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
                 };
             };
         };
@@ -8209,6 +8333,29 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["CaptureScope"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+        };
+    };
+    restore_recovery: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RestoreRecovery"];
             };
         };
         responses: {

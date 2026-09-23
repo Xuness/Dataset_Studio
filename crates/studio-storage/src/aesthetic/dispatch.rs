@@ -102,12 +102,13 @@ impl EvaluationDb {
         let id = id.to_owned();
         let attempt = attempt.to_owned();
         let json = encode(&failure)?;
-        self.writer.submit(json.len(),move |db|{
+        self.writer.submit_named(json.len(),"failure",&id.clone(),move |db|{
             let sequence:u64=db.query_row("SELECT a.batch FROM attempts a JOIN batches b ON b.sequence=a.batch WHERE a.id=?1 AND b.stage_id=?2",params![attempt,id],|r|crate::unsigned(r,0)).map_err(db_error)?;
             let batch=read_batch(db,&id,sequence)?;
             let next=if failure.outcome_unknown {"outcome_unknown"}else{"failed"};
             let changed=db.execute("UPDATE attempts SET state=?2,failure=?3 WHERE id=?1 AND state='sent'",params![attempt,next,json]).map_err(db_error)?;
             if changed==0 {return Ok(());}
+            db.execute("INSERT INTO receipt_parses(attempt_id,adapter_version,state,error,created_at) SELECT ?1,'native_json_v1','failed',?2,?3 WHERE EXISTS(SELECT 1 FROM raw_receipts WHERE attempt_id=?1)",params![attempt,json,now()]).map_err(db_error)?;
             db.execute("UPDATE batches SET state=?2,error=?3 WHERE sequence=?1",params![sequence as i64,next,failure.message]).map_err(db_error)?;
             db.execute("UPDATE stages SET unknown=unknown+?2 WHERE id=?1",params![id,failure.outcome_unknown as u32]).map_err(db_error)?;
             for m in batch.members { db.execute("UPDATE candidates SET reserved=0,blocked=1 WHERE stage_id=?1 AND ordinal=?2",params![id,m.candidate.ordinal as i64]).map_err(db_error)?; }

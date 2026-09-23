@@ -4,13 +4,18 @@ use sha2::{Digest, Sha256};
 use studio_application::{MediaInput, MediaSource, SourceAdapter};
 use studio_domain::{ReadClass, ReadPriority, ReadRequest};
 
+pub(super) enum Prepared {
+    Messages(Vec<LlmMessage>),
+    Rejected(Vec<(u64, String)>),
+}
+
 pub(super) fn prepare_images(
     state: &AppState,
     pid: &str,
     stage: &AestheticStage,
     batch: &mut AestheticBatch,
     cancelled: Arc<AtomicBool>,
-) -> Result<Vec<LlmMessage>> {
+) -> Result<Prepared> {
     let _read = state.resources.acquire(
         ReadRequest {
             class: ReadClass::Media,
@@ -22,84 +27,115 @@ pub(super) fn prepare_images(
     let router = studio_sources::SourceRouter;
     studio_application::aesthetic::validate_execution(&stage.config)?;
     let mut content = Vec::new();
-    let mut bytes = 0;
-    // Physical source batches remain bounded. The model sees the frozen randomized order.
     let mut media = std::collections::BTreeMap::new();
     let sources = batch
         .members
         .iter()
         .map(|m| m.candidate.key.source_id.clone())
         .collect::<std::collections::BTreeSet<_>>();
-    for source_id in sources {
-        let source = state.store.source(pid, &source_id)?;
-        let selected = batch
+    for sid in sources {
+        let source = state.store.source(pid, &sid)?;
+        let mut selected = Vec::new();
+        let mut inputs = Vec::new();
+        for member in batch
             .members
             .iter()
-            .filter(|m| m.candidate.key.source_id == source_id)
-            .collect::<Vec<_>>();
-        let mut inputs = Vec::new();
-        for member in &selected {
-            let identity = router.verify_media_identity(&source, &member.candidate.key.asset_id)?;
-            if identity.content_version != member.candidate.content_version {
-                return Err(Error::new("SOURCE_CHANGED", "图片内容版本已变化"));
+            .filter(|m| m.candidate.key.source_id == sid)
+        {
+            let check = router
+                .verify_media_identity(&source, &member.candidate.key.asset_id)
+                .and_then(|identity| {
+                    if identity.content_version != member.candidate.content_version {
+                        Err(Error::new("SOURCE_CHANGED", "图片内容版本已变化"))
+                    } else if identity.bytes > stage.config.max_image_bytes {
+                        Err(Error::invalid("图片超过本阶段 2 MiB 原图上限"))
+                    } else {
+                        Ok(())
+                    }
+                });
+            if let Err(error) = check {
+                media.insert(member.label.clone(), Err(error));
+                continue;
             }
-            if identity.bytes > stage.config.max_image_bytes {
-                return Err(Error::invalid(
-                    "图片超过本阶段 2 MiB 原图上限；请先选择合适的评审图片规格",
-                ));
-            }
+            selected.push(member);
             inputs.push(MediaInput {
                 asset_id: member.candidate.key.asset_id.clone(),
                 cancelled: cancelled.clone(),
                 byte_limit: stage.config.max_image_bytes,
             });
         }
-        let read = router.read_many(&source, &inputs)?;
-        for (member, item) in selected.into_iter().zip(read.items) {
-            media.insert(member.label.clone(), item?);
+        if !inputs.is_empty() {
+            let read = router.read_many(&source, &inputs)?;
+            if read.items.len() != selected.len() {
+                return Err(Error::invalid("来源返回的图片数量与请求不一致"));
+            }
+            for (member, item) in selected.into_iter().zip(read.items) {
+                media.insert(member.label.clone(), item);
+            }
         }
     }
+    let mut rejected = Vec::new();
     for member in &mut batch.members {
         studio_application::read_cancelled(&cancelled)?;
-        let image = media
-            .remove(&member.label)
-            .ok_or_else(|| Error::invalid("批次缺少图片"))?;
-        if !matches!(
-            image.content_type.as_str(),
-            "image/webp" | "image/jpeg" | "image/png"
-        ) {
-            return Err(Error::invalid(
-                "第一版评审图片支持 WebP、JPEG、PNG 原始字节",
-            ));
+        let prepared = (|| -> Result<LlmContent> {
+            let image = media
+                .remove(&member.label)
+                .ok_or_else(|| Error::invalid("来源未返回图片"))??;
+            if !matches!(
+                image.content_type.as_str(),
+                "image/webp" | "image/jpeg" | "image/png"
+            ) {
+                return Err(Error::invalid("评审支持 WebP、JPEG、PNG"));
+            }
+            let signature = match image.content_type.as_str() {
+                "image/png" => image.bytes.starts_with(b"\x89PNG\r\n\x1a\n"),
+                "image/jpeg" => image.bytes.starts_with(b"\xff\xd8\xff"),
+                "image/webp" => {
+                    image.bytes.starts_with(b"RIFF") && image.bytes.get(8..12) == Some(b"WEBP")
+                }
+                _ => false,
+            };
+            if !signature {
+                return Err(Error::invalid("图片文件签名与格式不一致"));
+            }
+            let digest = hex::encode(Sha256::digest(&image.bytes));
+            if member
+                .candidate
+                .content_version
+                .strip_prefix("sha256:")
+                .is_some_and(|v| v != digest)
+                || member.image_sha256.as_ref().is_some_and(|v| v != &digest)
+            {
+                return Err(Error::new(
+                    "SOURCE_CHANGED",
+                    "图片 SHA-256 与冻结身份不一致",
+                ));
+            }
+            member.image_sha256 = Some(digest);
+            Ok(LlmContent::Image {
+                url: format!(
+                    "data:{};base64,{}",
+                    image.content_type,
+                    STANDARD.encode(&image.bytes)
+                ),
+                detail: None,
+            })
+        })();
+        match prepared {
+            Ok(image) => {
+                content.push(LlmContent::Text {
+                    text: member.label.clone(),
+                });
+                content.push(image);
+            }
+            Err(e) if e.code == "CANCELLED" => return Err(e),
+            Err(e) => rejected.push((member.candidate.ordinal, e.to_string())),
         }
-        let digest = hex::encode(Sha256::digest(&image.bytes));
-        if member
-            .candidate
-            .content_version
-            .strip_prefix("sha256:")
-            .is_some_and(|v| v != digest)
-        {
-            return Err(Error::new("SOURCE_CHANGED", "图片 SHA-256 校验失败"));
-        }
-        if member.image_sha256.as_ref().is_some_and(|v| v != &digest) {
-            return Err(Error::new("SOURCE_CHANGED", "重试图片与首次发送内容不一致"));
-        }
-        member.image_sha256 = Some(digest);
-        let url = format!(
-            "data:{};base64,{}",
-            image.content_type,
-            STANDARD.encode(&image.bytes)
-        );
-        bytes += url.len();
-        if bytes as u64 > stage.config.max_request_bytes {
-            return Err(Error::invalid("16 图批次超过 12 MiB 请求预算，尚未发送"));
-        }
-        content.push(LlmContent::Text {
-            text: member.label.clone(),
-        });
-        content.push(LlmContent::Image { url, detail: None });
     }
-    studio_application::aesthetic::request_messages(&stage.config, content)
+    if !rejected.is_empty() {
+        return Ok(Prepared::Rejected(rejected));
+    }
+    studio_application::aesthetic::request_messages(&stage.config, content).map(Prepared::Messages)
 }
 
 pub(super) fn freeze_page(
@@ -172,6 +208,42 @@ pub(super) fn freeze_page(
             });
         }
         index = end;
+    }
+    drop(_permit);
+    // Creation validates bounded physical reads without submitting a model request.
+    for chunk in rows.chunks_mut(16) {
+        let mut probe = AestheticBatch {
+            sequence: 0,
+            parent_sequence: None,
+            replacement_sequences: vec![],
+            stage_id: stage.id.clone(),
+            rating: String::new(),
+            state: "preparing".into(),
+            members: chunk
+                .iter()
+                .enumerate()
+                .map(|(i, c)| AestheticMember {
+                    label: format!("img{:02}", i + 1),
+                    candidate: c.clone(),
+                    image_sha256: None,
+                })
+                .collect(),
+            attempt_id: None,
+            error: None,
+            observation: None,
+        };
+        if let Prepared::Rejected(rejected) =
+            prepare_images(state, pid, stage, &mut probe, cancel.clone())?
+        {
+            for row in chunk {
+                if let Some((_, reason)) =
+                    rejected.iter().find(|(ordinal, _)| *ordinal == row.ordinal)
+                {
+                    row.disposition = AestheticDisposition::NeedsReview;
+                    row.disposition_reason = Some(reason.clone());
+                }
+            }
+        }
     }
     db.append_candidates(&stage.id, rows)?;
     Ok(true)

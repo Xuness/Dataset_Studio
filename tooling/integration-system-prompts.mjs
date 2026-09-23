@@ -216,7 +216,7 @@ try {
     () =>
       client.llm.prepare({
         ...input,
-        messages: [message("x".repeat(16 * 1024 * 1024 - 100))],
+        messages: [message("x".repeat(64 * 1024 * 1024 - 100))],
       }),
     invalid,
   );

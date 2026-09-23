@@ -44,6 +44,18 @@ fn input(
     Ok((total, project_version, sources, input_version))
 }
 
+pub(super) const MIN_STORAGE_HEADROOM: u64 = 256 << 20;
+pub(super) fn check_storage(directory: &std::path::Path) -> Result<u64> {
+    let available = fs2::available_space(directory).map_err(Error::io)?;
+    if available < MIN_STORAGE_HEADROOM {
+        return Err(Error::new(
+            "EVALUATION_STORAGE_FULL",
+            "评审存储可用空间不足 256 MiB，尚未派发",
+        ));
+    }
+    Ok(available)
+}
+
 pub fn preflight(
     state: &AppState,
     pid: &str,
@@ -51,9 +63,17 @@ pub fn preflight(
 ) -> Result<AestheticPreflight> {
     validate_create(&request)?;
     let (total, _, _, input_version) = input(state, pid, &request)?;
-    let rejection = validate_capacity(total).err();
+    let available_storage_bytes =
+        fs2::available_space(state.store.directory(pid)?).map_err(Error::io)?;
+    let rejection = validate_capacity(total)
+        .and_then(|_| check_storage(&state.store.directory(pid)?).map(|_| ()))
+        .err();
     Ok(AestheticPreflight {
         capabilities: capabilities(),
+        available_storage_bytes,
+        minimum_calls_lower_bound: total
+            .saturating_mul(u64::from(request.exposures))
+            .div_ceil(16),
         total,
         input_version,
         admitted: rejection.is_none(),
@@ -104,6 +124,7 @@ pub fn create(state: &AppState, pid: &str, request: AestheticCreate) -> Result<A
     }
     let (total, project_version, sources, input_version) = input(state, pid, &request)?;
     validate_capacity(total)?;
+    check_storage(&state.store.directory(pid)?)?;
     if request
         .expected_input_version
         .as_ref()
@@ -133,6 +154,7 @@ pub fn create(state: &AppState, pid: &str, request: AestheticCreate) -> Result<A
         tools: vec![],
     })?;
     let caps = capabilities();
+    let max_request_bytes = u64::from(request.max_request_mib.unwrap_or(32)) << 20;
     let intent = state.store.register_evaluation(
         pid,
         AestheticConfig {
@@ -144,7 +166,7 @@ pub fn create(state: &AppState, pid: &str, request: AestheticCreate) -> Result<A
             grouping_policy: "origin_rating_agreement_min_post_created_year_v1".into(),
             observation_policy: "meaningful_indifference_v1".into(),
             max_image_bytes: caps.max_image_bytes,
-            max_request_bytes: caps.max_request_bytes,
+            max_request_bytes,
             execution: Some(execution(input_version)),
         },
         &project_version,

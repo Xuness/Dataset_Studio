@@ -53,13 +53,14 @@ impl AestheticRepository for EvaluationDb {
         rows.into_iter()
             .map(|r| {
                 Ok(AestheticAttempt {
-                    id: r.0,
+                    id: r.0.clone(),
                     batch,
                     state: r.1,
                     created_at: r.2,
                     receipt: r.3.map(decode).transpose()?,
                     failure: r.4.map(decode).transpose()?,
                     semantic_request_hash: r.5,
+                    raw_receipt: self.raw_summary(&r.0)?,
                 })
             })
             .collect()
@@ -76,6 +77,7 @@ impl AestheticRepository for EvaluationDb {
             }
             let batch=read_batch(db,&id,sequence)?;
             if batch.attempt_id.as_deref()!=Some(&attempt) {return Err(Error::new("REVISION_CONFLICT","调用不是批次的当前尝试"));}
+            db.execute("INSERT INTO receipt_parses(attempt_id,adapter_version,state,normalized,created_at) SELECT ?1,'native_json_v1','decoded',?2,?3 WHERE EXISTS(SELECT 1 FROM raw_receipts WHERE attempt_id=?1)",params![attempt,json,now()]).map_err(db_error)?;
             db.execute("UPDATE attempts SET state='received',receipt=?2 WHERE id=?1",params![attempt,json]).map_err(db_error)?;
             db.execute("UPDATE batches SET state='received',error=NULL WHERE sequence=?1",[sequence as i64]).map_err(db_error)?;
             db.execute("UPDATE stages SET unknown=unknown-?2,input_tokens=input_tokens+?3,output_tokens=output_tokens+?4,usage_unknown=usage_unknown+?5 WHERE id=?1",params![id,(batch.state=="outcome_unknown") as u32,receipt.usage.input_tokens.unwrap_or(0).min(i64::MAX as u64) as i64,receipt.usage.output_tokens.unwrap_or(0).min(i64::MAX as u64) as i64,(receipt.usage.input_tokens.is_none()||receipt.usage.output_tokens.is_none()) as u32]).map_err(db_error)?;

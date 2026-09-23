@@ -13,6 +13,8 @@ mod decisions;
 mod dispatch;
 mod evidence;
 mod project;
+mod receipts;
+mod regroup;
 mod writer;
 pub(crate) use project::{recover, reference_reason};
 #[cfg(test)]
@@ -50,6 +52,18 @@ fn hash(value: &str) -> String {
 }
 
 impl EvaluationDb {
+    pub(crate) fn project_package(
+        &self,
+        root: PathBuf,
+        destination: PathBuf,
+        pid: String,
+        registry_path: PathBuf,
+    ) -> Result<()> {
+        self.writer
+            .submit_named(1024, "recovery_package", &pid.clone(), move |db| {
+                crate::recovery::build(root, destination, db, pid, registry_path)
+            })
+    }
     pub fn open(path: &Path) -> Result<Self> {
         Ok(Self {
             path: path.to_owned(),
@@ -59,6 +73,9 @@ impl EvaluationDb {
     }
     fn read(&self) -> Result<crate::read_pool::ReadGuard<'_>> {
         self.reads.read(&self.path)
+    }
+    pub fn write_metrics(&self) -> Result<(u64, u64, u64, u64)> {
+        self.writer.queue_metrics()
     }
     pub fn metrics(&self) -> Result<(u64, u64)> {
         let q = self.writer.stats.lock().map_err(crate::lock_error)?;
@@ -97,8 +114,11 @@ impl EvaluationDb {
                 if row.ordinal != stage.frozen + offset as u64 { return Err(Error::invalid("候选冻结游标不连续")); }
                 let eligible = matches!(row.rating.as_str(), "g"|"s"|"q"|"e");
                 db.execute("INSERT INTO candidates(stage_id,ordinal,source_id,asset_id,rating,year,basis,content_version,bytes,blocked,sort_key) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
-                    params![id,row.ordinal as i64,row.key.source_id,row.key.asset_id,row.rating,row.year,row.basis,row.content_version,row.bytes as i64,!eligible,hash(&format!("{id}:{}:0",row.ordinal))]).map_err(db_error)?;
+                    params![id,row.ordinal as i64,row.key.source_id,row.key.asset_id,row.rating,row.year,row.basis,row.content_version,row.bytes as i64,!eligible || row.disposition==AestheticDisposition::NeedsReview,hash(&format!("{id}:{}:0",row.ordinal))]).map_err(db_error)?;
                 db.execute("UPDATE stages SET frozen=frozen+1,eligible=eligible+?2 WHERE id=?1", params![id,eligible as u32]).map_err(db_error)?;
+                if row.disposition==AestheticDisposition::NeedsReview {
+                    db.execute("UPDATE candidates SET disposition='needs_review',disposition_reason=?3 WHERE stage_id=?1 AND ordinal=?2",params![id,row.ordinal as i64,row.disposition_reason]).map_err(db_error)?;
+                }
                 if !eligible {
                     db.execute("UPDATE candidates SET disposition='needs_review',disposition_reason='rating_unresolved' WHERE stage_id=?1 AND ordinal=?2", params![id,row.ordinal as i64]).map_err(db_error)?;
                 }
@@ -156,7 +176,7 @@ impl EvaluationDb {
             db.execute("UPDATE batches SET state='outcome_unknown',error='执行中断，上游结果尚未确认' WHERE stage_id=?1 AND state='sent'",[&id]).map_err(db_error)?;
             db.execute("UPDATE stages SET unknown=(SELECT count(*) FROM batches WHERE stage_id=?1 AND state='outcome_unknown') WHERE id=?1",[&id]).map_err(db_error)?;
             let s = read_stage(db,&id)?;
-            let pending: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM batches WHERE stage_id=?1 AND state!='accepted')",[&id],|r|r.get(0)).map_err(db_error)?;
+            let pending: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM batches WHERE stage_id=?1 AND state NOT IN ('accepted','superseded'))",[&id],|r|r.get(0)).map_err(db_error)?;
             let next = studio_application::aesthetic::settled_state(&s, pending, error.is_some());
             db.execute("UPDATE stages SET state=?2,error=COALESCE(?3,error) WHERE id=?1",params![id,next,error]).map_err(db_error)?;
             read_stage(db,&id)
@@ -244,6 +264,21 @@ fn read_batch(db: &Connection, id: &str, sequence: u64) -> Result<AestheticBatch
     let row: (String,String,String,Option<String>,Option<String>,Option<String>) = db.query_row("SELECT rating,state,members,attempt_id,error,observation FROM batches WHERE stage_id=?1 AND sequence=?2",params![id,sequence as i64],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?))).optional().map_err(db_error)?.ok_or_else(||Error::new("NOT_FOUND","评审批次不存在"))?;
     Ok(AestheticBatch {
         sequence,
+        parent_sequence: db
+            .query_row(
+                "SELECT parent FROM batch_replacements WHERE child=?1",
+                [sequence as i64],
+                |r| crate::unsigned(r, 0),
+            )
+            .optional()
+            .map_err(db_error)?,
+        replacement_sequences: db
+            .prepare("SELECT child FROM batch_replacements WHERE parent=?1 ORDER BY child LIMIT 16")
+            .map_err(db_error)?
+            .query_map([sequence as i64], |r| crate::unsigned(r, 0))
+            .map_err(db_error)?
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(db_error)?,
         stage_id: id.into(),
         rating: row.0,
         state: row.1,

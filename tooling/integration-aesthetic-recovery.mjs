@@ -583,6 +583,31 @@ try {
     "volume fault closes final admission for another stage already past upload pacing; recovery resumes its original never-sent batch",
   );
 
+  const rawCrash = await create(p);
+  const rawCalls = mock.calls.length;
+  await writeFile(hook("raw_receipt_after_commit", rawCrash.id), "crash");
+  await client.aesthetic.control(p.id, rawCrash.id, "start");
+  await waitHit("raw_receipt_after_commit", rawCrash.id);
+  await unlink(hook("raw_receipt_after_commit", rawCrash.id));
+  await restart(true);
+  const rawBatch = (await client.aesthetic.batches(p.id, rawCrash.id)).items[0];
+  assert.equal(rawBatch.state, "outcome_unknown");
+  const rawAttempt = (
+    await client.aesthetic.attempts(p.id, rawCrash.id, rawBatch.sequence)
+  ).items[0];
+  assert.ok(rawAttempt.raw_receipt.complete);
+  assert.equal(rawAttempt.receipt, null);
+  await client.aesthetic.reparse(p.id, rawCrash.id, rawBatch.sequence);
+  const rawDone = await complete(p, rawCrash);
+  assert.deepEqual(
+    [rawDone.attempts, rawDone.accepted, rawDone.input_tokens],
+    [1, 1, 13],
+  );
+  assert.equal(mock.calls.length, rawCalls + 1);
+  checks.push(
+    "crash after raw HTTP COMMIT before adapter parsing: local reparse recovers exact paid evidence without another model call",
+  );
+
   for (const point of [
     "receipt_after_commit",
     "parse_before_commit",

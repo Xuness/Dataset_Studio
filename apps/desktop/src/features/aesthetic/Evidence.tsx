@@ -19,6 +19,7 @@ const labels: Record<string, string> = {
   received: "已保存返回",
   accepted: "有效评审",
   invalid: "无效结果",
+  superseded: "已重组",
   outcome_unknown: "结果不明",
 };
 export const stateLabel = (state: string) => labels[state] ?? state;
@@ -129,6 +130,14 @@ export function BatchDetail({
         {batch.members.length} 图 · {stateLabel(batch.state)}
       </summary>
       {batch.error && <p>{batch.error}</p>}
+      {batch.parent_sequence != null && (
+        <p>由批次 {batch.parent_sequence} 在发送前重组。</p>
+      )}
+      {(batch.replacement_sequences?.length ?? 0) > 0 && (
+        <p>
+          替代批次：{batch.replacement_sequences.join("、")}。原批次未调用模型。
+        </p>
+      )}
       {batch.observation && (
         <>
           <p>
@@ -179,6 +188,23 @@ export function BatchDetail({
         >
           查看调用返回
         </button>
+        {batch.attempt_id && batch.state !== "accepted" && (
+          <button
+            disabled={disabled}
+            onClick={() =>
+              void perform(async () => {
+                await context.client.aesthetic.reparse(
+                  context.projectId,
+                  stage.id,
+                  batch.sequence,
+                );
+                setAttempts(null);
+              })
+            }
+          >
+            本地重解析原始回执
+          </button>
+        )}
         {["failed", "invalid", "outcome_unknown"].includes(batch.state) && (
           <button disabled={disabled} onClick={() => setConfirm(true)}>
             重新评审此批

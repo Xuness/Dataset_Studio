@@ -73,8 +73,8 @@ pub(super) fn request(value: &LlmInvocationRequest) -> Result<()> {
         }
     }
     bytes += serde_json::to_vec(&value.tools).map_err(Error::io)?.len();
-    if bytes > 16 * 1024 * 1024 {
-        return Err(Error::invalid("调用输入最多 16 MiB"));
+    if bytes > 64 * 1024 * 1024 {
+        return Err(Error::invalid("调用输入最多 64 MiB"));
     }
     let mut names = std::collections::BTreeSet::new();
     for tool in &value.tools {

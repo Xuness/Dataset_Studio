@@ -109,6 +109,18 @@ export class AestheticClient {
       `${stage(pid, id)}/batches/${batch}/attempts`,
     );
   }
+  reparse(pid: string, id: string, batch: number) {
+    return this.request<Schema["OkResponse"]>(
+      `${stage(pid, id)}/batches/${batch}/reparse`,
+      post({}),
+    );
+  }
+  restore(packageDirectory: string, destination: string) {
+    return this.request<Schema["OkResponse"]>(
+      "/v1/recovery/restore",
+      post({ package_directory: packageDirectory, destination }),
+    );
+  }
   retry(
     pid: string,
     id: string,
@@ -124,6 +136,12 @@ export class AestheticClient {
     return this.request<Schema["AestheticMetrics"]>(`${root(pid)}/metrics`, {
       signal: signal ?? null,
     });
+  }
+  recoveryPackage(pid: string) {
+    return this.request<Schema["AestheticBackup"]>(
+      `${root(pid)}/recovery-package`,
+      post({}),
+    );
   }
   backup(pid: string) {
     return this.request<Schema["AestheticBackup"]>(

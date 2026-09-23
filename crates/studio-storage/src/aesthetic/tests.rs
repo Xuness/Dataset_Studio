@@ -2,6 +2,7 @@ use super::*;
 use studio_domain::{AssetKey, llm::*, new_id};
 mod analysis;
 mod recovery;
+mod transport;
 
 fn fixture(count: u64) -> (tempfile::TempDir, EvaluationDb, String) {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/test-runs");
@@ -23,6 +24,7 @@ fn fixture(count: u64) -> (tempfile::TempDir, EvaluationDb, String) {
         max_calls: 1000,
         concurrency: 4,
         expected_input_version: None,
+        max_request_mib: None,
     };
     let model = LlmInvocationSnapshot {
         schema_version: 1,

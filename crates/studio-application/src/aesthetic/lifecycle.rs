@@ -7,7 +7,8 @@ pub fn capabilities() -> AestheticCapabilities {
         max_stage_candidates: AESTHETIC_MAX_CANDIDATES,
         batch_size: AESTHETIC_BATCH_SIZE as u32,
         max_image_bytes: 2 << 20,
-        max_request_bytes: 12 << 20,
+        max_request_bytes: 48 << 20,
+        default_request_bytes: 32 << 20,
     }
 }
 
@@ -89,7 +90,7 @@ pub fn settled_state(stage: &AestheticStage, pending_batches: bool, has_error: b
 
 pub fn execution(input_version: String) -> AestheticExecution {
     AestheticExecution {
-        template_version: "aesthetic_labels_v1".into(),
+        template_version: "aesthetic_labels_v2".into(),
         business_schema_version: AESTHETIC_VERSION,
         encoder_version: "native_json_v1".into(),
         sampler_version: "rating_year_mix_v1".into(),
@@ -101,8 +102,10 @@ pub fn validate_execution(config: &AestheticConfig) -> Result<()> {
     let compatible = match (&config.execution, config.version) {
         (None, 1) => true,
         (Some(v), 2) => {
-            v.template_version == "aesthetic_labels_v1"
-                && v.business_schema_version == AESTHETIC_VERSION
+            matches!(
+                v.template_version.as_str(),
+                "aesthetic_labels_v1" | "aesthetic_labels_v2"
+            ) && v.business_schema_version == AESTHETIC_VERSION
                 && v.encoder_version == "native_json_v1"
                 && v.sampler_version == "rating_year_mix_v1"
         }

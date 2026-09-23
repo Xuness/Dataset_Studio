@@ -5,3 +5,4 @@ mod providers;
 mod runtime;
 mod transport;
 pub use runtime::RemoteLlm;
+mod recorded;

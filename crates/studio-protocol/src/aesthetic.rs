@@ -72,6 +72,7 @@ pub struct AestheticCapabilities {
     pub batch_size: u32,
     pub max_image_bytes: u64,
     pub max_request_bytes: u64,
+    pub default_request_bytes: u64,
 }
 impl From<domain::AestheticCapabilities> for AestheticCapabilities {
     fn from(v: domain::AestheticCapabilities) -> Self {
@@ -81,6 +82,7 @@ impl From<domain::AestheticCapabilities> for AestheticCapabilities {
             batch_size: v.batch_size,
             max_image_bytes: v.max_image_bytes,
             max_request_bytes: v.max_request_bytes,
+            default_request_bytes: v.default_request_bytes,
         }
     }
 }
@@ -92,6 +94,8 @@ pub struct AestheticPreflight {
     pub admitted: bool,
     pub rejection_code: Option<String>,
     pub rejection_reason: Option<String>,
+    pub available_storage_bytes: u64,
+    pub minimum_calls_lower_bound: u64,
 }
 impl From<domain::AestheticPreflight> for AestheticPreflight {
     fn from(v: domain::AestheticPreflight) -> Self {
@@ -102,6 +106,8 @@ impl From<domain::AestheticPreflight> for AestheticPreflight {
             admitted: v.admitted,
             rejection_code: v.rejection_code,
             rejection_reason: v.rejection_reason,
+            available_storage_bytes: v.available_storage_bytes,
+            minimum_calls_lower_bound: v.minimum_calls_lower_bound,
         }
     }
 }
@@ -121,6 +127,8 @@ pub struct AestheticCreate {
     pub concurrency: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub expected_input_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_request_mib: Option<u32>,
 }
 impl From<domain::AestheticCreate> for AestheticCreate {
     fn from(v: domain::AestheticCreate) -> Self {
@@ -135,6 +143,7 @@ impl From<domain::AestheticCreate> for AestheticCreate {
             max_calls: v.max_calls,
             concurrency: v.concurrency,
             expected_input_version: v.expected_input_version,
+            max_request_mib: v.max_request_mib,
         }
     }
 }
@@ -151,6 +160,7 @@ impl From<AestheticCreate> for domain::AestheticCreate {
             max_calls: v.max_calls,
             concurrency: v.concurrency,
             expected_input_version: v.expected_input_version,
+            max_request_mib: v.max_request_mib,
         }
     }
 }
@@ -291,11 +301,15 @@ pub struct AestheticBatch {
     pub attempt_id: Option<String>,
     pub error: Option<String>,
     pub observation: Option<AestheticObservation>,
+    pub parent_sequence: Option<u64>,
+    pub replacement_sequences: Vec<u64>,
 }
 impl From<domain::AestheticBatch> for AestheticBatch {
     fn from(v: domain::AestheticBatch) -> Self {
         Self {
             sequence: v.sequence,
+            parent_sequence: v.parent_sequence,
+            replacement_sequences: v.replacement_sequences,
             stage_id: v.stage_id,
             rating: v.rating,
             state: v.state,
@@ -364,6 +378,7 @@ pub struct AestheticAttempt {
     pub receipt: Option<AestheticReceipt>,
     pub failure: Option<LlmFailure>,
     pub semantic_request_hash: Option<String>,
+    pub raw_receipt: Option<AestheticRawSummary>,
 }
 impl From<domain::AestheticAttempt> for AestheticAttempt {
     fn from(v: domain::AestheticAttempt) -> Self {
@@ -375,6 +390,12 @@ impl From<domain::AestheticAttempt> for AestheticAttempt {
             receipt: v.receipt.map(Into::into),
             failure: v.failure.map(Into::into),
             semantic_request_hash: v.semantic_request_hash,
+            raw_receipt: v.raw_receipt.map(|r| AestheticRawSummary {
+                sha256: r.sha256,
+                bytes: r.bytes,
+                complete: r.complete,
+                http_status: r.http_status,
+            }),
         }
     }
 }
@@ -386,6 +407,10 @@ pub struct AestheticMetrics {
     pub upload_budget_bytes_per_second: u64,
     pub uploaded_body_bytes: u64,
     pub queued_write_bytes: u64,
+    pub queued_write_count: u64,
+    pub oldest_write_wait_ms: u64,
+    pub last_write_commit_ms: u64,
+    pub reserved_receipt_write_bytes: u64,
     pub peak_write_bytes: u64,
     pub dispatch_health: String,
     pub storage_error_code: Option<String>,
@@ -400,10 +425,22 @@ impl From<domain::AestheticMetrics> for AestheticMetrics {
             upload_budget_bytes_per_second: v.upload_budget_bytes_per_second,
             uploaded_body_bytes: v.uploaded_body_bytes,
             queued_write_bytes: v.queued_write_bytes,
+            queued_write_count: v.queued_write_count,
+            oldest_write_wait_ms: v.oldest_write_wait_ms,
+            last_write_commit_ms: v.last_write_commit_ms,
+            reserved_receipt_write_bytes: v.reserved_receipt_write_bytes,
             peak_write_bytes: v.peak_write_bytes,
             dispatch_health: v.dispatch_health,
             storage_error_code: v.storage_error_code,
             retained_outcomes: v.retained_outcomes,
         }
     }
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct AestheticRawSummary {
+    pub sha256: String,
+    pub bytes: u64,
+    pub complete: bool,
+    pub http_status: u16,
 }

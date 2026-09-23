@@ -81,6 +81,10 @@ impl LlmCancellation {
 }
 
 pub type LlmCallResult<T> = std::result::Result<T, LlmFailure>;
+pub trait LlmReceiptSink: Send + Sync {
+    /// Must acknowledge durable storage before provider parsing starts.
+    fn persist(&self, receipt: LlmRawReceipt) -> BoxFuture<'_, Result<()>>;
+}
 pub trait LlmBackend: Send + Sync {
     fn validate_connection(&self, config: &LlmConnectionConfig) -> Result<()>;
     /// Validates native representation without authentication or network activity.
@@ -96,4 +100,28 @@ pub trait LlmBackend: Send + Sync {
         cancel: LlmCancellation,
     ) -> BoxFuture<'_, LlmCallResult<LlmResponse>>;
     fn stream(&self, plan: LlmInvocationPlan, cancel: LlmCancellation) -> BoxStream<'_, LlmEvent>;
+    fn generate_recorded(
+        &self,
+        _plan: LlmInvocationPlan,
+        _cancel: LlmCancellation,
+        _sink: Arc<dyn LlmReceiptSink>,
+    ) -> BoxFuture<'_, LlmCallResult<LlmResponse>> {
+        async {
+            Err(LlmFailure::new(
+                "LLM_CONFIGURATION",
+                "此后端不支持原始回执保全",
+            ))
+        }
+        .boxed()
+    }
+    fn reparse(
+        &self,
+        _plan: &LlmInvocationSnapshot,
+        _receipt: &LlmRawReceipt,
+    ) -> LlmCallResult<LlmResponse> {
+        Err(LlmFailure::new(
+            "LLM_CONFIGURATION",
+            "此后端不支持本地重解析",
+        ))
+    }
 }

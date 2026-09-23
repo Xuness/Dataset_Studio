@@ -254,6 +254,11 @@ try {
     .getByLabel("审美标准（System Prompt）", { exact: true })
     .selectOption(prompt.id);
   await page.getByLabel("调用次数上限", { exact: true }).fill("6");
+  await expect(page.getByLabel("每批请求体预算", { exact: true })).toHaveValue(
+    "32",
+  );
+  await page.getByLabel("每批请求体预算", { exact: true }).selectOption("48");
+  await page.getByLabel("每批请求体预算", { exact: true }).selectOption("32");
   await page.getByLabel("请求并发上限", { exact: true }).fill("1");
   await page.getByRole("button", { name: "预检输入", exact: true }).click();
   await expect(page.getByLabel("输入预检结果")).toContainText(

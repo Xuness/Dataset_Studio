@@ -59,7 +59,7 @@ pub(super) fn routes() -> axum::Router<AppState> {
         .route("/generate", post(generate))
         .route("/stream", post(stream))
         .route("/invocations/{id}/cancel", post(cancel))
-        .layer(axum::extract::DefaultBodyLimit::max(24 * 1024 * 1024))
+        .layer(axum::extract::DefaultBodyLimit::max(66 * 1024 * 1024))
 }
 
 pub struct RemoteFailure(pub domain::llm::LlmFailure);

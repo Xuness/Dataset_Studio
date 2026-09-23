@@ -1367,6 +1367,7 @@ async fn shutdown(State(s): State<AppState>) -> Json<OkResponse> {
         selection,
         selection_members,
         asset_summaries,
+        restore_recovery,
         member_write_progress,
         cancel_member_write,
         change_selection,
@@ -1658,6 +1659,7 @@ pub fn routes() -> axum::Router<AppState> {
         )
         .route("/v1/health", get(health))
         .route("/v1/shutdown", post(shutdown))
+        .route("/v1/recovery/restore", post(restore_recovery))
         .route("/v1/projects", get(projects).post(create_project))
         .route("/v1/projects/open", post(open_project))
         .route("/v1/projects/{id}", get(project))
@@ -1767,4 +1769,25 @@ pub fn routes() -> axum::Router<AppState> {
             "/v1/projects/{pid}/sources/{sid}/relink",
             post(source_locations::relink),
         )
+}
+
+#[derive(Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
+struct RestoreRecovery {
+    package_directory: String,
+    destination: String,
+}
+#[utoipa::path(post,path="/v1/recovery/restore",request_body=RestoreRecovery,responses((status=200,body=OkResponse)))]
+async fn restore_recovery(
+    State(s): State<AppState>,
+    Body(body): Body<RestoreRecovery>,
+) -> ApiResult<OkResponse> {
+    blocking(move || {
+        s.store.restore_package(
+            std::path::Path::new(&body.package_directory),
+            std::path::Path::new(&body.destination),
+        )
+    })
+    .await?;
+    Ok(Json(OkResponse { ok: true }))
 }

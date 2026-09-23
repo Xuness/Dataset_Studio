@@ -27,6 +27,8 @@
 
 ## 架构说明
 
+最新传输与恢复：[R2 验收](verification/2026-09-23-aesthetic-transport.md)及 [ADR 0031](decisions/0031-aesthetic-transport-and-recovery.md)。
+
 最新接入验收：[评审执行与离线实验](verification/2026-09-23-aesthetic-execution.md)；前一轮：[连续看图、保护复核与快照对照](verification/2026-09-23-aesthetic-reading.md)。
 
 - [UE 5 风格工作台设计与首轮范围](design/frontend-workbench.md)

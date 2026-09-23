@@ -18,6 +18,7 @@ N = int(sys.argv[2]) if len(sys.argv) > 2 else 2048
 SPARSE_BROWSE = '--sparse-browse' in sys.argv[3:]
 V2_TAGS = '--v2-tags' in sys.argv[3:]
 DUPLICATE_HEAT = '--duplicate-heat' in sys.argv[3:]
+AESTHETIC_LARGE = '--aesthetic-large' in sys.argv[3:]
 if not OUT.is_relative_to(ROOT / '.local') or not 32 <= N <= 100000:
     raise ValueError('Fixture must use a bounded repository-local directory')
 LAKE = OUT / 'lake'
@@ -40,7 +41,7 @@ def png(number, width, height):
         raw = (b'\0' + color * width) * height
         pixel_cache[key] = zlib.compress(raw, 6)
     return (b'\x89PNG\r\n\x1a\n' + chunk(b'IHDR', struct.pack('>IIBBBBB', width, height, 8, 2, 0, 0, 0))
-            + chunk(b'IDAT', pixel_cache[key]) + chunk(b'tEXt', b'fixture\0' + str(number).encode()) + chunk(b'IEND', b''))
+            + chunk(b'IDAT', pixel_cache[key]) + chunk(b'tEXt', b'fixture\0' + str(number).encode() + (b'x' * (900 * 1024) if AESTHETIC_LARGE and 32 <= number < 96 and number % 4 == 0 else b'')) + chunk(b'IEND', b''))
 
 
 images = []
