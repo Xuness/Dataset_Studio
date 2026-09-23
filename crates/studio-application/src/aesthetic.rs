@@ -200,4 +200,29 @@ mod tests {
         });
         assert!(parse_observation(&value, &members()).is_err());
     }
+    #[test]
+    fn output_contract_rejects_extra_fields_and_accepts_explicit_total_abstention() {
+        let text = r#"{"schema_version":1,"tiers":[],"elite_candidates":[],"unjudgeable":[{"id":"img0","reason":"无法辨认"},{"id":"img1","reason":"无法辨认"}]}"#;
+        let mut receipt = AestheticReceipt {
+            provider_request_id: None,
+            response_id: None,
+            model: None,
+            usage: Default::default(),
+            outputs: vec![LlmOutput {
+                index: 0,
+                finish_reason: Some("stop".into()),
+                content: vec![LlmContent::Text { text: text.into() }],
+            }],
+        };
+        assert!(parse_observation(&receipt, &members()).is_ok());
+        for invalid in [
+            text.replacen("{", r#"{"score":100,"#, 1),
+            text.replace(r#""reason":"无法辨认""#, r#""reason":"" "#),
+            text.replace("无法辨认", &"模".repeat(334)),
+            format!("\x60\x60\x60json\n{text}\n\x60\x60\x60"),
+        ] {
+            receipt.outputs[0].content = vec![LlmContent::Text { text: invalid }];
+            assert!(parse_observation(&receipt, &members()).is_err());
+        }
+    }
 }

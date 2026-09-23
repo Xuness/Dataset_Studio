@@ -911,6 +911,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{project_id}/aesthetic/stages/{id}/candidates/{ordinal}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["aesthetic_candidate"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects/{project_id}/aesthetic/stages/{id}/candidates/{ordinal}/disposition": {
         parameters: {
             query?: never;
@@ -6129,6 +6145,8 @@ export interface operations {
             query?: {
                 after?: string;
                 protected?: boolean;
+                /** @description active, needs_review, rejudge, or excluded; omitted returns all dispositions */
+                disposition?: string;
             };
             header?: never;
             path: {
@@ -6145,6 +6163,29 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AestheticCandidates"];
+                };
+            };
+        };
+    };
+    aesthetic_candidate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                id: string;
+                ordinal: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AestheticCandidate"];
                 };
             };
         };

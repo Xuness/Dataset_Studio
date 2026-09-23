@@ -1,6 +1,111 @@
 use super::*;
 
 #[test]
+fn disposition_queue_seeks_sparse_candidates_and_v3_migration_preserves_evidence() {
+    let (dir, db, id) = fixture(256);
+    let (batch, attempt) = sent(&db, &id);
+    db.receive(&id, &attempt, receipt(&batch)).unwrap();
+    db.parse_received(&id).unwrap();
+    let sid = id.clone();
+    db.writer.submit(0, move |tx| {
+        tx.execute("UPDATE candidates SET disposition='needs_review',disposition_reason='fixture' WHERE stage_id=?1 AND ordinal%2=0", [&sid]).map_err(db_error)?;
+        Ok(())
+    }).unwrap();
+    let first = db
+        .filtered_candidates(&id, None, false, Some(AestheticDisposition::NeedsReview))
+        .unwrap();
+    assert_eq!(first.len(), 64);
+    assert!(first.iter().all(|v| v.ordinal % 2 == 0));
+    let second = db
+        .filtered_candidates(
+            &id,
+            Some(first[63].ordinal),
+            false,
+            Some(AestheticDisposition::NeedsReview),
+        )
+        .unwrap();
+    assert_eq!(second.len(), 64);
+    assert_eq!(second[0].ordinal, 128);
+    assert!(
+        db.filtered_candidates(
+            &id,
+            Some(254),
+            false,
+            Some(AestheticDisposition::NeedsReview)
+        )
+        .unwrap()
+        .is_empty()
+    );
+    assert!(
+        db.filtered_candidates(
+            "other-stage",
+            None,
+            false,
+            Some(AestheticDisposition::NeedsReview)
+        )
+        .unwrap()
+        .is_empty()
+    );
+    assert!(
+        db.filtered_candidates(&id, Some(u64::MAX), false, None)
+            .is_err()
+    );
+    assert_eq!(db.candidate(&id, 200).unwrap().ordinal, 200);
+    assert!(db.candidate(&id, 256).is_err());
+    assert!(db.candidate(&id, u64::MAX).is_err());
+    let plan: String = db.read().unwrap().query_row(
+        "EXPLAIN QUERY PLAN SELECT ordinal FROM candidates WHERE stage_id=?1 AND disposition='needs_review' AND ordinal>100 ORDER BY ordinal LIMIT 64",
+        [&id], |r| r.get(3)).unwrap();
+    assert!(plan.contains("candidate_disposition_page"), "{plan}");
+    drop(db);
+    let legacy = dir.path().join("v3-upgrade");
+    std::fs::create_dir(&legacy).unwrap();
+    let path = legacy.join("evaluation.sqlite");
+    {
+        let source = Connection::open(dir.path().join("evaluation.sqlite")).unwrap();
+        let mut target = Connection::open(&path).unwrap();
+        rusqlite::backup::Backup::new(&source, &mut target)
+            .unwrap()
+            .run_to_completion(128, std::time::Duration::from_millis(1), None)
+            .unwrap();
+        target
+            .execute_batch("DROP INDEX candidate_disposition_page; PRAGMA user_version=3;")
+            .unwrap();
+    }
+    let migrated = EvaluationDb::open(&path).unwrap();
+    assert_eq!(migrated.stage(&id).unwrap().accepted, 1);
+    assert_eq!(
+        migrated.candidate(&id, 200).unwrap().disposition,
+        AestheticDisposition::NeedsReview
+    );
+    assert_eq!(
+        migrated
+            .read()
+            .unwrap()
+            .pragma_query_value(None, "user_version", |r| r.get::<_, u32>(0))
+            .unwrap(),
+        4
+    );
+    let backup = std::fs::read_dir(legacy.join(".backups"))
+        .unwrap()
+        .next()
+        .unwrap()
+        .unwrap()
+        .path();
+    let old = Connection::open(backup).unwrap();
+    assert_eq!(
+        old.pragma_query_value(None, "user_version", |r| r.get::<_, u32>(0))
+            .unwrap(),
+        3
+    );
+    assert_eq!(
+        old.query_row("SELECT COUNT(*) FROM evidence", [], |r| r.get::<_, u32>(0))
+            .unwrap(),
+        1
+    );
+}
+
+#[test]
 fn corrupt_ledger_is_classified_without_overwriting_the_file() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/test-runs");
     std::fs::create_dir_all(&root).unwrap();
@@ -255,7 +360,7 @@ fn v1_and_v2_ledgers_migrate_paid_history_and_abstentions_with_durable_backups()
                 .unwrap()
                 .pragma_query_value(None, "user_version", |r| r.get::<_, u32>(0))
                 .unwrap(),
-            3
+            4
         );
         let backup = std::fs::read_dir(legacy.join(".backups"))
             .unwrap()

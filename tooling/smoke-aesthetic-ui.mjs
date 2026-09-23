@@ -153,6 +153,10 @@ try {
     .getByLabel("审美标准（System Prompt）", { exact: true })
     .selectOption(stage.config.request.system_prompt_id);
   await page.getByLabel("调用次数上限", { exact: true }).fill("3");
+  await page.getByRole("button", { name: "预检输入", exact: true }).click();
+  await expect(page.getByLabel("输入预检结果")).toContainText(
+    "基础容量预检通过",
+  );
   await page
     .getByRole("button", { name: "创建并冻结候选", exact: true })
     .click();

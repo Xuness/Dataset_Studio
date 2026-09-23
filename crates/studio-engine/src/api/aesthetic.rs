@@ -17,6 +17,7 @@ pub struct Page {
     after: Option<String>,
     limit: Option<usize>,
     protected: Option<bool>,
+    disposition: Option<domain::aesthetic::AestheticDisposition>,
 }
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct AestheticStages {
@@ -222,7 +223,7 @@ async fn batches(
         items: rows.into_iter().map(Into::into).collect(),
     }))
 }
-#[utoipa::path(operation_id="aesthetic_candidates",get,path="/stages/{id}/candidates",params(("project_id"=String,Path),("id"=String,Path),("after"=Option<String>,Query),("protected"=Option<bool>,Query)),responses((status=200,body=AestheticCandidates)))]
+#[utoipa::path(operation_id="aesthetic_candidates",get,path="/stages/{id}/candidates",params(("project_id"=String,Path),("id"=String,Path),("after"=Option<String>,Query),("protected"=Option<bool>,Query),("disposition"=Option<String>,Query,description="active, needs_review, rejudge, or excluded; omitted returns all dispositions")),responses((status=200,body=AestheticCandidates)))]
 async fn candidates(
     State(s): State<AppState>,
     Path((pid, id)): Path<(String, String)>,
@@ -230,9 +231,12 @@ async fn candidates(
 ) -> ApiResult<AestheticCandidates> {
     let after = ordinal(page.after.as_deref())?;
     let rows = blocking(move || {
-        s.store
-            .evaluation(&pid)?
-            .candidate_page(&id, after, page.protected.unwrap_or(false))
+        s.store.evaluation(&pid)?.filtered_candidates(
+            &id,
+            after,
+            page.protected.unwrap_or(false),
+            page.disposition,
+        )
     })
     .await?;
     Ok(Json(AestheticCandidates {
@@ -243,6 +247,17 @@ async fn candidates(
         },
         items: rows.into_iter().map(Into::into).collect(),
     }))
+}
+#[utoipa::path(operation_id="aesthetic_candidate",get,path="/stages/{id}/candidates/{ordinal}",params(("project_id"=String,Path),("id"=String,Path),("ordinal"=u64,Path)),responses((status=200,body=AestheticCandidate)))]
+async fn candidate(
+    State(s): State<AppState>,
+    Path((pid, id, ordinal)): Path<(String, String, u64)>,
+) -> ApiResult<AestheticCandidate> {
+    Ok(Json(
+        blocking(move || s.store.evaluation(&pid)?.candidate(&id, ordinal))
+            .await?
+            .into(),
+    ))
 }
 #[utoipa::path(operation_id="aesthetic_attempts",get,path="/stages/{id}/batches/{batch}/attempts",params(("project_id"=String,Path),("id"=String,Path),("batch"=u64,Path)),responses((status=200,body=AestheticAttempts)))]
 async fn attempts(
@@ -323,7 +338,8 @@ async fn backup(State(s): State<AppState>, Path(pid): Path<String>) -> ApiResult
     capabilities,
     preflight,
     decide_candidate,
-    abandon_creation
+    abandon_creation,
+    candidate
 ))]
 pub struct AestheticApiDoc;
 pub(super) fn routes() -> axum::Router<AppState> {
@@ -336,6 +352,7 @@ pub(super) fn routes() -> axum::Router<AppState> {
         .route("/stages/{id}/control", post(control))
         .route("/stages/{id}/batches", get(batches))
         .route("/stages/{id}/candidates", get(candidates))
+        .route("/stages/{id}/candidates/{ordinal}", get(candidate))
         .route(
             "/stages/{id}/candidates/{ordinal}/disposition",
             post(decide_candidate),

@@ -5,18 +5,26 @@ import type { ModuleContext } from "@studio/ui";
 import EvaluationPanel from "./EvaluationPanel.js";
 import { RankingWorkspace } from "./RankingWorkspace.js";
 import { ComparisonWorkspace } from "./ComparisonWorkspace.js";
+import { ExperimentWorkspace } from "./ExperimentWorkspace.js";
 import {
   rankingBrowserInitial,
   decodeRankingBrowser,
 } from "./rankingBrowserState.js";
 import "./aesthetic.css";
 const initial = {
-  view: "ranking" as "ranking" | "evaluation" | "protected" | "comparison",
+  view: "ranking" as
+    "ranking" | "evaluation" | "protected" | "comparison" | "experiments",
 };
 function decode(value: unknown): typeof initial | null {
   if (!value || typeof value !== "object") return null;
   const v = value as typeof initial;
-  return ["ranking", "evaluation", "protected", "comparison"].includes(v.view)
+  return [
+    "ranking",
+    "evaluation",
+    "protected",
+    "comparison",
+    "experiments",
+  ].includes(v.view)
     ? v
     : null;
 }
@@ -31,6 +39,10 @@ export default function AestheticPanel(context: ModuleContext) {
   );
   const [creating, setCreating] = useState(false);
   const [evaluationTarget, setEvaluationTarget] = useState<string>();
+  const [comparisonTarget, setComparisonTarget] = useState<{
+    left: string;
+    right: string;
+  }>();
   const rankingSession = useDraft(
     context.client,
     context.projectId,
@@ -83,6 +95,7 @@ export default function AestheticPanel(context: ModuleContext) {
       }));
     }
     if (value !== "evaluation") setEvaluationTarget(undefined);
+    if (value !== "comparison") setComparisonTarget(undefined);
     if (session.editable) session.controller.set({ view: value });
   }
   const toolbarStart = (
@@ -98,6 +111,7 @@ export default function AestheticPanel(context: ModuleContext) {
           <option value="evaluation">评审阶段</option>
           <option value="protected">保护复核</option>
           <option value="comparison">实验对照</option>
+          <option value="experiments">实验配置</option>
         </select>
       </label>
       <span className="wb-tool-separator" />
@@ -121,8 +135,28 @@ export default function AestheticPanel(context: ModuleContext) {
       <h2 className="wb-sr-only">美学排序</h2>
       <DraftStatus controller={session.controller} quiet />
       {session.editable &&
-        (session.value.view === "comparison" ? (
-          <ComparisonWorkspace context={context} toolbarStart={toolbarStart} />
+        (session.value.view === "experiments" ? (
+          <ExperimentWorkspace
+            context={context}
+            toolbarStart={toolbarStart}
+            onRanking={(id) => {
+              rankingSession.controller.set({
+                ...rankingBrowserInitial,
+                snapshotId: id,
+              });
+              view("ranking");
+            }}
+            onCompare={(left, right) => {
+              setComparisonTarget({ left, right });
+              view("comparison");
+            }}
+          />
+        ) : session.value.view === "comparison" ? (
+          <ComparisonWorkspace
+            context={context}
+            toolbarStart={toolbarStart}
+            openComparison={comparisonTarget}
+          />
         ) : session.value.view === "evaluation" ? (
           <EvaluationPanel
             {...context}

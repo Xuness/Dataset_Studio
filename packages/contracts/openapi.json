@@ -2394,6 +2394,15 @@
             "schema": {
               "type": "boolean"
             }
+          },
+          {
+            "name": "disposition",
+            "in": "query",
+            "description": "active, needs_review, rejudge, or excluded; omitted returns all dispositions",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -2403,6 +2412,54 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AestheticCandidates"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/aesthetic/stages/{id}/candidates/{ordinal}": {
+      "get": {
+        "tags": [
+          "aesthetic"
+        ],
+        "operationId": "aesthetic_candidate",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ordinal",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AestheticCandidate"
                 }
               }
             }

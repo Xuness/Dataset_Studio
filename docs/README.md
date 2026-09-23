@@ -13,7 +13,7 @@
 | 元数据排名与浏览   | [MetaRecall v2](decisions/0018-metarecall-v2-metadata-ranking.md)、[持久排名索引](decisions/0017-persistent-ranked-scope-indexes.md)、[榜单位置锚点](decisions/0022-ranking-position-anchors.md)                                                 |
 | 查询缓存与项目清单 | [固定查询依赖和缓存清单](decisions/0021-fixed-query-dependencies-and-cache-inventory.md)、[缓存分层与设置](decisions/0008-cache-tiers-settings.md)                                                                                               |
 
-美学评审与离线统计后端已接入；[工作台前端](design/frontend-workbench.md)已接入连续排名浏览、侧栏保护复核、已发布快照对照与工作集派生。实验变体批量配置、真实模型校准和自适应付费采样仍待完成。
+美学评审与离线统计后端已接入；[工作台前端](design/frontend-workbench.md)已接入连续排名浏览、侧栏保护复核、已发布快照对照与工作集派生。基础预检、异常候选处置及离线实验变体已接入；真实模型校准和自适应付费采样仍待完成。
 
 ## 目录职责
 
@@ -27,9 +27,11 @@
 
 ## 架构说明
 
-最新前端验收：[连续看图、保护复核与快照对照](verification/2026-09-23-aesthetic-reading.md)。
+最新接入验收：[评审执行与离线实验](verification/2026-09-23-aesthetic-execution.md)；前一轮：[连续看图、保护复核与快照对照](verification/2026-09-23-aesthetic-reading.md)。
 
 - [UE 5 风格工作台设计与首轮范围](design/frontend-workbench.md)
+- [审美评审模型输出格式](design/aesthetic-model-output.md)
+- [0030：评审执行与离线实验接入](decisions/0030-aesthetic-execution-ui.md)
 
 - [工程基础架构草案](architecture/foundation-proposal.md)
 - [0.1 工程底座实现状态](architecture/foundation-status.md)

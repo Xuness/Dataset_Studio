@@ -7,53 +7,36 @@ import {
   DraftStatus,
   Workbench,
   WorkbenchPanelPortal,
-  WorkbenchDialog,
   WorkbenchPreferences,
   useWorkbenchLayout,
 } from "@studio/ui";
 import type { ModuleContext, WorkbenchLayout } from "@studio/ui";
 import { BatchDetail, CandidateCard, stateLabel } from "./Evidence.js";
+import { StageCreationDialog } from "./StageCreationDialog.js";
+import { CandidateQueue } from "./CandidateQueue.js";
 import "./aesthetic.css";
 
-const initial = {
-  name: "美学评审",
-  collectionId: "",
-  modelId: "",
-  promptId: "",
-  exposures: 1,
-  maxCalls: 100,
-  concurrency: 2,
-};
-function decode(value: unknown): typeof initial | null {
-  if (!value || typeof value !== "object") return null;
-  const v = value as Record<string, unknown>;
-  if (
-    ["name", "collectionId", "modelId", "promptId"].some(
-      (k) => typeof v[k] !== "string",
-    ) ||
-    ["exposures", "maxCalls", "concurrency"].some(
-      (k) => typeof v[k] !== "number",
-    )
-  )
-    return null;
-  return v as typeof initial;
-}
 const evaluationLayout: WorkbenchLayout = {
-  panels: { stages: "left", "stage-status": "right", "stage-config": "right" },
+  panels: {
+    stages: "left",
+    "stage-status": "right",
+    "stage-config": "right",
+    "candidate-decision": "right",
+  },
   active: {},
   leftWidth: 220,
-  rightWidth: 300,
+  rightWidth: 380,
   bottomHeight: 240,
 };
 const sessionInitial = {
   selectedId: "",
-  view: "batches" as "batches" | "protected" | "candidates",
+  view: "batches" as "batches" | "protected" | "candidates" | "exceptions",
 };
 function decodeSession(value: unknown): typeof sessionInitial | null {
   if (!value || typeof value !== "object") return null;
   const v = value as typeof sessionInitial;
   return typeof v.selectedId === "string" &&
-    ["batches", "protected", "candidates"].includes(v.view)
+    ["batches", "protected", "candidates", "exceptions"].includes(v.view)
     ? v
     : null;
 }
@@ -95,16 +78,6 @@ export default function EvaluationPanel(
       });
     }
   }, [session.editable, session.controller, context.openStageId]);
-  const draft = useDraft(
-    client,
-    projectId,
-    "core.aesthetic",
-    initial,
-    decode,
-    "configuration",
-  );
-  const [models, setModels] = useState<Schema["LlmModel"][]>([]);
-  const [prompts, setPrompts] = useState<Schema["LlmSystemPrompt"][]>([]);
   const [stages, setStages] = useState<Schema["AestheticStages"] | null>(null);
   const [stageAfter, setStageAfter] = useState<string>();
   const selectedId = session.value.selectedId || null;
@@ -129,36 +102,6 @@ export default function EvaluationPanel(
   const [notice, setNotice] = useState("");
   const [busy, setBusy] = useState(false);
   const [revision, setRevision] = useState(0);
-  const submission = useRef<{ signature: string; key: string } | null>(null);
-  const inputs = context.inputOptions.filter(
-    (v) => v.scope.target.kind === "workset",
-  );
-
-  useEffect(() => {
-    const abort = new AbortController();
-    void Promise.all([
-      client.llm.providers.list(abort.signal).then(async (v) => {
-        const lists = await Promise.all(
-          v.items
-            .filter((p) => p.config.enabled)
-            .map((p) => client.llm.models.list(p.id, abort.signal)),
-        );
-        return lists.flatMap((list) => list.items);
-      }),
-      client.llm.systemPrompts.list(abort.signal),
-    ])
-      .then(([m, p]) => {
-        if (!abort.signal.aborted) {
-          setModels(m);
-          setPrompts(p.items);
-        }
-      })
-      .catch((e: unknown) => {
-        if (!abort.signal.aborted) setError(e);
-      });
-    return () => abort.abort();
-  }, [client, revision, context.creating]);
-
   useEffect(() => {
     const abort = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
@@ -178,7 +121,7 @@ export default function EvaluationPanel(
                 abort.signal,
               )
             : null,
-          selectedId && view !== "batches"
+          selectedId && (view === "candidates" || view === "protected")
             ? client.aesthetic.candidates(
                 projectId,
                 selectedId,
@@ -237,37 +180,6 @@ export default function EvaluationPanel(
     setBatchAfter(undefined);
     setCandidateAfter(undefined);
   }
-  async function create() {
-    const v = draft.value;
-    const data = {
-      name: v.name,
-      collection_id: v.collectionId,
-      model_id: v.modelId,
-      system_prompt_id: v.promptId,
-      exposures: v.exposures,
-      max_calls: v.maxCalls,
-      concurrency: v.concurrency,
-      overrides: {},
-    };
-    const signature = JSON.stringify(data);
-    if (submission.current?.signature !== signature)
-      submission.current = { signature, key: crypto.randomUUID() };
-    const preflight = await client.aesthetic.preflight(projectId, {
-      ...data,
-      idempotency_key: submission.current.key,
-    });
-    if (!preflight.admitted)
-      throw new Error(preflight.rejection_reason ?? "当前输入未通过预检");
-    const value = await client.aesthetic.create(projectId, {
-      ...data,
-      idempotency_key: submission.current.key,
-    });
-    submission.current = null;
-    select(value.id);
-    context.onCloseCreation();
-    setNotice("候选冻结中；准备完成后点击“开始评审”才会调用模型。");
-  }
-  const editable = !busy && draft.editable && session.editable;
   const active =
     selected &&
     ["preparing", "running", "pausing", "cancelling"].includes(selected.state);
@@ -279,7 +191,7 @@ export default function EvaluationPanel(
         {stages?.items.map((s) => (
           <button
             key={s.id}
-            disabled={!session.editable}
+            disabled={!session.editable || busy}
             className={s.id === selectedId ? "active" : ""}
             onClick={() => select(s.id)}
           >
@@ -304,6 +216,20 @@ export default function EvaluationPanel(
       </div>
     </div>
   );
+  function inspectCandidate() {
+    panelLayout.update((old) => {
+      const position =
+        old.panels["candidate-decision"] &&
+        old.panels["candidate-decision"] !== "hidden"
+          ? old.panels["candidate-decision"]
+          : "right";
+      return {
+        ...old,
+        panels: { ...old.panels, "candidate-decision": position },
+        active: { ...old.active, [position]: "candidate-decision" },
+      };
+    });
+  }
   return (
     <>
       {error !== null && <ErrorDetails error={error} />}
@@ -322,6 +248,12 @@ export default function EvaluationPanel(
         disabled={!panelLayout.editable}
         panels={[
           { id: "stages", title: "评审阶段", content: stageTree },
+          {
+            id: "candidate-decision",
+            title: "候选处置",
+            portal: true,
+            defaultPosition: "right",
+          },
           {
             id: "stage-status",
             title: "阶段状态",
@@ -355,6 +287,13 @@ export default function EvaluationPanel(
       >
         {" "}
         <main className="aesthetic-main">
+          {view !== "exceptions" && (
+            <WorkbenchPanelPortal id="candidate-decision">
+              <p className="aesthetic-help">
+                打开“异常候选”并选择图片，处理重评或排除。
+              </p>
+            </WorkbenchPanelPortal>
+          )}
           {selected ? (
             <>
               <div className="aesthetic-header">
@@ -451,6 +390,15 @@ export default function EvaluationPanel(
                       有效评审 <b>{selected.accepted}</b>
                     </span>
                     <span>
+                      可比较候选 <b>{selected.comparable.toLocaleString()}</b>
+                    </span>
+                    <span>
+                      已排除 <b>{selected.excluded.toLocaleString()}</b>
+                    </span>
+                    <span>
+                      未决候选 <b>{selected.unresolved.toLocaleString()}</b>
+                    </span>
+                    <span>
                       无效批次 <b>{selected.invalid}</b>
                     </span>
                     <span>
@@ -485,13 +433,16 @@ export default function EvaluationPanel(
                     ["batches", "批次与梯队"],
                     ["protected", "保护候选"],
                     ["candidates", "冻结候选"],
+                    ["exceptions", "异常候选"],
                   ] as const
                 ).map(([key, title]) => (
                   <button
                     key={key}
                     aria-pressed={view === key}
+                    disabled={busy}
                     onClick={() => {
                       setView(key);
+                      if (key === "exceptions") inspectCandidate();
                       setCandidateAfter(undefined);
                     }}
                   >
@@ -509,7 +460,16 @@ export default function EvaluationPanel(
                   处理待解析返回
                 </button>
               </div>
-              {view === "batches" ? (
+              {view === "exceptions" ? (
+                <CandidateQueue
+                  key={selected.id}
+                  context={context}
+                  stage={selected}
+                  onInspect={inspectCandidate}
+                  onBusy={setBusy}
+                  onChanged={() => setRevision((v) => v + 1)}
+                />
+              ) : view === "batches" ? (
                 <>
                   {batches?.items.map((batch) => (
                     <BatchDetail
@@ -610,203 +570,17 @@ export default function EvaluationPanel(
         </main>
       </Workbench>
       {context.creating && (
-        <WorkbenchDialog title="新建评审阶段" onClose={context.onCloseCreation}>
-          {error !== null && <ErrorDetails error={error} />}
-          <div className="evaluation-create">
-            <form
-              className="wb-field-list"
-              onInvalidCapture={(event) => {
-                if (event.target instanceof HTMLElement) {
-                  const group = event.target.closest("details");
-                  if (group) group.open = true;
-                }
-              }}
-              onSubmit={(e) => {
-                e.preventDefault();
-                void perform(create);
-              }}
-            >
-              <details className="wb-fold" open>
-                <summary>
-                  输入范围{" "}
-                  <small>
-                    {draft.value.collectionId ? "已选择工作集" : "待选择"}
-                  </small>
-                </summary>
-                <div className="wb-field-list">
-                  <label>
-                    阶段名称
-                    <input
-                      value={draft.value.name}
-                      disabled={!editable}
-                      onChange={(e) =>
-                        draft.controller.set({
-                          ...draft.value,
-                          name: e.target.value,
-                        })
-                      }
-                      required
-                      maxLength={120}
-                    />
-                  </label>
-                  <label>
-                    候选工作集
-                    <select
-                      aria-label="候选工作集"
-                      value={draft.value.collectionId}
-                      disabled={!editable}
-                      onChange={(e) =>
-                        draft.controller.set({
-                          ...draft.value,
-                          collectionId: e.target.value,
-                        })
-                      }
-                      required
-                    >
-                      <option value="">选择已保存的工作集</option>
-                      {inputs.map(
-                        (item) =>
-                          item.scope.target.kind === "workset" && (
-                            <option
-                              key={item.value}
-                              value={item.scope.target.collection_id}
-                            >
-                              {item.label}
-                            </option>
-                          ),
-                      )}
-                    </select>
-                  </label>
-                </div>
-              </details>
-              <details className="wb-fold" open>
-                <summary>
-                  评审标准{" "}
-                  <small>
-                    {models.find((model) => model.id === draft.value.modelId)
-                      ?.config.name ?? "待选择模型"}
-                  </small>
-                </summary>
-                <div className="wb-field-list">
-                  <label>
-                    评审模型
-                    <select
-                      aria-label="评审模型"
-                      value={draft.value.modelId}
-                      disabled={!editable}
-                      onChange={(e) =>
-                        draft.controller.set({
-                          ...draft.value,
-                          modelId: e.target.value,
-                        })
-                      }
-                      required
-                    >
-                      <option value="">选择模型</option>
-                      {models.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.config.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label>
-                    审美标准（System Prompt）
-                    <select
-                      aria-label="审美标准（System Prompt）"
-                      value={draft.value.promptId}
-                      disabled={!editable}
-                      onChange={(e) =>
-                        draft.controller.set({
-                          ...draft.value,
-                          promptId: e.target.value,
-                        })
-                      }
-                      required
-                    >
-                      <option value="">选择已保存的提示词</option>
-                      {prompts.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.config.name}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  {prompts.length === 0 && (
-                    <p>请先在设置中保存审美标准及顶级图片的判断标准。</p>
-                  )}
-                </div>
-              </details>
-              <details className="wb-fold" open>
-                <summary>
-                  执行预算{" "}
-                  <small>
-                    {draft.value.exposures} 次曝光 · 至多 {draft.value.maxCalls}{" "}
-                    次调用
-                  </small>
-                </summary>
-                <div className="wb-field-list">
-                  {(
-                    [
-                      ["exposures", "每图目标有效曝光", 32],
-                      ["maxCalls", "调用次数上限", 10000000],
-                      ["concurrency", "请求并发上限", 32],
-                    ] as const
-                  ).map(([key, label, max]) => (
-                    <label key={key}>
-                      {label}
-                      <input
-                        type="number"
-                        min={1}
-                        max={max}
-                        required
-                        value={draft.value[key]}
-                        disabled={!editable}
-                        onChange={(e) =>
-                          draft.controller.set({
-                            ...draft.value,
-                            [key]: Number(e.target.value),
-                          })
-                        }
-                      />
-                    </label>
-                  ))}
-                </div>
-              </details>
-              <p className="aesthetic-help">
-                常规每批 16 图，Rating
-                独立分组。创建时预检输入和能力，冻结后还需明确点击“开始评审”。
-              </p>
-              <button type="submit" disabled={!editable}>
-                创建并冻结候选
-              </button>
-              <DraftStatus controller={draft.controller} quiet />
-            </form>
-          </div>
-          <div className="wb-dialog-actions">
-            <button
-              type="button"
-              onClick={() => {
-                context.onCloseCreation();
-                context.openSettings?.("llm");
-              }}
-            >
-              API 与模型设置
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                context.onCloseCreation();
-                context.openSettings?.("system-prompts");
-              }}
-            >
-              管理 System Prompt
-            </button>
-            <button type="button" onClick={context.onCloseCreation}>
-              返回工作台
-            </button>
-          </div>
-        </WorkbenchDialog>
+        <StageCreationDialog
+          context={context}
+          onClose={context.onCloseCreation}
+          onCreated={async (stage) => {
+            select(stage.id);
+            setView("batches");
+            setRevision((v) => v + 1);
+            setNotice("候选冻结中；准备完成后点击“开始评审”才会调用模型。");
+            await session.controller.flush();
+          }}
+        />
       )}
     </>
   );

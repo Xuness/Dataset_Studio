@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { GitCompareArrows, RefreshCw } from "lucide-react";
@@ -68,9 +68,11 @@ function asset(row: Row): Asset {
 export function ComparisonWorkspace({
   context,
   toolbarStart,
+  openComparison,
 }: {
   context: ModuleContext;
   toolbarStart: ReactNode;
+  openComparison?: { left: string; right: string } | undefined;
 }) {
   const { client, projectId } = context;
   const draft = useDraft(
@@ -87,6 +89,28 @@ export function ComparisonWorkspace({
     initialLayout,
   );
   const saved = draft.value;
+  const applied = useRef<typeof openComparison>(undefined);
+  useEffect(() => {
+    if (
+      draft.editable &&
+      openComparison &&
+      applied.current !== openComparison
+    ) {
+      applied.current = openComparison;
+      draft.controller.set({ ...initial, ...openComparison });
+      layout.update((old) => {
+        const position =
+          old.panels.configuration && old.panels.configuration !== "hidden"
+            ? old.panels.configuration
+            : "right";
+        return {
+          ...old,
+          panels: { ...old.panels, configuration: position },
+          active: { ...old.active, [position]: "configuration" },
+        };
+      });
+    }
+  }, [draft.editable, draft.controller, openComparison, layout.update]);
   const [jobsAfter, setJobsAfter] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);

@@ -86,13 +86,21 @@ export class AestheticClient {
     protectedOnly = false,
     after?: string,
     signal?: AbortSignal,
+    disposition?: Schema["AestheticDisposition"],
   ) {
     const query = new URLSearchParams({
       protected: String(protectedOnly),
       ...(after ? { after } : {}),
+      ...(disposition ? { disposition } : {}),
     });
     return this.request<Schema["AestheticCandidates"]>(
       `${stage(pid, id)}/candidates?${query}`,
+      { signal: signal ?? null },
+    );
+  }
+  candidate(pid: string, id: string, ordinal: number, signal?: AbortSignal) {
+    return this.request<Schema["AestheticCandidate"]>(
+      `${stage(pid, id)}/candidates/${ordinal}`,
       { signal: signal ?? null },
     );
   }

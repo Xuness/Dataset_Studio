@@ -61,6 +61,7 @@ Rust 测试位于 crates 内，`pnpm test` 同时执行 SDK 检查 [client-found
 - 排名：[smoke-ranking-ui.mjs](smoke-ranking-ui.mjs)、[smoke-ranking-browse-ui.mjs](smoke-ranking-browse-ui.mjs)、[smoke-ranking-pagesize-ui.mjs](smoke-ranking-pagesize-ui.mjs)。
 - 管理与设置：[smoke-management-ui.mjs](smoke-management-ui.mjs)、[smoke-settings-ui.mjs](smoke-settings-ui.mjs)。原生设置窗口验证前需关闭已有开发窗口与前端服务。
 - 模型与评审：[smoke-llm-ui.mjs](smoke-llm-ui.mjs)、[system-prompts-ui.mjs](system-prompts-ui.mjs)、[smoke-aesthetic-ui.mjs](smoke-aesthetic-ui.mjs)。
+- 评审接入小样本：[smoke-evaluation-workflow.mjs](smoke-evaluation-workflow.mjs)。独立生成 16 张同 Rating 合成图，经本机 mock、真实 SDK/HTTP/SQLite 验证预检、创建/处置/实验断线恢复、重评和离线双变体导航；使用端口 1449，不访问商业模型。
 - 剪贴板：[smoke-clipboard-ui.mjs](smoke-clipboard-ui.mjs)，通过 `pnpm test:clipboard` 先构建所需原生探针；要求开启系统剪贴板历史。
 - 原生辅助脚本：[native-ui-controls.ps1](native-ui-controls.ps1)、[clipboard-history.ps1](clipboard-history.ps1)。
 

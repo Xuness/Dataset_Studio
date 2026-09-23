@@ -139,6 +139,42 @@ impl EvaluationDb {
         after: Option<u64>,
         protected: bool,
     ) -> Result<Vec<AestheticCandidate>> {
+        self.filtered_candidates(id, after, protected, None)
+    }
+    pub fn candidate(&self, id: &str, ordinal: u64) -> Result<AestheticCandidate> {
+        if ordinal > i64::MAX as u64 {
+            return Err(Error::invalid("候选序号无效"));
+        }
+        candidates(
+            &*self.read()?,
+            "WHERE stage_id=?1 AND ordinal=?2",
+            params![id, ordinal as i64],
+        )?
+        .pop()
+        .ok_or_else(|| Error::new("NOT_FOUND", "候选不存在"))
+    }
+    pub fn filtered_candidates(
+        &self,
+        id: &str,
+        after: Option<u64>,
+        protected: bool,
+        disposition: Option<AestheticDisposition>,
+    ) -> Result<Vec<AestheticCandidate>> {
+        if after.is_some_and(|v| v > i64::MAX as u64) {
+            return Err(Error::invalid("候选游标无效"));
+        }
+        if let Some(disposition) = disposition {
+            return candidates(
+                &*self.read()?,
+                "WHERE stage_id=?1 AND disposition=?3 AND ordinal>?2 AND (?4=0 OR protected=1) ORDER BY ordinal LIMIT 64",
+                params![
+                    id,
+                    after.map(|v| v as i64).unwrap_or(-1),
+                    disposition.as_str(),
+                    protected
+                ],
+            );
+        }
         candidates(
             &*self.read()?,
             if protected {
