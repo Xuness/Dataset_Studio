@@ -119,6 +119,19 @@ export class AestheticAnalysisClient {
       { signal: signal ?? null },
     );
   }
+  /** Newest first, bounded to one candidate; never scans the snapshot in the UI. */
+  candidateReviews(
+    pid: string,
+    snapshot: string,
+    ordinal: number,
+    after?: string,
+    signal?: AbortSignal,
+  ) {
+    return this.request<Schema["AestheticReviews"]>(
+      `${root(pid)}/snapshots/${encodeURIComponent(snapshot)}/reviews?${query({ ordinal, after })}`,
+      { signal: signal ?? null },
+    );
+  }
 }
 function query(options: Record<string, string | number | undefined>): string {
   const result = new URLSearchParams();

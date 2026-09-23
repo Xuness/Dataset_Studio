@@ -342,6 +342,36 @@ try {
     reason: "保留进入下一阶段",
   };
   const saved = await client.aesthetic.analysis.review(project.id, review);
+  const candidateHistory = await client.aesthetic.analysis.candidateReviews(
+    project.id,
+    snapshot.id,
+    low.ordinal,
+  );
+  assert.equal(candidateHistory.items[0].sequence, saved.sequence);
+  assert.ok(
+    candidateHistory.items.every(
+      (item) => item.request.ordinal === low.ordinal,
+    ),
+  );
+  assert.equal(
+    (
+      await client.aesthetic.analysis.candidateReviews(
+        project.id,
+        snapshot.id,
+        rows.find((r) => r.ordinal !== low.ordinal).ordinal,
+      )
+    ).items.length,
+    0,
+  );
+  await assert.rejects(
+    () =>
+      client.aesthetic.analysis.candidateReviews(
+        project.id,
+        snapshot.id,
+        1000000,
+      ),
+    (error) => error.code === "NOT_FOUND",
+  );
   assert.equal(
     (await client.aesthetic.analysis.review(project.id, review)).sequence,
     saved.sequence,

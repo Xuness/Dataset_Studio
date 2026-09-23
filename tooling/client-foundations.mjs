@@ -414,7 +414,7 @@ assert.equal(
 checks.push(
   "engine profile defaults to optimized execution with explicit overrides, and ranking stages preserve rating and byte units",
 );
-const { rankingLabel } = await compiled(
+const { rankingLabel, comparisonDeltaLabel } = await compiled(
   "apps/desktop/src/features/aesthetic/analysisPresentation.ts",
   "aesthetic-presentation",
 );
@@ -447,6 +447,51 @@ assert.equal(
 );
 checks.push(
   "aesthetic labels preserve ties and component boundaries without exposing pagination position as rank",
+);
+const comparable = {
+  comparable: true,
+  left_percentile: 0.8,
+  right_percentile: 0.3,
+  percentile_delta: 0.5,
+};
+assert.equal(comparisonDeltaLabel(comparable), "上移 50.00 个百分点");
+assert.equal(
+  comparisonDeltaLabel({
+    ...comparable,
+    left_percentile: 0.3,
+    right_percentile: 0.8,
+  }),
+  "下移 50.00 个百分点",
+);
+assert.equal(
+  comparisonDeltaLabel({
+    ...comparable,
+    comparable: false,
+    reason: "候选范围不同",
+  }),
+  "候选范围不同",
+);
+assert.equal(
+  comparisonDeltaLabel({ ...comparable, right_percentile: null }),
+  "不可比较",
+);
+const { rankingBrowserInitial, decodeRankingBrowser } = await compiled(
+  "apps/desktop/src/features/aesthetic/rankingBrowserState.ts",
+  "ranking-browser-state",
+);
+const legacyBrowser = {
+  ...rankingBrowserInitial,
+  thumbnailSize: undefined,
+  scrollTop: undefined,
+};
+assert.equal(decodeRankingBrowser(legacyBrowser).thumbnailSize, 208);
+assert.equal(decodeRankingBrowser(legacyBrowser).scrollTop, 0);
+assert.equal(
+  decodeRankingBrowser({ ...legacyBrowser, past: Array(65).fill("") }),
+  null,
+);
+checks.push(
+  "comparison direction uses actual A/B percentiles, preserves unknowns, and old ranking sessions restore with bounded display defaults",
 );
 await writeFile(
   resolve(directory, "report.json"),

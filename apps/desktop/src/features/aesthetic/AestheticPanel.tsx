@@ -4,12 +4,21 @@ import { DraftStatus, useDraft } from "@studio/ui";
 import type { ModuleContext } from "@studio/ui";
 import EvaluationPanel from "./EvaluationPanel.js";
 import { RankingWorkspace } from "./RankingWorkspace.js";
+import { ComparisonWorkspace } from "./ComparisonWorkspace.js";
+import {
+  rankingBrowserInitial,
+  decodeRankingBrowser,
+} from "./rankingBrowserState.js";
 import "./aesthetic.css";
-const initial = { view: "ranking" as "ranking" | "evaluation" | "protected" };
+const initial = {
+  view: "ranking" as "ranking" | "evaluation" | "protected" | "comparison",
+};
 function decode(value: unknown): typeof initial | null {
   if (!value || typeof value !== "object") return null;
   const v = value as typeof initial;
-  return ["ranking", "evaluation", "protected"].includes(v.view) ? v : null;
+  return ["ranking", "evaluation", "protected", "comparison"].includes(v.view)
+    ? v
+    : null;
 }
 export default function AestheticPanel(context: ModuleContext) {
   const session = useDraft(
@@ -21,7 +30,59 @@ export default function AestheticPanel(context: ModuleContext) {
     "workbench-session",
   );
   const [creating, setCreating] = useState(false);
+  const [evaluationTarget, setEvaluationTarget] = useState<string>();
+  const rankingSession = useDraft(
+    context.client,
+    context.projectId,
+    "core.aesthetic",
+    rankingBrowserInitial,
+    decodeRankingBrowser,
+    "ranking-browser",
+  );
+  const protectedSession = useDraft(
+    context.client,
+    context.projectId,
+    "core.aesthetic",
+    rankingBrowserInitial,
+    decodeRankingBrowser,
+    "protected-browser",
+  );
   function view(value: typeof initial.view) {
+    const source =
+      session.value.view === "ranking"
+        ? rankingSession
+        : session.value.view === "protected"
+          ? protectedSession
+          : null;
+    const target =
+      value === "ranking"
+        ? rankingSession
+        : value === "protected"
+          ? protectedSession
+          : null;
+    if (
+      source &&
+      target &&
+      source !== target &&
+      source.editable &&
+      target.editable &&
+      source.value.snapshotId &&
+      (source.value.snapshotId !== target.value.snapshotId ||
+        source.value.rating !== target.value.rating)
+    ) {
+      target.controller.set((old) => ({
+        ...old,
+        snapshotId: source.value.snapshotId,
+        rating: source.value.rating,
+        after: "",
+        past: [],
+        page: 1,
+        ordinal: null,
+        image: false,
+        scrollTop: 0,
+      }));
+    }
+    if (value !== "evaluation") setEvaluationTarget(undefined);
     if (session.editable) session.controller.set({ view: value });
   }
   const toolbarStart = (
@@ -36,6 +97,7 @@ export default function AestheticPanel(context: ModuleContext) {
           <option value="ranking">排名浏览</option>
           <option value="evaluation">评审阶段</option>
           <option value="protected">保护复核</option>
+          <option value="comparison">实验对照</option>
         </select>
       </label>
       <span className="wb-tool-separator" />
@@ -59,10 +121,13 @@ export default function AestheticPanel(context: ModuleContext) {
       <h2 className="wb-sr-only">美学排序</h2>
       <DraftStatus controller={session.controller} quiet />
       {session.editable &&
-        (session.value.view === "evaluation" ? (
+        (session.value.view === "comparison" ? (
+          <ComparisonWorkspace context={context} toolbarStart={toolbarStart} />
+        ) : session.value.view === "evaluation" ? (
           <EvaluationPanel
             {...context}
             toolbarStart={toolbarStart}
+            openStageId={evaluationTarget}
             creating={creating}
             onCloseCreation={() => setCreating(false)}
             onRankings={() => view("ranking")}
@@ -73,7 +138,10 @@ export default function AestheticPanel(context: ModuleContext) {
             context={context}
             toolbarStart={toolbarStart}
             protectedOnly={session.value.view === "protected"}
-            onEvaluation={() => view("evaluation")}
+            onEvaluation={(stageId) => {
+              setEvaluationTarget(stageId);
+              view("evaluation");
+            }}
           />
         ))}
     </section>

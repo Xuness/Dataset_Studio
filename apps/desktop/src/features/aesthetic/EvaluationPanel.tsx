@@ -64,6 +64,7 @@ export default function EvaluationPanel(
     onCloseCreation: () => void;
     onRankings: () => void;
     toolbarStart: ReactNode;
+    openStageId?: string | undefined;
   },
 ) {
   const panelLayout = useWorkbenchLayout(
@@ -80,6 +81,20 @@ export default function EvaluationPanel(
     "evaluation-session",
   );
   const { client, projectId } = context;
+  const appliedTarget = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (
+      session.editable &&
+      context.openStageId &&
+      appliedTarget.current !== context.openStageId
+    ) {
+      appliedTarget.current = context.openStageId;
+      session.controller.set({
+        selectedId: context.openStageId,
+        view: "batches",
+      });
+    }
+  }, [session.editable, session.controller, context.openStageId]);
   const draft = useDraft(
     client,
     projectId,

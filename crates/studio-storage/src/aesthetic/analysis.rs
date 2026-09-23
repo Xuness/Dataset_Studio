@@ -434,6 +434,47 @@ impl EvaluationDb {
             Ok(AestheticReview{sequence,created_at,request:value})
         })
     }
+    /// Uses the existing (snapshot_id, ordinal, sequence) index, latest first.
+    pub fn candidate_reviews(
+        &self,
+        snapshot: &str,
+        ordinal: u64,
+        before: u64,
+    ) -> Result<Vec<AestheticReview>> {
+        if ordinal > i64::MAX as u64 || before > i64::MAX as u64 {
+            return Err(Error::invalid("复核图片或游标无效"));
+        }
+        self.ranking_candidate(snapshot, ordinal)?;
+        let db = self.read()?;
+        let mut stmt = db.prepare("SELECT sequence,created_at,request_json FROM reviews WHERE snapshot_id=?1 AND ordinal=?2 AND sequence<?3 ORDER BY sequence DESC LIMIT 65").map_err(db_error)?;
+        let rows = stmt
+            .query_map(
+                params![
+                    snapshot,
+                    ordinal as i64,
+                    if before == 0 { i64::MAX } else { before as i64 }
+                ],
+                |r| {
+                    Ok((
+                        crate::unsigned(r, 0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, String>(2)?,
+                    ))
+                },
+            )
+            .map_err(db_error)?
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(db_error)?;
+        rows.into_iter()
+            .map(|(sequence, created_at, json)| {
+                Ok(AestheticReview {
+                    sequence,
+                    created_at,
+                    request: decode(json)?,
+                })
+            })
+            .collect()
+    }
     pub fn reviews(&self, snapshot: &str, after: u64) -> Result<Vec<AestheticReview>> {
         let db = self.read()?;
         ready(&db, snapshot)?;

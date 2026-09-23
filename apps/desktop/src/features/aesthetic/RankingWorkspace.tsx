@@ -1,13 +1,10 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronLeft,
   ChevronRight,
-  Image,
-  LayoutGrid,
   ListOrdered,
-  Shield,
   RefreshCw,
   FolderPlus,
 } from "lucide-react";
@@ -20,54 +17,31 @@ import {
   useWorkbenchLayout,
   useDraft,
   WorkbenchDialog,
+  WorkbenchPanelPortal,
 } from "@studio/ui";
 import type { ModuleContext, WorkbenchLayout } from "@studio/ui";
 import type { Schema } from "@studio/contracts";
-import { AssetImage } from "../browser/AssetImage.js";
-import { FitDialog, DeriveDialog, ReviewDialog } from "./AnalysisActions.js";
-import {
-  analysisActive,
-  analysisState,
-  rankingAsset,
-  rankingLabel,
-} from "./analysisPresentation.js";
+import { FitDialog, DeriveDialog } from "./AnalysisActions.js";
+import { analysisActive, analysisState } from "./analysisPresentation.js";
 
-const initial = {
-  snapshotId: "",
-  rating: "g",
-  after: "",
-  past: [] as string[],
-  page: 1,
-  pageSize: 48,
-  ordinal: null as number | null,
-  image: false,
-};
-function decode(value: unknown): typeof initial | null {
-  if (!value || typeof value !== "object") return null;
-  const v = value as typeof initial;
-  if (
-    typeof v.snapshotId !== "string" ||
-    !["g", "s", "q", "e"].includes(v.rating) ||
-    typeof v.after !== "string" ||
-    v.after.length > 16384 ||
-    !Array.isArray(v.past) ||
-    v.past.length > 64 ||
-    v.past.some((x) => typeof x !== "string" || x.length > 16384) ||
-    !Number.isSafeInteger(v.page) ||
-    v.page < 1 ||
-    ![12, 48, 96].includes(v.pageSize) ||
-    (v.ordinal !== null &&
-      (!Number.isSafeInteger(v.ordinal) || v.ordinal < 0)) ||
-    typeof v.image !== "boolean"
-  )
-    return null;
-  return v;
-}
+import {
+  rankingBrowserInitial as initial,
+  decodeRankingBrowser as decode,
+} from "./rankingBrowserState.js";
+import { RankingCanvas } from "./RankingCanvas.js";
+import { RankingDetails, RankingEvidence } from "./RankingPanels.js";
+import { RankingReviewPanel } from "./RankingReviewPanel.js";
+
 const initialLayout: WorkbenchLayout = {
-  panels: { snapshots: "left", inspector: "right" },
+  panels: {
+    snapshots: "left",
+    inspector: "right",
+    evidence: "right",
+    review: "right",
+  },
   active: {},
   leftWidth: 220,
-  rightWidth: 285,
+  rightWidth: 380,
   bottomHeight: 260,
 };
 type Job = Schema["AestheticAnalysisJob"];
@@ -79,7 +53,7 @@ export function RankingWorkspace({
 }: {
   context: ModuleContext;
   protectedOnly: boolean;
-  onEvaluation: () => void;
+  onEvaluation: (stageId?: string) => void;
   toolbarStart: ReactNode;
 }) {
   const { client, projectId } = context;
@@ -94,14 +68,35 @@ export function RankingWorkspace({
   );
   const layout = useWorkbenchLayout(client, "aesthetic-ranking", initialLayout);
   const [jobsAfter, setJobsAfter] = useState<string>();
-  const [dialog, setDialog] = useState<
-    "fit" | "derive" | "review" | "prompt" | null
-  >(null);
+  const [dialog, setDialog] = useState<"fit" | "derive" | "prompt" | null>(
+    null,
+  );
   const [activeJobId, setActiveJobId] = useState("");
   const [notice, setNotice] = useState("");
   const [actionError, setActionError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
+  const [reviewBusy, setReviewBusy] = useState(false);
+  const pendingPage = useRef<{ after: string; pick: "first" | "last" } | null>(
+    null,
+  );
   const saved = draft.value;
+  const effectiveLayout: WorkbenchLayout = {
+    ...layout.value,
+    panels: { ...initialLayout.panels, ...layout.value.panels },
+  };
+  function openPanel(id: string) {
+    layout.update((old) => {
+      const position =
+        old.panels[id] && old.panels[id] !== "hidden"
+          ? old.panels[id]
+          : "right";
+      return {
+        ...old,
+        panels: { ...initialLayout.panels, ...old.panels, [id]: position },
+        active: { ...old.active, [position]: id },
+      };
+    });
+  }
   const jobs = useQuery({
     queryKey: ["project", projectId, "aesthetic", "analysis-jobs", jobsAfter],
     queryFn: ({ signal }) =>
@@ -175,6 +170,8 @@ export function RankingWorkspace({
       };
     },
     enabled: draft.editable && !!snapshot.data,
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
   });
   const selectedOrdinal = saved.ordinal ?? rows.data?.items[0]?.ordinal ?? null;
   const candidate = useQuery({
@@ -193,11 +190,85 @@ export function RankingWorkspace({
         selectedOrdinal!,
         signal,
       ),
-    enabled: !!snapshot.data && selectedOrdinal !== null,
+    enabled:
+      !!snapshot.data &&
+      !rows.isPending &&
+      selectedOrdinal !== null &&
+      !rows.data?.items.some((row) => row.ordinal === selectedOrdinal),
   });
   const selected =
     rows.data?.items.find((row) => row.ordinal === selectedOrdinal) ??
     candidate.data;
+  const items = rows.data?.items ?? [];
+  const selectedIndex = items.findIndex(
+    (row) => row.ordinal === selectedOrdinal,
+  );
+  const previous = selectedIndex > 0 || saved.past.length > 0;
+  const next =
+    (selectedIndex >= 0 && selectedIndex < items.length - 1) ||
+    !!rows.data?.next_cursor;
+  useEffect(() => {
+    const pending = pendingPage.current;
+    if (
+      !pending ||
+      rows.isPending ||
+      !rows.data ||
+      saved.after !== pending.after
+    )
+      return;
+    pendingPage.current = null;
+    const row =
+      pending.pick === "last" ? rows.data.items.at(-1) : rows.data.items[0];
+    if (row) draft.controller.set((old) => ({ ...old, ordinal: row.ordinal }));
+  }, [saved.after, rows.data, rows.isPending, draft.controller]);
+  function turnPage(
+    direction: number,
+    pick: "first" | "last" = "first",
+    allowReview = false,
+  ) {
+    if (
+      !draft.editable ||
+      rows.isFetching ||
+      pendingPage.current ||
+      (reviewBusy && !allowReview)
+    )
+      return;
+    if (
+      (direction > 0 && !rows.data?.next_cursor) ||
+      (direction < 0 && !saved.past.length)
+    )
+      return;
+    const after = direction > 0 ? rows.data!.next_cursor! : saved.past.at(-1)!;
+    pendingPage.current = { after, pick };
+    draft.controller.set((old) => ({
+      ...old,
+      after,
+      past:
+        direction > 0
+          ? [...old.past, old.after].slice(-64)
+          : old.past.slice(0, -1),
+      page: old.page + (direction > 0 ? 1 : -1),
+      ordinal: null,
+      scrollTop: 0,
+    }));
+  }
+  function navigate(delta: number, allowReview = false) {
+    if (
+      !draft.editable ||
+      rows.isFetching ||
+      pendingPage.current ||
+      (reviewBusy && !allowReview)
+    )
+      return;
+    const index = selectedIndex + delta;
+    if (index < 0) turnPage(-1, "last", allowReview);
+    else if (index >= items.length) turnPage(1, "first", allowReview);
+    else if (items[index])
+      draft.controller.set((old) => ({
+        ...old,
+        ordinal: items[index]!.ordinal,
+      }));
+  }
   const stageId = snapshot.data?.input.stage_id;
   const stage = useQuery({
     queryKey: ["project", projectId, "aesthetic", "snapshot-stage", stageId],
@@ -222,6 +293,8 @@ export function RankingWorkspace({
         : false,
   });
   function selectSnapshot(id: string) {
+    if (reviewBusy) return;
+    pendingPage.current = null;
     draft.controller.set((value) => ({
       ...value,
       snapshotId: id,
@@ -230,6 +303,7 @@ export function RankingWorkspace({
       page: 1,
       ordinal: null,
       image: false,
+      scrollTop: 0,
     }));
   }
   useEffect(() => {
@@ -244,6 +318,7 @@ export function RankingWorkspace({
         page: 1,
         ordinal: null,
         image: false,
+        scrollTop: 0,
       }));
       setNotice("排名快照已发布，可按 Rating 浏览。");
     }
@@ -299,7 +374,7 @@ export function RankingWorkspace({
               type="button"
               key={job.id}
               aria-pressed={job.id === saved.snapshotId}
-              disabled={!draft.editable}
+              disabled={!draft.editable || reviewBusy}
               onClick={() => selectSnapshot(job.id)}
             >
               <ListOrdered size={15} />
@@ -358,120 +433,55 @@ export function RankingWorkspace({
       <button
         type="button"
         className="ranking-outline-link"
-        onClick={onEvaluation}
+        onClick={() => onEvaluation()}
       >
         评审阶段与批次证据
       </button>
     </div>
   );
-  const inspector = selected ? (
-    <div className="ranking-inspector">
-      <div className="ranking-inspector-preview">
-        <AssetImage
-          client={client}
-          projectId={projectId}
-          asset={rankingAsset(selected)}
-          edge={480}
-        />
-      </div>
-      <h3>候选 {selected.ordinal + 1}</h3>
-      <details className="wb-fold" open>
-        <summary>排名与依据</summary>
-        <div className="wb-fold-body">
-          <dl className="wb-property-list">
-            <dt>名次</dt>
-            <dd>{rankingLabel(selected)}</dd>
-            <dt>可比范围</dt>
-            <dd>
-              {selected.rating_rank_min != null
-                ? `${selected.rating.toUpperCase()} 类`
-                : selected.component != null
-                  ? `分量 ${selected.component} · ${selected.component_size} 图`
-                  : "暂无可比范围"}
-            </dd>
-            <dt>有效曝光</dt>
-            <dd>{selected.exposures} 次</dd>
-            <dt>分半波动</dt>
-            <dd>
-              {selected.split_percentile_delta == null
-                ? "未知 / 证据不足"
-                : (selected.split_percentile_delta * 100).toFixed(2) +
-                  " 个百分点"}
-            </dd>
-            <dt>快照内提名</dt>
-            <dd>{selected.protected ? "已提名" : "未提名"}</dd>
-            <dt>需要复核</dt>
-            <dd>{selected.needs_review ? "是" : "未标记"}</dd>
-          </dl>
-        </div>
-      </details>
-      <details className="wb-fold">
-        <summary>
-          评审配置 <small>冻结副本</small>
-        </summary>
-        <div className="wb-fold-body">
-          <dl className="wb-property-list">
-            <dt>评审阶段</dt>
-            <dd>{stage.data?.name ?? "读取中…"}</dd>
-            <dt>模型</dt>
-            <dd>{stage.data?.config.model.remote_model_id ?? "—"}</dd>
-            <dt>标准版本</dt>
-            <dd>{stage.data?.config.model.system_prompt_revision ?? "—"}</dd>
-            <dt>证据水位</dt>
-            <dd>{snapshot.data?.input.evidence_watermark ?? "—"}</dd>
-          </dl>
-          <button
-            type="button"
-            disabled={!stage.data}
-            onClick={() => setDialog("prompt")}
-          >
-            查看冻结 System Prompt
-          </button>
-          {stage.error && <ErrorDetails error={stage.error} />}
-        </div>
-      </details>
-      <details className="wb-fold">
-        <summary>来源与诊断</summary>
-        <div className="wb-fold-body">
-          <dl className="wb-property-list">
-            <dt>年份</dt>
-            <dd>{selected.year ?? "未知"}</dd>
-            <dt>不可评判</dt>
-            <dd>{selected.unjudgeable} 次</dd>
-            <dt>分数</dt>
-            <dd>{selected.score?.toFixed(5) ?? "未知"}</dd>
-            <dt>跨年曝光</dt>
-            <dd>{selected.cross_year_exposures}</dd>
-          </dl>
-          <code className="ranking-asset-id">{selected.key.asset_id}</code>
-        </div>
-      </details>
-      <div className="ranking-inspector-actions">
-        <Button
-          onClick={() =>
-            draft.controller.set((value) => ({
-              ...value,
-              ordinal: selected.ordinal,
-              image: true,
-            }))
-          }
-        >
-          查看大图
-        </Button>
-        <Button onClick={() => setDialog("review")}>复核保护状态</Button>
-      </div>
-      <p className="aesthetic-help">
-        提名和复核不改变统计分数；保护候选不会自动成为最终精选。
-      </p>
-    </div>
-  ) : (
-    <div className="wb-empty">
-      <Image size={25} />
-      <p>选择图片，查看名次与评审依据。</p>
-    </div>
+  const inspector = (
+    <RankingDetails
+      context={context}
+      snapshotId={saved.snapshotId}
+      row={selected}
+      thumbnailSize={saved.thumbnailSize}
+      pageSize={saved.pageSize}
+      disabled={!draft.editable || reviewBusy || rows.isFetching}
+      onThumbnailSize={(thumbnailSize) =>
+        draft.controller.set((old) => ({ ...old, thumbnailSize }))
+      }
+      onPageSize={(pageSize) => {
+        pendingPage.current = null;
+        draft.controller.set((old) => ({
+          ...old,
+          pageSize,
+          after: "",
+          past: [],
+          page: 1,
+          ordinal: null,
+          image: false,
+          scrollTop: 0,
+        }));
+      }}
+      onImage={() => draft.controller.set((old) => ({ ...old, image: true }))}
+      onEvidence={() => openPanel("evidence")}
+      onReview={() => openPanel("review")}
+    />
+  );
+  const evidence = (
+    <RankingEvidence
+      row={selected}
+      snapshot={snapshot.data}
+      stage={stage.data}
+      error={stage.error}
+      onPrompt={() => setDialog("prompt")}
+      onEvaluation={() => onEvaluation(stageId)}
+    />
   );
   const job = activeJob.data;
   function updateRating(rating: string) {
+    if (reviewBusy) return;
+    pendingPage.current = null;
     draft.controller.set((value) => ({
       ...value,
       rating,
@@ -480,18 +490,36 @@ export function RankingWorkspace({
       page: 1,
       ordinal: null,
       image: false,
+      scrollTop: 0,
     }));
   }
   return (
     <>
       <Workbench
         title={protectedOnly ? "保护复核工作台" : "排名浏览工作台"}
-        layout={layout.value}
+        layout={effectiveLayout}
         onLayout={layout.update}
         disabled={!layout.editable}
         panels={[
           { id: "snapshots", title: "评审成果", content: outline },
-          { id: "inspector", title: "详情", content: inspector },
+          {
+            id: "inspector",
+            title: "详情",
+            content: inspector,
+            defaultPosition: "right",
+          },
+          {
+            id: "evidence",
+            title: "评审依据",
+            content: evidence,
+            defaultPosition: "right",
+          },
+          {
+            id: "review",
+            title: "保护复核",
+            portal: true,
+            defaultPosition: "right",
+          },
         ]}
         toolbar={
           <>
@@ -512,9 +540,37 @@ export function RankingWorkspace({
               type="button"
               className="icon-button"
               aria-label="刷新排名工作台"
+              disabled={reviewBusy}
               onClick={() => {
                 void jobs.refetch();
-                if (saved.snapshotId) void rows.refetch();
+                void cache.invalidateQueries({
+                  queryKey: [
+                    "project",
+                    projectId,
+                    "aesthetic",
+                    "candidate-reviews",
+                  ],
+                });
+                if (saved.snapshotId && !reviewBusy) {
+                  pendingPage.current = null;
+                  draft.controller.set((old) => ({
+                    ...old,
+                    after: "",
+                    past: [],
+                    page: 1,
+                    ordinal: null,
+                    image: false,
+                    scrollTop: 0,
+                  }));
+                  void cache.invalidateQueries({
+                    queryKey: [
+                      "project",
+                      projectId,
+                      "aesthetic",
+                      "ranking-rows",
+                    ],
+                  });
+                }
               }}
             >
               <RefreshCw size={14} />
@@ -611,7 +667,7 @@ export function RankingWorkspace({
             <select
               aria-label="排名 Rating"
               value={saved.rating}
-              disabled={!draft.editable}
+              disabled={!draft.editable || reviewBusy}
               onChange={(e) => updateRating(e.target.value)}
             >
               {["g", "s", "q", "e"].map((rating) => (
@@ -626,41 +682,9 @@ export function RankingWorkspace({
             {group && ` · ${group.candidates.toLocaleString()} 张候选`}
           </span>
           <span className="grow" />
-          <button
-            type="button"
-            className="icon-button"
-            aria-label="返回排名网格"
-            aria-pressed={!saved.image}
-            onClick={() =>
-              draft.controller.set((value) => ({ ...value, image: false }))
-            }
-          >
-            <LayoutGrid size={15} />
+          <button type="button" onClick={() => openPanel("inspector")}>
+            显示与详情
           </button>
-          <label>
-            每页
-            <select
-              aria-label="排名每页图片数"
-              value={saved.pageSize}
-              onChange={(e) =>
-                draft.controller.set((value) => ({
-                  ...value,
-                  pageSize: Number(e.target.value),
-                  after: "",
-                  past: [],
-                  page: 1,
-                  ordinal: null,
-                  image: false,
-                }))
-              }
-            >
-              {[12, 48, 96].map((size) => (
-                <option key={size} value={size}>
-                  {size}
-                </option>
-              ))}
-            </select>
-          </label>
         </div>
         {summary && !summary.converged && (
           <p className="ranking-validity" role="status">
@@ -668,87 +692,36 @@ export function RankingWorkspace({
           </p>
         )}
         {snapshot.data ? (
-          rows.isPending ? (
-            <div className="wb-empty">正在读取图片页…</div>
-          ) : saved.image && selected ? (
-            <div
-              className="ranking-full-image"
-              onKeyDown={(e) => {
-                if (e.key === "Escape")
-                  draft.controller.set((value) => ({ ...value, image: false }));
-              }}
-            >
-              <AssetImage
-                client={client}
-                projectId={projectId}
-                asset={rankingAsset(selected)}
-                edge={1440}
-              />
-              <Button
-                onClick={() =>
-                  draft.controller.set((value) => ({ ...value, image: false }))
-                }
-              >
-                返回排名网格
-              </Button>
-            </div>
-          ) : (
-            <div className="ranking-image-scroll">
-              <div className="ranking-image-grid">
-                {rows.data?.items.map((row) => (
-                  <button
-                    type="button"
-                    className="ranking-image-tile"
-                    key={row.ordinal}
-                    aria-label={
-                      "候选 " + (row.ordinal + 1) + "，" + rankingLabel(row)
-                    }
-                    aria-pressed={row.ordinal === selectedOrdinal}
-                    onClick={() =>
-                      draft.controller.set((value) => ({
-                        ...value,
-                        ordinal: row.ordinal,
-                      }))
-                    }
-                    onDoubleClick={() =>
-                      draft.controller.set((value) => ({
-                        ...value,
-                        ordinal: row.ordinal,
-                        image: true,
-                      }))
-                    }
-                  >
-                    <AssetImage
-                      client={client}
-                      projectId={projectId}
-                      asset={rankingAsset(row)}
-                      edge={480}
-                    />
-                    <span className="ranking-image-caption">
-                      <strong>{rankingLabel(row)}</strong>
-                      {row.protected && (
-                        <Shield size={13} aria-label="快照内顶级提名" />
-                      )}
-                      <small>
-                        候选 {row.ordinal + 1} · {row.exposures} 次曝光
-                      </small>
-                    </span>
-                  </button>
-                ))}
-              </div>
-              {!rows.data?.items.length && !rows.error && (
-                <div className="wb-empty">
-                  <p>
-                    {rows.data?.next_cursor
-                      ? "本页扫描尚未找到匹配项，可继续下一页。"
-                      : protectedOnly
-                        ? "当前范围没有有效保护候选。"
-                        : "当前 Rating 暂无排名图片。"}
-                  </p>
-                </div>
-              )}
-            </div>
-          )
+          <RankingCanvas
+            context={context}
+            items={items}
+            selected={selected}
+            image={saved.image}
+            thumbnailSize={saved.thumbnailSize}
+            scrollTop={saved.scrollTop}
+            pageKey={`${saved.snapshotId}:${saved.rating}:${saved.after}:${saved.pageSize}`}
+            loading={rows.isPending}
+            disabled={!draft.editable || reviewBusy || rows.isFetching}
+            previous={previous}
+            next={next}
+            onNavigate={navigate}
+            onSelect={(ordinal) =>
+              draft.controller.set((old) => ({ ...old, ordinal }))
+            }
+            onImage={(image) =>
+              draft.controller.set((old) => ({ ...old, image }))
+            }
+            onScroll={(scrollTop) =>
+              draft.controller.set((old) =>
+                old.snapshotId === saved.snapshotId &&
+                old.rating === saved.rating &&
+                old.after === saved.after &&
+                old.pageSize === saved.pageSize
+                  ? { ...old, scrollTop }
+                  : old,
+              )
+            }
+          />
         ) : (
           <div className="wb-empty">
             <ListOrdered size={32} />
@@ -760,7 +733,7 @@ export function RankingWorkspace({
             </p>
             <div className="aesthetic-actions">
               <Button onClick={() => setDialog("fit")}>生成排名快照</Button>
-              <Button onClick={onEvaluation}>查看评审阶段</Button>
+              <Button onClick={() => onEvaluation()}>查看评审阶段</Button>
             </div>
           </div>
         )}
@@ -774,17 +747,8 @@ export function RankingWorkspace({
           <button
             type="button"
             aria-label="排名上一页"
-            disabled={!saved.past.length || rows.isFetching}
-            onClick={() =>
-              draft.controller.set((value) => ({
-                ...value,
-                after: value.past[value.past.length - 1] ?? "",
-                past: value.past.slice(0, -1),
-                page: value.page - 1,
-                ordinal: null,
-                image: false,
-              }))
-            }
+            disabled={!saved.past.length || rows.isFetching || reviewBusy}
+            onClick={() => turnPage(-1)}
           >
             <ChevronLeft size={15} />
             上一页
@@ -792,22 +756,44 @@ export function RankingWorkspace({
           <button
             type="button"
             aria-label="排名下一页"
-            disabled={!rows.data?.next_cursor || rows.isFetching}
-            onClick={() =>
-              draft.controller.set((value) => ({
-                ...value,
-                after: rows.data?.next_cursor ?? "",
-                past: [...value.past, value.after].slice(-64),
-                page: value.page + 1,
-                ordinal: null,
-                image: false,
-              }))
-            }
+            disabled={!rows.data?.next_cursor || rows.isFetching || reviewBusy}
+            onClick={() => turnPage(1)}
           >
             下一页
             <ChevronRight size={15} />
           </button>
         </div>
+        <WorkbenchPanelPortal id="review">
+          {selected ? (
+            <RankingReviewPanel
+              key={`${saved.snapshotId}:${selected.ordinal}`}
+              context={context}
+              snapshotId={saved.snapshotId}
+              row={selected}
+              next={next}
+              onBusy={setReviewBusy}
+              onSaved={(advance) => {
+                const current = draft.controller.getSnapshot().value;
+                if (
+                  current.snapshotId !== saved.snapshotId ||
+                  current.rating !== saved.rating ||
+                  current.after !== saved.after ||
+                  (current.ordinal ?? items[0]?.ordinal) !== selected.ordinal
+                )
+                  return;
+                setNotice(`候选 ${selected.ordinal + 1} 的复核已保存。`);
+                if (advance) navigate(1, true);
+              }}
+            />
+          ) : (
+            <p className="aesthetic-help">选择图片后开始复核。</p>
+          )}
+          {protectedOnly && (
+            <p className="aesthetic-help">
+              列表按进入时的复核水位保留。保存后可继续当前队列；点击刷新更新保护池。
+            </p>
+          )}
+        </WorkbenchPanelPortal>
       </Workbench>
       {dialog === "fit" && (
         <FitDialog
@@ -823,26 +809,6 @@ export function RankingWorkspace({
           rating={saved.rating}
           onClose={() => setDialog(null)}
           onCreated={created}
-        />
-      )}
-      {dialog === "review" && selected && (
-        <ReviewDialog
-          context={context}
-          snapshotId={saved.snapshotId}
-          ordinal={selected.ordinal}
-          onClose={() => setDialog(null)}
-          onSaved={() => {
-            setNotice("复核决定已追加保存，历史快照名次保持不变。");
-            draft.controller.set((value) => ({
-              ...value,
-              after: "",
-              past: [],
-              page: 1,
-            }));
-            void cache.invalidateQueries({
-              queryKey: ["project", projectId, "aesthetic", "ranking-rows"],
-            });
-          }}
         />
       )}
       {dialog === "prompt" && (

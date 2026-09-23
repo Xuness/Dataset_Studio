@@ -6,7 +6,7 @@
 
 ## 环境与常用命令
 
-工作台前端验收：先运行 `node tooling/integration-aesthetic-analysis.mjs` 和 `node tooling/integration-aesthetic.mjs`，再将各自成功的 `.local/test-runs/` 目录传给 `node tooling/smoke-workbench-ui.mjs <analysis-fixture>` 与 `node tooling/smoke-aesthetic-ui.mjs <evaluation-fixture>`。前者使用端口 1447，后者使用 1439；均只操作隔离合成项目。`ui-workbench.mjs` 提供功能标签/菜单的共享测试导航。
+工作台前端验收：先运行 `node tooling/integration-aesthetic-analysis.mjs` 和 `node tooling/integration-aesthetic.mjs`，再将各自成功的 `.local/test-runs/` 目录传给 `node tooling/smoke-workbench-ui.mjs <analysis-fixture>` 与 `node tooling/smoke-aesthetic-ui.mjs <evaluation-fixture>`。前者使用端口 1447，后者使用 1439；均只操作隔离合成项目。`ui-workbench.mjs` 提供功能标签/菜单的共享测试导航。 `ui-ranking-reading.mjs` 扩展工作台检查：缩略图密度、键盘跨页、大图缩放平移、滚动恢复、逐图复核草稿、丢失响应后同键重试、固定保护队列和真实离线快照对照。
 
 浏览布局回归集成在 `node tooling/smoke-ranking-browse-ui.mjs` 中，由 `ui-browser-layout.mjs` 验证。首要基准为 2560×1440、100% 缩放，另覆盖任务栏可用高度、150% 远程缩放和较小窗口；实际发送滚轮事件，检查右侧标签、草稿随停靠/隐藏/刷新恢复、筛选输入可达、图片滚动、查询侧栏、分页及全局底栏边界。业务回归同时验证 Rating 和 Tag 包含/排除筛选。
 

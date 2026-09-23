@@ -5794,6 +5794,8 @@ export interface operations {
         parameters: {
             query?: {
                 after?: string;
+                /** @description Optional candidate ordinal; returns newest first, with after as an exclusive upper sequence bound. */
+                ordinal?: number;
             };
             header?: never;
             path: {

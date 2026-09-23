@@ -1,5 +1,21 @@
 import type { Schema, Asset } from "@studio/contracts";
 export type RankingRow = Schema["AestheticRankingRow"];
+export function comparisonDeltaLabel(
+  row: Schema["AestheticComparisonRow"],
+): string {
+  if (
+    !row.comparable ||
+    row.percentile_delta == null ||
+    row.left_percentile == null ||
+    row.right_percentile == null
+  )
+    return row.reason ?? "不可比较";
+  // The contract's percentile_delta is absolute. Direction comes from A and B.
+  const delta = (row.right_percentile - row.left_percentile) * 100;
+  return Math.abs(delta) < 0.005
+    ? "无变化"
+    : `${delta < 0 ? "上移" : "下移"} ${Math.abs(delta).toFixed(2)} 个百分点`;
+}
 export function rankingLabel(row: RankingRow): string {
   const min = row.rating_rank_min ?? row.rank_min;
   const max = row.rating_rank_max ?? row.rank_max;

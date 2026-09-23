@@ -6,7 +6,7 @@
 
 “设置 → API 与模型”提供供应商连接、远端模型获取、独立模型参数和命名参数预设。基础层接入 OpenAI Chat Completions / Responses、OpenRouter 和 Gemini 原生协议，支持完整响应、流式事件与取消；API Key 在 Windows 上通过当前用户 DPAPI 加密保存。“设置 → System Prompt”管理可复用的系统指令预设，任务按次选择，User Prompt 由每次任务传入；调用检查支持预设选择和不联网的请求预览。见[架构决策](docs/decisions/0023-llm-foundation.md)、[System Prompt 预设](docs/decisions/0024-system-prompt-presets.md)和[模块接入说明](docs/architecture/llm-integration.md)。
 
-“美学排序”可从固定工作集冻结候选和模型配置，按 Rating 独立评审并持久保存梯队与顶级提名。后端已支持离线估计、不可变排名快照、实验对照、保护复核、筛选及工作集派生；第二阶段前端和真实模型校准待接入，自适应付费采样仍待开发。见[后端与 SDK 接入说明](docs/plans/aesthetic-ranking/phase-2-backend.md)。
+“美学排序”可从固定工作集冻结候选和模型配置，按 Rating 独立评审并持久保存梯队与顶级提名。前端已接入连续排名浏览、大图缩放与切换、侧栏保护复核、已发布快照对照、离线计算及工作集派生。真实模型校准、实验变体批量配置和自适应付费采样仍待开展。见[工作台设计](docs/design/frontend-workbench.md)和[后端与 SDK 接入说明](docs/plans/aesthetic-ranking/phase-2-backend.md)。
 
 对象条目旁的“⋯”提供快捷操作，右侧相邻的“属性 / 管理”标签提供名称、备注、来源与引用关系、文件位置和删除入口。相关行为见[对象管理验收](docs/verification/verification-object-management-v0.9.md)。
 

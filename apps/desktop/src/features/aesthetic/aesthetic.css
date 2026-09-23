@@ -643,3 +643,364 @@
   overflow-wrap: anywhere;
   font-size: 11px;
 }
+
+/* Continuous image browsing keeps the grid mounted behind the image viewport. */
+.ranking-canvas {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--recessed);
+}
+.ranking-image-scroll[hidden] {
+  display: none;
+}
+.ranking-image-grid {
+  grid-template-columns: repeat(
+    auto-fill,
+    minmax(min(100%, var(--ranking-tile-size, 208px)), 1fr)
+  );
+}
+.ranking-image-tile .asset-image {
+  height: calc(var(--ranking-tile-size, 208px) * 1.08);
+}
+.ranking-image-tile:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: -4px;
+}
+.ranking-full-image {
+  padding: 0;
+  gap: 0;
+  min-width: 0;
+  width: 100%;
+  outline: none;
+}
+.ranking-full-image:focus-visible {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.ranking-image-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  width: 100%;
+  gap: 4px;
+  padding: 4px 8px;
+  min-height: 32px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  font-size: 11px;
+}
+.ranking-image-toolbar button {
+  padding: 4px 6px;
+  font-size: 11px;
+  gap: 4px;
+}
+.ranking-image-toolbar output {
+  min-width: 38px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.ranking-current-image {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 260px;
+}
+.ranking-image-viewport {
+  position: relative;
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+}
+.ranking-image-transform {
+  position: absolute;
+  inset: 12px;
+  transform-origin: center;
+}
+.ranking-image-transform > .asset-image {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+}
+.ranking-image-transform img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.ranking-viewer-hint {
+  width: 100%;
+  padding: 5px 8px;
+  color: var(--muted);
+  font-size: 10px;
+  text-align: center;
+  background: var(--panel);
+}
+.ranking-canvas-message {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  padding: 12px;
+  background: var(--recessed);
+  color: var(--muted);
+  font-size: 12px;
+}
+.ranking-panel-identity {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 12px;
+  font-size: 12px;
+}
+.ranking-panel-identity > div {
+  flex: 1;
+  min-width: 0;
+}
+.ranking-panel-identity strong {
+  font-weight: 500;
+}
+.ranking-panel-identity span {
+  display: block;
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.ranking-detail-preview {
+  width: 78px;
+  height: 86px;
+  padding: 0;
+  flex-shrink: 0;
+  background: var(--recessed);
+  border: 1px solid var(--line);
+}
+.ranking-detail-preview .asset-image {
+  width: 100%;
+  height: 100%;
+}
+.ranking-detail-preview img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.ranking-display-settings {
+  display: grid;
+  gap: 12px;
+  padding: 12px;
+  font-size: 11px;
+}
+.ranking-display-settings label {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.ranking-display-settings output {
+  margin-left: auto;
+  color: var(--muted);
+}
+.ranking-display-settings input[type="range"] {
+  width: 100%;
+  min-width: 0;
+  accent-color: var(--accent);
+}
+.ranking-display-settings select {
+  margin-left: auto;
+}
+.ranking-display-settings p {
+  color: var(--muted);
+}
+.ranking-review-panel fieldset {
+  display: grid;
+  min-width: 0;
+  margin: 0;
+  padding: 12px;
+  gap: 12px;
+  border: 0;
+}
+.ranking-review-panel label {
+  display: grid;
+  gap: 6px;
+  font-size: 11px;
+}
+.ranking-review-panel input,
+.ranking-review-panel select,
+.ranking-review-panel textarea {
+  width: 100%;
+  min-width: 0;
+  font: inherit;
+}
+.ranking-review-panel textarea {
+  min-height: 100px;
+  resize: vertical;
+  line-height: 1.6;
+}
+.ranking-review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 0 12px;
+}
+.ranking-review-actions button {
+  flex: 1;
+  white-space: nowrap;
+  font-size: 11px;
+  padding: 6px 8px;
+}
+.ranking-review-actions .primary {
+  background: var(--accent);
+  color: white;
+}
+.ranking-review-panel .ranking-discard {
+  display: block;
+  margin: 8px 12px 0;
+  font-size: 11px;
+  color: var(--muted);
+}
+.ranking-save-message {
+  margin: 8px 12px;
+  color: var(--accent-green);
+  font-size: 11px;
+}
+.ranking-review-history {
+  padding: 10px 12px;
+  font-size: 11px;
+}
+.ranking-review-history article {
+  padding: 9px 0;
+  border-bottom: 1px solid var(--line);
+}
+.ranking-review-history article:first-child {
+  padding-top: 0;
+}
+.ranking-review-history article span {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+}
+.ranking-review-history p {
+  margin-top: 6px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.65;
+}
+.ranking-review-history .aesthetic-actions {
+  margin-top: 8px;
+}
+.ranking-evidence .wb-property-list {
+  font-variant-numeric: tabular-nums;
+}
+.comparison-configuration fieldset {
+  display: grid;
+  gap: 14px;
+  border: 0;
+  padding: 12px;
+  margin: 0;
+  min-width: 0;
+}
+.comparison-configuration label {
+  display: grid;
+  gap: 6px;
+  font-size: 11px;
+}
+.comparison-configuration input,
+.comparison-configuration select {
+  width: 100%;
+  min-width: 0;
+  font-size: 12px;
+}
+.comparison-configuration .primary {
+  background: var(--accent);
+  color: white;
+}
+.comparison-configuration > .aesthetic-actions {
+  padding: 0 12px 12px;
+}
+.comparison-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  font-size: 11px;
+  padding: 8px 12px;
+  background: var(--header);
+}
+.comparison-summary span {
+  overflow-wrap: anywhere;
+}
+.comparison-table-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.comparison-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  text-align: left;
+}
+.comparison-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 500;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+.comparison-table td {
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--line);
+  font-variant-numeric: tabular-nums;
+}
+.comparison-table tr[aria-selected="true"] {
+  background: var(--select-parent);
+}
+.comparison-table td:first-child {
+  width: 32%;
+  min-width: 160px;
+}
+.comparison-select-image {
+  display: flex;
+  gap: 10px;
+  width: 100%;
+  justify-content: flex-start;
+  text-align: left;
+  padding: 0;
+}
+.comparison-select-image .asset-image {
+  width: 62px;
+  height: 72px;
+  flex-shrink: 0;
+  background: var(--recessed);
+}
+.comparison-select-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.comparison-select-image span {
+  max-width: 220px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11px;
+}
+.comparison-detail > .asset-image {
+  height: 290px;
+  margin: 10px;
+  background: var(--recessed);
+}
+.comparison-detail > .asset-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}

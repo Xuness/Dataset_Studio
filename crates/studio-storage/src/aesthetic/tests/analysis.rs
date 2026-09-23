@@ -200,6 +200,54 @@ fn experiments_and_review_watermarks_are_frozen_and_review_has_no_score_effect()
     );
 }
 #[test]
+fn candidate_review_history_is_bounded_latest_first_and_isolated() {
+    let (_dir, db, stage) = fixture(16);
+    let (batch, attempt) = sent(&db, &stage);
+    db.receive(&stage, &attempt, receipt(&batch)).unwrap();
+    db.parse_received(&stage).unwrap();
+    let job = db.analysis_create(fit_request(&stage)).unwrap();
+    complete(&db, &job.id);
+    let mut sequences = Vec::new();
+    for n in 0..70 {
+        let review = db
+            .review_create(AestheticReviewCreate {
+                idempotency_key: new_id(),
+                snapshot_id: job.id.clone(),
+                ordinal: 0,
+                decision: if n % 2 == 0 { "protect" } else { "release" }.into(),
+                reviewer: "history test".into(),
+                reason: format!("revision {n}"),
+            })
+            .unwrap();
+        sequences.push(review.sequence);
+    }
+    db.review_create(AestheticReviewCreate {
+        idempotency_key: new_id(),
+        snapshot_id: job.id.clone(),
+        ordinal: 1,
+        decision: "defer".into(),
+        reviewer: "another image".into(),
+        reason: "separate history".into(),
+    })
+    .unwrap();
+    let first = db.candidate_reviews(&job.id, 0, 0).unwrap();
+    assert_eq!(first.len(), 65);
+    assert_eq!(first[0].sequence, sequences[69]);
+    assert_eq!(first[0].request.decision, "release");
+    let second = db
+        .candidate_reviews(&job.id, 0, first[63].sequence)
+        .unwrap();
+    assert_eq!(second.len(), 6);
+    assert_eq!(second.last().unwrap().sequence, sequences[0]);
+    assert!(db.candidate_reviews(&job.id, 2, 0).unwrap().is_empty());
+    assert!(db.candidate_reviews(&job.id, 1000, 0).is_err());
+    assert!(db.candidate_reviews(&job.id, u64::MAX, 0).is_err());
+    assert!(db.candidate_reviews(&job.id, 0, u64::MAX).is_err());
+    let other = db.analysis_create(fit_request(&stage)).unwrap();
+    complete(&db, &other.id);
+    assert!(db.candidate_reviews(&other.id, 0, 0).unwrap().is_empty());
+}
+#[test]
 fn ledger_v1_upgrade_backs_up_paid_evidence_before_creating_projections() {
     let (dir, db, stage) = fixture(16);
     let (batch, attempt) = sent(&db, &stage);

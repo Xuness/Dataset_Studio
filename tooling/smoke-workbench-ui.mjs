@@ -6,6 +6,7 @@ import { resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, expect } from "@playwright/test";
 import { EngineFixture, sleep } from "./engine-fixture.mjs";
+import { checkRankingReading, checkComparison } from "./ui-ranking-reading.mjs";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 if (!process.argv[2])
@@ -56,7 +57,7 @@ try {
   }
   browser = await chromium.launch({ channel: "msedge", headless: true });
   const context = await browser.newContext({
-    viewport: { width: 1600, height: 1100 },
+    viewport: { width: 2560, height: 1440 },
   });
   await context.route(url + "/__studio/connection", (route) =>
     route.fulfill({ json: engine.connection }),
@@ -114,6 +115,13 @@ try {
     .filter({ hasText: "离线美学后端验收" })
     .click();
   await page.getByRole("button", { name: "美学排序", exact: true }).click();
+  await page
+    .getByLabel("美学工作视图", { exact: true })
+    .selectOption("ranking");
+  await page.getByRole("button", { name: "恢复默认布局", exact: true }).click();
+  await page
+    .getByRole("button", { name: "刷新排名工作台", exact: true })
+    .click();
   await expect(page.getByLabel("美学工作视图", { exact: true })).toHaveValue(
     "ranking",
   );
@@ -188,8 +196,9 @@ try {
     .locator(".ranking-full-image")
     .getByRole("button", { name: "返回排名网格" })
     .click();
+  await page.getByRole("tab", { name: "评审依据", exact: true }).click();
   await page
-    .locator(".ranking-inspector summary")
+    .locator(".ranking-evidence summary")
     .filter({ hasText: "评审配置" })
     .click();
   await page
@@ -222,12 +231,14 @@ try {
   await expect(page.locator(".ranking-image-tile").first()).toBeVisible();
   checks.push("UI submits real offline fit and opens its published snapshot");
 
+  await page.getByRole("tab", { name: "详情", exact: true }).click();
   await page.getByRole("button", { name: "复核保护状态", exact: true }).click();
   await page.getByLabel("复核人", { exact: true }).fill("UI fixture");
   await page
     .getByLabel("复核理由", { exact: true })
     .fill("合成图片保护复核测试");
   await page.getByRole("button", { name: "保存复核决定", exact: true }).click();
+  await expect(page.getByLabel("复核理由", { exact: true })).toHaveValue("");
   await expect(page.getByRole("dialog")).toHaveCount(0);
   const reviews = await engine.api(
     rootPath + `/analysis/snapshots/${createdFit.id}/reviews`,
@@ -247,6 +258,9 @@ try {
   checks.push(
     "append-only protection review and effective protection browse with fixed watermark",
   );
+
+  await checkRankingReading(page, { engine, rootPath, run, checks });
+  await checkComparison(page, { engine, rootPath, run, checks });
 
   const worksetName = "UI 派生工作集 " + Date.now();
   await page.getByRole("button", { name: "生成工作集", exact: true }).click();

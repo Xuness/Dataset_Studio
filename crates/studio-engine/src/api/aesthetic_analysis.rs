@@ -12,6 +12,7 @@ struct Page {
     limit: Option<usize>,
     rating: Option<String>,
     experiment_id: Option<String>,
+    ordinal: Option<u64>,
 }
 #[derive(Deserialize, utoipa::ToSchema)]
 #[serde(deny_unknown_fields)]
@@ -414,14 +415,21 @@ async fn review_create(
         blocking(move || s.store.evaluation(&pid)?.review_create(value)).await?,
     )?))
 }
-#[utoipa::path(operation_id="aesthetic_reviews",get,path="/snapshots/{id}/reviews",params(("project_id"=String,Path),("id"=String,Path),("after"=Option<String>,Query)),responses((status=200,body=AestheticReviews)))]
+#[utoipa::path(operation_id="aesthetic_reviews",get,path="/snapshots/{id}/reviews",params(("project_id"=String,Path),("id"=String,Path),("after"=Option<String>,Query),("ordinal"=Option<u64>,Query,description="Optional candidate ordinal; returns newest first, with after as an exclusive upper sequence bound.")),responses((status=200,body=AestheticReviews)))]
 async fn reviews(
     State(s): State<AppState>,
     Path((pid, id)): Path<(String, String)>,
     Query(page): Query<Page>,
 ) -> ApiResult<AestheticReviews> {
     let after = ordinal(page.after.as_deref())?;
-    let mut items = blocking(move || s.store.evaluation(&pid)?.reviews(&id, after)).await?;
+    let mut items = blocking(move || {
+        let db = s.store.evaluation(&pid)?;
+        match page.ordinal {
+            Some(candidate) => db.candidate_reviews(&id, candidate, after),
+            None => db.reviews(&id, after),
+        }
+    })
+    .await?;
     let more = items.len() > 64;
     items.truncate(64);
     Ok(Json(AestheticReviews {
