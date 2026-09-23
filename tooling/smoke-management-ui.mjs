@@ -1,3 +1,4 @@
+import { openEditor, openWindowPanel } from "./ui-workbench.mjs";
 // Isolated headless Edge; no user browser profile, clipboard or desktop window is controlled.
 import assert from "node:assert/strict";
 import { spawn, execFile } from "node:child_process";
@@ -224,9 +225,9 @@ try {
     .locator(".browser-view")
     .getByRole("button", { name: "下一页", exact: true })
     .click();
-  await expect(page.locator(".browser-view").getByText("第 2 页", { exact: true })).toContainText(
-    /第\s*2\s*页/,
-  );
+  await expect(
+    page.locator(".browser-view").getByText("第 2 页", { exact: true }),
+  ).toContainText(/第\s*2\s*页/);
   const secondPageAnchor = await page
     .locator(".asset-card")
     .first()
@@ -255,13 +256,15 @@ try {
   await expect
     .poll(async () => (await engine.api(base + "/sources")).items[0].name)
     .toBe("重新命名的数据湖");
-  await expect(page.locator(".browser-view").getByText("第 2 页", { exact: true })).toContainText(
-    /第\s*2\s*页/,
-  );
-  await expect(page.locator(".asset-card").first().getByRole("button", { name: /^查看 / })).toHaveAttribute(
-    "aria-label",
-    secondPageAnchor,
-  );
+  await expect(
+    page.locator(".browser-view").getByText("第 2 页", { exact: true }),
+  ).toContainText(/第\s*2\s*页/);
+  await expect(
+    page
+      .locator(".asset-card")
+      .first()
+      .getByRole("button", { name: /^查看 / }),
+  ).toHaveAttribute("aria-label", secondPageAnchor);
   await expect(page.locator(".asset-card")).toHaveCount(48);
   await shot("01-source-management");
   checks.push(
@@ -310,7 +313,7 @@ try {
     "workset search and provenance navigate to dependencies; deleting a workset releases its artifact reference",
   );
 
-  await page.getByRole("button", { name: "项目查询", exact: true }).click();
+  await openEditor(page, "项目查询");
   await page
     .getByLabel("已保存查询", { exact: true })
     .selectOption(definition.id);
@@ -322,7 +325,7 @@ try {
     "deleting a saved query retains the current editable conditions as a new draft",
   );
 
-  await page.getByRole("button", { name: "项目成果", exact: true }).click();
+  await openEditor(page, "项目成果");
   await page.getByLabel("搜索计算成果", { exact: true }).fill("排名成果UI");
   await expect(page.locator(".artifact-list .managed-list-row")).toHaveCount(1);
   await more("排名成果UI", "重命名与备注…");
@@ -427,14 +430,12 @@ try {
     .last()
     .click();
   await page.reload();
-  await expect(page.locator(".document-tab.active")).toContainText(
-    project.name,
-  );
+  await expect(page.locator(".titlebar-drag")).toContainText(project.name);
   assert.equal((await engine.api("/v1/settings/editing")).undo_limit, 2);
   assert.ok((await engine.api(base + "/selection/history")).undo_steps <= 2);
   checks.push("undo step limit is configurable and survives reload");
 
-  await page.getByRole("button", { name: "项目成果", exact: true }).click();
+  await openEditor(page, "项目成果");
   await page.getByLabel("搜索计算成果", { exact: true }).fill("已整理");
   await more("已整理的排名", "删除计算结果…");
   await page.getByRole("button", { name: "确认删除", exact: true }).click();
@@ -451,7 +452,7 @@ try {
     "actual result deletion updates the visible list and retains an inspectable released record",
   );
 
-  await page.getByTitle("项目任务", { exact: true }).click();
+  await openWindowPanel(page, "项目任务");
   await expect(page.locator(".tasks-panel")).toBeVisible();
   await expect(page.locator(".tasks-panel")).toContainText("排名已删除");
   const taskName = (await engine.api(base + "/job-history")).items[0].object

@@ -13,8 +13,6 @@ import {
 } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  Images,
-  Sparkles,
   FolderOpen,
   FolderPlus,
   Plus,
@@ -23,7 +21,6 @@ import {
   MousePointer2,
   PanelLeft,
   PanelRight,
-  ListTodo,
   Home,
   Database,
   FileText,
@@ -34,21 +31,22 @@ import {
   Search,
   Undo2,
   Redo2,
-  Calculator,
-  Archive,
 } from "lucide-react";
 import {
   Button,
+  Workbench,
+  WorkbenchPreferences,
+  useWorkbenchLayout,
   DraftStatus,
   Brand,
-  ResizeGrip,
   CopyButton,
   assetTitle,
   ErrorDetails,
   isJobActive,
   MoreMenu,
 } from "@studio/ui";
-import type { CSSProperties } from "react";
+import { EditorTabs } from "./EditorTabs.js";
+import type { WorkbenchLayout } from "@studio/ui";
 import { MenuBar } from "./MenuBar.js";
 import type { ModuleContext, BrowseScope } from "@studio/ui";
 import type {
@@ -88,13 +86,17 @@ type ViewState = {
   focus: Asset | null;
   view: "grid" | "image";
 };
-const moduleIcons = {
-  sparkles: Sparkles,
-  images: Images,
-  search: Search,
-  calculator: Calculator,
-  archive: Archive,
-  database: Database,
+const studioWorkbenchDefaults: WorkbenchLayout = {
+  panels: {
+    project: "left",
+    inspector: "right",
+    "browser.filters": "right",
+    "browser.locate": "right",
+  },
+  active: {},
+  leftWidth: 224,
+  rightWidth: 380,
+  bottomHeight: 260,
 };
 export function App() {
   const [closeError, setCloseError] = useState("");
@@ -221,6 +223,16 @@ function Studio({
       session.updateCurrent(projectInfo.data);
   }, [projectInfo.data, currentId, project?.name, session.updateCurrent]);
   const layout = useLayoutState(client);
+  const studioWorkbench = useWorkbenchLayout(
+    client,
+    "studio",
+    studioWorkbenchDefaults,
+  );
+  const [resourcesOpen, setResourcesOpen] = useState(false);
+  useEffect(
+    () => setResourcesOpen(false),
+    [currentId, workspace.value.moduleId],
+  );
   const { projectsVisible, propertiesVisible, tasksVisible } = layout.value;
   const queryVisible =
     workspace.value.moduleId === "core.browser" &&
@@ -231,7 +243,8 @@ function Studio({
     args: Record<string, string>;
   } | null>(null);
   useSyncExternalStore(client.edits.subscribe, client.edits.getSnapshot);
-  const draftState = client.edits.status(currentId || undefined);
+  // Include application preferences: a saved project must not mask a pending layout write.
+  const draftState = client.edits.status();
   const focusQuery = useQuery({
     queryKey: ["project", currentId, "asset", workspace.value.focusKey],
     queryFn: ({ signal }) =>
@@ -251,9 +264,22 @@ function Studio({
     });
   }
   function setPropertiesVisible(value: boolean | ((old: boolean) => boolean)) {
+    const visible =
+      typeof value === "function" ? value(propertiesVisible) : value;
+    if (visible) revealStudioPanel("inspector");
     layout.update({
-      propertiesVisible:
-        typeof value === "function" ? value(propertiesVisible) : value,
+      propertiesVisible: visible,
+    });
+  }
+  function revealStudioPanel(id: string) {
+    studioWorkbench.update((old) => {
+      const saved = old.panels[id];
+      const position = saved && saved !== "hidden" ? saved : "right";
+      return {
+        ...old,
+        panels: { ...old.panels, [id]: position },
+        active: { ...old.active, [position]: id },
+      };
     });
   }
   function setTasksVisible(value: boolean | ((old: boolean) => boolean)) {
@@ -263,6 +289,7 @@ function Studio({
   }
   function setQueryVisible(value: boolean | ((old: boolean) => boolean)) {
     const show = typeof value === "function" ? value(queryVisible) : value;
+    if (show) revealStudioPanel("core.query");
     if (workspace.editable)
       workspace.controller?.set((v) => ({
         ...v,
@@ -285,7 +312,7 @@ function Studio({
     workspace.controller?.set((v) => ({
       ...v,
       moduleId: id,
-      panels: v.panels.filter((p) => p !== "core.query"),
+      openViews: [...new Set([...v.openViews, id])],
     }));
     setInvocation((old) => ({
       projectId: currentId,
@@ -873,7 +900,9 @@ function Studio({
         setTasksVisible(true);
     },
     activateView,
+    openSettings: setSettingsPage,
     openPanel: (id) => {
+      revealStudioPanel(id);
       if (workspace.editable)
         workspace.controller?.set((v) => ({
           ...v,
@@ -882,6 +911,7 @@ function Studio({
         }));
     },
     togglePanel: (id) => {
+      if (!workspace.value.panels.includes(id)) revealStudioPanel(id);
       if (workspace.editable)
         workspace.controller?.set((v) => ({
           ...v,
@@ -923,6 +953,26 @@ function Studio({
   };
   const activeSurface = moduleViews.get(workspace.value.moduleId);
   const ActiveModule = activeSurface?.Component;
+  const openViews = [
+    ...new Set([...workspace.value.openViews, workspace.value.moduleId]),
+  ].filter(
+    (id) => moduleViews.get(id)?.kind === "view" && id !== "core.resources",
+  );
+  function closeView(id: string) {
+    if (!workspace.editable) return;
+    workspace.controller?.set((value) => {
+      const remaining = openViews.filter((viewId) => viewId !== id);
+      if (!remaining.length) remaining.push("core.browser");
+      return {
+        ...value,
+        openViews: remaining,
+        moduleId:
+          value.moduleId === id
+            ? remaining[remaining.length - 1]!
+            : value.moduleId,
+      };
+    });
+  }
   const menus: Record<
     string,
     { label: string; action: () => void; disabled?: boolean }[]
@@ -996,8 +1046,20 @@ function Studio({
       disabled: !project || !workspace.editable,
     })),
     窗口: [
-      { label: "项目面板", action: () => setProjectsVisible((v) => !v) },
-      { label: "属性面板", action: () => setPropertiesVisible((v) => !v) },
+      {
+        label: "项目资源抽屉",
+        action: () => setResourcesOpen((v) => !v),
+        disabled: !project,
+      },
+      ...(!activeSurface?.ownsWorkbench
+        ? [
+            { label: "项目面板", action: () => setProjectsVisible((v) => !v) },
+            {
+              label: "属性面板",
+              action: () => setPropertiesVisible((v) => !v),
+            },
+          ]
+        : []),
       {
         label: "项目任务",
         action: () => setTasksVisible((v) => !v),
@@ -1010,6 +1072,241 @@ function Studio({
     })),
     帮助: [{ label: "关于 Dataset Studio", action: () => setDialog("about") }],
   };
+  const projectPanel = project ? (
+    <aside className="project-panel">
+      <div className="project-tree">
+        <button
+          className={
+            "tree-row root " + (view.scope.kind === "all" ? "active" : "")
+          }
+          onClick={() => updateView({ scope: { kind: "all" } })}
+        >
+          <Layers size={15} />
+          <span>全部项目数据</span>
+        </button>
+        <button
+          className={
+            "tree-row " + (view.scope.kind === "selection" ? "active" : "")
+          }
+          onClick={() =>
+            updateView({
+              scope: { kind: "selection", name: "项目当前选择" },
+            })
+          }
+        >
+          <MousePointer2 size={14} />
+          <span>当前选择</span>
+          <small>{selected}</small>
+        </button>
+        <div className="tree-heading">
+          <ChevronDown size={12} />
+          <span>数据湖</span>
+        </div>
+        {sources.data?.items.map((source) => (
+          <SourceRow
+            key={source.id}
+            source={source}
+            onManage={(mode) =>
+              openManagement({ kind: "source", id: source.id }, mode)
+            }
+            onRelink={() => {
+              setRelinkTarget(source);
+              setDialog("relink");
+            }}
+            active={view.scope.kind === "source" && view.scope.id === source.id}
+            onClick={() =>
+              updateView({
+                scope: {
+                  kind: "source",
+                  id: source.id,
+                  name: source.name,
+                },
+              })
+            }
+          />
+        ))}
+        {!sources.data?.items.length && (
+          <button className="tree-add" onClick={() => setDialog("source")}>
+            <Plus size={13} />
+            添加第一个数据湖
+          </button>
+        )}
+        <DetachedSources
+          key={currentId}
+          client={client}
+          projectId={currentId}
+          onManage={openManagement}
+        />
+        <div className="tree-heading">
+          <ChevronDown size={12} />
+          <span>工作集</span>
+          <span className="grow" />
+          <button
+            disabled={!selected}
+            title="保存选择为工作集"
+            className="icon-button"
+            onClick={() => setDialog("collection")}
+          >
+            <Plus size={12} />
+          </button>
+        </div>
+        <WorksetTree
+          key={currentId}
+          client={client}
+          projectId={currentId}
+          activeId={view.scope.kind === "collection" ? view.scope.id : null}
+          onBrowse={(item) =>
+            updateView({
+              scope: { kind: "collection", id: item.id, name: item.name },
+            })
+          }
+          onManage={openManagement}
+        />
+      </div>
+      <div className="project-foot">
+        <div className="project-foot-title">
+          <strong>{project.name}</strong>
+          <MoreMenu
+            label="项目"
+            items={[
+              {
+                label: "项目管理与备注",
+                action: () =>
+                  openManagement({ kind: "project", id: currentId }),
+              },
+              {
+                label: "重命名项目…",
+                action: () =>
+                  openManagement({ kind: "project", id: currentId }, "rename"),
+              },
+              {
+                label: "打开项目文件夹",
+                action: () =>
+                  void act(() =>
+                    client.management.reveal(currentId, {
+                      kind: "project",
+                      id: currentId,
+                    }),
+                  ),
+              },
+            ]}
+          />
+        </div>
+        <span>
+          {sources.data?.items.length ?? 0} 个数据湖 ·{" "}
+          {collections.data?.items.length ?? 0} 个工作集
+        </span>
+      </div>
+    </aside>
+  ) : null;
+  const propertiesPanel = project ? (
+    <aside className="properties-panel">
+      {inspectorHeader}
+      {workspace.value.inspectorTab === "management" ? (
+        propertiesVisible ? (
+          managementContent
+        ) : null
+      ) : view.focus ? (
+        <div className="properties-scroll">
+          <div className="property-preview">
+            <AssetImage
+              client={client}
+              projectId={project.id}
+              asset={view.focus}
+              edge={480}
+            />
+          </div>
+          <div className="property-section">
+            <h3 className="property-asset-title">{assetTitle(view.focus)}</h3>
+            <dl>
+              <dt>来源</dt>
+              <dd>{view.focus.source_name}</dd>
+              <dt>格式</dt>
+              <dd>{view.focus.extension.toUpperCase()}</dd>
+              <dt>存储大小</dt>
+              <dd>
+                {Number(view.focus.bytes)
+                  ? (Number(view.focus.bytes) / 1024).toFixed(1) + " KB"
+                  : "参考样本"}
+              </dd>
+            </dl>
+            <details className="identity-details">
+              <summary>存储身份与关联</summary>
+              <code>{view.focus.key.asset_id}</code>
+              <CopyButton label="复制图像身份" text={view.focus.key.asset_id} />
+              {view.focus.summary?.post_ids.length ? (
+                <p>
+                  关联帖子：
+                  {view.focus.summary.post_ids.map((id) => "#" + id).join("、")}
+                  {Number(view.focus.summary.post_count) >
+                  view.focus.summary.post_ids.length
+                    ? " 等 " + view.focus.summary.post_count + " 个"
+                    : ""}
+                </p>
+              ) : null}
+            </details>
+          </div>
+          {propertiesVisible && (
+            <MetadataInspector
+              key={
+                project.id +
+                ":" +
+                view.focus.key.source_id +
+                ":" +
+                view.focus.key.asset_id +
+                ":" +
+                client.connection.instance_id
+              }
+              client={client}
+              projectId={project.id}
+              asset={view.focus}
+            />
+          )}
+          <div className="property-section">
+            <h3>项目中的选择</h3>
+            <p>
+              当前共选择 <strong>{selected}</strong> 项
+            </p>
+            <Button
+              disabled={!selected || busy}
+              onClick={() => setDialog("collection")}
+            >
+              <FolderPlus size={14} />
+              保存为工作集
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="properties-empty">
+          <MousePointer2 size={25} />
+          <p>
+            点击一张图片
+            <br />
+            在这里查看对象属性
+          </p>
+        </div>
+      )}
+      <div className="properties-bottom">
+        <Info size={13} />
+        <span>项目保存选择和成果，数据湖提供来源。</span>
+      </div>
+    </aside>
+  ) : null;
+  const mainContent = project ? (
+    <div className="data-workspace">
+      {workspace.controller && (!workspace.editable || workspace.error) && (
+        <DraftStatus controller={workspace.controller} />
+      )}
+      <Suspense fallback={<p className="tool-hint">正在载入功能…</p>}>
+        {workspace.editable && ActiveModule && (
+          <ActiveModule
+            key={workspace.value.moduleId + project.id}
+            {...moduleContext}
+          />
+        )}
+      </Suspense>
+    </div>
+  ) : null;
   return (
     <div className="studio-app">
       <MenuBar
@@ -1017,104 +1314,91 @@ function Studio({
         busy={busy}
         title={project?.name ?? "Dataset Studio"}
       />
-      <div className="options-bar">
-        <button
-          className="icon-button"
-          title="项目起始页"
-          onClick={() => void session.close()}
-        >
-          <Home size={17} />
-        </button>
-        <button
-          disabled={!project}
-          onClick={() => setQueryVisible((value) => !value)}
-        >
-          <Search size={14} />
-          查询
-        </button>
-        <span className="option-separator" />
-        <MousePointer2 size={16} />
-        <span className="option-label">选择</span>
-        <span className="option-value">{selected} 项</span>
-        <button disabled={!selected || busy} onClick={clearSelection}>
-          清除
-        </button>
-        <button
-          className="icon-button"
-          title="撤销选择（Ctrl+Z）"
-          aria-label="撤销选择"
-          disabled={busy || !selectionHistory.data?.undo_steps}
-          onClick={() => restoreSelection("undo")}
-        >
-          <Undo2 size={15} />
-        </button>
-        <button
-          className="icon-button"
-          title="重做选择（Ctrl+Y）"
-          aria-label="重做选择"
-          disabled={busy || !selectionHistory.data?.redo_steps}
-          onClick={() => restoreSelection("redo")}
-        >
-          <Redo2 size={15} />
-        </button>
-        <span className="option-separator" />
-        <button
-          disabled={!hasFixedInput || busy}
-          onClick={() => setDialog("collection")}
-          title="将当前浏览范围保存为工作集"
-        >
-          <FolderPlus size={14} />
-          保存当前范围
-        </button>
-        <button
-          disabled={!hasTaskInput || busy}
-          onClick={() =>
-            activateView("core.tools", { operatorId: "core.manifest" })
-          }
-        >
-          <FileText size={14} />
-          生成清单
-        </button>
-        <span className="grow" />
-        <button
-          className="icon-button"
-          title="项目面板"
-          onClick={() => setProjectsVisible((v) => !v)}
-        >
-          <PanelLeft size={16} />
-        </button>
-        <button
-          className="icon-button"
-          title="属性面板"
-          onClick={() => setPropertiesVisible((v) => !v)}
-        >
-          <PanelRight size={16} />
-        </button>
-      </div>
-      <div className="document-tabs">
-        {project ? (
-          <div className="document-tab active">
-            <Layers size={13} />
-            <span>{project.name}</span>
-            <small>
-              {busy || draftState.saving
-                ? "保存中…"
-                : draftState.dirty
-                  ? "草稿待保存"
-                  : "已保存"}
-            </small>
-            <button aria-label="关闭项目" onClick={() => void session.close()}>
-              <X size={12} />
-            </button>
-          </div>
-        ) : (
-          <div className="document-tab active">
-            <Home size={13} />
-            <span>开始</span>
-          </div>
-        )}
-        <span className="grow" />
-      </div>
+      {project && (
+        <EditorTabs
+          open={openViews}
+          active={workspace.value.moduleId}
+          disabled={!workspace.editable}
+          onOpen={activateView}
+          onClose={closeView}
+        />
+      )}
+      {project && workspace.value.moduleId === "core.browser" && (
+        <div className="options-bar">
+          <button
+            className="icon-button"
+            title="项目起始页"
+            onClick={() => void session.close()}
+          >
+            <Home size={17} />
+          </button>
+          <button
+            disabled={!project}
+            onClick={() => setQueryVisible((value) => !value)}
+          >
+            <Search size={14} />
+            查询
+          </button>
+          <span className="option-separator" />
+          <MousePointer2 size={16} />
+          <span className="option-label">选择</span>
+          <span className="option-value">{selected} 项</span>
+          <button disabled={!selected || busy} onClick={clearSelection}>
+            清除
+          </button>
+          <button
+            className="icon-button"
+            title="撤销选择（Ctrl+Z）"
+            aria-label="撤销选择"
+            disabled={busy || !selectionHistory.data?.undo_steps}
+            onClick={() => restoreSelection("undo")}
+          >
+            <Undo2 size={15} />
+          </button>
+          <button
+            className="icon-button"
+            title="重做选择（Ctrl+Y）"
+            aria-label="重做选择"
+            disabled={busy || !selectionHistory.data?.redo_steps}
+            onClick={() => restoreSelection("redo")}
+          >
+            <Redo2 size={15} />
+          </button>
+          <span className="option-separator" />
+          <button
+            disabled={!hasFixedInput || busy}
+            onClick={() => setDialog("collection")}
+            title="将当前浏览范围保存为工作集"
+          >
+            <FolderPlus size={14} />
+            保存当前范围
+          </button>
+          <button
+            disabled={!hasTaskInput || busy}
+            onClick={() =>
+              activateView("core.tools", { operatorId: "core.manifest" })
+            }
+          >
+            <FileText size={14} />
+            生成清单
+          </button>
+          <span className="grow" />
+          <button
+            className="icon-button"
+            title="项目面板"
+            onClick={() => setProjectsVisible((v) => !v)}
+          >
+            <PanelLeft size={16} />
+          </button>
+          <button
+            className="icon-button"
+            title="属性面板"
+            onClick={() => setPropertiesVisible((v) => !v)}
+          >
+            <PanelRight size={16} />
+          </button>
+        </div>
+      )}
       {!project ? (
         <main className="start-screen">
           <div className="start-actions">
@@ -1176,357 +1460,135 @@ function Studio({
           </section>
         </main>
       ) : (
-        <div
-          className={
-            "workspace " +
-            (!projectsVisible ? "hide-projects " : "") +
-            (!propertiesVisible || activeSurface?.ownsInspector
-              ? "hide-properties"
-              : "")
-          }
-          style={
-            {
-              "--project-width": layout.value.projectWidth + "px",
-              "--properties-width": layout.value.propertiesWidth + "px",
-            } as CSSProperties
-          }
-        >
-          <aside className="tool-rail">
-            {modules.entries().map((entry) => {
-              const Icon = moduleIcons[entry.icon];
-              const active =
-                entry.id === "query"
-                  ? queryVisible && workspace.value.moduleId === "core.browser"
-                  : workspace.value.moduleId === "core." + entry.id &&
-                    !(entry.id === "browser" && queryVisible);
-              return (
-                <button
-                  key={entry.id}
-                  disabled={!workspace.editable}
-                  className={"tool-button " + (active ? "active" : "")}
-                  title={entry.label}
-                  onClick={() => modules.execute(entry.command, moduleContext)}
-                >
-                  <Icon size={19} />
-                </button>
-              );
-            })}
-            <button
-              className="tool-button"
-              title="单图查看"
-              disabled={!view.focus}
-              onClick={() => updateView({ view: "image" })}
-            >
-              <MousePointer2 size={19} />
-            </button>
-            <div className="rail-divider" />
-            <button
-              className="tool-button"
-              title="项目任务"
-              onClick={() => setTasksVisible((v) => !v)}
-            >
-              <ListTodo size={19} />
-            </button>
-            <span className="grow" />
-            <button
-              className="tool-button"
-              title="添加数据湖"
-              onClick={() => setDialog("source")}
-            >
-              <Database size={18} />
-            </button>
-          </aside>
-          <aside className="project-panel">
-            <header className="panel-tabs">
-              <strong>项目</strong>
-              <span className="grow" />
-              <button
-                className="icon-button"
-                title="添加数据湖"
-                onClick={() => setDialog("source")}
-              >
-                <Plus size={14} />
-              </button>
-            </header>
-            <div className="project-tree">
-              <button
-                className={
-                  "tree-row root " + (view.scope.kind === "all" ? "active" : "")
-                }
-                onClick={() => updateView({ scope: { kind: "all" } })}
-              >
-                <Layers size={15} />
-                <span>全部项目数据</span>
-              </button>
-              <button
-                className={
-                  "tree-row " +
-                  (view.scope.kind === "selection" ? "active" : "")
-                }
-                onClick={() =>
-                  updateView({
-                    scope: { kind: "selection", name: "项目当前选择" },
-                  })
-                }
-              >
-                <MousePointer2 size={14} />
-                <span>当前选择</span>
-                <small>{selected}</small>
-              </button>
-              <div className="tree-heading">
-                <ChevronDown size={12} />
-                <span>数据湖</span>
-              </div>
-              {sources.data?.items.map((source) => (
-                <SourceRow
-                  key={source.id}
-                  source={source}
-                  onManage={(mode) =>
-                    openManagement({ kind: "source", id: source.id }, mode)
-                  }
-                  onRelink={() => {
-                    setRelinkTarget(source);
-                    setDialog("relink");
-                  }}
-                  active={
-                    view.scope.kind === "source" && view.scope.id === source.id
-                  }
-                  onClick={() =>
-                    updateView({
-                      scope: {
-                        kind: "source",
-                        id: source.id,
-                        name: source.name,
+        <div className="studio-workspace">
+          {activeSurface?.ownsWorkbench ? (
+            mainContent
+          ) : (
+            <Workbench
+              title="项目工作台"
+              layout={{
+                ...studioWorkbench.value,
+                panels: {
+                  ...studioWorkbenchDefaults.panels,
+                  ...studioWorkbench.value.panels,
+                  "core.query": queryVisible
+                    ? studioWorkbench.value.panels["core.query"] === "hidden"
+                      ? "right"
+                      : (studioWorkbench.value.panels["core.query"] ?? "right")
+                    : "hidden",
+                  project: projectsVisible
+                    ? studioWorkbench.value.panels.project === "hidden"
+                      ? "left"
+                      : (studioWorkbench.value.panels.project ?? "left")
+                    : "hidden",
+                  inspector:
+                    propertiesVisible && !activeSurface?.ownsInspector
+                      ? studioWorkbench.value.panels.inspector === "hidden"
+                        ? "right"
+                        : (studioWorkbench.value.panels.inspector ?? "right")
+                      : "hidden",
+                },
+              }}
+              onLayout={(next) => {
+                studioWorkbench.update(next);
+                if (queryVisible && next.panels["core.query"] === "hidden")
+                  setQueryVisible(false);
+                layout.update({
+                  projectsVisible: next.panels.project !== "hidden",
+                  propertiesVisible: next.panels.inspector !== "hidden",
+                });
+              }}
+              panels={[
+                { id: "project", title: "项目", content: projectPanel },
+                ...(!activeSurface?.ownsInspector
+                  ? [
+                      {
+                        id: "inspector",
+                        title: "检查器",
+                        content: propertiesPanel,
                       },
-                    })
-                  }
-                />
-              ))}
-              {!sources.data?.items.length && (
-                <button
-                  className="tree-add"
-                  onClick={() => setDialog("source")}
-                >
-                  <Plus size={13} />
-                  添加第一个数据湖
-                </button>
-              )}
-              <DetachedSources
-                key={currentId}
-                client={client}
-                projectId={currentId}
-                onManage={openManagement}
-              />
-              <div className="tree-heading">
-                <ChevronDown size={12} />
-                <span>工作集</span>
-                <span className="grow" />
-                <button
-                  disabled={!selected}
-                  title="保存选择为工作集"
-                  className="icon-button"
-                  onClick={() => setDialog("collection")}
-                >
-                  <Plus size={12} />
-                </button>
-              </div>
-              <WorksetTree
-                key={currentId}
-                client={client}
-                projectId={currentId}
-                activeId={
-                  view.scope.kind === "collection" ? view.scope.id : null
-                }
-                onBrowse={(item) =>
-                  updateView({
-                    scope: { kind: "collection", id: item.id, name: item.name },
-                  })
-                }
-                onManage={openManagement}
-              />
-            </div>
-            <div className="project-foot">
-              <div className="project-foot-title">
-                <strong>{project.name}</strong>
-                <MoreMenu
-                  label="项目"
-                  items={[
-                    {
-                      label: "项目管理与备注",
-                      action: () =>
-                        openManagement({ kind: "project", id: currentId }),
-                    },
-                    {
-                      label: "重命名项目…",
-                      action: () =>
-                        openManagement(
-                          { kind: "project", id: currentId },
-                          "rename",
-                        ),
-                    },
-                    {
-                      label: "打开项目文件夹",
-                      action: () =>
-                        void act(() =>
-                          client.management.reveal(currentId, {
-                            kind: "project",
-                            id: currentId,
-                          }),
-                        ),
-                    },
-                  ]}
-                />
-              </div>
-              <span>
-                {sources.data?.items.length ?? 0} 个数据湖 ·{" "}
-                {collections.data?.items.length ?? 0} 个工作集
-              </span>
-            </div>
-            <ResizeGrip
-              label="项目面板宽度"
-              orientation="vertical"
-              value={layout.value.projectWidth}
-              minimum={180}
-              maximum={360}
-              onChange={(projectWidth) => layout.update({ projectWidth })}
-              onReset={() => layout.update({ projectWidth: 224 })}
-            />
-          </aside>
-          <div className="data-workspace">
-            {workspace.controller &&
-              (!workspace.editable || workspace.error) && (
-                <DraftStatus controller={workspace.controller} />
-              )}
-            <Suspense fallback={<p className="tool-hint">正在载入功能…</p>}>
-              {workspace.editable &&
-                workspace.value.moduleId === "core.browser" &&
-                workspace.value.panels.map((id) => {
-                  const Panel = moduleViews.get(id)?.Component;
-                  return Panel ? (
-                    <Panel key={id + project.id} {...moduleContext} />
-                  ) : null;
-                })}
-              {workspace.editable && ActiveModule && (
-                <ActiveModule
-                  key={workspace.value.moduleId + project.id}
-                  {...moduleContext}
-                />
-              )}
-            </Suspense>
-          </div>
-          {!activeSurface?.ownsInspector && (
-            <aside className="properties-panel">
-              {inspectorHeader}
-              {workspace.value.inspectorTab === "management" ? (
-                propertiesVisible ? (
-                  managementContent
-                ) : null
-              ) : view.focus ? (
-                <div className="properties-scroll">
-                  <div className="property-preview">
-                    <AssetImage
-                      client={client}
-                      projectId={project.id}
-                      asset={view.focus}
-                      edge={480}
-                    />
-                  </div>
-                  <div className="property-section">
-                    <h3 className="property-asset-title">
-                      {assetTitle(view.focus)}
-                    </h3>
-                    <dl>
-                      <dt>来源</dt>
-                      <dd>{view.focus.source_name}</dd>
-                      <dt>格式</dt>
-                      <dd>{view.focus.extension.toUpperCase()}</dd>
-                      <dt>存储大小</dt>
-                      <dd>
-                        {Number(view.focus.bytes)
-                          ? (Number(view.focus.bytes) / 1024).toFixed(1) + " KB"
-                          : "参考样本"}
-                      </dd>
-                    </dl>
-                    <details className="identity-details">
-                      <summary>存储身份与关联</summary>
-                      <code>{view.focus.key.asset_id}</code>
-                      <CopyButton
-                        label="复制图像身份"
-                        text={view.focus.key.asset_id}
-                      />
-                      {view.focus.summary?.post_ids.length ? (
-                        <p>
-                          关联帖子：
-                          {view.focus.summary.post_ids
-                            .map((id) => "#" + id)
-                            .join("、")}
-                          {Number(view.focus.summary.post_count) >
-                          view.focus.summary.post_ids.length
-                            ? " 等 " + view.focus.summary.post_count + " 个"
-                            : ""}
-                        </p>
-                      ) : null}
-                    </details>
-                  </div>
-                  {propertiesVisible && (
-                    <MetadataInspector
-                      key={
-                        project.id +
-                        ":" +
-                        view.focus.key.source_id +
-                        ":" +
-                        view.focus.key.asset_id +
-                        ":" +
-                        client.connection.instance_id
-                      }
-                      client={client}
-                      projectId={project.id}
-                      asset={view.focus}
-                    />
-                  )}
-                  <div className="property-section">
-                    <h3>项目中的选择</h3>
-                    <p>
-                      当前共选择 <strong>{selected}</strong> 项
-                    </p>
-                    <Button
-                      disabled={!selected || busy}
-                      onClick={() => setDialog("collection")}
-                    >
-                      <FolderPlus size={14} />
-                      保存为工作集
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <div className="properties-empty">
-                  <MousePointer2 size={25} />
-                  <p>
-                    点击一张图片
-                    <br />
-                    在这里查看对象属性
-                  </p>
-                </div>
-              )}
-              <div className="properties-bottom">
-                <Info size={13} />
-                <span>项目保存选择和成果，数据湖提供来源。</span>
-              </div>
-              <ResizeGrip
-                label="属性面板宽度"
-                orientation="vertical"
-                reverse
-                value={layout.value.propertiesWidth}
-                minimum={260}
-                maximum={600}
-                onChange={(propertiesWidth) =>
-                  layout.update({ propertiesWidth })
-                }
-                onReset={() => layout.update({ propertiesWidth: 320 })}
-              />
-            </aside>
+                    ]
+                  : []),
+                ...(workspace.value.moduleId === "core.browser"
+                  ? [
+                      {
+                        id: "browser.filters",
+                        title: "筛选",
+                        portal: true,
+                        defaultPosition: "right" as const,
+                      },
+                      {
+                        id: "browser.locate",
+                        title: "定位",
+                        portal: true,
+                        defaultPosition: "right" as const,
+                      },
+                      ...workspace.value.panels.flatMap((id) => {
+                        const Panel = moduleViews.get(id)?.Component;
+                        return Panel
+                          ? [
+                              {
+                                id,
+                                title: id === "core.query" ? "项目查询" : id,
+                                content: (
+                                  <Suspense
+                                    fallback={
+                                      <p className="tool-hint">正在载入面板…</p>
+                                    }
+                                  >
+                                    <Panel
+                                      key={id + project.id}
+                                      {...moduleContext}
+                                    />
+                                  </Suspense>
+                                ),
+                              },
+                            ]
+                          : [];
+                      }),
+                    ]
+                  : []),
+              ]}
+              disabled={!studioWorkbench.editable}
+              status={
+                <>
+                  <span>{project.name}</span>
+                  <WorkbenchPreferences
+                    state={{
+                      ...studioWorkbench,
+                      reset: () => {
+                        studioWorkbench.reset();
+                        layout.update({
+                          projectsVisible: true,
+                          propertiesVisible: true,
+                        });
+                      },
+                    }}
+                  />
+                </>
+              }
+            >
+              {mainContent}
+            </Workbench>
           )}
         </div>
+      )}
+      {project && resourcesOpen && (
+        <section className="studio-resources-drawer" aria-label="项目资源抽屉">
+          <header className="wb-panel-header">
+            <strong>项目资源</strong>
+            <span className="grow" />
+            <button
+              type="button"
+              className="icon-button"
+              aria-label="关闭项目资源"
+              onClick={() => setResourcesOpen(false)}
+            >
+              <X size={14} />
+            </button>
+          </header>
+          {projectPanel}
+        </section>
       )}
       {project && tasksVisible && (
         <Tasks
@@ -1559,6 +1621,17 @@ function Studio({
         </div>
       )}
       <footer className="status-bar">
+        {project && (
+          <button
+            type="button"
+            className="resource-drawer-trigger"
+            aria-expanded={resourcesOpen}
+            onClick={() => setResourcesOpen((value) => !value)}
+          >
+            <FolderOpen size={14} />
+            项目资源
+          </button>
+        )}
         <span className={health.error ? "online-dot offline" : "online-dot"} />
         <span>{health.error ? "本机引擎已断开" : "本机引擎已连接"}</span>
         {operationNotice && (

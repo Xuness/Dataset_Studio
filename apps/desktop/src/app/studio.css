@@ -1,6 +1,7 @@
 .studio-app {
   height: 100dvh;
-  min-height: 620px;
+  min-height: 0;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
   position: relative;

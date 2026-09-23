@@ -94,13 +94,29 @@ try {
   await page.getByRole("button", { name: "美学排序", exact: true }).click();
   await expect(
     page.getByRole("heading", { name: "美学排序", exact: true }),
-  ).toBeVisible();
+  ).toHaveCount(1);
+  await page
+    .getByLabel("美学工作视图", { exact: true })
+    .selectOption("evaluation");
   await page
     .locator(".aesthetic-stage-list button")
     .filter({ hasText: "4 批有效" })
     .first()
     .click();
   await expect(page.locator(".aesthetic-main")).toContainText("本阶段已完成");
+  await expect(page.locator(".aesthetic-main .aesthetic-counters")).toHaveCount(
+    0,
+  );
+  await page.getByRole("tab", { name: "阶段状态", exact: true }).click();
+  await expect(page.locator(".evaluation-status-panel")).toContainText(
+    "调用尝试",
+  );
+  await page.getByRole("tab", { name: "冻结标准", exact: true }).click();
+  await expect(page.locator(".evaluation-config-panel pre")).toContainText(
+    "system_prompt_id",
+  );
+  await page.getByRole("tab", { name: "阶段状态", exact: true }).click();
+  await page.getByRole("button", { name: "批次与梯队", exact: true }).click();
   await page.locator(".aesthetic-batch summary").first().click();
   await expect(
     page.locator(".aesthetic-batch").first().locator("img"),
@@ -125,6 +141,7 @@ try {
   const pid = projects.find((p) => p.name === "评审链路隔离测试").id;
   const stage = (await engine.api(`/v1/projects/${pid}/aesthetic/stages`))
     .items[0];
+  await page.getByRole("button", { name: "新建评审", exact: true }).click();
   await page.getByLabel("阶段名称", { exact: true }).fill(uiStageName);
   await page
     .getByLabel("候选工作集", { exact: true })
@@ -150,6 +167,7 @@ try {
   assert.equal(created.config.request.max_calls, 3);
   await page.getByRole("button", { name: "资料浏览", exact: true }).click();
   await page.getByRole("button", { name: "美学排序", exact: true }).click();
+  await page.getByRole("button", { name: "新建评审", exact: true }).click();
   await expect(page.getByLabel("阶段名称", { exact: true })).toHaveValue(
     uiStageName,
   );

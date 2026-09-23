@@ -1,3 +1,4 @@
+import { openEditor } from "./ui-workbench.mjs";
 // Real React UI against an isolated fixture engine. No user browser profile is used.
 import assert from "node:assert/strict";
 import { spawn, execFile } from "node:child_process";
@@ -234,7 +235,7 @@ try {
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(url);
   await page.locator(".recent-row").filter({ hasText: project.name }).click();
-  await page.getByRole("button", { name: "计算工具", exact: true }).click();
+  await openEditor(page, "计算工具");
   await expect(
     page.getByRole("heading", { name: /Danbooru 元数据排名/ }),
   ).toBeVisible();
@@ -411,7 +412,7 @@ try {
   checks.push(
     "scope preparation follows bounded scan cursors; fallback polls only its result ID; failure preserves the timeout reason and retry releases the failed result (fixture presentation replay)",
   );
-  await page.getByRole("button", { name: "计算工具", exact: true }).click();
+  await openEditor(page, "计算工具");
   await expect(
     page.getByRole("table", { name: "元数据排名榜单" }),
   ).toBeVisible();
@@ -508,14 +509,14 @@ try {
     /^66\./,
   );
   await page.screenshot({ path: resolve(run, "10-progress-wide.png") });
-  await page.getByRole("button", { name: "项目成果", exact: true }).click();
+  await openEditor(page, "项目成果");
   await expect(page.locator(".task-activity")).toContainText("66.4%");
   await sleep(1100);
   await page.reload();
   await expect(page.locator(".task-activity")).toContainText("66.4%", {
     timeout: 15000,
   });
-  await page.getByRole("button", { name: "计算工具", exact: true }).click();
+  await openEditor(page, "计算工具");
   await expect(progressCard).toContainText("66.4%");
   checks.push(
     "submission acknowledges immediately and only once; current-stage progress, frozen count and duplicate prevention survive module switching and reconnect",

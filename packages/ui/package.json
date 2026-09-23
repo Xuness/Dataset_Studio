@@ -11,9 +11,11 @@
     "@studio/client": "workspace:*",
     "@studio/contracts": "workspace:*",
     "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "lucide-react": "^0.577.0"
   },
   "devDependencies": {
-    "@types/react": "^19.2.0"
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0"
   }
 }

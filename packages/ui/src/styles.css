@@ -1,17 +1,26 @@
 :root {
   color-scheme: dark;
-  --bg: #1c1c1c;
-  --panel: #2e2e2e;
-  --panel-raised: #363636;
-  --field: #252525;
-  --border: #1c1c1c;
-  --line: #454545;
-  --text: #d7d7d7;
-  --muted: #969696;
-  --accent: #8ab8e4;
-  --active: #414b57;
-  --danger: #e8a39e;
-  --radius: 3px;
+  --bg: #151515;
+  --title: #151515;
+  --panel: #242424;
+  --panel-raised: #383838;
+  --header: #2f2f2f;
+  --recessed: #1a1a1a;
+  --field: #0f0f0f;
+  --border: #0f0f0f;
+  --line: #383838;
+  --text: #c0c0c0;
+  --muted: #909090;
+  --accent: #0070e0;
+  --active: #40576f;
+  --select-parent: #2c323a;
+  --primary-hover: #0e86ff;
+  --primary-press: #0050a0;
+  --danger: #ef3535;
+  --accent-blue: #26bbff;
+  --accent-green: #8bc24a;
+  --accent-folder: #b68f55;
+  --radius: 2px;
   font-family: "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
   font-size: 13px;
   line-height: 1.5;
@@ -164,12 +173,12 @@ button:hover:not(:disabled) {
   background: #4a4a4a;
 }
 .button.primary {
-  background: #426787;
-  border-color: #7199bd;
-  color: #eef6ff;
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
 }
 .button.primary:hover:not(:disabled) {
-  background: #507b9e;
+  background: var(--primary-hover);
 }
 .icon-button {
   width: 27px;

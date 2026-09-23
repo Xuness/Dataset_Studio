@@ -6,6 +6,7 @@ import { ClipboardProvider } from "@studio/ui";
 import { nativeClipboard, writeClipboard } from "./platform/clipboard.js";
 import "@studio/ui/styles.css";
 import "./app/studio.css";
+import "./app/workbench-theme.css";
 const queries = new QueryClient({
   defaultOptions: {
     queries: {

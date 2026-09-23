@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { chromium, expect } from "@playwright/test";
 import { EngineFixture, sleep } from "./engine-fixture.mjs";
 import { DatabaseSync } from "node:sqlite";
+import { verifyBrowserLayout, openBrowserPanel } from "./ui-browser-layout.mjs";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const duplicateMode = process.argv.includes("--duplicates");
@@ -380,6 +381,10 @@ try {
   );
   await expect(page.getByLabel("排名查看方向")).toHaveValue("asc");
   await shot("01-default-rankings");
+  await verifyBrowserLayout(page, run);
+  checks.push(
+    "filters, image wheel scrolling and bottom controls fit short and scaled viewports",
+  );
   checks.push(
     "an existing workset with an old generic order opens in its saved ranking order and displays scores",
   );
@@ -391,6 +396,7 @@ try {
   checks.push(
     "page-size changes retain the saved ranking and display the correct first members",
   );
+  await openBrowserPanel(page, "定位");
   await page.getByLabel("起点排名", { exact: true }).fill("70");
   await page.getByLabel("起点排名", { exact: true }).press("Enter");
   await visible(main.slice(69, 117));
@@ -633,6 +639,7 @@ try {
     "generic ID sorting remains available with score badges, and ranking order can be restored",
   );
 
+  await openBrowserPanel(page, "定位");
   await page.getByLabel("起点 Danbooru ID").fill("-1");
   await page.getByRole("button", { name: "从此图开始", exact: true }).click();
   await expect(
@@ -652,6 +659,14 @@ try {
     "invalid and missing IDs explain the problem and can return to the full ranking without changing members",
   );
 
+  if (
+    !(await page
+      .getByRole("button", { name: "分级 G", exact: true })
+      .isVisible())
+  )
+    await page
+      .getByRole("button", { name: "Rating / Tag 筛选", exact: true })
+      .click();
   await page.getByRole("button", { name: "分级 G", exact: true }).click();
   await page.getByRole("button", { name: "应用筛选", exact: true }).click();
   await expect(
@@ -717,8 +732,26 @@ try {
     "equivalent G re-filtering creates a new query ID while preserving direction and reusing the disk index after reload",
   );
 
+  await page.getByRole("button", { name: "清除筛选", exact: true }).click();
+  await page.getByLabel("包含标签", { exact: true }).fill("jpeg_artifacts");
+  await page.getByRole("button", { name: "应用筛选", exact: true }).click();
+  await expect(page.locator(".asset-card")).toHaveCount(1, { timeout: 30000 });
+  await expect(page.locator(".asset-card .asset-caption > span")).toHaveText(
+    "Danbooru #10010",
+  );
+  await page.getByLabel("排除标签", { exact: true }).fill("scan_artifacts");
+  await page.getByRole("button", { name: "应用筛选", exact: true }).click();
+  await expect(page.locator(".asset-card")).toHaveCount(0, { timeout: 30000 });
+  await expect(page.locator(".quick-filter-heading")).toContainText("0 张匹配");
+  await expect(page.locator(".paging")).toBeInViewport({ ratio: 1 });
+  await page.getByRole("button", { name: "清除筛选", exact: true }).click();
+  await expect(page.locator(".asset-card")).toHaveCount(48, { timeout: 30000 });
+  checks.push(
+    "Tag include and exclude submit real scoped queries, distinguish whole tags and restore the workset after clearing",
+  );
+
   if (duplicateMode) {
-    await page.getByRole("button", { name: "清除筛选", exact: true }).click();
+    await openBrowserPanel(page, "定位");
     await page
       .getByLabel("浏览排序", { exact: true })
       .selectOption("ranking:main");
@@ -729,6 +762,7 @@ try {
       page.locator(".asset-card .asset-caption > span").first(),
     ).toHaveText("Danbooru #4529147");
     await page.locator(".asset-thumb").first().click();
+    await openBrowserPanel(page, "检查器");
     const frozen = page.getByLabel("评分使用的冻结数据", { exact: true });
     await expect(frozen).toContainText("净分 32 · 收藏 50");
     await expect(frozen).toContainText("分级 S");

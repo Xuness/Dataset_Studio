@@ -6,6 +6,10 @@
 
 ## 环境与常用命令
 
+工作台前端验收：先运行 `node tooling/integration-aesthetic-analysis.mjs` 和 `node tooling/integration-aesthetic.mjs`，再将各自成功的 `.local/test-runs/` 目录传给 `node tooling/smoke-workbench-ui.mjs <analysis-fixture>` 与 `node tooling/smoke-aesthetic-ui.mjs <evaluation-fixture>`。前者使用端口 1447，后者使用 1439；均只操作隔离合成项目。`ui-workbench.mjs` 提供功能标签/菜单的共享测试导航。
+
+浏览布局回归集成在 `node tooling/smoke-ranking-browse-ui.mjs` 中，由 `ui-browser-layout.mjs` 验证。首要基准为 2560×1440、100% 缩放，另覆盖任务栏可用高度、150% 远程缩放和较小窗口；实际发送滚轮事件，检查右侧标签、草稿随停靠/隐藏/刷新恢复、筛选输入可达、图片滚动、查询侧栏、分页及全局底栏边界。业务回归同时验证 Rating 和 Tag 包含/排除筛选。
+
 Windows 开发环境需要 PowerShell 7、Node.js 22.12 或更新版本、pnpm 10.30.3、Rust 1.94 或更新版本、Visual Studio C++ 工具链和 WebView2。集成测试及部分界面验证还需要 **Python 3.11 x64**，`python --version` 应能找到对应解释器；本机夹具验证使用 3.11.9，CI 选择 3.11 x64。
 
 Python 夹具只依赖标准库，通过 ctypes 加载 `vendor/duckdb/duckdb.dll`。先运行 `pwsh -File tooling/setup-duckdb.ps1` 准备固定版本的 DLL，再执行相关验证；无需 pip 安装。界面冒烟脚本还需要已安装的 Microsoft Edge，原生窗口验证需要可交互的 Windows 桌面。

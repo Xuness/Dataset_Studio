@@ -11,6 +11,8 @@ import {
   Image as ImageIcon,
   LoaderCircle,
   RotateCw,
+  Filter,
+  LocateFixed,
 } from "lucide-react";
 import {
   Button,
@@ -24,6 +26,8 @@ import {
   nextHistory,
   browseScopeIdentity,
   normalizeBrowseScopeKey,
+  WorkbenchPanelPortal,
+  useWorkbenchPanels,
 } from "@studio/ui";
 import type { ModuleContext, BrowseScope, BrowseViewProps } from "@studio/ui";
 import { assetIdentity } from "@studio/client";
@@ -65,11 +69,7 @@ export default function BrowserModule(context: ModuleContext) {
           result,
         )
       }
-      filters={
-        !context.panels.includes("core.query") ? (
-          <QuickFilters context={context} />
-        ) : null
-      }
+      filters={<QuickFilters context={context} presentation="panel" />}
     />
   );
 }
@@ -178,6 +178,7 @@ function BrowserContent({
   const savedScroll = useRef(scrollTop);
   const scrollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const workbench = useWorkbenchPanels();
   const gridRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const restoreCanvasFocus = useRef(false);
@@ -820,170 +821,210 @@ function BrowserContent({
           <ImageIcon size={17} />
         </button>
       </div>
-      {filters}
-      {scope.kind === "result" &&
-        (validity.data?.current === false ||
-          (query.error &&
-            "code" in query.error &&
-            ["SORT_REQUIRES_REFRESH", "RESULT_NOT_READY"].includes(
-              String(query.error.code),
-            ))) && (
-          <div className="browser-refresh-note">
-            <span>结果需要刷新；将按最新来源检查条件。</span>
-            <Button
-              disabled={refreshing || (!!refreshId && !refreshed.data?.error)}
-              onClick={() => void refreshResult()}
-            >
-              <RotateCw size={14} />
-              {refreshing ||
-              (refreshId &&
-                ["queued", "running"].includes(
-                  refreshed.data?.state ?? "queued",
-                ))
-                ? "刷新中…"
-                : "刷新结果"}
-            </Button>
-          </div>
-        )}
-      {!!(refreshError || refreshed.error || refreshed.data?.error) && (
-        <ErrorDetails
-          compact
-          error={refreshError || refreshed.error || refreshed.data?.error}
-        />
-      )}
-      <div className="browser-options">
-        {notice && (
-          <span role="status" className="subtle">
-            {notice}
-          </span>
-        )}
-        <span className="subtle">
-          {query.error
-            ? "读取未完成"
-            : (query.data?.preparing ??
-              (query.isFetching ? "读取中…" : items.length + " 张 / 本页"))}
-        </span>
-        <span className="grow" />
-        <select
-          aria-label="浏览排序"
-          title={
-            ranked.active
-              ? "排名沿用计算时的评分，名次在各分级内计算"
-              : "同图关联多个帖子时取最小 ID；无帖子 ID 的图像排在末尾"
-          }
-          value={ranked.active ? "ranking:" + ranked.settings.sort : order}
-          onChange={(e) => chooseOrder(e.target.value)}
-        >
-          {ranked.info && (
-            <optgroup label="排名排序">
-              <option value="ranking:saved">保存时的榜单顺序</option>
-              <option value="ranking:main">
-                {ranked.info.schema_version >= 2 ? "筛选优先级" : "主排名"}
-              </option>
-              <option value="ranking:rescue">
-                {ranked.info.schema_version >= 2 ? "年代相对排名" : "补救排名"}
-              </option>
-              {ranked.info.schema_version >= 2 && (
-                <>
-                  <option value="ranking:direct">直算排名</option>
-                  <option value="ranking:fused">融合排名</option>
-                </>
-              )}
-              <option value="ranking:input">排名输入顺序</option>
-            </optgroup>
+      <div className="browser-controls" aria-label="浏览控制区">
+        <WorkbenchPanelPortal id="browser.filters">
+          {filters}
+        </WorkbenchPanelPortal>
+        {scope.kind === "result" &&
+          (validity.data?.current === false ||
+            (query.error &&
+              "code" in query.error &&
+              ["SORT_REQUIRES_REFRESH", "RESULT_NOT_READY"].includes(
+                String(query.error.code),
+              ))) && (
+            <div className="browser-refresh-note">
+              <span>结果需要刷新；将按最新来源检查条件。</span>
+              <Button
+                disabled={refreshing || (!!refreshId && !refreshed.data?.error)}
+                onClick={() => void refreshResult()}
+              >
+                <RotateCw size={14} />
+                {refreshing ||
+                (refreshId &&
+                  ["queued", "running"].includes(
+                    refreshed.data?.state ?? "queued",
+                  ))
+                  ? "刷新中…"
+                  : "刷新结果"}
+              </Button>
+            </div>
           )}
-          <option value="post_id_desc">Danbooru ID 从新到旧</option>
-          <option value="post_id_asc">Danbooru ID 从旧到新</option>
-          <option value="asset_key_asc">图像身份升序</option>
-          <option value="asset_key_desc">图像身份降序</option>
-        </select>
-        {ranked.active && (
+        {!!(refreshError || refreshed.error || refreshed.data?.error) && (
+          <ErrorDetails
+            compact
+            error={refreshError || refreshed.error || refreshed.data?.error}
+          />
+        )}
+        <div className="browser-options">
+          <button
+            aria-label="Rating / Tag 筛选"
+            title="打开筛选面板"
+            onClick={() => workbench?.open("browser.filters")}
+          >
+            <Filter size={14} />
+            筛选
+          </button>
+          <button
+            aria-label="定位与显示"
+            title="打开定位与显示面板"
+            onClick={() => workbench?.open("browser.locate")}
+          >
+            <LocateFixed size={14} />
+            定位
+          </button>
+          {notice && (
+            <span role="status" className="subtle">
+              {notice}
+            </span>
+          )}
+          <span className="subtle">
+            {query.error
+              ? "读取未完成"
+              : (query.data?.preparing ??
+                (query.isFetching ? "读取中…" : items.length + " 张 / 本页"))}
+          </span>
+          <span className="grow" />
           <select
-            className="ranking-direction"
-            aria-label="排名查看方向"
-            value={ranked.settings.descending ? "desc" : "asc"}
-            onChange={(event) =>
-              ranked.change({ descending: event.target.value === "desc" })
+            aria-label="浏览排序"
+            title={
+              ranked.active
+                ? "排名沿用计算时的评分，名次在各分级内计算"
+                : "同图关联多个帖子时取最小 ID；无帖子 ID 的图像排在末尾"
             }
+            value={ranked.active ? "ranking:" + ranked.settings.sort : order}
+            onChange={(e) => chooseOrder(e.target.value)}
           >
-            <option value="asc">
-              升序 ·{" "}
-              {ranked.settings.sort === "input" ||
-              (ranked.settings.sort === "saved" &&
-                ranked.info?.saved_filter.order === "input")
-                ? "序号"
-                : "名次"}
-              从小到大
-            </option>
-            <option value="desc">
-              降序 ·{" "}
-              {ranked.settings.sort === "input" ||
-              (ranked.settings.sort === "saved" &&
-                ranked.info?.saved_filter.order === "input")
-                ? "序号"
-                : "名次"}
-              从大到小
-            </option>
+            {ranked.info && (
+              <optgroup label="排名排序">
+                <option value="ranking:saved">保存时的榜单顺序</option>
+                <option value="ranking:main">
+                  {ranked.info.schema_version >= 2 ? "筛选优先级" : "主排名"}
+                </option>
+                <option value="ranking:rescue">
+                  {ranked.info.schema_version >= 2
+                    ? "年代相对排名"
+                    : "补救排名"}
+                </option>
+                {ranked.info.schema_version >= 2 && (
+                  <>
+                    <option value="ranking:direct">直算排名</option>
+                    <option value="ranking:fused">融合排名</option>
+                  </>
+                )}
+                <option value="ranking:input">排名输入顺序</option>
+              </optgroup>
+            )}
+            <option value="post_id_desc">Danbooru ID 从新到旧</option>
+            <option value="post_id_asc">Danbooru ID 从旧到新</option>
+            <option value="asset_key_asc">图像身份升序</option>
+            <option value="asset_key_desc">图像身份降序</option>
           </select>
-        )}
-        <button
-          className="icon-button"
-          title="刷新当前范围"
-          disabled={waiting || refreshing}
-          onClick={() => void refreshResult()}
-        >
-          <RotateCw size={14} />
-        </button>
-        {view === "grid" ? (
-          <>
-            <label className="density-label">
-              预览尺寸
-              <input
-                aria-label="缩略图尺寸"
-                type="range"
-                min={128}
-                max={320}
-                step={16}
-                value={thumbnailSize}
-                onChange={(e) => onThumbnailSize(Number(e.target.value))}
-              />
-            </label>
-            <Button
-              title="选择本页（Ctrl+A）"
-              disabled={!items.length || busy || query.isFetching}
-              onClick={() => onPick(items.map((a) => a.key))}
+          {ranked.active && (
+            <select
+              className="ranking-direction"
+              aria-label="排名查看方向"
+              value={ranked.settings.descending ? "desc" : "asc"}
+              onChange={(event) =>
+                ranked.change({ descending: event.target.value === "desc" })
+              }
             >
-              选择本页
-            </Button>
-          </>
-        ) : (
-          <Button
-            disabled={!activeAsset || busy || waiting}
-            aria-pressed={activeAsset?.selected ?? false}
-            onClick={() => {
-              if (activeAsset) onPick([activeAsset.key], activeAsset.selected);
-            }}
+              <option value="asc">
+                升序 ·{" "}
+                {ranked.settings.sort === "input" ||
+                (ranked.settings.sort === "saved" &&
+                  ranked.info?.saved_filter.order === "input")
+                  ? "序号"
+                  : "名次"}
+                从小到大
+              </option>
+              <option value="desc">
+                降序 ·{" "}
+                {ranked.settings.sort === "input" ||
+                (ranked.settings.sort === "saved" &&
+                  ranked.info?.saved_filter.order === "input")
+                  ? "序号"
+                  : "名次"}
+                从大到小
+              </option>
+            </select>
+          )}
+          <button
+            className="icon-button"
+            title="刷新当前范围"
+            disabled={waiting || refreshing}
+            onClick={() => void refreshResult()}
           >
-            {activeAsset?.selected ? <Check size={14} /> : null}
-            {activeAsset?.selected ? "取消选择当前图像" : "选择当前图像"}
-          </Button>
-        )}
-      </div>
-      <RankingStart
-        state={ranked}
-        busy={busy || ranked.loading}
-        first={first}
-      />
-      {ranked.info && (
-        <div className="ranking-browse-note">
-          {ranked.info.artifact_name} · 主 /{" "}
-          {ranked.info.schema_version >= 2 ? "年代相对" : "补救"}
-          名次与分数按分级独立计算
-          {ranked.active && ranked.settings.descending
-            ? " · 当前沿榜单反向查看"
-            : ""}
+            <RotateCw size={14} />
+          </button>
+          {view === "grid" ? (
+            <>
+              <Button
+                title="选择本页（Ctrl+A）"
+                disabled={!items.length || busy || query.isFetching}
+                onClick={() => onPick(items.map((a) => a.key))}
+              >
+                选择本页
+              </Button>
+            </>
+          ) : (
+            <Button
+              disabled={!activeAsset || busy || waiting}
+              aria-pressed={activeAsset?.selected ?? false}
+              onClick={() => {
+                if (activeAsset)
+                  onPick([activeAsset.key], activeAsset.selected);
+              }}
+            >
+              {activeAsset?.selected ? <Check size={14} /> : null}
+              {activeAsset?.selected ? "取消选择当前图像" : "选择当前图像"}
+            </Button>
+          )}
         </div>
-      )}
+        <WorkbenchPanelPortal id="browser.locate">
+          <div className="browser-navigation">
+            <details className="wb-fold" open>
+              <summary>显示</summary>
+              <div className="wb-fold-body">
+                <label className="density-label">
+                  预览尺寸
+                  <input
+                    aria-label="缩略图尺寸"
+                    type="range"
+                    min={128}
+                    max={320}
+                    step={16}
+                    value={thumbnailSize}
+                    onChange={(e) => onThumbnailSize(Number(e.target.value))}
+                  />
+                </label>
+              </div>
+            </details>
+            <details className="wb-fold" open>
+              <summary>范围内定位</summary>
+              <RankingStart
+                state={ranked}
+                busy={busy || ranked.loading}
+                first={first}
+              />
+              {ranked.info && (
+                <div className="ranking-browse-note">
+                  {ranked.info.artifact_name} · 主 /{" "}
+                  {ranked.info.schema_version >= 2 ? "年代相对" : "补救"}
+                  名次与分数按分级独立计算
+                  {ranked.active && ranked.settings.descending
+                    ? " · 当前沿榜单反向查看"
+                    : ""}
+                </div>
+              )}
+              {!ranked.active && (
+                <p className="aesthetic-help">
+                  排名工作集可按图片 ID 或名次定位；当前范围可使用下方分页浏览。
+                </p>
+              )}
+            </details>
+          </div>
+        </WorkbenchPanelPortal>
+      </div>
       {query.error ? (
         <EmptyState title="当前范围暂不可用" icon={<ImageIcon size={36} />}>
           <ErrorDetails error={query.error} />

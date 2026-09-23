@@ -13,7 +13,7 @@
 | 元数据排名与浏览   | [MetaRecall v2](decisions/0018-metarecall-v2-metadata-ranking.md)、[持久排名索引](decisions/0017-persistent-ranked-scope-indexes.md)、[榜单位置锚点](decisions/0022-ranking-position-anchors.md)                                                 |
 | 查询缓存与项目清单 | [固定查询依赖和缓存清单](decisions/0021-fixed-query-dependencies-and-cache-inventory.md)、[缓存分层与设置](decisions/0008-cache-tiers-settings.md)                                                                                               |
 
-美学评审与离线统计后端已接入；第二阶段前端、真实模型校准和自适应付费采样仍有待完成，具体边界见对应接入文档。
+美学评审与离线统计后端已接入；[首轮工作台前端](design/frontend-workbench.md)已接入排名浏览、基础保护复核与工作集派生。实验对照界面、真实模型校准和自适应付费采样仍待完成。
 
 ## 目录职责
 
@@ -26,6 +26,8 @@
 | verification | 有日期、条件和边界的历史验收摘要                           |
 
 ## 架构说明
+
+- [UE 5 风格工作台设计与首轮范围](design/frontend-workbench.md)
 
 - [工程基础架构草案](architecture/foundation-proposal.md)
 - [0.1 工程底座实现状态](architecture/foundation-status.md)
@@ -62,6 +64,7 @@
 - [0025：美学评审的持久执行与图片准入](decisions/0025-aesthetic-evaluation-ledger.md)
 - [0026：美学证据的离线估计、快照与工作集发布](decisions/0026-aesthetic-offline-analysis.md)
 - [0027：评审创建恢复、存储准入与候选处置](decisions/0027-aesthetic-recovery-and-admission.md)
+- [0028：公共工作台与编辑器布局](decisions/0028-frontend-workbench.md)
 
 ## 实施计划
 
@@ -93,6 +96,7 @@
 下列记录证明对应日期、版本与样本条件下的行为，不作为当前版本已经重新执行全部测试的声明。美学排序的阶段验收随[第一阶段](plans/aesthetic-ranking/phase-1-implementation.md)和[第二阶段](plans/aesthetic-ranking/phase-2-backend.md)接入文档保存。
 
 - [2026-09-19：R0/R1 基线、故障矩阵与验收](verification/2026-09-19-r0-r1.md)
+- [2026-09-23：UE 风格工作台与排名前端](verification/2026-09-23-workbench.md)
 
 - [performance-metarecall-workset-v0.8](verification/performance-metarecall-workset-v0.8.md)
 - [ux-review-task-progress-v0.8](verification/ux-review-task-progress-v0.8.md)

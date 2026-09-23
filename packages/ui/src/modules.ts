@@ -81,6 +81,7 @@ export type ModuleContext = {
   onSelect: (result: QueryResult, operation: ScopeOperation) => void;
   onJob: (job: Job, options?: { revealTasks?: boolean }) => void;
   activateView: (id: string, args?: Record<string, string>) => void;
+  openSettings?: (page: "llm" | "system-prompts") => void;
   openPanel: (id: string) => void;
   togglePanel: (id: string) => void;
   closePanel: (id: string) => void;
@@ -123,6 +124,7 @@ export type ModuleContribution =
       kind: "view" | "panel";
       id: string;
       ownsInspector?: boolean;
+      ownsWorkbench?: boolean;
       load: () => Promise<{ default: ComponentType<ModuleContext> }>;
     }
   | {

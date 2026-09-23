@@ -1,0 +1,541 @@
+/* Role colors verified against UE 5.8.2 StyleColors.cpp defaults.
+   Widget geometry is our web implementation of the observed Starship hierarchy. */
+
+.studio-app {
+  background: var(--bg);
+}
+.studio-app .menu-bar {
+  background: var(--title);
+  border-color: var(--border);
+}
+.studio-app .options-bar {
+  background: var(--panel);
+  border-color: var(--border);
+  height: 36px;
+}
+.studio-app .options-bar .option-value {
+  background: var(--field);
+}
+.studio-app .status-bar {
+  background: var(--panel);
+  border-color: var(--border);
+  min-height: 28px;
+}
+.studio-app .status-bar .resource-drawer-trigger {
+  padding: 3px 10px;
+  border-right: 1px solid var(--line);
+  height: 100%;
+  font-size: 12px;
+}
+.editor-tabs {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  min-height: 30px;
+  padding: 0 8px;
+  background: var(--title);
+  border-bottom: 1px solid var(--border);
+}
+.editor-tab-list {
+  display: flex;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  gap: 3px;
+}
+.editor-tab {
+  display: flex;
+  align-items: center;
+  border-radius: 4px 4px 0 0;
+  color: var(--muted);
+  max-width: 245px;
+}
+.editor-tab.active {
+  background: var(--panel);
+  color: #fff;
+  box-shadow: none;
+}
+.editor-tab > button:first-child {
+  padding: 7px 11px;
+  white-space: nowrap;
+  font-size: 12px;
+}
+.editor-tab .editor-tab-close {
+  padding: 4px;
+  margin-right: 5px;
+  opacity: 0.7;
+}
+.editor-tab:hover {
+  background: #292929;
+}
+.studio-workspace {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+.studio-workspace > .data-workspace {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+.studio-app .wb-panel-content > .project-panel,
+.studio-app .wb-panel-content > .properties-panel {
+  height: 100%;
+  width: 100%;
+  border: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  background: var(--panel);
+  min-height: 0;
+}
+.studio-app .wb-panel-content > .project-panel > .project-tree {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.studio-app .project-foot,
+.studio-app .properties-bottom {
+  background: var(--panel);
+  border-color: var(--line);
+}
+.studio-app .panel-tabs,
+.studio-app .object-list-tools {
+  background: var(--panel);
+  border-color: var(--border);
+}
+.studio-app .tree-heading {
+  background: var(--header);
+  margin-top: 7px;
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+.studio-app .tree-row {
+  font-size: 12px;
+}
+.studio-app .tree-row.active,
+.studio-app .workset-row.active {
+  background: var(--active);
+}
+.studio-app .data-workspace {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  background: var(--recessed);
+  overflow: hidden;
+}
+.studio-app .properties-scroll {
+  background: var(--panel);
+}
+.studio-app .property-section {
+  border-color: var(--line);
+}
+.studio-app .browser-toolbar,
+.studio-app .browser-footer,
+.studio-app .browser-pagination {
+  background: var(--panel);
+  border-color: var(--border);
+}
+.studio-app .canvas,
+.studio-app .image-grid,
+.studio-app .browser-grid {
+  background: var(--recessed);
+}
+.studio-app .tasks-panel {
+  background: var(--panel);
+  border-top: 4px solid var(--bg);
+  box-shadow: 0 -6px 24px #0004;
+}
+.studio-app .tasks-panel > header {
+  background: var(--title);
+  border-color: var(--line);
+}
+.studio-app input:not([type="range"]):not([type="checkbox"]),
+.studio-app select,
+.studio-app textarea {
+  background: var(--field);
+  border-color: #3a3a3a;
+  border-radius: 2px;
+}
+.studio-app .button {
+  background: #343434;
+  border-color: #505050;
+  border-radius: 2px;
+}
+.studio-app .button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.studio-app .button.primary:hover:not(:disabled) {
+  background: var(--primary-hover);
+}
+.studio-app .property-section h3 {
+  font-size: 12px;
+}
+.studio-resources-drawer {
+  position: absolute;
+  z-index: 30;
+  left: 6px;
+  bottom: 29px;
+  width: min(480px, calc(100% - 12px));
+  height: min(520px, 65%);
+  display: flex;
+  flex-direction: column;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  box-shadow: 4px -8px 30px #0008;
+}
+.studio-resources-drawer > .wb-panel-header {
+  padding-left: 10px;
+}
+.studio-resources-drawer > .project-panel {
+  flex: 1;
+  min-height: 0;
+  width: auto;
+  border: 0;
+  display: flex;
+  flex-direction: column;
+}
+.studio-resources-drawer .project-tree {
+  flex: 1;
+  overflow: auto;
+}
+.wb-dialog {
+  padding: 0;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid #535353;
+  border-radius: 3px;
+  box-shadow: 0 16px 65px #0009;
+  width: min(620px, calc(100vw - 40px));
+  max-height: calc(100dvh - 60px);
+}
+.wb-dialog::backdrop {
+  background: #0008;
+}
+.wb-dialog > header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 13px;
+  background: var(--title);
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.wb-dialog h3 {
+  font-size: 14px;
+  font-weight: 600;
+}
+.wb-dialog-body {
+  padding: 14px;
+}
+.wb-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 13px;
+  margin-top: 13px;
+  border-top: 1px solid var(--line);
+}
+.wb-dialog p {
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--muted);
+  margin: 10px 0;
+}
+.wb-dialog input,
+.wb-dialog select,
+.wb-dialog textarea {
+  background: var(--field);
+  border-color: var(--line);
+}
+.wb-dialog .wb-field-list > label {
+  grid-template-columns: 145px minmax(0, 1fr);
+}
+.wb-dialog .wb-field-list textarea {
+  min-height: 95px;
+  resize: vertical;
+}
+.wb-status-content {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+@media (max-width: 850px) {
+  .studio-app .options-bar {
+    height: auto;
+    flex-wrap: wrap;
+    padding: 5px;
+  }
+  .editor-tab > button:first-child {
+    padding-left: 7px;
+    padding-right: 7px;
+  }
+  .wb-dialog .wb-field-list > label {
+    grid-template-columns: 1fr;
+  }
+}
+.studio-app .options-bar > button:not(.icon-button) {
+  border-color: transparent;
+  background: transparent;
+  padding: 4px 8px;
+}
+.studio-app .options-bar > button:hover:not(:disabled) {
+  background: var(--panel-raised);
+}
+.studio-app .object-popover {
+  background: var(--panel);
+  border-color: #4c4c4c;
+  border-radius: 2px;
+}
+.studio-app .tree-row.active,
+.studio-app .workset-row.active {
+  background: var(--active);
+}
+.studio-app .tree-row.active:focus,
+.studio-app .workset-row.active:focus {
+  background: var(--accent);
+  color: #fff;
+}
+.wb-dialog .wb-field-list {
+  background: var(--panel);
+}
+.wb-dialog .wb-field-list > label > input,
+.wb-dialog .wb-field-list > label > select {
+  height: 24px;
+  padding: 2px 7px;
+}
+.studio-app .content-bar,
+.studio-app .browser-options,
+.studio-app .paging {
+  background: var(--panel);
+  border-color: var(--border);
+  font-size: 12px;
+}
+.studio-app .browser-options {
+  height: 34px;
+  padding: 0 10px;
+}
+.studio-app .quick-filters {
+  background: var(--panel);
+  border-color: var(--border);
+  padding: 4px 10px;
+}
+.studio-app .quick-filter-heading {
+  min-height: 24px;
+  font-size: 11px;
+}
+.studio-app .quick-filter-heading button {
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.studio-app .browser-view {
+  container-type: inline-size;
+  container-name: browser;
+  overflow: hidden;
+}
+/* Bound the controls as a group so filters and ranking tools cannot consume
+   the image viewport or push paging outside a short workbench. */
+.browser-controls {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: min(60%, max(0px, calc(100% - 160px)));
+  overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-gutter: stable;
+}
+.studio-app .browser-view > .empty-state {
+  min-height: 0;
+  overflow: auto;
+}
+.studio-app .quick-filter-heading {
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding: 0;
+}
+.studio-app .quick-filter-heading .filter-scope {
+  flex: 1;
+  min-width: 80px;
+}
+@container browser (max-width: 720px) {
+  .studio-app .browser-options {
+    height: auto;
+    flex-wrap: wrap;
+    gap: 6px 10px;
+    padding: 5px 10px;
+  }
+  .studio-app .browser-options > select {
+    min-width: 0;
+    max-width: 210px;
+  }
+  .studio-app .content-bar {
+    height: auto;
+    flex-wrap: wrap;
+    padding: 5px 10px;
+    gap: 5px;
+  }
+  .studio-app .quick-filters .filter-tags {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .studio-app .quick-filters .filter-tags > select {
+    grid-area: 2 / 1 / auto / -1;
+  }
+  .studio-app .quick-filters .filter-tags > label:last-child {
+    grid-column: auto;
+  }
+  .studio-app .quick-filters form {
+    padding-left: 0;
+    padding-right: 0;
+  }
+  .studio-app .quick-filter-actions > .subtle {
+    flex-basis: 100%;
+  }
+  .studio-app .paging > .subtle {
+    display: none;
+  }
+}
+.studio-app .asset-scroll {
+  background: var(--recessed);
+  padding: 12px;
+}
+.studio-app .asset-grid {
+  gap: 10px;
+}
+.studio-app .asset-thumb {
+  background: var(--recessed);
+  border: 1px solid var(--line);
+  padding: 5px;
+}
+.studio-app .asset-card.selected .asset-thumb {
+  background: var(--select-parent);
+  border: 1px solid var(--accent);
+  padding: 5px;
+}
+.studio-app .asset-card.focused .asset-thumb {
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.studio-app .selected .asset-check {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  border-radius: 1px;
+}
+.studio-app .asset-caption {
+  padding-top: 5px;
+}
+.studio-app .asset-caption > span {
+  font-size: 11px;
+  color: var(--text);
+}
+.studio-app .asset-caption > small {
+  font-size: 10px;
+  color: var(--muted);
+}
+.studio-app .browser-filter-panel {
+  padding: 0;
+  border: 0;
+}
+.browser-filter-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+.studio-app .browser-filter-panel .quick-filter-heading {
+  padding: 10px;
+  background: var(--header);
+}
+.studio-app .browser-filter-panel .filter-scope {
+  flex-basis: 100%;
+  font-size: 11px;
+}
+.studio-app .browser-filter-panel form {
+  padding: 12px;
+}
+.browser-filter-panel .filter-ratings {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.browser-filter-panel .filter-tags {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+.browser-filter-panel .quick-filter-actions > .subtle {
+  flex-basis: 100%;
+  line-height: 1.6;
+}
+.browser-navigation .ranking-start-controls {
+  flex-direction: column;
+  align-items: stretch;
+  padding: 12px;
+  background: var(--panel);
+}
+.browser-navigation .ranking-start-controls label {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+.browser-navigation .ranking-start-controls input {
+  width: 100%;
+}
+.browser-navigation .ranking-start-controls button {
+  border: 1px solid var(--line);
+  background: var(--header);
+  padding: 4px 8px;
+}
+.browser-navigation .ranking-browse-note {
+  line-height: 1.7;
+}
+.studio-app .wb-panel-content > .query-panel {
+  height: 100%;
+  min-height: 0;
+  border: 0;
+  container-type: inline-size;
+  container-name: query;
+}
+.wb-panel-content > .query-panel > .resize-grip {
+  display: none;
+}
+@container query (max-width: 650px) {
+  .studio-app .query-panel > header > .subtle {
+    display: none;
+  }
+  .studio-app .query-panel .query-definition-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .studio-app .query-panel .query-condition {
+    grid-template-columns: minmax(0, 1fr) 26px;
+    gap: 7px;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .studio-app .query-panel .query-condition > select,
+  .studio-app .query-panel .query-condition > .condition-value {
+    grid-column: 1 / -1;
+    grid-row: auto;
+    min-width: 0;
+  }
+  .studio-app .query-panel .query-condition > .icon-button {
+    grid-column: 2;
+    grid-row: 1;
+  }
+  .studio-app .query-panel .query-run-row > select {
+    width: 100%;
+    min-width: 0;
+  }
+  .studio-app .query-panel .query-result-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

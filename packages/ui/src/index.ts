@@ -56,3 +56,17 @@ export {
   browseScopeIdentity,
   normalizeBrowseScopeKey,
 } from "./browserHistory.js";
+export {
+  Workbench,
+  WorkbenchPanelPortal,
+  useWorkbenchPanels,
+  WorkbenchPreferences,
+  useWorkbenchLayout,
+  defaultWorkbenchLayout,
+} from "./Workbench.js";
+export type {
+  WorkbenchLayout,
+  WorkbenchPanel,
+  DockPosition,
+} from "./Workbench.js";
+export { WorkbenchDialog } from "./WorkbenchDialog.js";

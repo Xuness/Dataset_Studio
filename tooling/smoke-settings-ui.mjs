@@ -209,7 +209,9 @@ try {
   await closeSettings();
   const filters = page.getByRole("region", { name: "浏览筛选" });
   if (!(await filters.getByLabel("包含标签", { exact: true }).isVisible()))
-    await filters.getByRole("button", { name: "筛选", exact: true }).click();
+    await page
+      .getByRole("button", { name: "Rating / Tag 筛选", exact: true })
+      .click();
   await filters.getByLabel("分级 G", { exact: true }).click();
   await filters.getByLabel("包含标签", { exact: true }).fill("solo");
   await filters.getByRole("button", { name: "应用筛选" }).click();

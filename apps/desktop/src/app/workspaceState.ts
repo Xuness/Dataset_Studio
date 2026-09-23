@@ -10,6 +10,7 @@ export type WorkspaceState = {
   order: QuerySpec["order"];
   rankedBrowse: RankedBrowseSettings | null;
   moduleId: string;
+  openViews: string[];
   panels: string[];
   scope: BrowseScope;
   focusKey: AssetKey | null;
@@ -22,6 +23,7 @@ const initial: WorkspaceState = {
   order: "post_id_desc",
   rankedBrowse: null,
   moduleId: "core.browser",
+  openViews: ["core.browser", "core.aesthetic"],
   panels: [],
   scope: { kind: "all" },
   focusKey: null,
@@ -116,6 +118,16 @@ function decode(value: unknown): WorkspaceState | null {
     return null;
   return {
     ...value,
+    openViews: Array.isArray(value.openViews)
+      ? [
+          ...new Set(
+            value.openViews.filter(
+              (id): id is string =>
+                typeof id === "string" && /^core\.[a-z-]+$/.test(id),
+            ),
+          ),
+        ].slice(0, 12)
+      : [...new Set(["core.browser", "core.aesthetic", value.moduleId])],
     moduleId:
       value.moduleId === "core.resources" ? "core.browser" : value.moduleId,
     order: value.order ?? "post_id_desc",

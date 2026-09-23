@@ -414,6 +414,40 @@ assert.equal(
 checks.push(
   "engine profile defaults to optimized execution with explicit overrides, and ranking stages preserve rating and byte units",
 );
+const { rankingLabel } = await compiled(
+  "apps/desktop/src/features/aesthetic/analysisPresentation.ts",
+  "aesthetic-presentation",
+);
+const rankingRow = {
+  position: 999,
+  rating: "g",
+  component: 7,
+  rank_min: 2,
+  rank_max: 3,
+  rating_rank_min: null,
+  rating_rank_max: null,
+};
+assert.equal(rankingLabel(rankingRow), "分量 7 · 第 2–3 名");
+assert.equal(
+  rankingLabel({ ...rankingRow, rating_rank_min: 5, rating_rank_max: 6 }),
+  "G · 第 5–6 名",
+);
+assert.equal(
+  rankingLabel({ ...rankingRow, rank_min: null, rank_max: null }),
+  "暂无可比名次",
+);
+assert.equal(
+  rankingLabel({
+    ...rankingRow,
+    rating: "s",
+    rating_rank_min: 1,
+    rating_rank_max: 1,
+  }),
+  "S · 第 1 名",
+);
+checks.push(
+  "aesthetic labels preserve ties and component boundaries without exposing pagination position as rank",
+);
 await writeFile(
   resolve(directory, "report.json"),
   JSON.stringify({ passed: true, checks }, null, 2),

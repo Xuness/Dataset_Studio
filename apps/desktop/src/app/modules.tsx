@@ -18,6 +18,7 @@ registry.register({
       kind: "view",
       id: "core.aesthetic",
       ownsInspector: true,
+      ownsWorkbench: true,
       load: () => import("../features/aesthetic/AestheticPanel.js"),
     },
     {
@@ -154,6 +155,7 @@ export const moduleViews = new Map(
     {
       kind: surface.kind,
       ownsInspector: surface.ownsInspector ?? false,
+      ownsWorkbench: surface.ownsWorkbench ?? false,
       Component: lazy(surface.load),
     },
   ]),

@@ -1,6 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Filter, Play, X, Save, LoaderCircle } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  Filter,
+  Play,
+  X,
+  Save,
+  LoaderCircle,
+} from "lucide-react";
 import {
   Button,
   Dialog,
@@ -20,6 +28,7 @@ import type { StudioClient } from "@studio/client";
 import { rankableScope } from "./rankingBrowse.js";
 
 type FilterDraft = {
+  expanded?: boolean;
   ratingUpgrade?: boolean;
   filters: BrowseFilters;
   baseScope: BrowseScope | null;
@@ -28,6 +37,7 @@ type FilterDraft = {
   retiredResult: string | null;
 };
 const initial: FilterDraft = {
+  expanded: false,
   filters: emptyFilters,
   baseScope: null,
   resultId: null,
@@ -57,7 +67,11 @@ function decode(value: unknown): FilterDraft | null {
       ))
   )
     return null;
-  return { ...v, retiredResult: v.retiredResult ?? null };
+  return {
+    ...v,
+    expanded: typeof v.expanded === "boolean" ? v.expanded : false,
+    retiredResult: v.retiredResult ?? null,
+  };
 }
 function scopeName(scope: BrowseScope) {
   return scope.kind === "all" ? "全部项目数据" : scope.name;
@@ -86,7 +100,13 @@ export function adoptRefreshedFilter(
     return;
   controller.set((v) => ({ ...v, resultId: result.id, retiredResult: null }));
 }
-export function QuickFilters({ context }: { context: ModuleContext }) {
+export function QuickFilters({
+  context,
+  presentation = "inline",
+}: {
+  context: ModuleContext;
+  presentation?: "inline" | "panel";
+}) {
   const { client, projectId, browser, sources, inputOptions } = context;
   const cache = useQueryClient();
   const draft = useDraft(client, projectId, "core.browser", initial, decode);
@@ -95,7 +115,8 @@ export function QuickFilters({ context }: { context: ModuleContext }) {
   const [error, setError] = useState<unknown>(null);
   const [saveName, setSaveName] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
-  const [expanded, setExpanded] = useState(true);
+  const formId = useId();
+  const expanded = presentation === "panel" || (value.expanded ?? false);
   const ownedView =
     browser.scope.kind === "result" &&
     (browser.scope.id === value.resultId ||
@@ -193,7 +214,10 @@ export function QuickFilters({ context }: { context: ModuleContext }) {
     )
       return;
     const previous = value.resultId;
-    draft.controller.set(initial);
+    draft.controller.set((old) => ({
+      ...initial,
+      expanded: old.expanded ?? false,
+    }));
     setError(null);
     setNotice("");
     if (previous) void release(previous);
@@ -337,7 +361,10 @@ export function QuickFilters({ context }: { context: ModuleContext }) {
   ]);
   function clear() {
     const id = value.resultId;
-    draft.controller.set(initial);
+    draft.controller.set((old) => ({
+      ...initial,
+      expanded: old.expanded ?? false,
+    }));
     setError(null);
     setNotice("");
     if (ownedView && value.baseScope) browser.onScope(value.baseScope);
@@ -379,16 +406,39 @@ export function QuickFilters({ context }: { context: ModuleContext }) {
           : "正在筛选…"
         : "";
   return (
-    <section className="quick-filters" aria-label="浏览筛选">
+    <section
+      className={
+        "quick-filters" +
+        (presentation === "panel" ? " browser-filter-panel" : "")
+      }
+      aria-label="浏览筛选"
+    >
       <div className="quick-filter-heading">
-        <button
-          type="button"
-          aria-expanded={expanded}
-          onClick={() => setExpanded((v) => !v)}
-        >
-          <Filter size={15} />
-          <strong>筛选</strong>
-        </button>
+        {presentation === "panel" ? (
+          <strong className="browser-filter-title">
+            <Filter size={14} />
+            Rating / Tag 筛选
+          </strong>
+        ) : (
+          <button
+            type="button"
+            aria-expanded={expanded}
+            aria-controls={expanded ? formId : undefined}
+            title={
+              expanded
+                ? "收起 Rating 分级和 Tag 标签筛选"
+                : "展开 Rating 分级和 Tag 标签筛选"
+            }
+            disabled={!draft.editable}
+            onClick={() =>
+              draft.controller.set((v) => ({ ...v, expanded: !expanded }))
+            }
+          >
+            {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+            <Filter size={15} />
+            <strong>Rating / Tag 筛选</strong>
+          </button>
+        )}
         <span className="filter-scope">范围：{scopeName(base)}</span>
         <span className="grow" />
         {progress && (
@@ -414,6 +464,7 @@ export function QuickFilters({ context }: { context: ModuleContext }) {
       )}
       {expanded && (
         <form
+          id={formId}
           onSubmit={(e) => {
             e.preventDefault();
             void run();

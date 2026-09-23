@@ -2,7 +2,7 @@
 
 整理日期：2026-09-18。审查与实验日期：2026-09-17。源码基线：`ae6fd669e543ad7558c1a739dfc1a472dd18a459`。
 
-状态：**评审执行、离线估计、排名快照、实验对照、保护复核与派生工作集的后端已接入；第二阶段前端待设计**。本目录保留 2026-09-17 的审查与设计依据，当前实现见[第一阶段说明](phase-1-implementation.md)、[第二阶段后端与 SDK](phase-2-backend.md)及 [ADR 0026](../../decisions/0026-aesthetic-offline-analysis.md)。估计器仍待真实校准，历史实验不构成生产容量承诺。
+状态：**评审执行、离线估计、排名快照、实验对照、保护复核与派生工作集的后端已接入；排名浏览、基础保护复核和派生工作集前端已接入**。工作台范围见[前端设计](../../design/frontend-workbench.md)及[2026-09-23 验收](../../verification/2026-09-23-workbench.md)，实验对照界面仍待实施。本目录保留 2026-09-17 的审查与设计依据，后端实现见[第一阶段说明](phase-1-implementation.md)、[第二阶段后端与 SDK](phase-2-backend.md)及 [ADR 0026](../../decisions/0026-aesthetic-offline-analysis.md)。估计器仍待真实校准，历史实验不构成生产容量承诺。
 
 ## 阅读入口
 
