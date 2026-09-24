@@ -7707,7 +7707,7 @@
           },
           "kind": {
             "type": "string",
-            "description": "davidson_v1 (batch-normalized composite objective) or borda_v1 (baseline)."
+            "description": "davidson_v1 (diagonal solver), davidson_v2 (bounded L-BFGS), or borda_v1.\nBoth Davidson versions use the same batch-normalized composite objective."
           },
           "regularization": {
             "type": "number",
@@ -8737,6 +8737,14 @@
               "null"
             ],
             "format": "double"
+          },
+          "rank_sensitivity": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "description": "Whole-batch influence sensitivity in percentile units, not a confidence interval."
           },
           "reason": {
             "type": "string"

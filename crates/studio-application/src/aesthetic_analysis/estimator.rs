@@ -4,6 +4,9 @@
 use super::*;
 use std::collections::BTreeMap;
 
+mod quasi_newton;
+use quasi_newton::QuasiNewton;
+
 const TOLERANCE: f64 = 1e-5;
 const SCORE_GRID: f64 = 1e-6;
 pub const MAX_CANDIDATES: u64 = studio_domain::aesthetic::AESTHETIC_MAX_CANDIDATES;
@@ -276,6 +279,7 @@ fn fit(
     }
     let mut gradient = vec![0.0; n];
     let mut curvature = vec![0.0; n];
+    let mut memory = QuasiNewton::default();
     for iteration in 0..config.iterations {
         check()?;
         progress(
@@ -302,12 +306,17 @@ fn fit(
             });
             Ok(())
         })?;
-        let mut directional = 0.0;
-        for (g, c) in gradient.iter_mut().zip(&curvature) {
-            let direction = 0.9 * *g / c;
-            directional += *g * direction;
-            *g = direction;
-        }
+        let directional = if config.kind == "davidson_v2" {
+            memory.direction(&state.scores, &mut gradient, &curvature)
+        } else {
+            let mut directional = 0.0;
+            for (g, c) in gradient.iter_mut().zip(&curvature) {
+                let direction = 0.9 * *g / c;
+                directional += *g * direction;
+                *g = direction;
+            }
+            directional
+        };
         // Diagonal Newton preconditioning with an Armijo check on the entire
         // composite objective. Each trial streams evidence with no open SQL transaction.
         let mut step = 1.0;
@@ -443,8 +452,9 @@ pub fn replay(
 ) -> Result<AestheticFitSummary> {
     validate_fit(config)?;
     if input.candidates == 0 || input.candidates > MAX_CANDIDATES {
-        return Err(Error::invalid("单次离线估计支持 1–1000000 个冻结候选"));
+        return Err(Error::invalid("单次离线估计支持 1–10000000 个冻结候选"));
     }
+    check()?;
     let mut meta = Vec::with_capacity(input.candidates as usize);
     let mut after = None;
     loop {
@@ -529,7 +539,7 @@ pub fn replay(
             let group = state.groups.get_mut(&meta[i].rating).expect("group");
             group.split_comparable += u64::from(split_delta[i].is_some());
             let bins = s.opponents.count_ones();
-            let disagreement = (config.estimator.kind == "davidson_v1" && s.batches > 0)
+            let disagreement = (config.estimator.kind != "borda_v1" && s.batches > 0)
                 .then(|| s.residual / f64::from(s.batches));
             rows.push(AestheticRankingRow {
                 position: u64::from(r.position),
@@ -634,7 +644,13 @@ pub fn replay(
         iterations_completed: state.iterations,
         converged: state.converged,
         max_update: state.max_update,
-        working_bytes_estimate: working_bytes(input.candidates),
+        working_bytes_estimate: working_bytes(input.candidates).saturating_add(
+            if config.estimator.kind == "davidson_v2" {
+                input.candidates.saturating_mul(192)
+            } else {
+                0
+            },
+        ),
         stability_method: if config.stability_seed.is_some() {
             "whole_batch_disjoint_halves_v1"
         } else {

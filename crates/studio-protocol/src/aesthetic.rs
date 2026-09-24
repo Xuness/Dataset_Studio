@@ -559,6 +559,9 @@ pub struct AestheticSamplingDiagnostic {
     pub component_size: u64,
     pub percentile: Option<f64>,
     pub rank_delta: Option<f64>,
+    /// Whole-batch influence sensitivity in percentile units, not a confidence interval.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rank_sensitivity: Option<f64>,
     pub stable_rounds: u32,
     pub reason: String,
 }
@@ -572,6 +575,7 @@ impl From<domain::AestheticSamplingDiagnostic> for AestheticSamplingDiagnostic {
             component_size: v.component_size,
             percentile: v.percentile,
             rank_delta: v.rank_delta,
+            rank_sensitivity: v.rank_sensitivity,
             stable_rounds: v.stable_rounds,
             reason: v.reason,
         }

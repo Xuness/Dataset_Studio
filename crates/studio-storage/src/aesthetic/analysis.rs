@@ -50,7 +50,7 @@ fn freeze(db: &Connection, stage_id: &str, watermark: u64) -> Result<AestheticAn
         return Err(Error::new("RESULT_NOT_READY", "候选尚未冻结完成"));
     }
     if stage.total > application::estimator::MAX_CANDIDATES {
-        return Err(Error::invalid("单次离线估计最多 1000000 个候选"));
+        return Err(Error::invalid("单次离线估计最多 10000000 个候选"));
     }
     let observations=db.query_row("SELECT COUNT(*) FROM batches b JOIN evidence e ON e.batch=b.sequence WHERE b.stage_id=?1 AND b.state='accepted' AND e.sequence<=?2",params![stage.id,watermark as i64],|r|crate::unsigned(r,0)).map_err(db_error)?;
     Ok(AestheticAnalysisInput {

@@ -160,6 +160,228 @@ fn adaptive_exposure_focuses_on_uncertain_middle_and_retains_stable_extremes() {
     assert_eq!(db.stage(&id).unwrap().state, "needs_attention");
 }
 
+#[test]
+fn refinement_revision_survives_restart_and_preserves_paid_evidence() {
+    let (dir, db, id) = fixture(145);
+    configure(&db, &id, policy("balanced", 4, 6), 48);
+    assert!(wave(&db, &id, false));
+    db.control(&id, "pause").unwrap();
+    db.settle(&id, None).unwrap();
+    let before = db.stage(&id).unwrap();
+    let request = AestheticSamplingRequest {
+        idempotency_key: new_id(),
+        policy: policy("refine", 4, 8),
+        additional_calls: 45,
+    };
+    let next = db.configure_sampling(&id, request.clone()).unwrap();
+    assert_eq!(next.attempts, before.attempts);
+    assert_eq!(next.accepted, before.accepted);
+    assert_eq!(next.config_hash, before.config_hash);
+    assert_eq!(
+        next.sampling.as_ref().unwrap().version,
+        "neighbor_budget_v2"
+    );
+    db.configure_sampling(&id, request).unwrap();
+    drop(db);
+    let db = EvaluationDb::open(&dir.path().join("evaluation.sqlite")).unwrap();
+    db.control(&id, "start").unwrap();
+    finish(&db, &id, true);
+    let done = db.stage(&id).unwrap();
+    assert_eq!(done.state, "needs_attention");
+    assert_eq!(done.attempts, before.attempts + 45);
+    assert_eq!(done.sampling.unwrap().stable, 0);
+    assert!(
+        db.sampling_diagnostic(&id, 0)
+            .unwrap()
+            .unwrap()
+            .rank_sensitivity
+            .is_some()
+    );
+    let count:u64=db.read().unwrap().query_row("SELECT COUNT(*) FROM evidence e JOIN batches b ON b.sequence=e.batch WHERE b.stage_id=?1",[&id],|r|crate::unsigned(r,0)).unwrap();
+    assert_eq!(count, done.accepted);
+}
+
+#[test]
+fn interrupted_staging_is_invisible_to_dispatch_and_can_resume_after_restart() {
+    let (dir, db, id) = fixture(1024);
+    configure(&db, &id, policy("balanced", 2, 8), 128);
+    let result = db.plan_sampling(&id, &|| {
+        let count: i64 = db
+            .read()?
+            .query_row("SELECT COUNT(*) FROM sampling_queue", [], |r| r.get(0))
+            .map_err(db_error)?;
+        if count > 0 {
+            Err(Error::new("CANCELLED", "after staged slots"))
+        } else {
+            Ok(())
+        }
+    });
+    assert_eq!(result.unwrap_err().code, "CANCELLED");
+    assert_eq!(db.stage(&id).unwrap().sampling.unwrap().round, 0);
+    assert!(db.claim(&id).unwrap().is_none());
+    assert_eq!(db.stage(&id).unwrap().attempts, 0);
+    drop(db);
+    let db = EvaluationDb::open(&dir.path().join("evaluation.sqlite")).unwrap();
+    db.control(&id, "start").unwrap();
+    assert!(db.plan_sampling(&id, &|| Ok(())).unwrap());
+    let mut seen = std::collections::BTreeSet::new();
+    while let Some(batch) = db.claim(&id).unwrap() {
+        for m in batch.members {
+            assert!(seen.insert(m.candidate.ordinal));
+        }
+    }
+    assert_eq!(seen.len(), 1024);
+    assert_eq!(db.stage(&id).unwrap().attempts, 0);
+}
+
+#[test]
+fn replacing_a_cancelled_plan_cleans_only_unpublished_staging() {
+    let (_dir, db, id) = fixture(32);
+    configure(&db, &id, policy("balanced", 4, 8), 16);
+    assert!(wave(&db, &id, false));
+    let old = db.stage(&id).unwrap().sampling.unwrap().plan_id;
+    let published: String = db
+        .read()
+        .unwrap()
+        .query_row(
+            "SELECT summary_json FROM sampling_rounds WHERE plan_id=?1 AND round=1",
+            [&old],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let result = db.plan_sampling(&id, &|| {
+        let exists: bool = db
+            .read()?
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM sampling_queue WHERE batch IS NULL)",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(db_error)?;
+        if exists {
+            Err(Error::new("CANCELLED", "staged"))
+        } else {
+            Ok(())
+        }
+    });
+    assert_eq!(result.unwrap_err().code, "CANCELLED");
+    configure(&db, &id, policy("refine", 2, 8), 16);
+    assert!(db.plan_sampling(&id, &|| Ok(())).unwrap());
+    let remaining: i64 = db
+        .read()
+        .unwrap()
+        .query_row(
+            "SELECT COUNT(*) FROM sampling_rounds WHERE plan_id=?1",
+            [&old],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(remaining, 1);
+    let retained: String = db
+        .read()
+        .unwrap()
+        .query_row(
+            "SELECT summary_json FROM sampling_rounds WHERE plan_id=?1 AND round=1",
+            [old],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(retained, published);
+    let final_stage = db.stage(&id).unwrap();
+    assert_eq!(final_stage.attempts, 2);
+    assert_eq!(final_stage.accepted, 2);
+    assert!(db.claim(&id).unwrap().is_some());
+}
+
+#[test]
+fn large_round_pages_cross_the_old_cutoff_and_the_writer_payload_limit() {
+    let count = 200_000;
+    let (_dir, db, id) = fixture(1);
+    // Seed real rows in bulk; this test measures publication, not freeze throughput.
+    let stage_id = id.clone();
+    db.writer.submit(4096,move|connection|{
+        connection.execute("WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<?2) INSERT INTO candidates(stage_id,ordinal,source_id,asset_id,rating,year,basis,content_version,bytes,sort_key) SELECT ?1,x,'fixture',printf('%064x',x),'g',2020,'test','v1',10,printf('%064x',x) FROM n",params![stage_id,count as i64-1]).map_err(db_error)?;
+        connection.execute("UPDATE stages SET total=?2,frozen=?2,eligible=?2,unresolved=?2 WHERE id=?1",params![stage_id,count as i64]).map_err(db_error)?;
+        Ok(())
+    }).unwrap();
+    configure(&db, &id, policy("refine", 2, 8), 1);
+    let stage = db.stage(&id).unwrap();
+    let status = stage.sampling.clone().unwrap();
+    let input = studio_domain::aesthetic_analysis::AestheticAnalysisInput {
+        stage_id: id.clone(),
+        stage_config_hash: stage.config_hash.clone(),
+        candidates: count,
+        observations: 0,
+        evidence_watermark: 0,
+        review_watermark: 0,
+    };
+    let mut next = status.clone();
+    next.round = 1;
+    next.state = "dispatching".into();
+    next.eligible = count;
+    next.unresolved = count;
+    let diagnostics: Vec<_> = (0..count)
+        .map(|ordinal| AestheticSamplingDiagnostic {
+            ordinal,
+            exposures: 0,
+            distinct_opponents: 0,
+            component: None,
+            component_size: 0,
+            percentile: None,
+            rank_delta: None,
+            rank_sensitivity: Some(1.0),
+            stable_rounds: 0,
+            reason: "coverage".into(),
+        })
+        .collect();
+    assert!(encode(&diagnostics).unwrap().len() > 32 << 20);
+    let batches = vec![
+        (count - 16..count)
+            .map(|ordinal| AestheticSamplingMemberReason {
+                ordinal,
+                reason: "coverage".into(),
+            })
+            .collect(),
+    ];
+    assert!(
+        super::super::sampling::publish::round(
+            &db,
+            &stage,
+            &status,
+            &input,
+            studio_application::aesthetic::sampling::Round {
+                status: next,
+                diagnostics,
+                batches
+            },
+            &|| Ok(())
+        )
+        .unwrap()
+    );
+    let ready = db.stage(&id).unwrap().sampling.unwrap();
+    {
+        let connection = db.read().unwrap();
+        let available =
+            super::super::sampling::read::available(&connection, &id, count, &|| Ok(())).unwrap();
+        assert_eq!(available.len(), count as usize);
+        assert_eq!(available.last(), Some(&(count - 1)));
+        let rows =
+            super::super::sampling::read::diagnostics(&connection, &ready, count, &|| Ok(()))
+                .unwrap();
+        assert_eq!(rows.len(), count as usize);
+        assert_eq!(rows.last().unwrap().ordinal, count - 1);
+    }
+    assert!(db.writer.stats.lock().unwrap().peak < 32 << 20);
+    let batch = db.claim(&id).unwrap().unwrap();
+    assert!(
+        batch
+            .members
+            .iter()
+            .all(|m| m.candidate.ordinal >= count - 16)
+    );
+    assert_eq!(db.stage(&id).unwrap().attempts, 0);
+}
+
 fn exact_batch(db: &EvaluationDb, id: &str, ordinals: Vec<u64>) -> AestheticBatch {
     let members: Vec<_> = ordinals
         .iter()
@@ -279,7 +501,7 @@ fn sampling_budget_can_be_extended_without_automatically_retrying_unknown_outcom
     );
     assert_eq!(db.settle(&id, None).unwrap().state, "needs_attention");
     assert_eq!(
-        studio_application::aesthetic::sampling::validate(&policy("adaptive", 2, 8), 10001)
+        studio_application::aesthetic::sampling::validate(&policy("adaptive", 2, 8), 10_000_001)
             .unwrap_err()
             .code,
         "EVALUATION_SAMPLING_CAPACITY"

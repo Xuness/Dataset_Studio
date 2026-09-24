@@ -114,7 +114,7 @@ const server = createServer(async (req, res) => {
 await new Promise((done) => server.listen(0, "127.0.0.1", done));
 const path = (id) => `/v1/projects/${project.id}/aesthetic/stages/${id}`;
 const wait = (id, p) => engine.wait(path(id), p, 180000);
-async function fit(stage) {
+async function fit(stage, accelerated = false) {
   const job = await client.aesthetic.analysis.create(project.id, {
     idempotency_key: randomUUID(),
     name: "sampling validation",
@@ -123,10 +123,10 @@ async function fit(stage) {
       config: {
         stage_id: stage,
         estimator: {
-          kind: "davidson_v1",
+          kind: accelerated ? "davidson_v2" : "davidson_v1",
           iterations: 128,
-          regularization: 0.1,
-          tie_strength: 1,
+          regularization: accelerated ? 0.001 : 0.1,
+          tie_strength: accelerated ? 0.1 : 1,
         },
         stability_seed: 17,
       },
@@ -350,7 +350,7 @@ try {
     });
   }
   await measure("balanced", finished, snapshot);
-  for (const mode of ["legacy", "adaptive"]) {
+  for (const mode of ["legacy", "adaptive", "refine", "refine_balanced"]) {
     const req = {
       ...request,
       idempotency_key: randomUUID(),
@@ -360,8 +360,8 @@ try {
     if (mode === "legacy") delete req.sampling;
     else
       req.sampling = {
-        mode: "adaptive",
-        min_exposures: 2,
+        mode,
+        min_exposures: req.exposures,
         max_exposures: 8,
         rank_tolerance: 0.1,
         seed: 17,
@@ -373,11 +373,27 @@ try {
       ["completed", "needs_attention"].includes(v.state),
     );
     assert.ok(done.attempts <= 48);
-    const ranking = await fit(s.id);
+    const refined = mode.startsWith("refine");
+    if (refined) {
+      assert.equal(done.sampling.version, "neighbor_budget_v2");
+      assert.equal(done.config.execution.sampler_version, "neighbor_budget_v2");
+      const diagnostic = await client.aesthetic.samplingDiagnostic(
+        project.id,
+        s.id,
+        0,
+      );
+      assert.equal(typeof diagnostic.rank_sensitivity, "number");
+      if (mode === "refine") {
+        assert.equal(done.sampling.stable, 0);
+        assert.equal(done.state, "needs_attention");
+      } else assert.equal(done.state, "completed");
+    }
+    const ranking = await fit(s.id, refined);
+    assert.ok(ranking.result.converged);
     await measure(mode, done, ranking);
   }
   checks.push(
-    "legacy, balanced and adaptive sampling compared with the same 48-call cap and a deterministic synthetic quality reference",
+    "legacy modes and versioned uniform/adaptive refinement execute through the public SDK under the same 48-call cap; v2 exposes sensitivity without claiming confidence",
   );
   const db = new DatabaseSync(resolve(project.directory, "evaluation.sqlite"), {
     readOnly: true,

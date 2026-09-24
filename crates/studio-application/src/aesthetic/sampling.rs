@@ -4,27 +4,54 @@ use crate::aesthetic_analysis::{AestheticReplaySource, estimator};
 use std::collections::{BTreeMap, BTreeSet};
 use studio_domain::aesthetic_analysis::*;
 
+mod refinement;
+mod target_components;
+use target_components::TargetComponents;
+#[cfg(test)]
+mod tests;
 pub const VERSION: &str = "connected_rounds_v1";
-// The first adaptive implementation explicitly bounds replay and planning work.
-// Legacy collection/analysis limits remain independent of this admission limit.
-pub const MAX_CANDIDATES: u64 = 10_000;
-pub const MAX_OBSERVATIONS: u64 = 20_000;
+pub const REFINEMENT_VERSION: &str = "neighbor_budget_v2";
+pub fn version(policy: &AestheticSamplingPolicy) -> &'static str {
+    if refinement::enabled(policy) {
+        REFINEMENT_VERSION
+    } else {
+        VERSION
+    }
+}
+pub fn balanced(policy: &AestheticSamplingPolicy) -> bool {
+    matches!(policy.mode.as_str(), "balanced" | "refine_balanced")
+}
+pub fn validate_version(status: &AestheticSamplingStatus) -> Result<()> {
+    if status.version != version(&status.policy) {
+        return Err(Error::new(
+            "EVALUATION_CONFIG_UNSUPPORTED",
+            "采样策略版本不受支持",
+        ));
+    }
+    Ok(())
+}
+// Candidate admission is shared with paid creation and offline analysis.
+// Replay retains a separate finite bound; this does not authorize extra calls.
+pub const MAX_CANDIDATES: u64 = AESTHETIC_MAX_CANDIDATES;
+pub const MAX_OBSERVATIONS: u64 = 20_000_000;
 
 pub fn validate(policy: &AestheticSamplingPolicy, total: u64) -> Result<()> {
-    if !matches!(policy.mode.as_str(), "balanced" | "adaptive")
-        || !(1..=32).contains(&policy.min_exposures)
+    if !matches!(
+        policy.mode.as_str(),
+        "balanced" | "adaptive" | "refine" | "refine_balanced"
+    ) || !(1..=32).contains(&policy.min_exposures)
         || !(policy.min_exposures..=32).contains(&policy.max_exposures)
         || !policy.rank_tolerance.is_finite()
         || !(0.01..=0.25).contains(&policy.rank_tolerance)
     {
         return Err(Error::invalid(
-            "采样模式须为 balanced/adaptive；曝光 1–32，最大值不小于最低值；位次变化阈值 0.01–0.25",
+            "采样模式须为 balanced/adaptive/refine/refine_balanced；曝光 1–32，最大值不小于最低值；位次变化阈值 0.01–0.25",
         ));
     }
     if total > MAX_CANDIDATES {
         return Err(Error::new(
             "EVALUATION_SAMPLING_CAPACITY",
-            "此版按轮次采样支持至多 10000 图；尚未派发",
+            "按轮次采样最多 10000000 图；尚未派发",
         ));
     }
     Ok(())
@@ -98,11 +125,13 @@ pub fn plan(
     remaining_calls: u64,
     check: &dyn Fn() -> Result<()>,
 ) -> Result<Round> {
+    validate_version(&status)?;
     validate(&status.policy, input.candidates)?;
+    let refined = refinement::enabled(&status.policy);
     if input.observations > MAX_OBSERVATIONS {
         return Err(Error::new(
             "EVALUATION_SAMPLING_CAPACITY",
-            "按轮次采样重放上限为 20000 批有效证据",
+            "按轮次采样重放上限为 20000000 批有效证据",
         ));
     }
     let mut replay = Replay {
@@ -150,11 +179,15 @@ pub fn plan(
     }
     let fit = AestheticFit {
         stage_id: input.stage_id.clone(),
-        estimator: AestheticEstimator {
-            kind: "davidson_v1".into(),
-            iterations: 128,
-            regularization: 0.1,
-            tie_strength: 1.0,
+        estimator: if refined {
+            refinement::estimator(&replay.observations, replay.candidates.len())
+        } else {
+            AestheticEstimator {
+                kind: "davidson_v1".into(),
+                iterations: 128,
+                regularization: 0.1,
+                tie_strength: 1.0,
+            }
         },
         stability_seed: None,
     };
@@ -231,6 +264,17 @@ pub fn plan(
     let next_round = status.round + 1;
     let salt =
         u64::from(status.policy.seed) ^ u64::from(next_round).wrapping_mul(0x9e3779b97f4a7c15);
+    let sensitivity = if refined {
+        refinement::sensitivity(
+            &rows,
+            &replay.observations,
+            fit.estimator.regularization,
+            fit.estimator.tie_strength,
+            check,
+        )?
+    } else {
+        vec![]
+    };
     let mut covered = 0;
     let mut stable = 0;
     let mut unresolved_active = 0;
@@ -258,7 +302,7 @@ pub fn plan(
             0
         };
         let enough = row.exposures >= status.policy.min_exposures;
-        let is_stable = enough && rounds >= 2;
+        let is_stable = enough && rounds >= 2 && !refined;
         if active && enough {
             covered += 1;
         }
@@ -273,7 +317,7 @@ pub fn plan(
             "coverage"
         } else if !connected {
             "bridge"
-        } else if status.policy.mode == "balanced" {
+        } else if balanced(&status.policy) {
             "covered"
         } else if !novel {
             "opponent_diversity"
@@ -306,9 +350,19 @@ pub fn plan(
             component_size: row.component_size,
             percentile: row.percentile,
             rank_delta: delta,
+            rank_sensitivity: refined.then(|| sensitivity[i]),
             stable_rounds: rounds,
             reason: reason.into(),
         });
+    }
+    if refined
+        && !balanced(&status.policy)
+        && available
+            .iter()
+            .all(|i| rows[*i as usize].exposures >= status.policy.min_exposures.max(4))
+        && component_counts.values().all(|c| c.len() == 1)
+    {
+        refinement::prioritize(&mut targets, &rows, &sensitivity, salt);
     }
     // When coverage is already sufficient, bridge with rotating representatives
     // from each disconnected component instead of repeating the whole population.
@@ -361,7 +415,7 @@ pub fn plan(
         status.reason = Some(
             if available.is_empty() {
                 "no_remaining_candidates"
-            } else if status.policy.mode == "balanced" {
+            } else if balanced(&status.policy) {
                 "coverage_connected"
             } else {
                 "empirical_stability"
@@ -374,7 +428,7 @@ pub fn plan(
             batches: vec![],
         });
     }
-    if status.policy.mode == "adaptive"
+    if !balanced(&status.policy)
         && connected
         && covered == available.len() as u64
         && available
@@ -425,6 +479,35 @@ pub fn plan(
             }
         }
     }
+    if refined
+        && next_round > 2
+        && connected
+        && available
+            .iter()
+            .all(|i| rows[*i as usize].percentile.is_some())
+    {
+        let batches = refinement::batches(
+            &rows,
+            &targets,
+            available,
+            &reasons,
+            salt,
+            (remaining_calls, status.policy.max_exposures),
+            check,
+        )?;
+        if batches.is_empty() {
+            status.state = "limited".into();
+            status.reason = Some("no_available_peer".into());
+        } else {
+            status.round = next_round;
+            status.state = "dispatching".into();
+        }
+        return Ok(Round {
+            status,
+            diagnostics,
+            batches,
+        });
+    }
     let mut batches = Vec::new();
     let mut used = BTreeSet::new();
     for rating in ["g", "s", "q", "e"] {
@@ -434,6 +517,9 @@ pub fn plan(
             .filter(|i| rows[*i].rating == rating)
             .collect();
         pending.sort_by_key(|i| (rows[*i].exposures, estimator::mix(*i as u64 ^ salt)));
+        let order = pending;
+        let mut pending: BTreeSet<usize> = (0..order.len()).collect();
+        let mut components = TargetComponents::new(&order, &mut parents, &sizes);
         let mut anchors: Vec<_> = available
             .iter()
             .map(|i| *i as usize)
@@ -444,26 +530,30 @@ pub fn plan(
             })
             .collect();
         anchors.sort_by_key(|i| estimator::mix(*i as u64 ^ salt));
+        let mut anchors: std::collections::VecDeque<_> = anchors.into();
         while !pending.is_empty() && (batches.len() as u64) < remaining_calls {
             check()?;
             // Seed from the largest planned connected component that still has
             // unused targets. This grows bridges through different representatives.
-            let first = (0..pending.len())
-                .max_by_key(|&p| {
-                    (
-                        sizes[root(&mut parents, pending[p])],
-                        std::cmp::Reverse(rows[pending[p]].exposures),
-                        std::cmp::Reverse(p),
-                    )
-                })
-                .unwrap_or(0);
-            let mut picked = vec![pending.remove(first)];
+            let largest = *components
+                .sizes
+                .last_key_value()
+                .expect("remaining component")
+                .0;
+            let first = *pending
+                .iter()
+                .find(|&&p| sizes[root(&mut parents, order[p])] == largest)
+                .expect("largest seed");
+            pending.remove(&first);
+            components.take(order[first], &mut parents, &sizes);
+            let mut picked = vec![order[first]];
             while picked.len() < 16 && !pending.is_empty() {
                 let seed = picked[0];
                 let main = root(&mut parents, seed);
                 let mut best = None;
                 // Bounded candidate lookahead. All targets eventually receive a slot.
-                for (p, &i) in pending.iter().enumerate().take(256) {
+                for &p in pending.iter().take(256) {
+                    let i = order[p];
                     let separate = root(&mut parents, i) != main;
                     let repeat = picked.iter().filter(|j| opponents[i].contains(j)).count();
                     let cohort = picked
@@ -485,14 +575,17 @@ pub fn plan(
                         best = Some((p, key));
                     }
                 }
-                let i = pending.remove(best.expect("nonempty").0);
-                union(&mut parents, &mut sizes, picked[0], i);
+                let p = best.expect("nonempty").0;
+                pending.remove(&p);
+                let i = order[p];
+                components.take(i, &mut parents, &sizes);
+                components.merge(picked[0], i, &mut parents, &mut sizes);
                 picked.push(i);
             }
             // Use rotating peers when an adaptive wave has spare slots. Never
             // exceed the per-image ceiling, duplicate an image, or cross Rating.
             while picked.len() < 16 && !anchors.is_empty() {
-                let i = anchors.remove(0);
+                let i = anchors.pop_front().expect("nonempty anchors");
                 if used.contains(&i) {
                     continue;
                 }

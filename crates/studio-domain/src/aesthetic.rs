@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 pub const AESTHETIC_VERSION: u32 = 1;
 pub const AESTHETIC_BATCH_SIZE: usize = 16;
 /// Shared by paid admission and offline replay; this is a whole-stage limit.
-pub const AESTHETIC_MAX_CANDIDATES: u64 = 1_000_000;
+pub const AESTHETIC_MAX_CANDIDATES: u64 = 10_000_000;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -93,7 +93,8 @@ impl AestheticStage {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct AestheticSamplingPolicy {
-    /// balanced or adaptive; both use frozen rounds and cross-batch mixing.
+    /// balanced/adaptive retain v1; refine/refine_balanced use v2 neighbor comparisons.
+    /// refine allocates a bounded budget; it does not assert calibrated precision.
     pub mode: String,
     pub min_exposures: u32,
     pub max_exposures: u32,
@@ -139,6 +140,9 @@ pub struct AestheticSamplingDiagnostic {
     pub component_size: u64,
     pub percentile: Option<f64>,
     pub rank_delta: Option<f64>,
+    /// Whole-batch influence sensitivity in percentile units, not a confidence interval.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rank_sensitivity: Option<f64>,
     pub stable_rounds: u32,
     pub reason: String,
 }

@@ -3,6 +3,8 @@ use super::*;
 use std::collections::BTreeSet;
 use studio_application::aesthetic::sampling as scheduler;
 use studio_domain::aesthetic_analysis::AestheticAnalysisInput;
+pub(super) mod publish;
+pub(super) mod read;
 
 pub(super) fn status(db: &Connection, stage: &str) -> Result<Option<AestheticSamplingStatus>> {
     let json: Option<String> = db.query_row("SELECT p.status_json FROM stages s JOIN sampling_plans p ON p.id=s.sampling_plan_id WHERE s.id=?1",[stage],|r|r.get(0)).optional().map_err(db_error)?;
@@ -18,7 +20,7 @@ fn initial_status(
     AestheticSamplingStatus {
         plan_id: id,
         previous_plan_id: None,
-        version: scheduler::VERSION.into(),
+        version: scheduler::version(&policy).into(),
         policy,
         call_limit: limit,
         round: 0,
@@ -172,7 +174,7 @@ impl EvaluationDb {
     }
 
     /// Called only at a drained round boundary. Read/compute outside the writer;
-    /// publish the complete round in one bounded transaction after revalidation.
+    /// stage bounded pages, then atomically publish the completed round.
     pub fn plan_sampling(&self, id: &str, check: &dyn Fn() -> Result<()>) -> Result<bool> {
         check()?;
         let stage = self.stage(id)?;
@@ -205,13 +207,15 @@ impl EvaluationDb {
                 None
             };
             let checkpoint = inherited.as_ref().unwrap_or(&status);
-            let mut previous=db.prepare("SELECT data FROM sampling_diagnostics WHERE plan_id=?1 AND round=?2 ORDER BY ordinal LIMIT 10000").map_err(db_error)?.query_map(params![checkpoint.plan_id,checkpoint.round],|r|r.get::<_,String>(0)).map_err(db_error)?.collect::<std::result::Result<Vec<_>,_>>().map_err(db_error)?.into_iter().map(decode).collect::<Result<Vec<AestheticSamplingDiagnostic>>>()?;
-            if checkpoint.policy.rank_tolerance > status.policy.rank_tolerance {
+            let mut previous = read::diagnostics(&db, checkpoint, stage.total, check)?;
+            if checkpoint.version != status.version
+                || checkpoint.policy.rank_tolerance > status.policy.rank_tolerance
+            {
                 for row in &mut previous {
                     row.stable_rounds = 0;
                 }
             }
-            let available=db.prepare("SELECT ordinal FROM candidates WHERE stage_id=?1 AND blocked=0 AND reserved=0 AND disposition IN ('active','rejudge') AND rating IN ('g','s','q','e') ORDER BY ordinal LIMIT 10000").map_err(db_error)?.query_map([id],|r|crate::unsigned(r,0)).map_err(db_error)?.collect::<std::result::Result<BTreeSet<_>,_>>().map_err(db_error)?;
+            let available = read::available(&db, id, stage.total, check)?;
             (input, previous, available, pending, unclaimed)
         };
         if pending {
@@ -260,37 +264,6 @@ impl EvaluationDb {
             check,
         )?;
         check()?;
-        let id = id.to_owned();
-        let bytes = encode(&round.diagnostics)?.len() + encode(&round.batches)?.len() + 4096;
-        self.writer.submit(bytes,move|db|{
-            let current=read_stage(db,&id)?;
-            if current.state!="running" || current.attempts!=stage.attempts || current.sampling.as_ref().is_none_or(|s|s.plan_id!=status.plan_id || s.round!=status.round) {
-                return Err(Error::new("CANCELLED","采样计划发布前阶段已变化"));
-            }
-            let watermark:u64=db.query_row("SELECT COALESCE(MAX(e.sequence),0) FROM evidence e JOIN batches b ON b.sequence=e.batch WHERE b.stage_id=?1",[&id],|r|crate::unsigned(r,0)).map_err(db_error)?;
-            if watermark!=input.evidence_watermark {return Err(Error::new("REVISION_CONFLICT","采样证据水位已变化"));}
-            let mut next=round.status;
-            // A final diagnostic is also an immutable checkpoint, not an edit
-            // to the round that was used for previous paid dispatches.
-            next.round=status.round+1;
-            let summary=encode(&next)?;
-            db.execute("INSERT INTO sampling_rounds VALUES(?1,?2,?3,?4)",params![next.plan_id,next.round,next.evidence_watermark as i64,summary]).map_err(db_error)?;
-            {
-                let mut insert=db.prepare("INSERT INTO sampling_diagnostics VALUES(?1,?2,?3,?4)").map_err(db_error)?;
-                for row in round.diagnostics {
-                    if row.reason=="no_comparison_peer" {
-                        db.execute("UPDATE candidates SET disposition='needs_review',disposition_reason='no_comparison_peer',blocked=1 WHERE stage_id=?1 AND ordinal=?2 AND reserved=0 AND disposition IN ('active','rejudge')",params![id,row.ordinal as i64]).map_err(db_error)?;
-                    }
-                    insert.execute(params![next.plan_id,next.round,row.ordinal as i64,encode(&row)?]).map_err(db_error)?;
-                }
-            }
-            let has_batches=!round.batches.is_empty();
-            {
-                let mut insert=db.prepare("INSERT INTO sampling_queue(plan_id,round,slot,members) VALUES(?1,?2,?3,?4)").map_err(db_error)?;
-                for (slot,group) in round.batches.into_iter().enumerate(){insert.execute(params![next.plan_id,next.round,slot as u32,encode(&group)?]).map_err(db_error)?;}
-            }
-            db.execute("UPDATE sampling_plans SET status_json=?2 WHERE id=?1",params![next.plan_id,summary]).map_err(db_error)?;
-            Ok(has_batches)
-        })
+        publish::round(self, &stage, &status, &input, round, check)
     }
 }

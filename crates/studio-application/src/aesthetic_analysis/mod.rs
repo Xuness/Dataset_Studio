@@ -16,7 +16,7 @@ pub trait AestheticReplaySource {
 pub fn validate_fit(fit: &AestheticFit) -> Result<()> {
     studio_domain::validate_id(&fit.stage_id)?;
     let e = &fit.estimator;
-    if !matches!(e.kind.as_str(), "davidson_v1" | "borda_v1")
+    if !matches!(e.kind.as_str(), "davidson_v1" | "davidson_v2" | "borda_v1")
         || !(1..=128).contains(&e.iterations)
         || !e.regularization.is_finite()
         || !(0.001..=10.0).contains(&e.regularization)
@@ -24,7 +24,7 @@ pub fn validate_fit(fit: &AestheticFit) -> Result<()> {
         || !(0.01..=100.0).contains(&e.tie_strength)
     {
         return Err(Error::invalid(
-            "估计器需为 davidson_v1 或 borda_v1；迭代 1–128，正则化 0.001–10，并列强度 0.01–100",
+            "估计器需为 davidson_v1、davidson_v2 或 borda_v1；迭代 1–128，正则化 0.001–10，并列强度 0.01–100",
         ));
     }
     Ok(())
@@ -38,9 +38,11 @@ pub fn validate_filter(f: &AestheticRankingFilter) -> Result<()> {
             .is_some_and(|v| !v.is_finite() || v <= 0.0 || v > 100.0)
         || f.min_split_delta
             .is_some_and(|v| !v.is_finite() || !(0.0..=1.0).contains(&v))
-        || f.rank_from.is_some_and(|v| v == 0 || v > 1_000_000)
-        || f.rank_to.is_some_and(|v| v == 0 || v > 1_000_000)
-        || f.component.is_some_and(|v| v > 1_000_000)
+        || f.rank_from
+            .is_some_and(|v| v == 0 || v > estimator::MAX_CANDIDATES)
+        || f.rank_to
+            .is_some_and(|v| v == 0 || v > estimator::MAX_CANDIDATES)
+        || f.component.is_some_and(|v| v >= estimator::MAX_CANDIDATES)
         || f.rank_from.zip(f.rank_to).is_some_and(|(a, b)| a > b)
         || f.year_from.zip(f.year_to).is_some_and(|(a, b)| a > b)
     {
@@ -103,7 +105,7 @@ pub fn validate_review(value: &AestheticReviewCreate) -> Result<()> {
     studio_domain::validate_id(&value.idempotency_key)?;
     studio_domain::validate_id(&value.snapshot_id)?;
     studio_domain::validate_name(&value.reviewer)?;
-    if value.ordinal > 1_000_000
+    if value.ordinal >= estimator::MAX_CANDIDATES
         || value.reason.trim().is_empty()
         || value.reason.len() > 8192
         || !matches!(

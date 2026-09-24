@@ -52,9 +52,10 @@ export function FitDialog({
   });
   const [stageId, setStageId] = useState("");
   const [name, setName] = useState("排名快照");
-  const [estimator, setEstimator] = useState("davidson_v1");
+  const [estimator, setEstimator] = useState("davidson_v2");
   const [iterations, setIterations] = useState(128);
-  const [regularization, setRegularization] = useState(0.1);
+  const [regularization, setRegularization] = useState(0.001);
+  const [tieStrength, setTieStrength] = useState(0.1);
   const [split, setSplit] = useState(true);
   return (
     <WorkbenchDialog
@@ -77,7 +78,7 @@ export function FitDialog({
                     kind: estimator,
                     iterations,
                     regularization,
-                    tie_strength: 1,
+                    tie_strength: tieStrength,
                   },
                   stability_seed: split ? 17 : null,
                 },
@@ -148,7 +149,7 @@ export function FitDialog({
         <details className="wb-fold">
           <summary>
             计算选项{" "}
-            <small>{estimator === "davidson_v1" ? "Davidson" : "Borda"}</small>
+            <small>{estimator === "borda_v1" ? "Borda" : "Davidson"}</small>
           </summary>
           <div className="wb-fold-body wb-field-list">
             <label>
@@ -158,7 +159,8 @@ export function FitDialog({
                 disabled={action.busy}
                 onChange={(e) => setEstimator(e.target.value)}
               >
-                <option value="davidson_v1">Davidson · 待质量校准</option>
+                <option value="davidson_v2">Davidson v2 · 加速拟合</option>
+                <option value="davidson_v1">Davidson v1 · 原求解器</option>
                 <option value="borda_v1">Borda · 基线对照</option>
               </select>
             </label>
@@ -183,6 +185,18 @@ export function FitDialog({
                 step="any"
                 disabled={action.busy}
                 onChange={(e) => setRegularization(Number(e.target.value))}
+              />
+            </label>
+            <label>
+              并列强度
+              <input
+                type="number"
+                value={tieStrength}
+                min={0.01}
+                max={100}
+                step="any"
+                disabled={action.busy}
+                onChange={(e) => setTieStrength(Number(e.target.value))}
               />
             </label>
             <label>

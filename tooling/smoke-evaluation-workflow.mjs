@@ -255,6 +255,9 @@ try {
   await page
     .getByLabel("审美标准（System Prompt）", { exact: true })
     .selectOption(prompt.id);
+  await expect(page.getByLabel("采样方式", { exact: true })).toHaveValue(
+    "adaptive",
+  );
   await page.getByLabel("采样方式", { exact: true }).selectOption("balanced");
   await page.getByLabel("每图最低有效曝光", { exact: true }).fill("1");
   await page.getByLabel("每图有效曝光上限", { exact: true }).fill("2");
@@ -490,6 +493,14 @@ try {
     .items[0];
   assert.equal(experiment.request.variants.length, 2);
   assert.equal(
+    experiment.request.variants[0].fit.estimator.kind,
+    "davidson_v2",
+  );
+  assert.equal(
+    experiment.request.variants[0].fit.estimator.regularization,
+    0.001,
+  );
+  assert.equal(
     experiment.inputs[0].evidence_watermark,
     experiment.inputs[1].evidence_watermark,
   );
@@ -545,9 +556,7 @@ try {
   await view("evaluation");
   await page.getByRole("tab", { name: "阶段状态", exact: true }).click();
   await page.getByRole("button", { name: "配置追加评审", exact: true }).click();
-  await page
-    .getByLabel("追加采样方式", { exact: true })
-    .selectOption("balanced");
+  await page.getByLabel("追加采样方式", { exact: true }).selectOption("refine");
   await page.getByLabel("追加调用次数上限", { exact: true }).fill("4");
   await screenshot("sampling-dialog-2560");
   faults.add("sampling");
@@ -567,6 +576,7 @@ try {
   assert.deepEqual(samplingRequests[0].value, samplingRequests[1].value);
   const configured = await client.aesthetic.stage(project.id, stage.id);
   assert.equal(configured.state, "ready");
+  assert.equal(configured.sampling.version, "neighbor_budget_v2");
   assert.equal(
     configured.sampling.plan_id,
     samplingRequests[0].value.idempotency_key,

@@ -21,10 +21,10 @@ function variant(label: string, stageId = ""): Variant {
     fit: {
       stage_id: stageId,
       estimator: {
-        kind: "davidson_v1",
+        kind: "davidson_v2",
         iterations: 128,
-        regularization: 0.1,
-        tie_strength: 1,
+        regularization: 0.001,
+        tie_strength: 0.1,
       },
       stability_seed: 17,
     },
@@ -67,7 +67,9 @@ function decode(value: unknown): typeof initial | null {
       (item) =>
         typeof item.label === "string" &&
         typeof item.fit?.stage_id === "string" &&
-        ["borda_v1", "davidson_v1"].includes(item.fit.estimator?.kind) &&
+        ["borda_v1", "davidson_v1", "davidson_v2"].includes(
+          item.fit.estimator?.kind,
+        ) &&
         [
           item.fit.estimator.iterations,
           item.fit.estimator.regularization,
@@ -354,7 +356,8 @@ export function ExperimentWorkspace({
           disabled={!editable}
           onChange={(e) => estimator({ kind: e.target.value })}
         >
-          <option value="davidson_v1">Davidson</option>
+          <option value="davidson_v2">Davidson v2 · 加速拟合</option>
+          <option value="davidson_v1">Davidson v1</option>
           <option value="borda_v1">Borda 基线</option>
         </select>
       </label>

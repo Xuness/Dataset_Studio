@@ -315,13 +315,15 @@ export function StageCreationDialog({
                   value={value.samplingMode}
                   onChange={(e) => edit({ samplingMode: e.target.value })}
                 >
-                  <option value="adaptive">动态分配</option>
+                  <option value="refine">动态细排 · 预算内分配</option>
+                  <option value="refine_balanced">均衡细排 · 相同曝光</option>
+                  <option value="adaptive">原动态分配 · 经验稳定</option>
                   <option value="balanced">均衡覆盖与连接</option>
                 </select>
               </label>
               <p className="aesthetic-help">
                 每轮交叉组批后并发评审。动态模式对位次不稳定、对手单一的图片继续加测，稳定图片降低频率。此版支持至多
-                10000 图。
+                1000 万图，实际运行规模取决于本机资源与评审预算。
               </p>
               {(
                 [

@@ -288,7 +288,7 @@ async fn candidate(
     State(s): State<AppState>,
     Path((pid, id, n)): Path<(String, String, u64)>,
 ) -> ApiResult<AestheticRankingRow> {
-    if n > 1_000_000 {
+    if n >= domain::aesthetic::AESTHETIC_MAX_CANDIDATES {
         return Err(domain::Error::invalid("候选序号无效").into());
     }
     Ok(Json(wire(

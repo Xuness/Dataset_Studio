@@ -54,7 +54,7 @@ try {
   }
   browser = await chromium.launch({ channel: "msedge", headless: true });
   const context = await browser.newContext({
-    viewport: { width: 1500, height: 1100 },
+    viewport: { width: 2560, height: 1440 },
   });
   await context.route(url + "/__studio/connection", (route) =>
     route.fulfill({ json: engine.connection }),
@@ -152,6 +152,7 @@ try {
   await page
     .getByLabel("审美标准（System Prompt）", { exact: true })
     .selectOption(stage.config.request.system_prompt_id);
+  await page.getByLabel("采样方式", { exact: true }).selectOption("refine");
   await page.getByLabel("调用次数上限", { exact: true }).fill("3");
   await page.getByRole("button", { name: "预检输入", exact: true }).click();
   await expect(page.getByLabel("输入预检结果")).toContainText(
@@ -169,6 +170,8 @@ try {
   ).items.find((s) => s.name === uiStageName);
   assert.equal(created.attempts, 0);
   assert.equal(created.config.request.max_calls, 3);
+  assert.equal(created.config.request.sampling.mode, "refine");
+  assert.equal(created.sampling.version, "neighbor_budget_v2");
   await page.getByRole("button", { name: "资料浏览", exact: true }).click();
   await page.getByRole("button", { name: "美学排序", exact: true }).click();
   await page.getByRole("button", { name: "新建评审", exact: true }).click();

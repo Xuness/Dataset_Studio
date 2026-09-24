@@ -2561,7 +2561,10 @@ export interface components {
         AestheticEstimator: {
             /** Format: int32 */
             iterations: number;
-            /** @description davidson_v1 (batch-normalized composite objective) or borda_v1 (baseline). */
+            /**
+             * @description davidson_v1 (diagonal solver), davidson_v2 (bounded L-BFGS), or borda_v1.
+             *     Both Davidson versions use the same batch-normalized composite objective.
+             */
             kind: string;
             /** Format: double */
             regularization: number;
@@ -2850,6 +2853,11 @@ export interface components {
             percentile?: number | null;
             /** Format: double */
             rank_delta?: number | null;
+            /**
+             * Format: double
+             * @description Whole-batch influence sensitivity in percentile units, not a confidence interval.
+             */
+            rank_sensitivity?: number | null;
             reason: string;
             /** Format: int32 */
             stable_rounds: number;

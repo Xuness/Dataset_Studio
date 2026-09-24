@@ -220,6 +220,15 @@ try {
   );
   const rows = await allRows(snapshot.id);
   assert.equal(rows.length, 64);
+  await assert.rejects(
+    () => client.aesthetic.analysis.candidate(project.id, snapshot.id, 9999999),
+    (error) => error.code === "NOT_FOUND",
+  );
+  await assert.rejects(
+    () =>
+      client.aesthetic.analysis.candidate(project.id, snapshot.id, 10000000),
+    (error) => error.code === "INVALID_INPUT",
+  );
   const explicitRating = await client.aesthetic.analysis.rows(
     project.id,
     snapshot.id,
@@ -252,6 +261,10 @@ try {
       variants: [
         { label: "Davidson", fit },
         { label: "Borda", fit: { ...fit, estimator: estimator("borda_v1") } },
+        {
+          label: "Davidson v2",
+          fit: { ...fit, estimator: estimator("davidson_v2") },
+        },
       ],
     },
   );

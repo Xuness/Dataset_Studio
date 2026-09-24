@@ -64,7 +64,16 @@ export function SamplingPanel({
         <>
           <dl className="wb-property-list">
             <dt>采样方式</dt>
-            <dd>{s.policy.mode === "adaptive" ? "动态分配" : "均衡覆盖"}</dd>
+            <dd>
+              {(
+                {
+                  refine: "动态细排",
+                  refine_balanced: "均衡细排",
+                  adaptive: "原动态分配",
+                  balanced: "原均衡覆盖",
+                } as Record<string, string>
+              )[s.policy.mode] ?? s.policy.mode}
+            </dd>
             <dt>每图有效曝光</dt>
             <dd>
               最低 {s.policy.min_exposures} · 上限 {s.policy.max_exposures}
@@ -81,13 +90,17 @@ export function SamplingPanel({
                 <dd>
                   {s.covered} / {s.eligible}
                 </dd>
-                <dt>经验稳定</dt>
+                <dt>{s.policy.mode === "refine" ? "停止依据" : "经验稳定"}</dt>
                 <dd>
-                  {s.stable} / {s.eligible}
+                  {s.policy.mode === "refine"
+                    ? "调用预算或曝光上限"
+                    : `${s.stable} / ${s.eligible}`}
                 </dd>
                 <dt>比较分量</dt>
                 <dd>{s.components}（各 Rating 独立）</dd>
-                <dt>尚需评估</dt>
+                <dt>
+                  {s.policy.mode === "refine" ? "精度未确认" : "尚需评估"}
+                </dt>
                 <dd>{s.unresolved}</dd>
               </>
             )}
@@ -104,9 +117,13 @@ export function SamplingPanel({
           </dl>
           <p className="aesthetic-help">
             诊断在整轮结束后更新。
-            {s.policy.mode === "adaptive"
-              ? "经验稳定依据连续两次位次变化、对手多样性与拟合诊断；不是统计置信区间，也不代表模型审美正确。"
-              : "均衡模式以基础曝光和比较连接作为停止条件；排名稳定性可在离线分析中查看。"}
+            {s.policy.mode === "refine"
+              ? "先覆盖与连接，再按局部比较敏感度分配预算并保留抽查。达到预算或曝光上限会停靠待复核，不把敏感度当作置信区间。"
+              : s.policy.mode === "refine_balanced"
+                ? "先全局定位，再均匀曝光进行邻近细排；完成基础覆盖和连接后停止。"
+                : s.policy.mode === "adaptive"
+                  ? "经验稳定依据连续两次位次变化、对手多样性与拟合诊断；不是统计置信区间，也不代表模型审美正确。"
+                  : "均衡模式以基础曝光和比较连接作为停止条件；排名稳定性可在离线分析中查看。"}
           </p>
         </>
       ) : (
@@ -119,7 +136,7 @@ export function SamplingPanel({
           disabled ||
           !stopped ||
           stage.frozen !== stage.total ||
-          stage.total > 10000
+          stage.total > 10_000_000
         }
         onClick={() => setOpen(true)}
       >
@@ -154,7 +171,7 @@ function SamplingDialog({
   onChanged: () => void;
 }) {
   const initial = {
-    mode: "adaptive",
+    mode: stage.sampling?.policy.mode ?? "adaptive",
     min: stage.config.request.exposures,
     max: Math.min(
       32,
@@ -177,7 +194,9 @@ function SamplingDialog({
     (input: unknown) => {
       if (!input || typeof input !== "object") return null;
       const v = input as typeof initial;
-      return ["adaptive", "balanced"].includes(v.mode) &&
+      return ["adaptive", "balanced", "refine", "refine_balanced"].includes(
+        v.mode,
+      ) &&
         [v.min, v.max, v.tolerance, v.calls, v.seed].every(Number.isFinite) &&
         (!v.pending || typeof v.pending.idempotency_key === "string")
         ? v
@@ -250,7 +269,11 @@ function SamplingDialog({
               draft.controller.set((old) => ({ ...old, mode: e.target.value }))
             }
           >
-            <option value="adaptive">动态分配：覆盖、连接与经验稳定</option>
+            <option value="refine">动态细排：预算分配与抽查</option>
+            <option value="refine_balanced">
+              均衡细排：相同曝光与邻近比较
+            </option>
+            <option value="adaptive">原动态：覆盖、连接与经验稳定</option>
             <option value="balanced">均衡覆盖：满足最低曝光并补齐连接</option>
           </select>
         </label>
@@ -286,8 +309,10 @@ function SamplingDialog({
             </label>
           ))}
         <p className="aesthetic-help">
-          达到单图或调用上限时会保留未满足的条件；位次变化阈值是调度参数，不是准确率承诺。更换模型或
-          Prompt 请创建新阶段。
+          {v.mode.startsWith("refine")
+            ? "细排保留预算及覆盖限制；敏感度用于比较安排，不代表真实排名精度。"
+            : "达到单图或调用上限时会保留未满足的条件；位次变化阈值是调度参数，不是准确率承诺。"}
+          更换模型或 Prompt 请创建新阶段。
         </p>
         {error != null && <ErrorDetails error={error} />}
         <DraftStatus controller={draft.controller} />
@@ -347,6 +372,14 @@ export function SamplingDiagnostic({
             ? "未知 / 尚不可比较"
             : `${(data.rank_delta * 100).toFixed(1)} 个百分点`}
         </dd>
+        {data.rank_sensitivity != null && (
+          <>
+            <dt>整批比较敏感度</dt>
+            <dd>
+              {(data.rank_sensitivity * 100).toFixed(2)} 个百分点（非置信区间）
+            </dd>
+          </>
+        )}
         <dt>连续稳定检查</dt>
         <dd>{data.stable_rounds}</dd>
       </dl>

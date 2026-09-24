@@ -27,7 +27,11 @@
 
 ## 架构说明
 
-最新采样与结果语义：[ADR 0032](decisions/0032-aesthetic-adaptive-sampling.md)及[2026-09-24 验收](verification/2026-09-24-aesthetic-sampling.md)。
+首版采样与结果语义：[ADR 0032](decisions/0032-aesthetic-adaptive-sampling.md)及[2026-09-24 验收](verification/2026-09-24-aesthetic-sampling.md)。
+
+邻近细排与加速拟合：[ADR 0033](decisions/0033-aesthetic-neighbor-refinement.md)及[150 万模拟与集成验证](verification/2026-09-24-aesthetic-refinement.md)。
+
+当前数量准入上限为 1000 万候选：[ADR 0034](decisions/0034-aesthetic-ten-million-admission.md)及[数量边界与分块发布验收](verification/2026-09-24-aesthetic-capacity-10m.md)。
 
 最新传输与恢复：[R2 验收](verification/2026-09-23-aesthetic-transport.md)及 [ADR 0031](decisions/0031-aesthetic-transport-and-recovery.md)。
 

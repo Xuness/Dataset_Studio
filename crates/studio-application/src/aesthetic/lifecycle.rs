@@ -19,7 +19,7 @@ pub fn validate_capacity(total: u64) -> Result<()> {
     if total > AESTHETIC_MAX_CANDIDATES {
         return Err(Error::new(
             "EVALUATION_CAPACITY_EXCEEDED",
-            "整个评审阶段最多支持 1000000 个候选；超出离线分析能力，尚未发送",
+            "整个评审阶段最多支持 10000000 个候选；超出数量上限，尚未发送",
         ));
     }
     Ok(())
@@ -53,12 +53,7 @@ pub fn control_state(stage: &AestheticStage, action: &str) -> Result<&'static st
             validate_capacity(stage.total)?;
             validate_execution(&stage.config)?;
             if let Some(plan) = &stage.sampling {
-                if plan.version != super::sampling::VERSION {
-                    return Err(Error::new(
-                        "EVALUATION_CONFIG_UNSUPPORTED",
-                        "采样策略版本不受支持",
-                    ));
-                }
+                super::sampling::validate_version(plan)?;
                 super::sampling::validate(&plan.policy, stage.total)?;
             }
             if stage.sampling.is_none() && stage.attempts >= stage.call_limit() {
@@ -126,7 +121,7 @@ pub fn validate_execution(config: &AestheticConfig) -> Result<()> {
                 && v.encoder_version == "native_json_v1"
                 && matches!(
                     v.sampler_version.as_str(),
-                    "rating_year_mix_v1" | "connected_rounds_v1"
+                    "rating_year_mix_v1" | "connected_rounds_v1" | "neighbor_budget_v2"
                 )
         }
         _ => false,

@@ -164,8 +164,9 @@ pub fn create(state: &AppState, pid: &str, request: AestheticCreate) -> Result<A
     let caps = capabilities();
     let max_request_bytes = u64::from(request.max_request_mib.unwrap_or(32)) << 20;
     let mut frozen_execution = execution(input_version);
-    if request.sampling.is_some() {
-        frozen_execution.sampler_version = studio_application::aesthetic::sampling::VERSION.into();
+    if let Some(policy) = &request.sampling {
+        frozen_execution.sampler_version =
+            studio_application::aesthetic::sampling::version(policy).into();
     }
     let intent = state.store.register_evaluation(
         pid,

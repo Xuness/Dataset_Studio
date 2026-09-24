@@ -99,3 +99,7 @@ Rust 测试位于 crates 内，`pnpm test` 同时执行 SDK 检查 [client-found
 - [integration-aesthetic-sampling.mjs](integration-aesthetic-sampling.mjs)：145 张合成图片，真实 SDK/HTTP/SQLite、16 请求并发上限、暂停重启、追加预算与幂等、原始回执和有效性摘要；在同一 48 次调用上限下比较旧组批、均衡轮次和动态轮次。只调用 loopback mock，不验证真实审美正确性。
 - `node tooling/cargo-run.mjs run -p studio-storage --example aesthetic_sampling_probe -- COPIED_LEDGER STAGE_ID`：对显式复制到 `.local/test-runs/` 内的账本作离线补测规划。入口拒绝该目录之外的路径，不包含模型客户端；检查付费证据和配置哈希没有变化。运行前用 SQLite Backup API 从真实账本的只读连接复制，不能传入真实项目路径。
 - 工作流 UI 验证现包含追加计划提交丢失响应、刷新恢复与精确重试；保存计划不会派发。规则见 [ADR 0032](../docs/decisions/0032-aesthetic-adaptive-sampling.md)。
+
+- 同一采样集成入口也验证 `refine` / `refine_balanced` 的 v2 冻结版本、预算停靠、可选敏感度字段和 Davidson v2 快照；工作流 UI 在 2560×1440 验证新估计器及跨版本追加计划。算法与实验边界见 [ADR 0033](../docs/decisions/0033-aesthetic-neighbor-refinement.md)。
+
+- `integration-aesthetic-recovery.mjs` 的数量边界夹具会在独立测试项目中生成真实的 10000000/10000001 条工作集成员，验证所有轮次模式的预检以及超限时不创建付费意图；该部分需要额外的本机磁盘和时间。它不执行千万图模型评审。`studio-storage` 单元测试另覆盖超过 32 MiB 的诊断分块写入及暂存恢复，见 [ADR 0034](../docs/decisions/0034-aesthetic-ten-million-admission.md)。

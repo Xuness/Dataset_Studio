@@ -5,7 +5,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct AestheticEstimator {
-    /// davidson_v1 (batch-normalized composite objective) or borda_v1 (baseline).
+    /// davidson_v1 (diagonal solver), davidson_v2 (bounded L-BFGS), or borda_v1.
+    /// Both Davidson versions use the same batch-normalized composite objective.
     pub kind: String,
     pub iterations: u32,
     pub regularization: f64,
