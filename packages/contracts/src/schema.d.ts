@@ -991,6 +991,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{project_id}/aesthetic/stages/{id}/sampling": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["aesthetic_configure_sampling"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/aesthetic/stages/{id}/sampling/{ordinal}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["aesthetic_sampling_diagnostic"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects/{project_id}/artifacts": {
         parameters: {
             query?: never;
@@ -2388,10 +2420,19 @@ export interface components {
             parent_sequence?: number | null;
             rating: string;
             replacement_sequences: number[];
+            sampling?: null | components["schemas"]["AestheticBatchSampling"];
             /** Format: int64 */
             sequence: number;
             stage_id: string;
             state: string;
+        };
+        AestheticBatchSampling: {
+            /** Format: int64 */
+            evidence_watermark: number;
+            members: components["schemas"]["AestheticSamplingMemberReason"][];
+            plan_id: string;
+            /** Format: int32 */
+            round: number;
         };
         AestheticBatches: {
             items: components["schemas"]["AestheticBatch"][];
@@ -2510,6 +2551,7 @@ export interface components {
             overrides?: {
                 [key: string]: unknown;
             };
+            sampling?: null | components["schemas"]["AestheticSamplingPolicy"];
             system_prompt_id: string;
         };
         /** @enum {string} */
@@ -2572,6 +2614,7 @@ export interface components {
             /** Format: double */
             max_update: number;
             stability_method: string;
+            validity?: null | components["schemas"]["AestheticValidity"];
             /** Format: int64 */
             working_bytes_estimate: number;
         };
@@ -2738,6 +2781,19 @@ export interface components {
             /** Format: int64 */
             split_comparable: number;
         };
+        AestheticRatingValidity: {
+            /** Format: int64 */
+            candidates: number;
+            /** Format: int64 */
+            compared: number;
+            connection: string;
+            coverage: string;
+            ranking_scope: string;
+            rating: string;
+            stability: string;
+            /** Format: int64 */
+            stability_covered: number;
+        };
         AestheticRawSummary: {
             /** Format: int64 */
             bytes: number;
@@ -2776,6 +2832,78 @@ export interface components {
             items: components["schemas"]["AestheticReview"][];
             next_cursor?: string | null;
         };
+        AestheticSamplingDiagnostic: {
+            /** Format: int64 */
+            component?: number | null;
+            /** Format: int64 */
+            component_size: number;
+            /**
+             * Format: int32
+             * @description Exact count, capped at 32; not a count of independent judgments.
+             */
+            distinct_opponents: number;
+            /** Format: int32 */
+            exposures: number;
+            /** Format: int64 */
+            ordinal: number;
+            /** Format: double */
+            percentile?: number | null;
+            /** Format: double */
+            rank_delta?: number | null;
+            reason: string;
+            /** Format: int32 */
+            stable_rounds: number;
+        };
+        AestheticSamplingMemberReason: {
+            /** Format: int64 */
+            ordinal: number;
+            reason: string;
+        };
+        AestheticSamplingPolicy: {
+            /** Format: int32 */
+            max_exposures: number;
+            /** Format: int32 */
+            min_exposures: number;
+            /** @description balanced or adaptive; both use frozen rounds and cross-batch mixing. */
+            mode: string;
+            /**
+             * Format: double
+             * @description Maximum consecutive percentile movement for empirical stability (0..1).
+             */
+            rank_tolerance: number;
+            /** Format: int32 */
+            seed: number;
+        };
+        AestheticSamplingRequest: {
+            /** Format: int32 */
+            additional_calls: number;
+            idempotency_key: string;
+            policy: components["schemas"]["AestheticSamplingPolicy"];
+        };
+        AestheticSamplingStatus: {
+            /** Format: int64 */
+            call_limit: number;
+            /** Format: int64 */
+            components: number;
+            /** Format: int64 */
+            covered: number;
+            /** Format: int64 */
+            eligible: number;
+            /** Format: int64 */
+            evidence_watermark: number;
+            plan_id: string;
+            policy: components["schemas"]["AestheticSamplingPolicy"];
+            previous_plan_id?: string | null;
+            reason?: string | null;
+            /** Format: int32 */
+            round: number;
+            /** Format: int64 */
+            stable: number;
+            state: string;
+            /** Format: int64 */
+            unresolved: number;
+            version: string;
+        };
         AestheticSelectionRow: {
             effective_protected: boolean;
             ranking: components["schemas"]["AestheticRankingRow"];
@@ -2807,6 +2935,7 @@ export interface components {
             output_tokens: number;
             /** Format: int64 */
             protected: number;
+            sampling?: null | components["schemas"]["AestheticSamplingStatus"];
             state: string;
             /** Format: int64 */
             total: number;
@@ -2824,6 +2953,12 @@ export interface components {
         AestheticUnjudgeable: {
             id: string;
             reason: string;
+        };
+        AestheticValidity: {
+            groups: components["schemas"]["AestheticRatingValidity"][];
+            numerical: string;
+            /** Format: int32 */
+            version: number;
         };
         ApiError: {
             code: string;
@@ -6363,6 +6498,55 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AestheticStage"];
+                };
+            };
+        };
+    };
+    aesthetic_configure_sampling: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AestheticSamplingRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AestheticStage"];
+                };
+            };
+        };
+    };
+    aesthetic_sampling_diagnostic: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                id: string;
+                ordinal: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": null | components["schemas"]["AestheticSamplingDiagnostic"];
                 };
             };
         };

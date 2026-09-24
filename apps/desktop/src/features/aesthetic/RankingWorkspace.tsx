@@ -1,3 +1,4 @@
+import { RankingValidity } from "./RankingValidity.js";
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -686,6 +687,7 @@ export function RankingWorkspace({
             显示与详情
           </button>
         </div>
+        {summary && <RankingValidity summary={summary} />}
         {summary && !summary.converged && (
           <p className="ranking-validity" role="status">
             本次拟合尚未收敛，结果用于检查与实验对照。

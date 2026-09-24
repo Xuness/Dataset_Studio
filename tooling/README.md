@@ -92,3 +92,10 @@ Rust 测试位于 crates 内，`pnpm test` 同时执行 SDK 检查 [client-found
 - [probe-aesthetic-workset.mjs](probe-aesthetic-workset.mjs)：最多 512 张指定真实图片的隔离传输验证。参数依次为元数据审计 JSON、应用数据目录、System Prompt 名称。审计文件包含 collection_name、project_id、summary.errors 和 rows[].key；只读应用注册表及真实图片，评审状态写入独立测试项目，服务端仅监听 loopback，不调用商业 API。此入口不验证模型审美质量。
 
 项目恢复使用公开 SDK 的 aesthetic.recoveryPackage(projectId) 和 aesthetic.restore(packageDirectory, destination)。后者要求同身份项目已关闭、目标目录不存在；验证成功后显式 openProject(destination)。旧的 aesthetic.backup 仍只备份评审账本。外部数据湖和凭据不在恢复包内。
+
+
+## 按轮次采样与追加评审
+
+- [integration-aesthetic-sampling.mjs](integration-aesthetic-sampling.mjs)：145 张合成图片，真实 SDK/HTTP/SQLite、16 请求并发上限、暂停重启、追加预算与幂等、原始回执和有效性摘要；在同一 48 次调用上限下比较旧组批、均衡轮次和动态轮次。只调用 loopback mock，不验证真实审美正确性。
+- `node tooling/cargo-run.mjs run -p studio-storage --example aesthetic_sampling_probe -- COPIED_LEDGER STAGE_ID`：对显式复制到 `.local/test-runs/` 内的账本作离线补测规划。入口拒绝该目录之外的路径，不包含模型客户端；检查付费证据和配置哈希没有变化。运行前用 SQLite Backup API 从真实账本的只读连接复制，不能传入真实项目路径。
+- 工作流 UI 验证现包含追加计划提交丢失响应、刷新恢复与精确重试；保存计划不会派发。规则见 [ADR 0032](../docs/decisions/0032-aesthetic-adaptive-sampling.md)。

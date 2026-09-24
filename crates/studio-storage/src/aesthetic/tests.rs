@@ -2,6 +2,7 @@ use super::*;
 use studio_domain::{AssetKey, llm::*, new_id};
 mod analysis;
 mod recovery;
+mod sampling;
 mod transport;
 
 fn fixture(count: u64) -> (tempfile::TempDir, EvaluationDb, String) {
@@ -25,6 +26,7 @@ fn fixture(count: u64) -> (tempfile::TempDir, EvaluationDb, String) {
         concurrency: 4,
         expected_input_version: None,
         max_request_mib: None,
+        sampling: None,
     };
     let model = LlmInvocationSnapshot {
         schema_version: 1,

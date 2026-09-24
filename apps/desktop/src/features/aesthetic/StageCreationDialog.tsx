@@ -21,7 +21,11 @@ const initial = {
   collectionId: "",
   modelId: "",
   promptId: "",
-  exposures: 1,
+  exposures: 2,
+  samplingMode: "adaptive",
+  maxExposures: 8,
+  rankTolerance: 10,
+  samplingSeed: 17,
   maxCalls: 100,
   concurrency: 2,
   maxRequestMiB: 32,
@@ -137,6 +141,13 @@ export function StageCreationDialog({
       max_calls: value.maxCalls,
       concurrency: value.concurrency,
       max_request_mib: value.maxRequestMiB,
+      sampling: {
+        mode: value.samplingMode,
+        min_exposures: value.exposures,
+        max_exposures: value.maxExposures,
+        rank_tolerance: value.rankTolerance / 100,
+        seed: value.samplingSeed,
+      },
       overrides: {},
     };
     // Invalidate an older report even when this check fails.
@@ -174,6 +185,7 @@ export function StageCreationDialog({
         [
           "EVALUATION_INPUT_CHANGED",
           "EVALUATION_CAPACITY_EXCEEDED",
+          "EVALUATION_SAMPLING_CAPACITY",
           "EVALUATION_EMPTY",
           "INVALID_INPUT",
         ].includes(e.code)
@@ -295,27 +307,58 @@ export function StageCreationDialog({
           <details className="wb-fold" open>
             <summary>执行预算</summary>
             <div className="wb-field-list">
+              <label>
+                采样方式
+                <select
+                  aria-label="采样方式"
+                  disabled={!editable}
+                  value={value.samplingMode}
+                  onChange={(e) => edit({ samplingMode: e.target.value })}
+                >
+                  <option value="adaptive">动态分配</option>
+                  <option value="balanced">均衡覆盖与连接</option>
+                </select>
+              </label>
+              <p className="aesthetic-help">
+                每轮交叉组批后并发评审。动态模式对位次不稳定、对手单一的图片继续加测，稳定图片降低频率。此版支持至多
+                10000 图。
+              </p>
               {(
                 [
-                  ["exposures", "每图目标有效曝光", 32],
+                  ["exposures", "每图最低有效曝光", 32],
+                  ["maxExposures", "每图有效曝光上限", 32],
+                  ["rankTolerance", "位次变化阈值（百分点）", 25],
+                  ["samplingSeed", "采样种子", 4294967295],
                   ["maxCalls", "调用次数上限", 10000000],
                   ["concurrency", "请求并发上限", 32],
                 ] as const
-              ).map(([key, label, max]) => (
-                <label key={key}>
-                  {label}
-                  <input
-                    type="number"
-                    min={1}
-                    max={max}
-                    step={1}
-                    required
-                    value={value[key]}
-                    disabled={!editable}
-                    onChange={(e) => edit({ [key]: Number(e.target.value) })}
-                  />
-                </label>
-              ))}
+              )
+                .filter(
+                  ([key]) =>
+                    key !== "rankTolerance" ||
+                    value.samplingMode === "adaptive",
+                )
+                .map(([key, label, max]) => (
+                  <label key={key}>
+                    {label}
+                    <input
+                      type="number"
+                      min={
+                        key === "samplingSeed"
+                          ? 0
+                          : key === "maxExposures"
+                            ? value.exposures
+                            : 1
+                      }
+                      max={max}
+                      step={1}
+                      required
+                      value={value[key]}
+                      disabled={!editable}
+                      onChange={(e) => edit({ [key]: Number(e.target.value) })}
+                    />
+                  </label>
+                ))}
               <label>
                 每批请求体预算
                 <select
@@ -356,10 +399,10 @@ export function StageCreationDialog({
               )}
               {report.minimum_calls_lower_bound !== undefined && (
                 <>
-                  <dt>完整曝光调用下界</dt>
+                  <dt>基础曝光调用下界</dt>
                   <dd>
                     至少 {report.minimum_calls_lower_bound.toLocaleString()}{" "}
-                    次；分组、拆批和重评可能增加
+                    次；连接、动态加测、拆批和重评可能增加
                   </dd>
                 </>
               )}

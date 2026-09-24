@@ -66,6 +66,11 @@ pub fn preflight(
     let available_storage_bytes =
         fs2::available_space(state.store.directory(pid)?).map_err(Error::io)?;
     let rejection = validate_capacity(total)
+        .and_then(|_| {
+            request.sampling.as_ref().map_or(Ok(()), |p| {
+                studio_application::aesthetic::sampling::validate(p, total)
+            })
+        })
         .and_then(|_| check_storage(&state.store.directory(pid)?).map(|_| ()))
         .err();
     Ok(AestheticPreflight {
@@ -124,6 +129,9 @@ pub fn create(state: &AppState, pid: &str, request: AestheticCreate) -> Result<A
     }
     let (total, project_version, sources, input_version) = input(state, pid, &request)?;
     validate_capacity(total)?;
+    if let Some(policy) = &request.sampling {
+        studio_application::aesthetic::sampling::validate(policy, total)?;
+    }
     check_storage(&state.store.directory(pid)?)?;
     if request
         .expected_input_version
@@ -155,6 +163,10 @@ pub fn create(state: &AppState, pid: &str, request: AestheticCreate) -> Result<A
     })?;
     let caps = capabilities();
     let max_request_bytes = u64::from(request.max_request_mib.unwrap_or(32)) << 20;
+    let mut frozen_execution = execution(input_version);
+    if request.sampling.is_some() {
+        frozen_execution.sampler_version = studio_application::aesthetic::sampling::VERSION.into();
+    }
     let intent = state.store.register_evaluation(
         pid,
         AestheticConfig {
@@ -167,7 +179,7 @@ pub fn create(state: &AppState, pid: &str, request: AestheticCreate) -> Result<A
             observation_policy: "meaningful_indifference_v1".into(),
             max_image_bytes: caps.max_image_bytes,
             max_request_bytes,
-            execution: Some(execution(input_version)),
+            execution: Some(frozen_execution),
         },
         &project_version,
     )?;

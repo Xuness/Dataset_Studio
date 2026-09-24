@@ -24,6 +24,8 @@ pub struct AestheticCreate {
     pub expected_input_version: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_request_mib: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sampling: Option<AestheticSamplingPolicy>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -75,6 +77,84 @@ pub struct AestheticStage {
     pub output_tokens: u64,
     pub usage_unknown: u64,
     pub error: Option<String>,
+    #[serde(default)]
+    pub sampling: Option<AestheticSamplingStatus>,
+}
+
+impl AestheticStage {
+    pub fn call_limit(&self) -> u64 {
+        self.sampling
+            .as_ref()
+            .map_or(u64::from(self.config.request.max_calls), |s| s.call_limit)
+    }
+}
+
+/// Frozen scheduling policy. Stability is an empirical diagnostic, not a confidence interval.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct AestheticSamplingPolicy {
+    /// balanced or adaptive; both use frozen rounds and cross-batch mixing.
+    pub mode: String,
+    pub min_exposures: u32,
+    pub max_exposures: u32,
+    /// Maximum consecutive percentile movement for empirical stability (0..1).
+    pub rank_tolerance: f64,
+    pub seed: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AestheticSamplingRequest {
+    pub idempotency_key: String,
+    pub policy: AestheticSamplingPolicy,
+    pub additional_calls: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AestheticSamplingStatus {
+    pub plan_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_plan_id: Option<String>,
+    pub version: String,
+    pub policy: AestheticSamplingPolicy,
+    pub call_limit: u64,
+    pub round: u32,
+    pub evidence_watermark: u64,
+    pub state: String,
+    pub reason: Option<String>,
+    pub eligible: u64,
+    pub covered: u64,
+    pub stable: u64,
+    pub components: u64,
+    pub unresolved: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AestheticSamplingDiagnostic {
+    pub ordinal: u64,
+    pub exposures: u32,
+    /// Exact count, capped at 32; not a count of independent judgments.
+    pub distinct_opponents: u32,
+    pub component: Option<u64>,
+    pub component_size: u64,
+    pub percentile: Option<f64>,
+    pub rank_delta: Option<f64>,
+    pub stable_rounds: u32,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AestheticSamplingMemberReason {
+    pub ordinal: u64,
+    pub reason: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AestheticBatchSampling {
+    pub plan_id: String,
+    pub round: u32,
+    pub evidence_watermark: u64,
+    pub members: Vec<AestheticSamplingMemberReason>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -176,6 +256,8 @@ pub struct AestheticBatch {
     pub observation: Option<AestheticObservation>,
     pub parent_sequence: Option<u64>,
     pub replacement_sequences: Vec<u64>,
+    #[serde(default)]
+    pub sampling: Option<AestheticBatchSampling>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

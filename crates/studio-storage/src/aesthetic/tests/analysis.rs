@@ -1,7 +1,7 @@
 use super::*;
 use studio_application::aesthetic_analysis::estimator::replay;
 use studio_domain::aesthetic_analysis::*;
-fn fit_request(stage: &str) -> AestheticAnalysisCreate {
+pub(super) fn fit_request(stage: &str) -> AestheticAnalysisCreate {
     AestheticAnalysisCreate {
         idempotency_key: new_id(),
         name: "重放".into(),
@@ -21,7 +21,7 @@ fn fit_request(stage: &str) -> AestheticAnalysisCreate {
         },
     }
 }
-fn complete(db: &EvaluationDb, id: &str) -> AestheticAnalysisJob {
+pub(super) fn complete(db: &EvaluationDb, id: &str) -> AestheticAnalysisJob {
     let job = db.analysis_start(id).unwrap();
     while db.analysis_reset_page(id).unwrap() {}
     let AestheticAnalysisSpec::Fit { config, .. } = &job.request.spec else {

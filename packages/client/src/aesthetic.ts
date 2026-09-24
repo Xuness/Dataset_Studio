@@ -74,6 +74,27 @@ export class AestheticClient {
       post({ action }),
     );
   }
+  configureSampling(
+    pid: string,
+    id: string,
+    value: Schema["AestheticSamplingRequest"],
+  ) {
+    return this.request<Schema["AestheticStage"]>(
+      `${stage(pid, id)}/sampling`,
+      post(value),
+    );
+  }
+  samplingDiagnostic(
+    pid: string,
+    id: string,
+    ordinal: number,
+    signal?: AbortSignal,
+  ) {
+    return this.request<Schema["AestheticSamplingDiagnostic"] | null>(
+      `${stage(pid, id)}/sampling/${ordinal}`,
+      { signal: signal ?? null },
+    );
+  }
   batches(pid: string, id: string, after?: string, signal?: AbortSignal) {
     return this.request<Schema["AestheticBatches"]>(
       `${stage(pid, id)}/batches?${new URLSearchParams(after ? { after } : {})}`,

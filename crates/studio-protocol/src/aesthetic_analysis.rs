@@ -110,6 +110,8 @@ pub struct AestheticFitSummary {
     pub max_update: f64,
     pub working_bytes_estimate: u64,
     pub stability_method: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub validity: Option<AestheticValidity>,
 }
 #[derive(Clone, Serialize, Deserialize, ToSchema, Default)]
 pub struct AestheticComparisonGroup {
@@ -232,4 +234,22 @@ pub struct AestheticReview {
     pub sequence: u64,
     pub created_at: String,
     pub request: AestheticReviewCreate,
+}
+
+#[derive(Clone, Serialize, Deserialize, ToSchema)]
+pub struct AestheticValidity {
+    pub version: u32,
+    pub numerical: String,
+    pub groups: Vec<AestheticRatingValidity>,
+}
+#[derive(Clone, Serialize, Deserialize, ToSchema)]
+pub struct AestheticRatingValidity {
+    pub rating: String,
+    pub ranking_scope: String,
+    pub coverage: String,
+    pub connection: String,
+    pub stability: String,
+    pub compared: u64,
+    pub candidates: u64,
+    pub stability_covered: u64,
 }

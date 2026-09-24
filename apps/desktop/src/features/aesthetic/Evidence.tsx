@@ -1,3 +1,4 @@
+import { samplingReason } from "./SamplingPanel.js";
 import { useEffect, useState } from "react";
 import type { Schema } from "@studio/contracts";
 import type { ModuleContext } from "@studio/ui";
@@ -130,6 +131,20 @@ export function BatchDetail({
         {batch.members.length} 图 · {stateLabel(batch.state)}
       </summary>
       {batch.error && <p>{batch.error}</p>}
+      {batch.sampling && (
+        <details className="wb-fold">
+          <summary>第 {batch.sampling.round} 轮 · 采样依据</summary>
+          <p>
+            决策证据水位 {batch.sampling.evidence_watermark}
+            ；整轮计划在派发前冻结。
+          </p>
+          {batch.sampling.members.map((m) => (
+            <p key={m.ordinal}>
+              候选 {m.ordinal + 1} · {samplingReason(m.reason)}
+            </p>
+          ))}
+        </details>
+      )}
       {batch.parent_sequence != null && (
         <p>由批次 {batch.parent_sequence} 在发送前重组。</p>
       )}

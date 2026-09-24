@@ -219,7 +219,8 @@ fn fit(
         }
         for &id in &ids {
             let s = &mut state.signals[id as usize];
-            s.exposures += 1;
+            // Match the paid ledger: a judged image needs another judged peer.
+            s.exposures += u32::from(ids.len() > 1);
             s.cross_year += u32::from(cross);
             s.protected |= row.elite.contains(&id);
             if ids.len() > 1 {
@@ -478,6 +479,7 @@ pub fn replay(
     )?;
     let rank = ranks(&state, &meta);
     let mut split_delta = vec![None; meta.len()];
+    let mut split_converged = true;
     if let Some(seed) = config.stability_seed {
         let mut first = vec![None; meta.len()];
         for half in 0..2 {
@@ -491,6 +493,7 @@ pub fn replay(
                 check,
                 progress,
             )?;
+            split_converged &= split.converged;
             let sr = ranks(&split, &meta);
             for i in 0..meta.len() {
                 let root = state.parent[i] as usize;
@@ -567,7 +570,65 @@ pub fn replay(
         progress("publishing", after.unwrap_or(0) + 1, input.candidates)?;
         emit(rows)?;
     }
+    let validity = AestheticValidity {
+        version: 1,
+        numerical: if state.converged {
+            "converged"
+        } else {
+            "iteration_limit"
+        }
+        .into(),
+        groups: state
+            .groups
+            .values()
+            .map(|g| AestheticRatingValidity {
+                rating: g.rating.clone(),
+                ranking_scope: if g.fully_connected {
+                    "rating"
+                } else if g.compared > 0 {
+                    "component"
+                } else {
+                    "none"
+                }
+                .into(),
+                coverage: if g.compared == g.candidates {
+                    "complete"
+                } else if g.compared == 0 {
+                    "none"
+                } else {
+                    "partial"
+                }
+                .into(),
+                connection: if g.fully_connected {
+                    "connected"
+                } else if g.components > 1 {
+                    "disconnected"
+                } else {
+                    "incomplete_coverage"
+                }
+                .into(),
+                stability: if config.stability_seed.is_none() {
+                    "not_requested"
+                } else if !state.converged {
+                    "main_not_converged"
+                } else if !split_converged {
+                    "split_not_converged"
+                } else if g.split_comparable == g.candidates && g.candidates > 0 {
+                    "available"
+                } else if g.split_comparable > 0 {
+                    "partial_connected_overlap"
+                } else {
+                    "insufficient_connected_overlap"
+                }
+                .into(),
+                compared: g.compared,
+                candidates: g.candidates,
+                stability_covered: g.split_comparable,
+            })
+            .collect(),
+    };
     Ok(AestheticFitSummary {
+        validity: Some(validity),
         estimator_version: config.estimator.kind.clone(),
         groups: state.groups.into_values().collect(),
         iterations_completed: state.iterations,

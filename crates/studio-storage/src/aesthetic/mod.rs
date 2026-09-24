@@ -15,6 +15,7 @@ mod evidence;
 mod project;
 mod receipts;
 mod regroup;
+mod sampling;
 mod writer;
 pub(crate) use project::{recover, reference_reason};
 #[cfg(test)]
@@ -97,6 +98,7 @@ impl EvaluationDb {
                 studio_application::aesthetic::validate_capacity(total)?;
                 db.execute("INSERT INTO stages(id,name,state,created_at,config,config_hash,request_json,total) VALUES (?1,?2,'preparing',?3,?4,?5,?6,?7)",
                     params![id,config.request.name,now(),json,hash(&json),request,total as i64]).map_err(db_error)?;
+                sampling::initialize(db, &config, total)?;
             }
             read_stage(db, &id)
         })
@@ -218,11 +220,13 @@ impl EvaluationDb {
 }
 
 fn read_stage(db: &Connection, id: &str) -> Result<AestheticStage> {
-    db.query_row("SELECT id,name,state,created_at,config,config_hash,total,frozen,eligible,attempts,accepted,invalid,unknown,protected,input_tokens,output_tokens,usage_unknown,error,comparable,excluded,unresolved FROM stages WHERE id=?1",[id],|r| {
+    let mut stage = db.query_row("SELECT id,name,state,created_at,config,config_hash,total,frozen,eligible,attempts,accepted,invalid,unknown,protected,input_tokens,output_tokens,usage_unknown,error,comparable,excluded,unresolved FROM stages WHERE id=?1",[id],|r| {
         let config: String = r.get(4)?;
         let config = serde_json::from_str(&config).map_err(|e| rusqlite::Error::FromSqlConversionFailure(4,rusqlite::types::Type::Text,Box::new(e)))?;
-        Ok(AestheticStage { id:r.get(0)?,name:r.get(1)?,state:r.get(2)?,created_at:r.get(3)?,config,config_hash:r.get(5)?,total:crate::unsigned(r,6)?,frozen:crate::unsigned(r,7)?,eligible:crate::unsigned(r,8)?,attempts:crate::unsigned(r,9)?,accepted:crate::unsigned(r,10)?,invalid:crate::unsigned(r,11)?,unknown:crate::unsigned(r,12)?,protected:crate::unsigned(r,13)?,input_tokens:crate::unsigned(r,14)?,output_tokens:crate::unsigned(r,15)?,usage_unknown:crate::unsigned(r,16)?,error:r.get(17)?,comparable:crate::unsigned(r,18)?,excluded:crate::unsigned(r,19)?,unresolved:crate::unsigned(r,20)? })
-    }).optional().map_err(db_error)?.ok_or_else(|| Error::new("NOT_FOUND","评审阶段不存在"))
+        Ok(AestheticStage { id:r.get(0)?,name:r.get(1)?,state:r.get(2)?,created_at:r.get(3)?,config,config_hash:r.get(5)?,total:crate::unsigned(r,6)?,frozen:crate::unsigned(r,7)?,eligible:crate::unsigned(r,8)?,attempts:crate::unsigned(r,9)?,accepted:crate::unsigned(r,10)?,invalid:crate::unsigned(r,11)?,unknown:crate::unsigned(r,12)?,protected:crate::unsigned(r,13)?,input_tokens:crate::unsigned(r,14)?,output_tokens:crate::unsigned(r,15)?,usage_unknown:crate::unsigned(r,16)?,error:r.get(17)?,comparable:crate::unsigned(r,18)?,excluded:crate::unsigned(r,19)?,unresolved:crate::unsigned(r,20)?, sampling:None })
+    }).optional().map_err(db_error)?.ok_or_else(|| Error::new("NOT_FOUND","评审阶段不存在"))?;
+    stage.sampling = sampling::status(db, id)?;
+    Ok(stage)
 }
 fn candidates(
     db: &Connection,
@@ -262,8 +266,16 @@ fn candidates(
 }
 fn read_batch(db: &Connection, id: &str, sequence: u64) -> Result<AestheticBatch> {
     let row: (String,String,String,Option<String>,Option<String>,Option<String>) = db.query_row("SELECT rating,state,members,attempt_id,error,observation FROM batches WHERE stage_id=?1 AND sequence=?2",params![id,sequence as i64],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?))).optional().map_err(db_error)?.ok_or_else(||Error::new("NOT_FOUND","评审批次不存在"))?;
+    let sampling_json: Option<String> = db
+        .query_row(
+            "SELECT sampling FROM batches WHERE stage_id=?1 AND sequence=?2",
+            params![id, sequence as i64],
+            |r| r.get(0),
+        )
+        .map_err(db_error)?;
     Ok(AestheticBatch {
         sequence,
+        sampling: sampling_json.map(decode).transpose()?,
         parent_sequence: db
             .query_row(
                 "SELECT parent FROM batch_replacements WHERE child=?1",

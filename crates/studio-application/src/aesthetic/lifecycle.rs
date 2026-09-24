@@ -52,7 +52,16 @@ pub fn control_state(stage: &AestheticStage, action: &str) -> Result<&'static st
         {
             validate_capacity(stage.total)?;
             validate_execution(&stage.config)?;
-            if stage.attempts >= u64::from(stage.config.request.max_calls) {
+            if let Some(plan) = &stage.sampling {
+                if plan.version != super::sampling::VERSION {
+                    return Err(Error::new(
+                        "EVALUATION_CONFIG_UNSUPPORTED",
+                        "采样策略版本不受支持",
+                    ));
+                }
+                super::sampling::validate(&plan.policy, stage.total)?;
+            }
+            if stage.sampling.is_none() && stage.attempts >= stage.call_limit() {
                 return Err(Error::invalid("阶段调用预算已用尽，请创建新阶段"));
             }
             Ok(if stage.frozen < stage.total {
@@ -76,7 +85,15 @@ pub fn settled_state(stage: &AestheticStage, pending_batches: bool, has_error: b
         "cancelling" => "cancelled",
         "pausing" => "paused",
         _ if has_error => "needs_attention",
-        "running" if !pending_batches && stage.unresolved == 0 && stage.frozen == stage.total => {
+        "running"
+            if !pending_batches
+                && stage.unresolved == 0
+                && stage.frozen == stage.total
+                && stage
+                    .sampling
+                    .as_ref()
+                    .is_none_or(|s| s.state == "satisfied") =>
+        {
             if stage.excluded > 0 {
                 "completed_with_exclusions"
             } else {
@@ -107,7 +124,10 @@ pub fn validate_execution(config: &AestheticConfig) -> Result<()> {
                 "aesthetic_labels_v1" | "aesthetic_labels_v2"
             ) && v.business_schema_version == AESTHETIC_VERSION
                 && v.encoder_version == "native_json_v1"
-                && v.sampler_version == "rating_year_mix_v1"
+                && matches!(
+                    v.sampler_version.as_str(),
+                    "rating_year_mix_v1" | "connected_rounds_v1"
+                )
         }
         _ => false,
     };

@@ -129,6 +129,8 @@ pub struct AestheticCreate {
     pub expected_input_version: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_request_mib: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sampling: Option<AestheticSamplingPolicy>,
 }
 impl From<domain::AestheticCreate> for AestheticCreate {
     fn from(v: domain::AestheticCreate) -> Self {
@@ -144,6 +146,7 @@ impl From<domain::AestheticCreate> for AestheticCreate {
             concurrency: v.concurrency,
             expected_input_version: v.expected_input_version,
             max_request_mib: v.max_request_mib,
+            sampling: v.sampling.map(Into::into),
         }
     }
 }
@@ -161,6 +164,7 @@ impl From<AestheticCreate> for domain::AestheticCreate {
             concurrency: v.concurrency,
             expected_input_version: v.expected_input_version,
             max_request_mib: v.max_request_mib,
+            sampling: v.sampling.map(Into::into),
         }
     }
 }
@@ -217,6 +221,7 @@ pub struct AestheticStage {
     pub output_tokens: u64,
     pub usage_unknown: u64,
     pub error: Option<String>,
+    pub sampling: Option<AestheticSamplingStatus>,
 }
 impl From<domain::AestheticStage> for AestheticStage {
     fn from(v: domain::AestheticStage) -> Self {
@@ -242,6 +247,7 @@ impl From<domain::AestheticStage> for AestheticStage {
             output_tokens: v.output_tokens,
             usage_unknown: v.usage_unknown,
             error: v.error,
+            sampling: v.sampling.map(Into::into),
         }
     }
 }
@@ -303,6 +309,7 @@ pub struct AestheticBatch {
     pub observation: Option<AestheticObservation>,
     pub parent_sequence: Option<u64>,
     pub replacement_sequences: Vec<u64>,
+    pub sampling: Option<AestheticBatchSampling>,
 }
 impl From<domain::AestheticBatch> for AestheticBatch {
     fn from(v: domain::AestheticBatch) -> Self {
@@ -310,6 +317,7 @@ impl From<domain::AestheticBatch> for AestheticBatch {
             sequence: v.sequence,
             parent_sequence: v.parent_sequence,
             replacement_sequences: v.replacement_sequences,
+            sampling: v.sampling.map(Into::into),
             stage_id: v.stage_id,
             rating: v.rating,
             state: v.state,
@@ -443,4 +451,159 @@ pub struct AestheticRawSummary {
     pub bytes: u64,
     pub complete: bool,
     pub http_status: u16,
+}
+
+#[derive(Clone, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct AestheticSamplingPolicy {
+    /// balanced or adaptive; both use frozen rounds and cross-batch mixing.
+    pub mode: String,
+    pub min_exposures: u32,
+    pub max_exposures: u32,
+    /// Maximum consecutive percentile movement for empirical stability (0..1).
+    pub rank_tolerance: f64,
+    pub seed: u32,
+}
+impl From<domain::AestheticSamplingPolicy> for AestheticSamplingPolicy {
+    fn from(v: domain::AestheticSamplingPolicy) -> Self {
+        Self {
+            mode: v.mode,
+            min_exposures: v.min_exposures,
+            max_exposures: v.max_exposures,
+            rank_tolerance: v.rank_tolerance,
+            seed: v.seed,
+        }
+    }
+}
+impl From<AestheticSamplingPolicy> for domain::AestheticSamplingPolicy {
+    fn from(v: AestheticSamplingPolicy) -> Self {
+        Self {
+            mode: v.mode,
+            min_exposures: v.min_exposures,
+            max_exposures: v.max_exposures,
+            rank_tolerance: v.rank_tolerance,
+            seed: v.seed,
+        }
+    }
+}
+#[derive(Clone, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct AestheticSamplingRequest {
+    pub idempotency_key: String,
+    pub policy: AestheticSamplingPolicy,
+    pub additional_calls: u32,
+}
+impl From<domain::AestheticSamplingRequest> for AestheticSamplingRequest {
+    fn from(v: domain::AestheticSamplingRequest) -> Self {
+        Self {
+            idempotency_key: v.idempotency_key,
+            policy: v.policy.into(),
+            additional_calls: v.additional_calls,
+        }
+    }
+}
+impl From<AestheticSamplingRequest> for domain::AestheticSamplingRequest {
+    fn from(v: AestheticSamplingRequest) -> Self {
+        Self {
+            idempotency_key: v.idempotency_key,
+            policy: v.policy.into(),
+            additional_calls: v.additional_calls,
+        }
+    }
+}
+#[derive(Clone, Serialize, Deserialize, ToSchema)]
+pub struct AestheticSamplingStatus {
+    pub plan_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub previous_plan_id: Option<String>,
+    pub version: String,
+    pub policy: AestheticSamplingPolicy,
+    pub call_limit: u64,
+    pub round: u32,
+    pub evidence_watermark: u64,
+    pub state: String,
+    pub reason: Option<String>,
+    pub eligible: u64,
+    pub covered: u64,
+    pub stable: u64,
+    pub components: u64,
+    pub unresolved: u64,
+}
+impl From<domain::AestheticSamplingStatus> for AestheticSamplingStatus {
+    fn from(v: domain::AestheticSamplingStatus) -> Self {
+        Self {
+            plan_id: v.plan_id,
+            previous_plan_id: v.previous_plan_id,
+            version: v.version,
+            policy: v.policy.into(),
+            call_limit: v.call_limit,
+            round: v.round,
+            evidence_watermark: v.evidence_watermark,
+            state: v.state,
+            reason: v.reason,
+            eligible: v.eligible,
+            covered: v.covered,
+            stable: v.stable,
+            components: v.components,
+            unresolved: v.unresolved,
+        }
+    }
+}
+#[derive(Clone, Serialize, Deserialize, ToSchema)]
+pub struct AestheticSamplingDiagnostic {
+    pub ordinal: u64,
+    pub exposures: u32,
+    /// Exact count, capped at 32; not a count of independent judgments.
+    pub distinct_opponents: u32,
+    pub component: Option<u64>,
+    pub component_size: u64,
+    pub percentile: Option<f64>,
+    pub rank_delta: Option<f64>,
+    pub stable_rounds: u32,
+    pub reason: String,
+}
+impl From<domain::AestheticSamplingDiagnostic> for AestheticSamplingDiagnostic {
+    fn from(v: domain::AestheticSamplingDiagnostic) -> Self {
+        Self {
+            ordinal: v.ordinal,
+            exposures: v.exposures,
+            distinct_opponents: v.distinct_opponents,
+            component: v.component,
+            component_size: v.component_size,
+            percentile: v.percentile,
+            rank_delta: v.rank_delta,
+            stable_rounds: v.stable_rounds,
+            reason: v.reason,
+        }
+    }
+}
+#[derive(Clone, Serialize, Deserialize, ToSchema)]
+pub struct AestheticSamplingMemberReason {
+    pub ordinal: u64,
+    pub reason: String,
+}
+impl From<domain::AestheticSamplingMemberReason> for AestheticSamplingMemberReason {
+    fn from(v: domain::AestheticSamplingMemberReason) -> Self {
+        Self {
+            ordinal: v.ordinal,
+            reason: v.reason,
+        }
+    }
+}
+#[derive(Clone, Serialize, Deserialize, ToSchema)]
+pub struct AestheticBatchSampling {
+    pub plan_id: String,
+    pub round: u32,
+    pub evidence_watermark: u64,
+    pub members: Vec<AestheticSamplingMemberReason>,
+}
+impl From<domain::AestheticBatchSampling> for AestheticBatchSampling {
+    fn from(v: domain::AestheticBatchSampling) -> Self {
+        Self {
+            plan_id: v.plan_id,
+            round: v.round,
+            evidence_watermark: v.evidence_watermark,
+            members: v.members.into_iter().map(Into::into).collect(),
+        }
+    }
 }

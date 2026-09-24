@@ -216,6 +216,7 @@ pub(super) fn freeze_page(
             sequence: 0,
             parent_sequence: None,
             replacement_sequences: vec![],
+            sampling: None,
             stage_id: stage.id.clone(),
             rating: String::new(),
             state: "preparing".into(),

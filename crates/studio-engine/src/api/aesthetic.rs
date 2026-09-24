@@ -347,6 +347,8 @@ async fn backup(State(s): State<AppState>, Path(pid): Path<String>) -> ApiResult
     abandon_creation,
     candidate,
     reparse_batch,
+    configure_sampling,
+    sampling_diagnostic,
     recovery_package
 ))]
 pub struct AestheticApiDoc;
@@ -358,6 +360,8 @@ pub(super) fn routes() -> axum::Router<AppState> {
         .route("/stages", get(stages).post(create))
         .route("/stages/{id}", get(stage))
         .route("/stages/{id}/control", post(control))
+        .route("/stages/{id}/sampling", post(configure_sampling))
+        .route("/stages/{id}/sampling/{ordinal}", get(sampling_diagnostic))
         .route("/stages/{id}/batches", get(batches))
         .route("/stages/{id}/candidates", get(candidates))
         .route("/stages/{id}/candidates/{ordinal}", get(candidate))
@@ -371,6 +375,39 @@ pub(super) fn routes() -> axum::Router<AppState> {
         .route("/metrics", get(metrics))
         .route("/backup", post(backup))
         .route("/recovery-package", post(recovery_package))
+}
+
+#[utoipa::path(operation_id="aesthetic_configure_sampling",post,path="/stages/{id}/sampling",params(("project_id"=String,Path),("id"=String,Path)),request_body=AestheticSamplingRequest,responses((status=200,body=AestheticStage)))]
+async fn configure_sampling(
+    State(s): State<AppState>,
+    Path((pid, id)): Path<(String, String)>,
+    Body(value): Body<AestheticSamplingRequest>,
+) -> ApiResult<AestheticStage> {
+    Ok(Json(
+        blocking(move || {
+            let _lease = s.store.operation_lease(&pid)?;
+            let stage = s
+                .store
+                .evaluation(&pid)?
+                .configure_sampling(&id, value.into())?;
+            s.store.sync_evaluation(&pid, &stage)?;
+            Ok(stage)
+        })
+        .await?
+        .into(),
+    ))
+}
+
+#[utoipa::path(operation_id="aesthetic_sampling_diagnostic",get,path="/stages/{id}/sampling/{ordinal}",params(("project_id"=String,Path),("id"=String,Path),("ordinal"=u64,Path)),responses((status=200,body=Option<AestheticSamplingDiagnostic>)))]
+async fn sampling_diagnostic(
+    State(s): State<AppState>,
+    Path((pid, id, ordinal)): Path<(String, String, u64)>,
+) -> ApiResult<Option<AestheticSamplingDiagnostic>> {
+    Ok(Json(
+        blocking(move || s.store.evaluation(&pid)?.sampling_diagnostic(&id, ordinal))
+            .await?
+            .map(Into::into),
+    ))
 }
 #[utoipa::path(operation_id="aesthetic_reparse_batch",post,path="/stages/{id}/batches/{batch}/reparse",params(("project_id"=String,Path),("id"=String,Path),("batch"=u64,Path)),responses((status=200,body=OkResponse)))]
 async fn reparse_batch(

@@ -9,6 +9,7 @@ import {
   WorkbenchPanelPortal,
 } from "@studio/ui";
 import type { ModuleContext } from "@studio/ui";
+import { SamplingDiagnostic } from "./SamplingPanel.js";
 import { CandidateCard } from "./Evidence.js";
 
 const labels: Record<Schema["AestheticDisposition"], string> = {
@@ -134,7 +135,8 @@ export function CandidateQueue({
   const canRejudge =
     row.data &&
     ["g", "s", "q", "e"].includes(row.data.rating) &&
-    stage.attempts < stage.config.request.max_calls;
+    stage.attempts <
+      (stage.sampling?.call_limit ?? stage.config.request.max_calls);
   const editable = draft.editable && !busy && !full && canDecide && !value.key;
   const bytes = new TextEncoder().encode(value.reason.trim()).length;
   function edit(patch: Partial<Entry>) {
@@ -359,6 +361,11 @@ export function CandidateQueue({
               <p className="aesthetic-help">
                 {row.data.rating.toUpperCase()} · 有效曝光 {row.data.exposures}
               </p>
+              <SamplingDiagnostic
+                context={context}
+                stage={stage}
+                ordinal={row.data.ordinal}
+              />
               {["running", "preparing", "pausing", "cancelling"].includes(
                 stage.state,
               ) && <p>暂停阶段并等待在途批次结束后，才能提交新的处置。</p>}

@@ -1,6 +1,7 @@
 use std::collections::BTreeSet;
 use studio_domain::{Error, Result, aesthetic::*, llm::*};
 mod lifecycle;
+pub mod sampling;
 pub use lifecycle::*;
 
 /// Storage implements this port; accepted observations are the replay source of truth.
@@ -43,6 +44,12 @@ pub fn validate_create(value: &AestheticCreate) -> Result<()> {
         .is_some_and(|v| v.len() != 64 || !v.bytes().all(|b| b.is_ascii_hexdigit()))
     {
         return Err(Error::invalid("预检输入版本必须为 SHA-256"));
+    }
+    if let Some(policy) = &value.sampling {
+        sampling::validate(policy, 0)?;
+        if policy.min_exposures != value.exposures {
+            return Err(Error::invalid("最低曝光与阶段曝光字段不一致"));
+        }
     }
     Ok(())
 }

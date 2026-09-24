@@ -37,14 +37,18 @@ impl EvaluationDb {
                 AestheticDispositionAction::Exclude => "excluded",
                 AestheticDispositionAction::Rejudge => {
                     if !matches!(candidate.rating.as_str(),"g"|"s"|"q"|"e") { return Err(Error::new("EVALUATION_RATING_UNRESOLVED","Rating 不确定，不能安排跨 Rating 比较")); }
-                    if stage.attempts >= u64::from(stage.config.request.max_calls) { return Err(Error::invalid("调用预算已用尽")); }
+                    if stage.attempts >= stage.call_limit() { return Err(Error::invalid("调用预算已用尽")); }
                     "rejudge"
                 }
             };
             db.execute("INSERT INTO candidate_decisions VALUES (?1,?2,?3,?4,?5,?6,?7)",params![id,decision.idempotency_key,ordinal as i64,json,candidate.disposition.as_str(),next,now()]).map_err(db_error)?;
             db.execute("UPDATE candidates SET disposition=?3,disposition_reason=?4,blocked=?5 WHERE stage_id=?1 AND ordinal=?2",params![id,ordinal as i64,next,decision.reason,next=="excluded"]).map_err(db_error)?;
+            if let Some(mut status)=sampling::status(db,&id)? {
+                status.state="ready".into();status.reason=None;
+                db.execute("UPDATE sampling_plans SET status_json=?2 WHERE id=?1",params![status.plan_id,encode(&status)?]).map_err(db_error)?;
+            }
             let stage = read_stage(db,&id)?;
-            if stage.unresolved==0 && stage.frozen==stage.total && stage.excluded>0 {
+            if stage.sampling.is_none() && stage.unresolved==0 && stage.frozen==stage.total && stage.excluded>0 {
                 let pending: bool=db.query_row("SELECT EXISTS(SELECT 1 FROM batches WHERE stage_id=?1 AND state!='accepted')",[&id],|r|r.get(0)).map_err(db_error)?;
                 if !pending { db.execute("UPDATE stages SET state='completed_with_exclusions',error=NULL WHERE id=?1",[&id]).map_err(db_error)?; }
             }

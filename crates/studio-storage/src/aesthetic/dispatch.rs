@@ -5,12 +5,13 @@ impl EvaluationDb {
         let id = id.to_owned();
         self.writer.submit(32*1024, move |db| {
             let stage=read_stage(db,&id)?;
-            if stage.state!="running" || stage.attempts>=u64::from(stage.config.request.max_calls) { return Ok(None); }
+            if stage.state!="running" || stage.attempts>=stage.call_limit() { return Ok(None); }
             let queued: Option<u64>=db.query_row("SELECT sequence FROM batches WHERE stage_id=?1 AND state='queued' ORDER BY sequence LIMIT 1",[&id],|r|crate::unsigned(r,0)).optional().map_err(db_error)?;
             if let Some(sequence)=queued {
                 db.execute("UPDATE batches SET state='preparing' WHERE sequence=?1",[sequence as i64]).map_err(db_error)?;
                 return read_batch(db,&id,sequence).map(Some);
             }
+            if stage.sampling.is_some() { return sampling::claim(db, &stage); }
             for _ in 0..4 {
             let first=candidates(db,"WHERE stage_id=?1 AND blocked=0 AND reserved=0 AND disposition IN ('active','rejudge') AND (exposures<?2 OR disposition='rejudge') ORDER BY exposures,sort_key LIMIT 1",params![id,stage.config.request.exposures])?.pop();
             let Some(first)=first else { return Ok(None) };
@@ -63,7 +64,7 @@ impl EvaluationDb {
             if semantic_request_hash.len()!=64 || !semantic_request_hash.bytes().all(|v|v.is_ascii_hexdigit()) { return Err(Error::invalid("缺少语义请求摘要")); }
             let batch=read_batch(db,&id,sequence)?;
             if batch.state!="preparing" { return Err(Error::new("REVISION_CONFLICT","批次已被领取")); }
-            if s.state!="running" || s.attempts>=u64::from(s.config.request.max_calls) {
+            if s.state!="running" || s.attempts>=s.call_limit() {
                 db.execute("UPDATE batches SET state='queued' WHERE sequence=?1",[sequence as i64]).map_err(db_error)?;
                 return Ok(false);
             }
@@ -126,7 +127,7 @@ impl EvaluationDb {
             ) {
                 return Err(Error::new("REVISION_CONFLICT", "请先等待阶段暂停后重试"));
             }
-            if s.attempts >= u64::from(s.config.request.max_calls) {
+            if s.attempts >= s.call_limit() {
                 return Err(Error::invalid("调用预算已用尽"));
             }
             let batch = read_batch(db, &id, sequence)?;

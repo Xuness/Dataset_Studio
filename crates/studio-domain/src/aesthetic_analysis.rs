@@ -109,6 +109,8 @@ pub struct AestheticFitSummary {
     pub max_update: f64,
     pub working_bytes_estimate: u64,
     pub stability_method: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub validity: Option<AestheticValidity>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AestheticComparisonGroup {
@@ -241,4 +243,22 @@ pub struct AestheticReplayObservation {
     pub tiers: Vec<Vec<u32>>,
     pub elite: Vec<u32>,
     pub unjudgeable: Vec<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AestheticValidity {
+    pub version: u32,
+    pub numerical: String,
+    pub groups: Vec<AestheticRatingValidity>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AestheticRatingValidity {
+    pub rating: String,
+    pub ranking_scope: String,
+    pub coverage: String,
+    pub connection: String,
+    pub stability: String,
+    pub compared: u64,
+    pub candidates: u64,
+    pub stability_covered: u64,
 }

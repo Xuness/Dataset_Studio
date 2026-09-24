@@ -31,7 +31,8 @@ impl EvaluationDb {
                     continue;
                 }
                 for (i,m) in group.iter_mut().enumerate(){m.label=format!("img{:02}",i+1);}
-                db.execute("INSERT INTO batches(stage_id,rating,state,members) VALUES(?1,?2,'queued',?3)",params![stage,parent.rating,encode(&group)?]).map_err(db_error)?;
+                let audit = parent.sampling.clone().map(|mut s| { s.members.retain(|r| group.iter().any(|m|m.candidate.ordinal==r.ordinal)); s });
+                db.execute("INSERT INTO batches(stage_id,rating,state,members,sampling) VALUES(?1,?2,'queued',?3,?4)",params![stage,parent.rating,encode(&group)?,audit.as_ref().map(encode).transpose()?]).map_err(db_error)?;
                 db.execute("INSERT INTO batch_replacements VALUES(?1,?2,?3,?4)",params![sequence as i64,db.last_insert_rowid(),reason,now()]).map_err(db_error)?;
             }
             Ok(())

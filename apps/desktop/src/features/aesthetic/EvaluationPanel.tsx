@@ -15,6 +15,7 @@ import { BatchDetail, CandidateCard, stateLabel } from "./Evidence.js";
 import { StageCreationDialog } from "./StageCreationDialog.js";
 import { CandidateQueue } from "./CandidateQueue.js";
 import "./aesthetic.css";
+import { SamplingPanel } from "./SamplingPanel.js";
 
 const evaluationLayout: WorkbenchLayout = {
   panels: {
@@ -368,6 +369,12 @@ export default function EvaluationPanel(
               </div>
               <WorkbenchPanelPortal id="stage-status">
                 <div className="evaluation-status-panel">
+                  <SamplingPanel
+                    context={context}
+                    stage={selected}
+                    disabled={busy}
+                    onChanged={() => setRevision((v) => v + 1)}
+                  />
                   <div className="aesthetic-counters">
                     <span>
                       候选冻结{" "}
@@ -383,7 +390,8 @@ export default function EvaluationPanel(
                       调用尝试{" "}
                       <b>
                         {selected.attempts} /{" "}
-                        {selected.config.request.max_calls}
+                        {selected.sampling?.call_limit ??
+                          selected.config.request.max_calls}
                       </b>
                     </span>
                     <span>

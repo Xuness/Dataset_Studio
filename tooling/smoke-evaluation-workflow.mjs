@@ -215,11 +215,13 @@ try {
       request.method() === "POST"
         ? path.endsWith("/stages")
           ? "create"
-          : path.endsWith("/disposition")
-            ? "decision"
-            : path.endsWith("/experiments")
-              ? "experiment"
-              : ""
+          : path.endsWith("/sampling")
+            ? "sampling"
+            : path.endsWith("/disposition")
+              ? "decision"
+              : path.endsWith("/experiments")
+                ? "experiment"
+                : ""
         : "";
     if (operation) requests.push({ operation, value: request.postDataJSON() });
     const response = await fetch(request.url(), {
@@ -253,6 +255,9 @@ try {
   await page
     .getByLabel("审美标准（System Prompt）", { exact: true })
     .selectOption(prompt.id);
+  await page.getByLabel("采样方式", { exact: true }).selectOption("balanced");
+  await page.getByLabel("每图最低有效曝光", { exact: true }).fill("1");
+  await page.getByLabel("每图有效曝光上限", { exact: true }).fill("2");
   await page.getByLabel("调用次数上限", { exact: true }).fill("6");
   await expect(page.getByLabel("每批请求体预算", { exact: true })).toHaveValue(
     "32",
@@ -519,6 +524,10 @@ try {
     "ranking",
   );
   await expect(page.locator(".ranking-image-grid img").first()).toBeVisible();
+  await expect(page.locator(".ranking-validity")).toContainText(
+    "排名范围与证据覆盖",
+  );
+  await screenshot("ranking-validity-2560");
   await view("experiments");
   await page.getByLabel("实验对照 A").selectOption(jobs[0].id);
   await page.getByLabel("实验对照 B").selectOption(jobs[1].id);
@@ -534,6 +543,39 @@ try {
     "completed experiment results open their ranking and preselect both snapshots for comparison",
   );
   await view("evaluation");
+  await page.getByRole("tab", { name: "阶段状态", exact: true }).click();
+  await page.getByRole("button", { name: "配置追加评审", exact: true }).click();
+  await page
+    .getByLabel("追加采样方式", { exact: true })
+    .selectOption("balanced");
+  await page.getByLabel("追加调用次数上限", { exact: true }).fill("4");
+  await screenshot("sampling-dialog-2560");
+  faults.add("sampling");
+  await page.getByRole("button", { name: "保存追加计划", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "重试保存同一计划", exact: true }),
+  ).toBeEnabled();
+  await page.reload();
+  await page.getByRole("tab", { name: "阶段状态", exact: true }).click();
+  await page.getByRole("button", { name: "配置追加评审", exact: true }).click();
+  await page
+    .getByRole("button", { name: "重试保存同一计划", exact: true })
+    .click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  const samplingRequests = requests.filter((r) => r.operation === "sampling");
+  assert.equal(samplingRequests.length, 2);
+  assert.deepEqual(samplingRequests[0].value, samplingRequests[1].value);
+  const configured = await client.aesthetic.stage(project.id, stage.id);
+  assert.equal(configured.state, "ready");
+  assert.equal(
+    configured.sampling.plan_id,
+    samplingRequests[0].value.idempotency_key,
+  );
+  assert.equal(mock.calls.length, 2);
+  await screenshot("sampling-status-2560");
+  checks.push(
+    "supplement plan survives lost response and reload; exact retry preserves one unstarted budget revision without API calls",
+  );
   await page.getByRole("button", { name: "异常候选", exact: true }).click();
   await page.setViewportSize({ width: 1707, height: 928 });
   const bounds = await page.evaluate(() => ({

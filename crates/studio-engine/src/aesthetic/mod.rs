@@ -19,6 +19,7 @@ mod creation;
 mod health;
 mod media;
 mod receipts;
+mod sampling;
 pub use creation::{create, preflight};
 pub use receipts::reparse_batch;
 
@@ -54,6 +55,7 @@ pub struct Runner {
     active: Mutex<HashMap<(String, String), Control>>,
     requests: Arc<Semaphore>,
     bytes: Arc<Semaphore>,
+    planners: Arc<Semaphore>,
     upload: tokio::sync::Mutex<Instant>,
     active_requests: AtomicU64,
     reserved: AtomicU64,
@@ -67,6 +69,7 @@ impl Default for Runner {
             active: Default::default(),
             requests: Arc::new(Semaphore::new(32)),
             bytes: Arc::new(Semaphore::new(512 * 1024)),
+            planners: Arc::new(Semaphore::new(1)),
             upload: tokio::sync::Mutex::new(Instant::now()),
             active_requests: AtomicU64::new(0),
             reserved: AtomicU64::new(0),
@@ -306,6 +309,20 @@ impl Runner {
                         control.clone(),
                     ));
                     continue;
+                }
+            }
+            if can_start && running.is_empty() && stage.sampling.is_some() {
+                match self
+                    .plan_round(db.clone(), id.clone(), control.clone())
+                    .await
+                {
+                    Ok(true) => continue,
+                    Ok(false) => break,
+                    Err(error) if error.code == "CANCELLED" => break,
+                    Err(error) => {
+                        failure = Some(error);
+                        continue;
+                    }
                 }
             }
             let Some(result) = running.next().await else {

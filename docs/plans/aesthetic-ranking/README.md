@@ -2,7 +2,7 @@
 
 整理日期：2026-09-18。审查与实验日期：2026-09-17。源码基线：`ae6fd669e543ad7558c1a739dfc1a472dd18a459`。
 
-状态：**评审执行、离线估计、排名快照、实验对照、保护复核与派生工作集的后端已接入；连续排名浏览、侧栏保护复核、已发布快照对照和派生工作集前端已接入**。工作台范围见[前端设计](../../design/frontend-workbench.md)及[2026-09-23 验收](../../verification/2026-09-23-workbench.md)，阅读与对照扩展见 [ADR 0029](../../decisions/0029-aesthetic-reading-and-review.md)，基础预检、异常处置及实验变体批量配置已接入，见 [ADR 0030](../../decisions/0030-aesthetic-execution-ui.md)。设计 System Prompt 时请参照[模型输出协议](../../design/aesthetic-model-output.md)。本目录保留 2026-09-17 的审查与设计依据，后端实现见[第一阶段说明](phase-1-implementation.md)、[第二阶段后端与 SDK](phase-2-backend.md)及 [ADR 0026](../../decisions/0026-aesthetic-offline-analysis.md)。图片预算、原始回执和恢复包更新见 [ADR 0031](../../decisions/0031-aesthetic-transport-and-recovery.md)。估计器仍待真实校准，历史实验不构成生产容量承诺。
+状态：**评审执行、离线估计、排名快照、实验对照、保护复核与派生工作集的后端已接入；连续排名浏览、侧栏保护复核、已发布快照对照和派生工作集前端已接入**。工作台范围见[前端设计](../../design/frontend-workbench.md)及[2026-09-23 验收](../../verification/2026-09-23-workbench.md)，阅读与对照扩展见 [ADR 0029](../../decisions/0029-aesthetic-reading-and-review.md)，基础预检、异常处置及实验变体批量配置已接入，见 [ADR 0030](../../decisions/0030-aesthetic-execution-ui.md)。设计 System Prompt 时请参照[模型输出协议](../../design/aesthetic-model-output.md)。本目录保留 2026-09-17 的审查与设计依据，后端实现见[第一阶段说明](phase-1-implementation.md)、[第二阶段后端与 SDK](phase-2-backend.md)及 [ADR 0026](../../decisions/0026-aesthetic-offline-analysis.md)。图片预算、原始回执和恢复包更新见 [ADR 0031](../../decisions/0031-aesthetic-transport-and-recovery.md)。按轮次动态采样与追加连接见 [ADR 0032](../../decisions/0032-aesthetic-adaptive-sampling.md)。估计器仍待真实校准，历史实验不构成生产容量承诺。
 
 ## 阅读入口
 
