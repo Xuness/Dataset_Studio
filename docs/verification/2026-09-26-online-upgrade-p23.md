@@ -40,7 +40,7 @@ Danbooru/Gelbooru 的 1girl 首页约 31/43 ms。Yandere 本次该词无命中�
 
 已按授权删除 4 个旧项目和 Studio 的 browse/identity、Rating、ranked、query 暂存及目录缓存，删除文件长度合计 154,826,280,329 字节（约 154.83 GB）。全局偏好、提供商、模型、预设、模型目录和 System Prompt 表逐表摘要保持一致，凭据目录保留。生产引擎已换为新二进制，项目列表为空，三湖预检通过。用户可以直接建立新项目。
 
-Store 的原生生产者索引仍服务离线分析与归档工具。D:\Dataset\Danbooru 还包含 Python 运行环境，不可整目录删除。
+Store 的原生生产者索引仍服务离线分析与归档工具。P2/P3 完成后，用户进一步要求统一物理位置，已将原 D:\Dataset\Danbooru 连同生产者索引、Python 环境及日任务工作区归并至 F:\Dataset\Danbooru，并在验证后移除 D 盘副本，见 [工作区迁移记录](2026-09-26-danbooru-workspace-relocation.md)。
 
 ## 证据与重复执行
 

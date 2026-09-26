@@ -64,7 +64,7 @@ pwsh -File tooling/start-dev.ps1
 本机 Danbooru 路径示例（换机后请在应用中关联实际目录）：
 
 ```text
-SSD 索引：D:\Dataset\Danbooru
+SSD 在线索引：F:\Dataset\Danbooru
 图片湖：  E:\AI\AI_Dataset\Danbooru
 ```
 
