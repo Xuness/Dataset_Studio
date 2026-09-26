@@ -1,3 +1,4 @@
+import { sourceSupports } from "@studio/client";
 import { useProjectSession } from "../features/projects/useProjectSession.js";
 import { useProjectQueries } from "../features/query/useProjectQueries.js";
 import { scopeOptions } from "../features/scopes/scopes.js";
@@ -1260,6 +1261,17 @@ function Studio({
               client={client}
               projectId={project.id}
               asset={view.focus}
+              onFilterTag={(tag) => {
+                setQueryVisible(true);
+                setInvocation((old) => ({
+                  projectId: currentId,
+                  sequence: (old?.sequence ?? 0) + 1,
+                  args: {
+                    sourceId: view.focus!.key.source_id,
+                    exactTag: JSON.stringify(tag),
+                  },
+                }));
+              }}
             />
           )}
           <div className="property-section">
@@ -1738,7 +1750,7 @@ function SourceRow({
         items={[
           { label: "管理与引用关系", action: () => onManage() },
           { label: "重命名与备注…", action: () => onManage("rename") },
-          ...(source.kind === "danbooru"
+          ...(sourceSupports(source, "relink")
             ? [{ label: "重新关联本机位置…", action: onRelink }]
             : []),
           {

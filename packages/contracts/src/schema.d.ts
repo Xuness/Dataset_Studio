@@ -1951,6 +1951,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{project_id}/source-requirements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["requirements"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects/{project_id}/sources": {
         parameters: {
             query?: never;
@@ -2313,6 +2329,38 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["shutdown"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-adapters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["adapters"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-probes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["probe"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3085,6 +3133,7 @@ export interface components {
             issue?: string | null;
             post_count?: string | null;
             post_ids: string[];
+            site_name?: string | null;
             /** @description available, unlinked, preparing, unavailable, or unsupported. */
             status: string;
             version?: string | null;
@@ -3753,6 +3802,7 @@ export interface components {
             total?: number | null;
         };
         MetadataField: {
+            label?: string | null;
             missing_reason?: string | null;
             name: string;
             provenance: string;
@@ -3989,6 +4039,11 @@ export interface components {
             /** Format: int64 */
             writes: number;
         };
+        ProbeSource: {
+            index_root?: string | null;
+            kind: string;
+            media_root?: string | null;
+        };
         Project: {
             created_at: string;
             directory: string;
@@ -4130,6 +4185,7 @@ export interface components {
             analysis_sequence?: string | null;
             catalog_revision: string;
             consistency: string;
+            semantics_version?: string | null;
             source_id: string;
         };
         QuerySpec: {
@@ -4588,12 +4644,19 @@ export interface components {
             format?: string | null;
             json?: string | null;
             observation_id: string;
+            schema?: null | components["schemas"]["RawSourceSchema"];
             schema_id?: string | null;
             status: string;
             version: components["schemas"]["ReadVersion"];
         };
         RawMetadataQuery: {
             version: string;
+        };
+        RawSourceSchema: {
+            bytes: string;
+            data?: string | null;
+            encoding: string;
+            format: string;
         };
         ReadProcessMemory: {
             peak_resident_bytes: string;
@@ -4829,6 +4892,7 @@ export interface components {
             available: boolean;
             /** Format: int64 */
             count?: number | null;
+            descriptor?: null | components["schemas"]["SourceDescriptor"];
             enumeration: string;
             id: string;
             issue?: string | null;
@@ -4836,10 +4900,62 @@ export interface components {
             name: string;
             revision?: string | null;
         };
+        SourceCapabilities: {
+            browse: boolean;
+            incremental: boolean;
+            media: boolean;
+            metadata: boolean;
+            post_order: boolean;
+            query: boolean;
+            raw_metadata: boolean;
+            relink: boolean;
+            stored_dimensions: boolean;
+        };
+        SourceDescriptor: {
+            backend_id: string;
+            capabilities: components["schemas"]["SourceCapabilities"];
+            display_name: string;
+            projections: string[];
+            semantics_version: string;
+            site_id?: string | null;
+            /** Format: int32 */
+            version: number;
+        };
+        SourcePreflight: {
+            analysis_sequence?: string | null;
+            count?: string | null;
+            descriptor: components["schemas"]["SourceDescriptor"];
+            enumeration: string;
+            kind: string;
+            revision: string;
+            source_id: string;
+        };
+        SourceRegistration: {
+            descriptor: components["schemas"]["SourceDescriptor"];
+            kind: string;
+            name: string;
+        };
+        SourceRegistrations: {
+            items: components["schemas"]["SourceRegistration"][];
+        };
         SourceRelinked: {
             impact: string;
             revision: string;
             source_id: string;
+        };
+        SourceRequirementStatus: {
+            name: string;
+            reason?: string | null;
+            source_id: string;
+            supported: boolean;
+        };
+        SourceRequirementsRequest: {
+            projections: string[];
+            scope: components["schemas"]["ScopeRef"];
+        };
+        SourceRequirementsResult: {
+            sources: components["schemas"]["SourceRequirementStatus"][];
+            supported: boolean;
         };
         Sources: {
             items: components["schemas"]["Source"][];
@@ -8187,6 +8303,31 @@ export interface operations {
             };
         };
     };
+    requirements: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SourceRequirementsRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceRequirementsResult"];
+                };
+            };
+        };
+    };
     sources: {
         parameters: {
             query?: never;
@@ -8809,6 +8950,48 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+        };
+    };
+    adapters: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceRegistrations"];
+                };
+            };
+        };
+    };
+    probe: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProbeSource"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourcePreflight"];
                 };
             };
         };

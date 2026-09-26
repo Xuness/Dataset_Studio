@@ -50,8 +50,13 @@ pub(super) async fn submit(
                 return Ok(old.into());
             }
             query::validate_scope(&s, &pid, &request.scope)?;
-            let frozen =
-                crate::tool_inputs::capture(&s.store, &pid, &request.scope, request.run.clone())?;
+            let frozen = crate::tool_inputs::capture(
+                &s.store,
+                &pid,
+                &request.scope,
+                request.run.clone(),
+                &s.sources,
+            )?;
             let capture = if matches!(request.scope.target, domain::ScopeTarget::Source { .. }) {
                 Some(query::source_capture(&s, &pid, &request.scope)?)
             } else {

@@ -70,3 +70,10 @@ export type {
   DockPosition,
 } from "./Workbench.js";
 export { WorkbenchDialog } from "./WorkbenchDialog.js";
+
+export {
+  parseTagInput,
+  formatTagList,
+  validSourceTag,
+  displayTag,
+} from "./tagInput.js";

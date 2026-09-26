@@ -383,6 +383,7 @@ button:hover:not(:disabled) {
   gap: 5px;
   font-size: 12px;
 }
+.filter-tags textarea,
 .filter-tags input,
 .filter-tags select {
   min-height: 31px;

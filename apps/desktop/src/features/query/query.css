@@ -95,6 +95,7 @@
 .condition-value {
   min-width: 0;
 }
+.condition-value > textarea,
 .condition-value > input,
 .condition-value > select {
   width: 100%;

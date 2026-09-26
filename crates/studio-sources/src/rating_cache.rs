@@ -1,7 +1,7 @@
 //! Application-owned current-post candidates shared by every project using a lake.
 //! Observation identities preserve conjunction semantics when an image has several posts.
 use crate::{
-    danbooru::{Catalog, err},
+    canonical::{Catalog, err},
     duckdb::{Runtime, Session},
     query::{ChangeAnchor, analysis_sequence, changes},
 };

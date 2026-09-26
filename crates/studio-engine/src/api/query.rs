@@ -65,9 +65,10 @@ fn validate_spec(
     let spec = spec.normalize()?;
     s.store.validate_derived(pid, &spec)?;
     let native = studio_storage::native_spec(&spec);
+    let read = s.sources.inspect()?;
+    let reader = read.query(domain::METADATA_MEMORY_BYTES, false);
     for id in &spec.source_ids {
-        s.queries
-            .reader
+        reader
             .fields(&s.store.source(pid, id)?)?
             .validate(&native)?;
     }
@@ -82,7 +83,9 @@ pub(super) async fn fields(
     Ok(Json(
         blocking(move || {
             let _permit = read_permit(&s, domain::ReadClass::Index, &read_context)?;
-            let mut directory = s.queries.reader.fields(&s.store.source(&pid, &sid)?)?;
+            let mut directory = _permit
+                .query(domain::METADATA_MEMORY_BYTES, false)
+                .fields(&s.store.source(&pid, &sid)?)?;
             directory.fields.extend(s.store.derived_fields(&pid, &sid)?);
             Ok(directory.into())
         })
@@ -397,7 +400,7 @@ pub(super) async fn result_assets(
             let mut assets = std::collections::HashMap::new();
             for (source_id, keys) in groups {
                 let source = s.store.source(&pid, &source_id)?;
-                for item in SourceRouter.freeze(&source, &keys)? {
+                for item in _permit.freeze(&source, &keys)? {
                     if !result.spec.uses_only_fixed_project_data()
                         && !result.source_versions.iter().any(|v| {
                             v.source_id == source_id && v.catalog_revision == item.source_revision
@@ -420,7 +423,7 @@ pub(super) async fn result_assets(
                         .ok_or_else(|| domain::Error::new("SOURCE_CHANGED", "结果成员已不可用"))
                 })
                 .collect::<domain::Result<Vec<_>>>()?;
-            enrich_summaries(&s, &pid, &read_context, &mut items)?;
+            enrich_summaries(&s, &pid, &read_context, &_permit, &mut items)?;
             ranking_browse::annotate(
                 &s,
                 &pid,

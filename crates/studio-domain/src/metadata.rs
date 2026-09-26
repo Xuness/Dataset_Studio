@@ -48,6 +48,7 @@ pub enum MetadataValue {
 #[derive(Debug, Clone)]
 pub struct MetadataField {
     pub name: String,
+    pub label: Option<String>,
     pub value: Option<MetadataValue>,
     pub provenance: String,
     pub missing_reason: Option<String>,
@@ -80,11 +81,19 @@ pub struct RawMetadata {
     pub observation_id: String,
     pub format: Option<String>,
     pub schema_id: Option<String>,
+    pub schema: Option<RawSourceSchema>,
     pub json: Option<String>,
     pub bytes: Option<String>,
     /// available, missing, or too_large. Oversized JSON is never returned partially.
     pub status: String,
     pub version: ReadVersion,
+}
+#[derive(Debug, Clone)]
+pub struct RawSourceSchema {
+    pub format: String,
+    pub encoding: String,
+    pub bytes: String,
+    pub data: Option<String>,
 }
 #[derive(Debug, Clone, Default)]
 pub struct MetadataRequest {

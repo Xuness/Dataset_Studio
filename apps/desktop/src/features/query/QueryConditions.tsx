@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { Plus, X } from "lucide-react";
-import { Button, RatingPicker, ratingChoices, tagList } from "@studio/ui";
+import {
+  Button,
+  RatingPicker,
+  ratingChoices,
+  tagList,
+  validSourceTag,
+  formatTagList,
+} from "@studio/ui";
 import type { FieldDefinition, QueryCondition } from "@studio/contracts";
 
 export const operatorNames: Record<QueryCondition["operator"], string> = {
@@ -51,8 +58,8 @@ export function conditionIssue(
         : "请填写至少一个标签。";
     if (value.value.length > 64) return "每组最多 64 个值。";
     if (
-      value.value.some(
-        (v) => v.length > 256 || (field.field_type === "tags" && /\s/u.test(v)),
+      value.value.some((v) =>
+        field.field_type === "tags" ? !validSourceTag(v) : v.length > 256,
       )
     )
       return "标签必须完整，单个不超过 256 个字符。";
@@ -67,7 +74,7 @@ export function conditionIssue(
     }
   } else if (
     condition.operator === "has_tag" &&
-    (value?.type !== "text" || !value.value || /\s/u.test(value.value))
+    (value?.type !== "text" || !validSourceTag(value.value))
   )
     return "此操作只接受一个标签；多个标签请选全部或任一。";
   return "";
@@ -81,23 +88,24 @@ function TagValues({
   onChange: (values: string[]) => void;
   label: string;
 }) {
-  const [text, setText] = useState(values.join(" "));
+  const [text, setText] = useState(formatTagList(values));
   const focused = useRef(false);
   useEffect(() => {
-    if (!focused.current) setText(values.join(" "));
+    if (!focused.current) setText(formatTagList(values));
   }, [values]);
   return (
-    <input
+    <textarea
+      rows={1}
       aria-label={label}
       value={text}
       maxLength={16384}
-      placeholder="多个完整标签，用空格或逗号分隔"
+      placeholder="普通空格分隔；双引号内可写 \t、\n 等 JSON 转义"
       onFocus={() => {
         focused.current = true;
       }}
       onBlur={() => {
         focused.current = false;
-        setText(values.join(" "));
+        setText(formatTagList(values));
       }}
       onChange={(e) => {
         setText(e.target.value);
@@ -253,6 +261,24 @@ export function QueryConditions({
                     })
                   }
                 />
+              ) : field?.field_type === "tags" ? (
+                <TagValues
+                  label={"条件值 " + (index + 1)}
+                  values={
+                    condition.value?.type === "text" && condition.value.value
+                      ? [condition.value.value]
+                      : []
+                  }
+                  onChange={(tags) =>
+                    update(index, {
+                      ...condition,
+                      value: {
+                        type: "text",
+                        value: tags.length === 1 ? tags[0]! : "",
+                      },
+                    })
+                  }
+                />
               ) : field?.field_type === "boolean" ? (
                 <select
                   aria-label={"条件值 " + (index + 1)}
@@ -279,11 +305,7 @@ export function QueryConditions({
                   }
                   maxLength={256}
                   placeholder={
-                    field?.field_type === "integer"
-                      ? "整数"
-                      : field?.field_type === "tags"
-                        ? "一个完整标签"
-                        : "允许空文本"
+                    field?.field_type === "integer" ? "整数" : "允许空文本"
                   }
                   onChange={(e) =>
                     update(index, {

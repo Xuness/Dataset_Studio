@@ -5713,6 +5713,46 @@
         }
       }
     },
+    "/v1/projects/{project_id}/source-requirements": {
+      "post": {
+        "tags": [
+          "source_probe"
+        ],
+        "operationId": "requirements",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourceRequirementsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceRequirementsResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/projects/{project_id}/sources": {
       "get": {
         "tags": [],
@@ -6702,6 +6742,56 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/source-adapters": {
+      "get": {
+        "tags": [
+          "source_probe"
+        ],
+        "operationId": "adapters",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceRegistrations"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/source-probes": {
+      "post": {
+        "tags": [
+          "source_probe"
+        ],
+        "operationId": "probe",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProbeSource"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourcePreflight"
                 }
               }
             }
@@ -9672,6 +9762,12 @@
               "type": "string"
             }
           },
+          "site_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "status": {
             "type": "string",
             "description": "available, unlinked, preparing, unavailable, or unsupported."
@@ -12341,6 +12437,12 @@
           "truncated"
         ],
         "properties": {
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "missing_reason": {
             "type": [
               "string",
@@ -13303,6 +13405,30 @@
           }
         }
       },
+      "ProbeSource": {
+        "type": "object",
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "index_root": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": "string"
+          },
+          "media_root": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
       "Project": {
         "type": "object",
         "required": [
@@ -13874,6 +14000,12 @@
           },
           "consistency": {
             "type": "string"
+          },
+          "semantics_version": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "source_id": {
             "type": "string"
@@ -15671,6 +15803,16 @@
           "observation_id": {
             "type": "string"
           },
+          "schema": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RawSourceSchema"
+              }
+            ]
+          },
           "schema_id": {
             "type": [
               "string",
@@ -15696,6 +15838,31 @@
           }
         },
         "additionalProperties": false
+      },
+      "RawSourceSchema": {
+        "type": "object",
+        "required": [
+          "format",
+          "encoding",
+          "bytes"
+        ],
+        "properties": {
+          "bytes": {
+            "type": "string"
+          },
+          "data": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "encoding": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string"
+          }
+        }
       },
       "ReadProcessMemory": {
         "type": "object",
@@ -16621,6 +16788,16 @@
             "format": "int64",
             "minimum": 0
           },
+          "descriptor": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/SourceDescriptor"
+              }
+            ]
+          },
           "enumeration": {
             "type": "string"
           },
@@ -16647,6 +16824,163 @@
           }
         }
       },
+      "SourceCapabilities": {
+        "type": "object",
+        "required": [
+          "browse",
+          "media",
+          "metadata",
+          "query",
+          "post_order",
+          "relink",
+          "raw_metadata",
+          "incremental",
+          "stored_dimensions"
+        ],
+        "properties": {
+          "browse": {
+            "type": "boolean"
+          },
+          "incremental": {
+            "type": "boolean"
+          },
+          "media": {
+            "type": "boolean"
+          },
+          "metadata": {
+            "type": "boolean"
+          },
+          "post_order": {
+            "type": "boolean"
+          },
+          "query": {
+            "type": "boolean"
+          },
+          "raw_metadata": {
+            "type": "boolean"
+          },
+          "relink": {
+            "type": "boolean"
+          },
+          "stored_dimensions": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SourceDescriptor": {
+        "type": "object",
+        "required": [
+          "version",
+          "backend_id",
+          "display_name",
+          "semantics_version",
+          "capabilities",
+          "projections"
+        ],
+        "properties": {
+          "backend_id": {
+            "type": "string"
+          },
+          "capabilities": {
+            "$ref": "#/components/schemas/SourceCapabilities"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "projections": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "semantics_version": {
+            "type": "string"
+          },
+          "site_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "SourcePreflight": {
+        "type": "object",
+        "required": [
+          "source_id",
+          "kind",
+          "descriptor",
+          "revision",
+          "enumeration"
+        ],
+        "properties": {
+          "analysis_sequence": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "count": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "descriptor": {
+            "$ref": "#/components/schemas/SourceDescriptor"
+          },
+          "enumeration": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "string"
+          },
+          "source_id": {
+            "type": "string"
+          }
+        }
+      },
+      "SourceRegistration": {
+        "type": "object",
+        "required": [
+          "kind",
+          "name",
+          "descriptor"
+        ],
+        "properties": {
+          "descriptor": {
+            "$ref": "#/components/schemas/SourceDescriptor"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "SourceRegistrations": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SourceRegistration"
+            }
+          }
+        }
+      },
       "SourceRelinked": {
         "type": "object",
         "required": [
@@ -16663,6 +16997,68 @@
           },
           "source_id": {
             "type": "string"
+          }
+        }
+      },
+      "SourceRequirementStatus": {
+        "type": "object",
+        "required": [
+          "source_id",
+          "name",
+          "supported"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source_id": {
+            "type": "string"
+          },
+          "supported": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SourceRequirementsRequest": {
+        "type": "object",
+        "required": [
+          "scope",
+          "projections"
+        ],
+        "properties": {
+          "projections": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "scope": {
+            "$ref": "#/components/schemas/ScopeRef"
+          }
+        },
+        "additionalProperties": false
+      },
+      "SourceRequirementsResult": {
+        "type": "object",
+        "required": [
+          "supported",
+          "sources"
+        ],
+        "properties": {
+          "sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SourceRequirementStatus"
+            }
+          },
+          "supported": {
+            "type": "boolean"
           }
         }
       },

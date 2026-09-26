@@ -64,8 +64,8 @@ fn settings_status(s: &AppState) -> domain::Result<SettingsStatus> {
         s.queries.cache.track(&s.store, &pid)?;
     }
     let projects = s.queries.cache.projects()?;
-    let indexes = s.queries.browse_index.storage()?.0;
-    let rating_bytes = s.queries.rating_cache.storage_bytes()?;
+    let indexes = s.queries.source_indexes.browse_index.storage()?.0;
+    let rating_bytes = s.queries.source_indexes.rating_cache.storage_bytes()?;
     let preview = s.previews.cache.metrics();
     let mut preview_bytes = preview.bytes;
     for name in [
@@ -82,6 +82,7 @@ fn settings_status(s: &AppState) -> domain::Result<SettingsStatus> {
     let ranked = s.queries.ranked_indexes.metrics()?;
     let fixed_bases = s
         .queries
+        .source_indexes
         .rating_cache
         .entries()?
         .iter()
@@ -124,7 +125,7 @@ fn settings_status(s: &AppState) -> domain::Result<SettingsStatus> {
                 + indexes)
                 .to_string(),
             working_temporary_bytes: (temporary_bytes(&s.store.root().join("query-temp"), 3)?
-                + s.queries.rating_cache.working_bytes()?
+                + s.queries.source_indexes.rating_cache.working_bytes()?
                 + ranked.working_bytes)
                 .to_string(),
             protected_results: projects.iter().map(|p| p.protected).sum(),
@@ -286,7 +287,7 @@ pub(super) async fn heartbeat(
     s.queries.cache.session(&pid, session.0.as_deref())?;
     Ok(Json(OkResponse { ok: true }))
 }
-fn build_status(value: crate::query_jobs::RatingBuildStatus) -> RatingBuild {
+fn build_status(value: crate::source_indexes::RatingBuildStatus) -> RatingBuild {
     RatingBuild {
         source_id: value.source_id,
         state: value.state,
@@ -323,6 +324,7 @@ pub(super) async fn bases(State(s): State<AppState>) -> ApiResult<RatingBases> {
         blocking(move || {
             let items = s
                 .queries
+                .source_indexes
                 .rating_cache
                 .entries()?
                 .into_iter()
@@ -343,6 +345,7 @@ pub(super) async fn bases(State(s): State<AppState>) -> ApiResult<RatingBases> {
                 items,
                 builds: s
                     .queries
+                    .source_indexes
                     .rating_builds()?
                     .into_iter()
                     .map(build_status)
@@ -360,7 +363,9 @@ pub(super) async fn prebuild(
     Ok(Json(
         blocking(move || {
             let source = s.store.source(&pid, &sid)?;
-            Ok(build_status(s.queries.start_rating_build(&source)?))
+            Ok(build_status(
+                s.queries.source_indexes.start_rating_build(&source)?,
+            ))
         })
         .await?,
     ))
@@ -370,7 +375,7 @@ pub(super) async fn cancel_build(
     State(s): State<AppState>,
     Path(sid): Path<String>,
 ) -> ApiResult<OkResponse> {
-    s.queries.cancel_rating_build(&sid)?;
+    s.queries.source_indexes.cancel_rating_build(&sid)?;
     Ok(Json(OkResponse { ok: true }))
 }
 #[utoipa::path(put,path="/v1/cache/rating-bases/{source_id}/{rating}",operation_id="set_rating_basis_retention",params(("source_id"=String,Path),("rating"=String,Path)),request_body=SetRatingRetention,responses((status=200,body=OkResponse)))]
@@ -382,6 +387,7 @@ pub(super) async fn fix_basis(
     Ok(Json(
         blocking(move || {
             s.queries
+                .source_indexes
                 .rating_cache
                 .set_fixed(&sid, &rating, body.fixed)?;
             Ok(OkResponse { ok: true })
@@ -396,7 +402,12 @@ pub(super) async fn release_basis(
 ) -> ApiResult<OkResponse> {
     Ok(Json(
         blocking(move || {
-            if !s.queries.rating_cache.remove(&sid, &rating, false)? {
+            if !s
+                .queries
+                .source_indexes
+                .rating_cache
+                .remove(&sid, &rating, false)?
+            {
                 return Err(domain::Error::new(
                     "CACHE_IN_USE",
                     "基础缓存正在使用或已固定，请稍后重试或取消固定",

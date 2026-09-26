@@ -45,6 +45,7 @@ fn spec(f: &Fixture) -> QuerySpec {
 }
 fn version(f: &Fixture, n: usize) -> Vec<QuerySourceVersion> {
     vec![QuerySourceVersion {
+        semantics_version: None,
         source_id: f.sid.clone(),
         catalog_revision: format!("revision-{n}"),
         analysis_sequence: None,

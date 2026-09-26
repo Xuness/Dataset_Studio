@@ -12,6 +12,8 @@ mod ranked_indexes;
 mod ranking;
 mod ranking_query;
 mod ranking_reads;
+mod source_indexes;
+mod sources;
 mod tool_inputs;
 mod worker;
 use clap::{Parser, Subcommand};
@@ -105,7 +107,27 @@ fn explain_query(source: PathBuf, spec: PathBuf, output: PathBuf) -> Result<()> 
         serde_json::from_slice(&fs::read(source).map_err(Error::io)?).map_err(Error::io)?;
     let spec: QuerySpec =
         serde_json::from_slice(&fs::read(spec).map_err(Error::io)?).map_err(Error::io)?;
-    let plan = studio_sources::QueryReader::default().explain(&source, spec)?;
+    use studio_application::QueryAdapter;
+    let resources = Arc::new(studio_resources::ReadCoordinator::default());
+    let service = sources::SourceService::new(
+        studio_sources::registry(
+            output
+                .parent()
+                .ok_or_else(|| Error::invalid("缺少输出目录"))?
+                .join("query-temp"),
+            None,
+            None,
+        )?,
+        resources,
+    );
+    let read = service.background(
+        ReadClass::NativeQuery,
+        QUERY_MEMORY_BYTES,
+        Arc::new(std::sync::atomic::AtomicBool::new(false)),
+    )?;
+    let plan = read
+        .query(QUERY_MEMORY_BYTES, false)
+        .explain(&source, spec)?;
     atomic_json(&output, &plan)
 }
 async fn serve(root: PathBuf, port: u16, cache_dir: Option<PathBuf>) -> Result<()> {
@@ -138,24 +160,42 @@ async fn serve(root: PathBuf, port: u16, cache_dir: Option<PathBuf>) -> Result<(
     atomic_json(&root.join("engine.json"), &connection)?;
     let (shutdown_tx, mut shutdown_rx) = tokio::sync::watch::channel(false);
     let coordinator = Arc::new(studio_resources::ReadCoordinator::default());
-    let query_budget =
-        query_budget::QueryBudget::open(root.join("query-settings.json"), coordinator.clone())?;
+    let query_budget = Arc::new(query_budget::QueryBudget::open(
+        root.join("query-settings.json"),
+        coordinator.clone(),
+    )?);
     let resources: Arc<dyn studio_application::ReadResources> = coordinator;
     let cache_path = cache_dir
         .or_else(|| std::env::var_os("STUDIO_CACHE_DIR").map(PathBuf::from))
         .unwrap_or_else(|| root.join("preview-cache"));
-    let previews = previews::PreviewService::new(
+    let preview_cache = studio_resources::PreviewCache::open(&cache_path)?;
+    let cache = Arc::new(query_cache::CacheControl::open(
+        root.join("query-cache.json"),
+        (preview_cache.metrics().quota_bytes >> 20) as u32,
+    )?);
+    let handles = source_indexes::SourceIndexHandles::new(root.join("browse-index"));
+    let sources = sources::SourceService::new(
+        studio_sources::registry(
+            root.join("query-temp"),
+            Some(handles.identities.clone()),
+            Some(handles.ratings.clone()),
+        )?,
         resources.clone(),
-        studio_resources::PreviewCache::open(&cache_path)?,
     );
+    let source_indexes = source_indexes::SourceIndexService::new(
+        handles,
+        sources.clone(),
+        query_budget.clone(),
+        cache.clone(),
+        root.join("query-temp"),
+    );
+    let previews = previews::PreviewService::new(resources.clone(), preview_cache, sources.clone());
     let queries = Arc::new(query_jobs::QueryRunner::new(
-        resources.clone(),
         root.join("query-temp"),
         query_budget,
-        query_cache::CacheControl::open(
-            root.join("query-cache.json"),
-            (previews.cache.metrics().quota_bytes >> 20) as u32,
-        )?,
+        cache,
+        source_indexes,
+        sources.clone(),
         root.join("browse-index"),
     ));
     previews
@@ -182,10 +222,7 @@ async fn serve(root: PathBuf, port: u16, cache_dir: Option<PathBuf>) -> Result<(
         connection: connection.clone(),
         resources: resources.clone(),
         previews: previews.clone(),
-        metadata: Arc::new(
-            studio_sources::MetadataReader::default()
-                .with_identity_index(queries.identity_index.clone()),
-        ),
+        sources: sources.clone(),
         queries: queries.clone(),
         ranking_reads: Arc::new(ranking_reads::RankingReadCache::default()),
         shutdown: shutdown_tx.clone(),
@@ -344,7 +381,7 @@ async fn serve(root: PathBuf, port: u16, cache_dir: Option<PathBuf>) -> Result<(
         Err(error) => tracing::warn!(%error,"background recovery unavailable"),
     });
     let preview_scheduler = tokio::spawn(previews.clone().run());
-    let scheduler = tokio::spawn(jobs::scheduler(store.clone(), resources));
+    let scheduler = tokio::spawn(jobs::scheduler(store.clone(), resources, sources));
     tracing::info!(endpoint=%connection.endpoint,api_version=API_VERSION,"engine ready");
     let abort = scheduler.abort_handle();
     let query_shutdown = queries.clone();

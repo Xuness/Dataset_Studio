@@ -1,5 +1,5 @@
 //! Bulk projection of complete representative observations from a read-only lake.
-use crate::{danbooru::Catalog, duckdb::Runtime, query::compiler::ranking_predicate};
+use crate::{canonical::Catalog, duckdb::Runtime, query::compiler::ranking_predicate};
 use std::{
     path::PathBuf,
     sync::{Arc, atomic::AtomicBool},

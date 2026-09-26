@@ -13,18 +13,42 @@ pub fn read_cancelled(cancelled: &AtomicBool) -> Result<()> {
         Ok(())
     }
 }
-pub trait ReadLease: Send {}
+pub trait ReadLease: Send + Sync {}
 /// Blocking application port. Infrastructure calls it from a bounded worker pool.
 pub trait ReadResources: Send + Sync {
     fn acquire(&self, request: ReadRequest, cancelled: &AtomicBool) -> Result<Box<dyn ReadLease>>;
+    fn acquire_until(
+        &self,
+        request: ReadRequest,
+        cancelled: &AtomicBool,
+        deadline: Option<std::time::Instant>,
+    ) -> Result<Box<dyn ReadLease>> {
+        if deadline.is_some_and(|v| std::time::Instant::now() >= v) {
+            return Err(Error::new("SOURCE_TIMEOUT", "读取准入超过截止时间"));
+        }
+        self.acquire(request, cancelled)
+    }
     fn metrics(&self) -> Vec<ReadMetrics>;
 }
 pub struct MediaInput {
     pub asset_id: String,
     pub cancelled: ReadCancellation,
+    pub deadline: Option<std::time::Instant>,
     /// Upper bound admitted before opening the source payload. Adapters must
     /// recheck the current index length against it before allocation or I/O.
     pub byte_limit: u64,
+}
+impl MediaInput {
+    pub fn check(&self) -> Result<()> {
+        read_cancelled(&self.cancelled)?;
+        if self
+            .deadline
+            .is_some_and(|d| std::time::Instant::now() >= d)
+        {
+            return Err(Error::new("SOURCE_TIMEOUT", "媒体读取超过截止时间"));
+        }
+        Ok(())
+    }
 }
 pub struct MediaBatch {
     /// Same identity and order as the caller's bounded input, including errors.

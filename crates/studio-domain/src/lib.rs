@@ -3,6 +3,8 @@ use std::path::PathBuf;
 pub mod aesthetic;
 pub mod aesthetic_analysis;
 pub mod llm;
+mod sources;
+pub use sources::*;
 mod metadata;
 pub use metadata::*;
 mod lifecycle;

@@ -1,3 +1,4 @@
+import { sourceSupports } from "@studio/client";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Button, ErrorDetails, ratingLabel } from "@studio/ui";
@@ -10,7 +11,9 @@ import { cleanupPhase } from "./CacheCleanupProgress.js";
 export function CacheManagerPage(props: SettingsPageProps) {
   const { client, project, sources, data, busy, action } = props;
   const [chosenSource, setChosenSource] = useState("");
-  const lakes = sources.filter((s) => s.kind === "danbooru" && s.available);
+  const lakes = sources.filter(
+    (s) => sourceSupports(s, "raw_metadata") && s.available,
+  );
   const sourceId =
     lakes.find((s) => s.id === chosenSource)?.id ?? lakes[0]?.id ?? "";
   const bases = useQuery({

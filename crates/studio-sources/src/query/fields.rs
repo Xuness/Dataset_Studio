@@ -1,7 +1,7 @@
 use studio_domain::*;
 
 pub(super) fn directory(source: &Source) -> Result<FieldDirectory> {
-    if !matches!(source.kind.as_str(), "demo" | "danbooru") {
+    if source.kind != "demo" && !crate::profiles::is_canonical(source) {
         return Err(Error::new("QUERY_UNSUPPORTED", "该来源尚未支持查询"));
     }
     use FieldType::*;
@@ -57,7 +57,7 @@ pub(super) fn directory(source: &Source) -> Result<FieldDirectory> {
             },
         });
     }
-    if source.kind == "danbooru" {
+    if crate::profiles::is_canonical(source) {
         for (id, name, kind, unit, basis) in [
             (
                 "post.id",
@@ -105,9 +105,19 @@ pub(super) fn directory(source: &Source) -> Result<FieldDirectory> {
                 "observations.is_deleted",
             ),
         ] {
+            if !crate::profiles::field_supported(
+                source,
+                basis.strip_prefix("observations.").unwrap_or(id),
+            ) {
+                continue;
+            }
             fields.push(FieldDefinition {
                 id: id.into(),
-                name: name.into(),
+                name: crate::profiles::field_label(
+                    basis.strip_prefix("observations.").unwrap_or(id),
+                )
+                .unwrap_or(name)
+                .into(),
                 field_type: kind,
                 unit: unit.map(Into::into),
                 missing: "null_only; empty_text_empty_tags_and_false_are_present".into(),

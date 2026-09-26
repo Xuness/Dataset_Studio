@@ -3,6 +3,8 @@ use studio_domain as domain;
 pub mod aesthetic;
 pub mod aesthetic_analysis;
 pub mod llm;
+mod sources;
+pub use sources::*;
 mod metadata;
 pub use metadata::*;
 mod query;
@@ -235,6 +237,7 @@ pub struct Source {
     pub id: String,
     pub name: String,
     pub kind: String,
+    pub descriptor: Option<SourceDescriptor>,
     pub revision: Option<String>,
     pub enumeration: String,
     pub count: Option<u64>,

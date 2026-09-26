@@ -207,6 +207,7 @@ impl From<domain::FieldDirectory> for FieldDirectory {
 #[derive(Serialize, ToSchema)]
 pub struct QuerySourceVersion {
     pub source_id: String,
+    pub semantics_version: Option<String>,
     pub catalog_revision: String,
     pub analysis_sequence: Option<String>,
     pub consistency: String,
@@ -215,6 +216,7 @@ impl From<domain::QuerySourceVersion> for QuerySourceVersion {
     fn from(v: domain::QuerySourceVersion) -> Self {
         Self {
             source_id: v.source_id,
+            semantics_version: v.semantics_version,
             catalog_revision: v.catalog_revision,
             analysis_sequence: v.analysis_sequence,
             consistency: v.consistency,

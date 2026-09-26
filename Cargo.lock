@@ -4171,6 +4171,7 @@ version = "0.9.1"
 dependencies = [
  "fs2",
  "hex",
+ "image",
  "rusqlite",
  "serde",
  "serde_json",

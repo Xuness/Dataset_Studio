@@ -16,13 +16,19 @@ fn input(
             collection_id: request.collection_id.clone(),
         },
     };
+    let read = state.sources.background(
+        studio_domain::ReadClass::NativeQuery,
+        studio_domain::METADATA_MEMORY_BYTES,
+        Arc::new(AtomicBool::new(false)),
+    )?;
+    let reader = read.query(studio_domain::METADATA_MEMORY_BYTES, false);
     let mut sources = Vec::new();
     for id in state.store.scope_source_ids(pid, &scope)? {
         let source = state.store.source(pid, &id)?;
         let spec = studio_domain::QuerySpec {
             version: 1,
             source_ids: vec![id],
-            conditions: if source.kind == "danbooru" {
+            conditions: if state.sources.has(&source, |c| c.raw_metadata) {
                 vec![studio_domain::QueryCondition {
                     field: "rating".into(),
                     operator: studio_domain::QueryOperator::IsPresent,
@@ -35,7 +41,7 @@ fn input(
             order: studio_domain::QueryOrder::AssetKeyAsc,
             input_scope: None,
         };
-        sources.push(studio_sources::QueryReader::default().query_version(&source, &spec)?);
+        sources.push(reader.query_version(&source, &spec)?);
     }
     sources.sort_by(|a, b| a.source_id.cmp(&b.source_id));
     let input_version = hex::encode(Sha256::digest(

@@ -89,6 +89,7 @@ impl SourceStream {
 
 pub(super) fn page(
     s: &AppState,
+    reader: &SourceRead,
     pid: &str,
     scope: &ScopeRef,
     cursor: &mut Cursor,
@@ -123,14 +124,22 @@ pub(super) fn page(
             "范围中的来源不可用",
         ));
     }
-    if sources.len() > 8 || sources.iter().any(|source| source.kind != "danbooru") {
+    if sources.len() > 8
+        || sources
+            .iter()
+            .any(|source| !s.sources.has(source, |c| c.post_order))
+    {
         return Ok(None);
     }
     for source in &sources {
         if let Some(revision) = cursor.revisions.get(&source.id) {
             studio_sources::BrowseIndex::verify_revision(source, revision)?;
         }
-        if !s.queries.prepare_browse_index(source)? {
+        if !s
+            .queries
+            .source_indexes
+            .prepare_browse_index(source, reader)?
+        {
             return Ok(Some(Page {
                 keys: Vec::new(),
                 more: false,
@@ -142,7 +151,7 @@ pub(super) fn page(
     let mut streams = sources
         .into_iter()
         .map(|source| {
-            let index = s.queries.browse_index.reader(&source)?;
+            let index = s.queries.source_indexes.browse_index.reader(&source)?;
             let revision = format!(
                 "catalog-v1:{}:{}",
                 index.stamp.generation, index.stamp.sequence

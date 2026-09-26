@@ -24,6 +24,7 @@ fn spec(sid: &str, order: QueryOrder) -> QuerySpec {
 }
 fn versions(sid: &str) -> Vec<QuerySourceVersion> {
     vec![QuerySourceVersion {
+        semantics_version: None,
         source_id: sid.into(),
         catalog_revision: "fixture-v1".into(),
         analysis_sequence: None,

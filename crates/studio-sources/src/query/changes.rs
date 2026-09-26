@@ -1,11 +1,6 @@
 use super::*;
 
-#[derive(Debug, Clone)]
-pub struct ChangeAnchor {
-    pub generation: String,
-    pub sequence: u64,
-    pub batch_id: String,
-}
+pub use studio_domain::ChangeAnchor;
 
 /// The supported producer never overwrites observations/assets in a generation.
 /// It records their commit_seq and rebuilds current_posts for affected post IDs.

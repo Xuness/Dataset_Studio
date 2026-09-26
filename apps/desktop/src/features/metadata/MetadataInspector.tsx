@@ -1,3 +1,4 @@
+import { displayTag } from "@studio/ui";
 import { RotateCw, FileJson2 } from "lucide-react";
 import { Button, ErrorDetails, ratingLabel } from "@studio/ui";
 import { StudioError } from "@studio/client";
@@ -8,6 +9,7 @@ import { useQuery } from "@tanstack/react-query";
 import { RankingInputEvidence } from "../ranking/RankingInputEvidence.js";
 
 const labels: Record<string, string> = {
+  normalization_issues: "规范化说明",
   rating: "分级",
   tags: "标签",
   "tags.general": "一般",
@@ -59,14 +61,28 @@ function Failure({ error, refresh }: { error: Error; refresh: () => void }) {
     </div>
   );
 }
-function Value({ value }: { value: MetadataValue | null | undefined }) {
+function Value({
+  value,
+  onTag,
+}: {
+  value: MetadataValue | null | undefined;
+  onTag?: ((tag: string) => void) | undefined;
+}) {
   if (!value) return <span className="metadata-unknown">未记录</span>;
   if (value.type === "boolean") return <>{value.value ? "是" : "否"}</>;
   if (value.type === "tags")
     return value.value.length ? (
       <div className="metadata-tags">
         {value.value.map((tag, i) => (
-          <span key={i}>{tag}</span>
+          <button
+            type="button"
+            key={i}
+            disabled={!onTag}
+            title="用完整标签创建查询草稿"
+            onClick={() => onTag?.(tag)}
+          >
+            {displayTag(tag)}
+          </button>
         ))}
       </div>
     ) : (
@@ -74,17 +90,39 @@ function Value({ value }: { value: MetadataValue | null | undefined }) {
     );
   return <>{value.value || <span className="metadata-unknown">空值</span>}</>;
 }
-function Field({ field }: { field: MetadataField }) {
+function Field({
+  field,
+  onTag,
+}: {
+  field: MetadataField;
+  onTag?: ((tag: string) => void) | undefined;
+}) {
   return (
     <div className="metadata-field" title={field.provenance}>
-      <dt>{labels[field.name] ?? field.name}</dt>
+      <dt>
+        {field.label ??
+          labels[field.name] ??
+          labels["danbooru." + field.name.split(".").at(-1)] ??
+          field.name}
+      </dt>
       <dd>
         {field.name === "rating" && field.value?.type === "text" ? (
-          <span title="按来源原始分级显示；历史快照可能使用旧分级定义。">
+          <span title="使用数据湖已保存的统一分级；来源原值可在原始元数据中查看。">
             {ratingLabel(field.value.value)}
           </span>
+        ) : !field.value &&
+          field.missing_reason?.startsWith("normalization_issue:") ? (
+          <span
+            className="metadata-unknown"
+            title={field.missing_reason.slice("normalization_issue:".length)}
+          >
+            未能归一化，详见规范化说明
+          </span>
         ) : (
-          <Value value={field.value} />
+          <Value
+            value={field.value}
+            onTag={field.truncated ? undefined : onTag}
+          />
         )}
         {field.truncated && (
           <small className="metadata-unknown">字段过长，显示前 8192 字符</small>
@@ -93,22 +131,21 @@ function Field({ field }: { field: MetadataField }) {
     </div>
   );
 }
+// Keep source numbers and escape sequences exact, including integers beyond JS precision.
 function rawText(text: string) {
-  try {
-    return JSON.stringify(JSON.parse(text) as unknown, null, 2);
-  } catch {
-    return text;
-  }
+  return text;
 }
 
 export function MetadataInspector({
   client,
   projectId,
   asset,
+  onFilterTag,
 }: {
   client: StudioClient;
   projectId: string;
   asset: Asset;
+  onFilterTag?: (tag: string) => void;
 }) {
   const ranking = asset.ranking;
   const snapshot = useQuery({
@@ -192,7 +229,7 @@ export function MetadataInspector({
                     ].includes(f.name),
                   )
                   .map((f) => (
-                    <Field key={f.name} field={f} />
+                    <Field key={f.name} field={f} onTag={onFilterTag} />
                   ))}
               </dl>
             </div>
@@ -358,23 +395,31 @@ export function MetadataInspector({
                                   "source_height",
                                 ].includes(f.name) &&
                                 !f.name.startsWith("tags.") &&
-                                !f.name.startsWith("danbooru."),
+                                !f.name.includes("."),
                             )
                             .map((f) => (
-                              <Field key={f.name} field={f} />
+                              <Field
+                                key={f.name}
+                                field={f}
+                                onTag={onFilterTag}
+                              />
                             ))}
                         </dl>
                         <details className="metadata-details">
-                          <summary>分类标签与 Danbooru 字段</summary>
+                          <summary>分类标签与站点字段</summary>
                           <dl className="metadata-fields">
                             {observation.fields
                               .filter(
                                 (f) =>
                                   f.name.startsWith("tags.") ||
-                                  f.name.startsWith("danbooru."),
+                                  f.name.includes("."),
                               )
                               .map((f) => (
-                                <Field key={f.name} field={f} />
+                                <Field
+                                  key={f.name}
+                                  field={f}
+                                  onTag={onFilterTag}
+                                />
                               ))}
                           </dl>
                         </details>
@@ -461,6 +506,23 @@ export function MetadataInspector({
                                   <pre tabIndex={0} aria-label="原始元数据">
                                     {rawText(raw.data.json ?? "")}
                                   </pre>
+                                  {raw.data.schema && (
+                                    <details>
+                                      <summary>原始字段架构</summary>
+                                      <small>
+                                        {raw.data.schema.format} ·{" "}
+                                        {raw.data.schema.bytes} 字节 ·{" "}
+                                        {raw.data.schema.encoding}
+                                      </small>
+                                      <pre
+                                        tabIndex={0}
+                                        aria-label="原始字段架构"
+                                      >
+                                        {raw.data.schema.data ??
+                                          "架构超过 64 KiB 查看上限，原始文件仍保留在数据湖中。"}
+                                      </pre>
+                                    </details>
+                                  )}
                                   {raw.data.schema_id && (
                                     <small>
                                       Schema ID: {raw.data.schema_id}

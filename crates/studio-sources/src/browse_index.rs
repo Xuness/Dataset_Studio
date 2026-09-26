@@ -1,6 +1,6 @@
 use crate::query::ChangeAnchor;
 use crate::{
-    danbooru::{Catalog, err},
+    canonical::{Catalog, err},
     duckdb::Runtime,
     query::{analysis_sequence, changes},
 };

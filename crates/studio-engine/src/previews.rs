@@ -1,3 +1,4 @@
+use crate::sources::SourceService;
 use std::{
     collections::{HashMap, VecDeque},
     sync::{
@@ -9,7 +10,6 @@ use std::{
 use studio_application::{Media, MediaInput, MediaSource, ReadResources, read_cancelled};
 use studio_domain::*;
 use studio_resources::{CachePin, PreviewCache, epoch_ms, preview_key};
-use studio_sources::SourceRouter;
 use studio_storage::SqliteStore;
 #[cfg(test)]
 mod tests;
@@ -102,6 +102,7 @@ struct State {
 pub struct PreviewService {
     pub resources: Arc<dyn ReadResources>,
     pub cache: PreviewCache,
+    sources: Arc<SourceService>,
     state: Mutex<State>,
     notify: tokio::sync::Notify,
     stopping: AtomicBool,
@@ -120,10 +121,15 @@ fn state_error() -> Error {
     Error::new("INTERNAL_ERROR", "共享读取状态不可用")
 }
 impl PreviewService {
-    pub fn new(resources: Arc<dyn ReadResources>, cache: PreviewCache) -> Arc<Self> {
+    pub fn new(
+        resources: Arc<dyn ReadResources>,
+        cache: PreviewCache,
+        sources: Arc<SourceService>,
+    ) -> Arc<Self> {
         Arc::new(Self {
             resources,
             cache,
+            sources,
             state: Mutex::new(State {
                 tickets: HashMap::new(),
                 cancelled_early: VecDeque::new(),
@@ -247,20 +253,16 @@ impl PreviewService {
             asset_id: aid,
         } = asset;
         let prepared = tokio::task::spawn_blocking(move || -> Result<_> {
-            let _permit = service.resources.acquire(
-                ReadRequest {
-                    class: ReadClass::Index,
-                    priority,
-                    bytes: 32 << 20,
-                },
-                &cancel,
-            )?;
+            let reader =
+                service
+                    .sources
+                    .read(ReadClass::Index, priority, 32 << 20, cancel.clone())?;
             read_cancelled(&cancel)?;
             // This project membership check is mandatory even on shared/offline hits.
             let source = store.source(&pid, &sid)?;
-            let version = SourceRouter.content_version(&source, &aid)?;
+            let version = reader.content_version(&source, &aid)?;
             let key = preview_key(&source, &aid, &version, edge);
-            let identity = SourceRouter.verify_media_identity(&source, &aid);
+            let identity = reader.verify_media_identity(&source, &aid);
             let online = match &identity {
                 Ok(_) => true,
                 Err(error) if matches!(error.code, "IO_ERROR" | "SOURCE_UNAVAILABLE") => false,
@@ -482,13 +484,11 @@ impl PreviewService {
                     std::thread::sleep(Duration::from_millis(10));
                 }
             });
-            let permit = service.resources.acquire(
-                ReadRequest {
-                    class: ReadClass::Media,
-                    priority,
-                    bytes: jobs.iter().map(|w| w.bytes).sum(),
-                },
-                &all_cancelled,
+            let permit = service.sources.read(
+                ReadClass::Media,
+                priority,
+                jobs.iter().map(|w| w.bytes).sum(),
+                all_cancelled.clone(),
             );
             stop.store(true, Ordering::Release);
             let _ = monitor.join();
@@ -503,12 +503,13 @@ impl PreviewService {
             let inputs = jobs
                 .iter()
                 .map(|w| MediaInput {
+                    deadline: None,
                     asset_id: w.asset_id.clone(),
                     cancelled: w.cancelled.clone(),
                     byte_limit: w.bytes,
                 })
                 .collect::<Vec<_>>();
-            let result = SourceRouter.read_many(&jobs[0].source, &inputs)?;
+            let result = _permit.read_many(&jobs[0].source, &inputs)?;
             if let Ok(mut state) = service.state.lock() {
                 let m = &mut state.metrics;
                 m.batches += 1;
@@ -556,7 +557,7 @@ impl PreviewService {
                             )?;
                             read_cancelled(&work.cancelled)?;
                             let start = Instant::now();
-                            let media = studio_sources::thumbnail(media, work.edge)?;
+                            let media = studio_resources::thumbnail(media, work.edge)?;
                             if let Ok(mut state) = service.state.lock() {
                                 state.metrics.decode_ms += start.elapsed().as_millis() as u64;
                                 state.metrics.generated += 1;

@@ -1,6 +1,7 @@
+use crate::sources::{SourceRead, SourceService};
+use std::sync::{Arc, atomic::AtomicBool};
 use studio_application::{ArtifactRepository, QueryAdapter};
 use studio_domain::*;
-use studio_sources::{MetadataReader, QueryReader};
 use studio_storage::SqliteStore;
 
 fn version_spec(source_id: &str, fields: &[ScalarInput], population: bool) -> QuerySpec {
@@ -26,6 +27,7 @@ pub fn capture(
     pid: &str,
     scope: &ScopeRef,
     run: OperatorRun,
+    sources: &SourceService,
 ) -> Result<JobRun> {
     let registry = studio_operators::registry()?;
     let run = registry.normalize(run)?;
@@ -41,17 +43,25 @@ pub fn capture(
             }
         }
     }
-    let reader = QueryReader::default();
+    let read = sources.background(
+        ReadClass::NativeQuery,
+        METADATA_MEMORY_BYTES,
+        Arc::new(AtomicBool::new(false)),
+    )?;
+    let reader = read.query(METADATA_MEMORY_BYTES, false);
     let source_versions = store
         .scope_source_ids(pid, scope)?
         .into_iter()
         .map(|id| {
             let source = store.source(pid, &id)?;
-            if is_ranking_operator(&run.operator_id) && source.kind != "danbooru" {
-                return Err(Error::new(
-                    "RANKING_SOURCE_UNSUPPORTED",
-                    "排名输入需要 Danbooru 来源",
-                ));
+            if is_ranking_operator(&run.operator_id) {
+                sources.descriptor(&source)?.require_projection(
+                    if run.operator_id == RANKING_V2_OPERATOR {
+                        "danbooru_ranking_v2"
+                    } else {
+                        "danbooru_ranking_v1"
+                    },
+                )?;
             }
             reader.query_version(
                 &source,
@@ -65,8 +75,18 @@ pub fn capture(
         source_versions,
     })
 }
-pub fn validate_versions(store: &SqliteStore, pid: &str, frozen: &JobRun) -> Result<()> {
-    let reader = QueryReader::default();
+pub fn validate_versions(
+    store: &SqliteStore,
+    pid: &str,
+    frozen: &JobRun,
+    sources: &SourceService,
+) -> Result<()> {
+    let read = sources.background(
+        ReadClass::NativeQuery,
+        METADATA_MEMORY_BYTES,
+        Arc::new(AtomicBool::new(false)),
+    )?;
+    let reader = read.query(METADATA_MEMORY_BYTES, false);
     for expected in &frozen.source_versions {
         let actual = reader.query_version(
             &store.source(pid, &expected.source_id)?,
@@ -91,7 +111,7 @@ pub fn project_fields(
     source: &Source,
     item: &mut FrozenInput,
     frozen: &JobRun,
-    metadata: &MetadataReader,
+    metadata: &SourceRead,
 ) -> Result<()> {
     if let Some(expected) = frozen
         .source_versions
@@ -109,7 +129,7 @@ pub fn project_fields(
                     .iter()
                     .find(|v| v.source_id == source.id)
                     .ok_or_else(|| Error::new("INPUT_FIELD_MISSING", "元数据投影缺少固定版本"))?;
-                metadata.freeze_origin_width(source, &item.asset.key.asset_id, expected)?
+                metadata.origin_width(source, &item.asset.key.asset_id, expected)?
             }
             ScalarInput::StoredBytes => FrozenField {
                 input: field.clone(),

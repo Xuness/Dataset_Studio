@@ -1,4 +1,8 @@
-mod danbooru;
+#[path = "backends/canonical/catalog.rs"]
+mod canonical;
+pub mod profiles;
+mod registry;
+pub use registry::registry;
 mod duckdb;
 mod metadata;
 pub use metadata::MetadataReader;
@@ -14,8 +18,7 @@ pub use identity_index::IdentityIndex;
 mod rating_cache;
 pub use rating_cache::{RATINGS, RatingCache, RatingCacheEntry, RatingCachePin, rating_candidates};
 pub mod duckdb_probe;
-use image::{ImageEncoder, ImageReader};
-use std::io::Cursor;
+use image::ImageEncoder;
 use studio_application::*;
 use studio_domain::*;
 pub const DEMO_ID: &str = "c0498544-0f82-4ce5-bd6d-bc6871059ca6";
@@ -33,8 +36,8 @@ impl SourceRouter {
         if !descending {
             return self.page(source, after, limit, revision);
         }
-        if source.kind == "danbooru" {
-            return danbooru::Catalog::open(source)?
+        if crate::profiles::is_canonical(source) {
+            return canonical::Catalog::open(source)?
                 .page_ordered(source, after, limit, revision, true);
         }
         let mut page = self.page(source, None, 128, revision)?;
@@ -70,6 +73,16 @@ fn demo_number(id: &str) -> Result<usize> {
         .ok_or_else(|| Error::new("NOT_FOUND", "示例对象不存在"))
 }
 impl SourceAdapter for SourceRouter {
+    fn page_ordered(
+        &self,
+        source: &Source,
+        after: Option<&str>,
+        limit: usize,
+        revision: Option<&str>,
+        descending: bool,
+    ) -> Result<AssetPage> {
+        SourceRouter::page_ordered(self, source, after, limit, revision, descending)
+    }
     fn probe(&self, source: &Source) -> Result<SourceProbe> {
         match source.kind.as_str() {
             "demo" => Ok(SourceProbe {
@@ -79,7 +92,7 @@ impl SourceAdapter for SourceRouter {
                 count: Some(32),
                 index_version: 1,
             }),
-            "danbooru" => Ok(danbooru::Catalog::open(source)?.probe()),
+            kind if profiles::site(kind).is_some() => Ok(canonical::Catalog::open(source)?.probe()),
             _ => Err(Error::invalid("未知的数据源适配器")),
         }
     }
@@ -91,8 +104,8 @@ impl SourceAdapter for SourceRouter {
         revision: Option<&str>,
     ) -> Result<AssetPage> {
         let limit = limit.clamp(1, 128);
-        if source.kind == "danbooru" {
-            return danbooru::Catalog::open(source)?.page(source, after, limit, revision);
+        if crate::profiles::is_canonical(source) {
+            return canonical::Catalog::open(source)?.page(source, after, limit, revision);
         }
         if source.kind != "demo" {
             return Err(Error::invalid("未知的数据源适配器"));
@@ -116,8 +129,8 @@ impl SourceAdapter for SourceRouter {
         if keys.iter().any(|k| k.source_id != source.id) {
             return Err(Error::invalid("输入对象与来源不匹配"));
         }
-        if source.kind == "danbooru" {
-            let catalog = danbooru::Catalog::open(source)?;
+        if crate::profiles::is_canonical(source) {
+            let catalog = canonical::Catalog::open(source)?;
             return keys
                 .iter()
                 .map(|key| {
@@ -143,8 +156,8 @@ impl SourceAdapter for SourceRouter {
             .collect()
     }
     fn read(&self, source: &Source, id: &str) -> Result<Media> {
-        if source.kind == "danbooru" {
-            return danbooru::Catalog::open(source)?.read(id);
+        if crate::profiles::is_canonical(source) {
+            return canonical::Catalog::open(source)?.read(id);
         }
         if source.kind != "demo" {
             return Err(Error::invalid("未知的数据源适配器"));
@@ -169,41 +182,21 @@ impl SourceAdapter for SourceRouter {
         })
     }
 }
-pub fn thumbnail(media: Media, edge: u32) -> Result<Media> {
-    let mut reader = ImageReader::new(Cursor::new(&media.bytes))
-        .with_guessed_format()
-        .map_err(Error::io)?;
-    let mut limits = image::Limits::default();
-    limits.max_image_width = Some(40000);
-    limits.max_image_height = Some(40000);
-    limits.max_alloc = Some(256 * 1024 * 1024);
-    reader.limits(limits);
-    let image = reader
-        .decode()
-        .map_err(|e| Error::new("MEDIA_DECODE_ERROR", e.to_string()))?
-        .thumbnail(edge.clamp(96, 1600), edge.clamp(96, 1600));
-    let mut bytes = Vec::new();
-    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut bytes, 86)
-        .encode_image(&image)
-        .map_err(Error::io)?;
-    Ok(Media {
-        bytes,
-        content_type: "image/jpeg".into(),
-    })
-}
 impl MediaSource for SourceRouter {
     fn content_version(&self, source: &Source, asset_id: &str) -> Result<String> {
         match source.kind.as_str() {
             "demo" => Ok(format!("demo-render-v1:{}", demo_number(asset_id)?)),
-            "danbooru"
-                if asset_id.len() == 64
-                    && asset_id
-                        .bytes()
-                        .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()) =>
+            kind if profiles::site(kind).is_some()
+                && asset_id.len() == 64
+                && asset_id
+                    .bytes()
+                    .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase()) =>
             {
                 Ok(format!("sha256:{asset_id}"))
             }
-            "danbooru" => Err(Error::invalid("图片身份需要是小写 SHA-256 值")),
+            kind if profiles::site(kind).is_some() => {
+                Err(Error::invalid("图片身份需要是小写 SHA-256 值"))
+            }
             _ => Err(Error::invalid("来源尚未支持可靠的预览内容身份")),
         }
     }
@@ -216,7 +209,7 @@ impl MediaSource for SourceRouter {
                 bytes: 1 << 20,
             });
         }
-        let catalog = danbooru::Catalog::open(source)?;
+        let catalog = canonical::Catalog::open(source)?;
         let asset = catalog.asset(source, asset_id)?;
         Ok(MediaIdentity {
             content_version,
@@ -244,14 +237,14 @@ impl MediaSource for SourceRouter {
                 },
             });
         }
-        if source.kind == "danbooru" {
-            return danbooru::Catalog::open(source)?.read_many(inputs);
+        if crate::profiles::is_canonical(source) {
+            return canonical::Catalog::open(source)?.read_many(inputs);
         }
         let mut stats = PhysicalReadStats::default();
         let items = inputs
             .iter()
             .map(|input| {
-                if let Err(error) = read_cancelled(&input.cancelled) {
+                if let Err(error) = input.check() {
                     stats.cancelled += 1;
                     stats.cancelled_before_read += 1;
                     return Err(error);

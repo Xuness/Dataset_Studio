@@ -242,12 +242,7 @@ impl FieldDirectory {
                             | QueryOperator::HasNoTags
                     ) && !values.is_empty()
                         && values.len() <= 64
-                        && values.iter().all(|value| {
-                            !value.is_empty()
-                                && value.len() <= 256
-                                && !value.chars().any(char::is_whitespace)
-                                && !value.chars().any(char::is_control)
-                        })
+                        && values.iter().all(|value| crate::valid_source_tag(value))
                 }
                 (FieldType::Text | FieldType::Tags, Some(QueryValue::Text(value))) => {
                     !matches!(
@@ -257,9 +252,11 @@ impl FieldDirectory {
                             | QueryOperator::HasAnyTags
                             | QueryOperator::HasNoTags
                     ) && value.len() <= 256
-                        && !value.chars().any(char::is_control)
-                        && (condition.operator != QueryOperator::HasTag
-                            || (!value.is_empty() && !value.chars().any(char::is_whitespace)))
+                        && (if field.field_type == FieldType::Tags {
+                            crate::valid_source_tag(value)
+                        } else {
+                            !value.chars().any(char::is_control)
+                        })
                 }
                 (FieldType::Integer, Some(QueryValue::Integer(value))) => {
                     value.parse::<i64>().is_ok_and(|n| n.to_string() == *value)
@@ -281,6 +278,9 @@ impl FieldDirectory {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct QuerySourceVersion {
     pub source_id: String,
+    /// Omitted for legacy v1 semantics so existing persisted fingerprints stay valid.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub semantics_version: Option<String>,
     pub catalog_revision: String,
     pub analysis_sequence: Option<String>,
     pub consistency: String,

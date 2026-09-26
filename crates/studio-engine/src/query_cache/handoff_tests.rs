@@ -57,6 +57,7 @@ impl Fixture {
                     input_scope: None,
                 },
                 vec![QuerySourceVersion {
+                    semantics_version: None,
                     source_id: sid.clone(),
                     catalog_revision: "fixture-1".into(),
                     analysis_sequence: None,

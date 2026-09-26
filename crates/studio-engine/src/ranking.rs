@@ -1,4 +1,5 @@
 //! Engine-owned population execution, publication, and immutable table access.
+use crate::sources::SourceService;
 use crate::worker;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -11,7 +12,6 @@ use std::{
 use studio_application::{ArtifactRepository, ReadResources, read_cancelled};
 use studio_domain::*;
 use studio_operators::ranking::{self as formula, ArtistWork, Sample};
-use studio_sources::RankingReader;
 use studio_storage::{
     SqliteStore, atomic_json,
     ranking_tables::{RankingInputTable, RankingResultTable},
@@ -47,11 +47,12 @@ pub fn prepare(
     job: &Job,
     staging: &Path,
     resources: &dyn ReadResources,
+    sources: &SourceService,
     cancelled: Arc<AtomicBool>,
 ) -> Result<(PathBuf, WorkerPlan)> {
     let frozen = store.job_run(&job.project_id, &job.id)?;
     let p = parameters(&frozen.run)?;
-    crate::tool_inputs::validate_versions(store, &job.project_id, &frozen)?;
+    crate::tool_inputs::validate_versions(store, &job.project_id, &frozen, sources)?;
     store.update_job(&job.project_id, &job.id, "preparing", 0, None, None)?;
     store.job_stage(
         &job.project_id,
@@ -126,18 +127,10 @@ pub fn prepare(
     }
     table.flush()?;
     let members = RankingInputTable::open(&input_path)?;
-    let reader = RankingReader::configured(staging.join("native"), memory);
     let mut completed = 0u64;
     for expected in &frozen.source_versions {
         read_cancelled(&cancelled)?;
-        let _permit = resources.acquire(
-            ReadRequest {
-                class: ReadClass::NativeQuery,
-                priority: ReadPriority::Background,
-                bytes: memory,
-            },
-            &cancelled,
-        )?;
+        let reader = sources.background(ReadClass::NativeQuery, memory, cancelled.clone())?;
         let source = store.source(&job.project_id, &expected.source_id)?;
         store.job_stage(
             &job.project_id,
@@ -149,12 +142,12 @@ pub fn prepare(
                 ..Default::default()
             },
         )?;
-        reader.project(
+        reader.ranking(
             &source,
             expected,
             &bases,
             &p,
-            cancelled.clone(),
+            memory,
             &mut |append| {
                 let mut cursor = None;
                 loop {
@@ -212,7 +205,7 @@ pub fn prepare(
     )?;
     table.verify_members(job.total)?;
     table.finalize(&p.ratings)?;
-    crate::tool_inputs::validate_versions(store, &job.project_id, &frozen)?;
+    crate::tool_inputs::validate_versions(store, &job.project_id, &frozen, sources)?;
     read_cancelled(&cancelled)?;
     table.set_meta("complete", &true)?;
     drop(members);

@@ -2,7 +2,10 @@ import type { Asset } from "@studio/contracts";
 
 export function assetTitle(asset: Asset) {
   const id = asset.summary?.post_ids[0];
-  if (id) return "Danbooru #" + id;
+  if (id)
+    return (
+      (asset.summary?.site_name ?? asset.source_name ?? "帖子") + " #" + id
+    );
   if (asset.summary)
     return (
       (asset.summary.status === "unlinked" ? "未关联帖子 · " : "图像 · ") +

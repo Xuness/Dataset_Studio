@@ -1,3 +1,4 @@
+use crate::profiles;
 use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -6,7 +7,7 @@ use std::{
     io::{Read, Seek, SeekFrom},
     path::{Component, Path, PathBuf},
 };
-use studio_application::{Media, MediaBatch, MediaInput, SourceProbe, read_cancelled};
+use studio_application::{Media, MediaBatch, MediaInput, SourceProbe};
 use studio_domain::*;
 
 #[derive(Deserialize)]
@@ -107,6 +108,7 @@ impl Catalog {
                 "不支持该数据湖存储格式",
             ));
         }
+        profiles::validate_site(&root, &source.kind)?;
         let generation = child(
             &index.join("indexes").canonicalize().map_err(Error::io)?,
             &current.generation,
@@ -343,10 +345,10 @@ impl Catalog {
             let input = &inputs[index];
             let mut read = 0u64;
             let result = (|| -> Result<Media> {
-                read_cancelled(&input.cancelled)?;
+                input.check()?;
                 if current.as_ref().is_none_or(|(name, _)| name != &pack) {
                     let path = child(&self.root, &pack)?;
-                    read_cancelled(&input.cancelled)?;
+                    input.check()?;
                     current = Some((pack.clone(), File::open(path).map_err(Error::io)?));
                     stats.opens += 1;
                 }
@@ -357,14 +359,14 @@ impl Catalog {
                 {
                     return Err(Error::new("SOURCE_CORRUPT", "图片位置超出数据包边界"));
                 }
-                read_cancelled(&input.cancelled)?;
+                input.check()?;
                 file.seek(SeekFrom::Start(offset)).map_err(Error::io)?;
                 stats.seeks += 1;
                 let mut bytes = vec![0; length as usize];
                 for chunk in bytes.chunks_mut(64 * 1024) {
                     let mut filled = 0;
                     while filled < chunk.len() {
-                        read_cancelled(&input.cancelled)?;
+                        input.check()?;
                         let count = file.read(&mut chunk[filled..]).map_err(Error::io)?;
                         if count == 0 {
                             return Err(Error::new("SOURCE_CORRUPT", "数据包读取提前结束"));
@@ -374,7 +376,7 @@ impl Catalog {
                         stats.bytes += count as u64;
                     }
                 }
-                read_cancelled(&input.cancelled)?;
+                input.check()?;
                 if hex::encode(Sha256::digest(&bytes)) != input.asset_id {
                     return Err(Error::new("SOURCE_CORRUPT", "图片内容校验失败"));
                 }

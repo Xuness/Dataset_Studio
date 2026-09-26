@@ -101,6 +101,7 @@ fn result(f: &Fixture, count: usize) -> QueryResult {
             Some((&query.id, query.revision)),
             query.spec,
             vec![QuerySourceVersion {
+                semantics_version: None,
                 source_id: f.source.id.clone(),
                 catalog_revision: "fixed-v1".into(),
                 analysis_sequence: None,

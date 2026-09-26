@@ -1,3 +1,5 @@
+import { parseTagInput, tagList } from "./tagInput.js";
+export { tagList } from "./tagInput.js";
 import type { QueryCondition } from "@studio/contracts";
 
 export const ratingChoices = [
@@ -83,9 +85,6 @@ export const emptyFilters: BrowseFilters = {
   exclude: "",
   tagMode: "all",
 };
-export function tagList(text: string) {
-  return [...new Set(text.split(/[\s,，]+/u).filter(Boolean))];
-}
 export function filterConditions(filters: BrowseFilters): QueryCondition[] {
   const clauses: QueryCondition[] = [];
   const add = (
@@ -111,10 +110,8 @@ export function filterConditions(filters: BrowseFilters): QueryCondition[] {
 }
 export function filterError(filters: BrowseFilters) {
   for (const text of [filters.include, filters.exclude]) {
-    const values = tagList(text);
-    if (values.length > 64) return "每组最多填写 64 个标签。";
-    if (values.some((v) => v.length > 256))
-      return "单个标签不能超过 256 个字符。";
+    const parsed = parseTagInput(text);
+    if (parsed.error) return parsed.error;
   }
   return "";
 }
@@ -137,9 +134,10 @@ export function FiltersEditor({
       <div className="filter-tags">
         <label>
           <span>包含标签</span>
-          <input
+          <textarea
+            rows={1}
             aria-label="包含标签"
-            placeholder="例如 1girl solo；用空格或逗号分隔"
+            placeholder="普通空格分隔；特殊标签可用双引号和 JSON 转义"
             maxLength={16384}
             value={value.include}
             onChange={(e) => onChange({ ...value, include: e.target.value })}
@@ -159,7 +157,8 @@ export function FiltersEditor({
           <span title="包含任一排除标签的图片都会被剔除；未记录标签按未知处理。">
             排除标签
           </span>
-          <input
+          <textarea
+            rows={1}
             aria-label="排除标签"
             placeholder="例如 comic monochrome"
             maxLength={16384}

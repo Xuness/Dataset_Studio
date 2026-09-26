@@ -1,3 +1,5 @@
+import { SourceClient } from "./sources.js";
+export { sourceSupports } from "./sources.js";
 import type {
   Schema,
   EngineConnection,
@@ -83,6 +85,9 @@ function metadataQuery(options: MetadataOptions) {
   return query;
 }
 export class StudioClient {
+  readonly sourceAccess = new SourceClient(
+    <T>(path: string, init?: RequestInit) => this.request<T>(path, init),
+  );
   readonly aesthetic = new AestheticClient(
     <T>(path: string, init?: RequestInit) => this.request<T>(path, init),
   );
@@ -316,27 +321,17 @@ export class StudioClient {
     );
   }
   sources(id: string) {
-    return this.request<Schema["Sources"]>("/v1/projects/" + id + "/sources");
+    return this.sourceAccess.list(id);
   }
   attachSource(id: string, body: Schema["AttachSource"]) {
-    return this.request<Schema["Source"]>("/v1/projects/" + id + "/sources", {
-      method: "POST",
-      body: JSON.stringify(body),
-    });
+    return this.sourceAccess.attach(id, body);
   }
   relinkSource(
     projectId: string,
     sourceId: string,
     body: Schema["RelinkSource"],
   ) {
-    return this.request<Schema["SourceRelinked"]>(
-      "/v1/projects/" +
-        encodeURIComponent(projectId) +
-        "/sources/" +
-        encodeURIComponent(sourceId) +
-        "/relink",
-      { method: "POST", body: JSON.stringify(body) },
-    );
+    return this.sourceAccess.relink(projectId, sourceId, body);
   }
   assets(
     id: string,

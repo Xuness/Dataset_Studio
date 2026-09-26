@@ -2,7 +2,7 @@ use super::*;
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use sha2::{Digest, Sha256};
 use studio_application::{MediaInput, MediaSource, SourceAdapter};
-use studio_domain::{ReadClass, ReadPriority, ReadRequest};
+use studio_domain::ReadClass;
 
 pub(super) enum Prepared {
     Messages(Vec<LlmMessage>),
@@ -16,15 +16,9 @@ pub(super) fn prepare_images(
     batch: &mut AestheticBatch,
     cancelled: Arc<AtomicBool>,
 ) -> Result<Prepared> {
-    let _read = state.resources.acquire(
-        ReadRequest {
-            class: ReadClass::Media,
-            priority: ReadPriority::Background,
-            bytes: 32 << 20,
-        },
-        &cancelled,
-    )?;
-    let router = studio_sources::SourceRouter;
+    let router = state
+        .sources
+        .background(ReadClass::Media, 32 << 20, cancelled.clone())?;
     studio_application::aesthetic::validate_execution(&stage.config)?;
     let mut content = Vec::new();
     let mut media = std::collections::BTreeMap::new();
@@ -59,6 +53,7 @@ pub(super) fn prepare_images(
             }
             selected.push(member);
             inputs.push(MediaInput {
+                deadline: None,
                 asset_id: member.candidate.key.asset_id.clone(),
                 cancelled: cancelled.clone(),
                 byte_limit: stage.config.max_image_bytes,
@@ -156,13 +151,10 @@ pub(super) fn freeze_page(
         db.finish_freeze(&stage.id)?;
         return Ok(false);
     }
-    let _permit = state.resources.acquire(
-        ReadRequest {
-            class: ReadClass::NativeQuery,
-            priority: ReadPriority::Background,
-            bytes: studio_domain::METADATA_MEMORY_BYTES,
-        },
-        &cancel,
+    let reader = state.sources.background(
+        ReadClass::NativeQuery,
+        studio_domain::METADATA_MEMORY_BYTES,
+        cancel.clone(),
     )?;
     let mut rows = Vec::new();
     let mut index = 0;
@@ -180,19 +172,16 @@ pub(super) fn freeze_page(
             .iter()
             .find(|s| s.source_id == source.id)
             .ok_or_else(|| Error::invalid("冻结来源缺少版本"))?;
-        let frozen = studio_sources::SourceRouter.freeze(&source, chunk)?;
+        let frozen = reader.freeze(&source, chunk)?;
         if frozen
             .iter()
             .any(|f| f.source_revision != expected.catalog_revision)
         {
             return Err(Error::new("SOURCE_CHANGED", "来源版本已变化，请创建新阶段"));
         }
-        let groups = state
-            .metadata
-            .aesthetic_groups(&source, chunk, expected, cancel.clone())?;
+        let groups = reader.origin_groups(&source, chunk, expected)?;
         for (item, (rating, year, basis)) in frozen.into_iter().zip(groups) {
-            let content_version =
-                studio_sources::SourceRouter.content_version(&source, &item.asset.key.asset_id)?;
+            let content_version = reader.content_version(&source, &item.asset.key.asset_id)?;
             rows.push(AestheticCandidate {
                 ordinal: stage.frozen + rows.len() as u64,
                 key: item.asset.key,
@@ -209,7 +198,7 @@ pub(super) fn freeze_page(
         }
         index = end;
     }
-    drop(_permit);
+    drop(reader);
     // Creation validates bounded physical reads without submitting a model request.
     for chunk in rows.chunks_mut(16) {
         let mut probe = AestheticBatch {

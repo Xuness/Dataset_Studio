@@ -1,6 +1,7 @@
 use super::*;
 use studio_application::{ProjectRepository, SourceAdapter};
 use studio_resources::ReadCoordinator;
+use studio_sources::SourceRouter;
 
 async fn until(mut condition: impl FnMut() -> bool) {
     let start = Instant::now();
@@ -33,7 +34,12 @@ fn setup() -> (
         .unwrap();
     let coordinator = ReadCoordinator::default();
     let cache = PreviewCache::open(&root.path().join("cache")).unwrap();
-    let service = PreviewService::new(Arc::new(coordinator.clone()), cache);
+    let resources: Arc<dyn ReadResources> = Arc::new(coordinator.clone());
+    let sources = crate::sources::SourceService::new(
+        studio_sources::registry(root.path().join("query-temp"), None, None).unwrap(),
+        resources.clone(),
+    );
+    let service = PreviewService::new(resources, cache, sources);
     (root, store, project.id, service, coordinator)
 }
 fn submit(

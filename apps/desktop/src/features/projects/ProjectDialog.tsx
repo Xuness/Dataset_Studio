@@ -1,7 +1,8 @@
+import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { FolderOpen } from "lucide-react";
 import { Button, Dialog, Field, Brand } from "@studio/ui";
-import type { Project, Source } from "@studio/contracts";
+import type { Project, Source, Schema } from "@studio/contracts";
 import type { StudioClient } from "@studio/client";
 import { ScopePicker } from "../scopes/ScopePicker.js";
 import type { ScopeOption } from "../scopes/scopes.js";
@@ -30,12 +31,49 @@ export function ProjectDialog({
   onDone: () => void;
   pickDirectory: () => Promise<string | null>;
 }) {
-  const [name, setName] = useState(kind === "source" ? "Danbooru" : "");
+  const [name, setName] = useState(kind === "source" ? "数据湖" : "");
   const [directory, setDirectory] = useState("");
   const [media, setMedia] = useState("");
-  const [sourceKind, setSourceKind] = useState("danbooru");
+  const [sourceKind, setSourceKind] = useState("auto");
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
+  const adapters = useQuery({
+    queryKey: ["source-adapters"],
+    queryFn: ({ signal }) => client.sourceAccess.adapters(signal),
+    enabled: kind === "source",
+  });
+  const registration = adapters.data?.items.find(
+    (item) => item.kind === sourceKind,
+  );
+  const needsPaths =
+    sourceKind === "auto" ||
+    registration?.descriptor.capabilities.relink === true;
+  const probeBody = {
+    kind: sourceKind,
+    index_root: needsPaths ? directory : null,
+    media_root: needsPaths ? media : null,
+  };
+  const probeKey = JSON.stringify(probeBody);
+  const [checked, setChecked] = useState<{
+    key: string;
+    value: Schema["SourcePreflight"];
+  } | null>(null);
+  const currentProbe = checked?.key === probeKey ? checked.value : null;
+  async function checkSource() {
+    setPending(true);
+    setError("");
+    try {
+      const value = await client.sourceAccess.probe(probeBody);
+      setChecked({ key: probeKey, value });
+      if (name === "数据湖") setName(value.descriptor.display_name);
+    } catch (error) {
+      setChecked(null);
+      setError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setPending(false);
+    }
+  }
+
   const options =
     kind === "collection"
       ? scopeOptions.filter((o) => o.scope.target.kind !== "source")
@@ -69,13 +107,14 @@ export function ProjectDialog({
           }),
         );
       if (kind === "open") await onCreated(await client.openProject(directory));
-      if (kind === "source" && project)
+      if (kind === "source" && project) {
+        const verified = await client.sourceAccess.probe(probeBody);
         await client.attachSource(project.id, {
-          kind: sourceKind,
-          name,
-          index_root: sourceKind === "danbooru" ? directory : null,
-          media_root: sourceKind === "danbooru" ? media : null,
+          ...probeBody,
+          kind: verified.kind,
+          name: name === "数据湖" ? verified.descriptor.display_name : name,
         });
+      }
       if (kind === "relink" && project && relinkSource)
         await client.relinkSource(project.id, relinkSource.id, {
           index_root: directory,
@@ -113,11 +152,18 @@ export function ProjectDialog({
                 value={sourceKind}
                 onChange={(e) => {
                   setSourceKind(e.target.value);
-                  setName(e.target.value === "demo" ? "参考资料" : "Danbooru");
+                  setName(
+                    adapters.data?.items.find((a) => a.kind === e.target.value)
+                      ?.name ?? "数据湖",
+                  );
                 }}
               >
-                <option value="danbooru">Danbooru 归档</option>
-                <option value="demo">内置参考资料（用于验证）</option>
+                <option value="auto">自动识别已转换数据湖</option>
+                {adapters.data?.items.map((adapter) => (
+                  <option key={adapter.kind} value={adapter.kind}>
+                    {adapter.name}
+                  </option>
+                ))}
               </select>
             </Field>
           )}
@@ -143,7 +189,7 @@ export function ProjectDialog({
           {(kind === "new" ||
             kind === "open" ||
             kind === "relink" ||
-            (kind === "source" && sourceKind === "danbooru")) && (
+            (kind === "source" && needsPaths)) && (
             <Field
               label={
                 kind === "source" || kind === "relink"
@@ -177,8 +223,7 @@ export function ProjectDialog({
               </div>
             </Field>
           )}
-          {(kind === "relink" ||
-            (kind === "source" && sourceKind === "danbooru")) && (
+          {(kind === "relink" || (kind === "source" && needsPaths)) && (
             <Field label="图片湖目录">
               <div className="path-field">
                 <input
@@ -199,6 +244,38 @@ export function ProjectDialog({
                 </Button>
               </div>
             </Field>
+          )}
+          {kind === "source" && (
+            <>
+              {adapters.error && (
+                <p className="dialog-error" role="alert">
+                  来源类型读取失败：{adapters.error.message}
+                </p>
+              )}
+              <Button
+                type="button"
+                onClick={() => void checkSource()}
+                disabled={pending || (needsPaths && (!directory || !media))}
+              >
+                检查数据湖
+              </Button>
+              {currentProbe && (
+                <div role="status">
+                  <p>
+                    已识别 {currentProbe.descriptor.display_name}
+                    ，数据湖身份与索引检查通过。
+                  </p>
+                  <small>
+                    图片按唯一存储对象浏览；无图片的元数据记录保留在湖内。
+                  </small>
+                  <details>
+                    <summary>身份与版本</summary>
+                    <p>{currentProbe.source_id}</p>
+                    <p>{currentProbe.revision}</p>
+                  </details>
+                </div>
+              )}
+            </>
           )}
           {kind === "collection" && (
             <ScopePicker

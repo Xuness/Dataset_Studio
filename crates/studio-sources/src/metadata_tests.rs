@@ -1,4 +1,5 @@
 use super::*;
+use crate::profiles::METADATA_FIELDS as FIELDS;
 use std::{fs, io::Write};
 
 fn hex(n: u64) -> String {
@@ -142,6 +143,7 @@ fn origin_field_freezes_value_record_observation_and_version() {
     let f = fixture();
     let catalog = Catalog::open(&f.source).unwrap();
     let expected = QuerySourceVersion {
+        semantics_version: None,
         source_id: f.source.id.clone(),
         catalog_revision: catalog.revision.clone(),
         analysis_sequence: Some("1".into()),

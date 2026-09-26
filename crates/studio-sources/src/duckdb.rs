@@ -124,6 +124,7 @@ pub(crate) struct Session {
 }
 /// Retain the DLL, while releasing all database handles at the end of a request.
 pub(crate) struct Runtime {
+    deadline: Option<Instant>,
     path: PathBuf,
     api: Mutex<Option<Arc<Api>>>,
     query_directory: PathBuf,
@@ -147,8 +148,23 @@ impl Default for Runtime {
     }
 }
 impl Runtime {
+    pub fn for_deadline(&self, deadline: Option<Instant>) -> Self {
+        Self {
+            deadline,
+            path: self.path.clone(),
+            api: Mutex::new(self.api.lock().ok().and_then(|v| v.clone())),
+            query_directory: self.query_directory.clone(),
+            query_memory_bytes: self.query_memory_bytes,
+        }
+    }
+    pub fn with_deadline(mut self, deadline: Option<Instant>) -> Self {
+        self.deadline = deadline;
+        self
+    }
+
     pub fn new(path: PathBuf) -> Self {
         Self {
+            deadline: None,
             path,
             api: Mutex::new(None),
             query_directory: std::env::temp_dir().join("dataset-studio-query"),
@@ -183,6 +199,13 @@ impl Runtime {
         bulk: bool,
     ) -> Result<Session> {
         let started = Instant::now();
+        if self.deadline.is_some_and(|d| d <= started) {
+            return Err(Error::new("SOURCE_TIMEOUT", "来源读取超过截止时间"));
+        }
+        let budget = self
+            .deadline
+            .map(|d| budget.min(d.saturating_duration_since(started)))
+            .unwrap_or(budget);
         let api = {
             let mut loaded = self
                 .api

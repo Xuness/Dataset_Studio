@@ -639,6 +639,7 @@
   max-height: 154px;
   overflow: auto;
 }
+.metadata-tags button,
 .metadata-tags span {
   padding: 0 5px;
   background: #3c3c3c;
@@ -1564,6 +1565,7 @@
   min-height: 29px;
   font-size: 12px;
 }
+.metadata-tags button,
 .metadata-tags span {
   font-size: 11px;
   padding: 3px 5px;

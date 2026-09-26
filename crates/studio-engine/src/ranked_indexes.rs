@@ -654,8 +654,8 @@ pub fn available_budget(
     let projects = runner.cache.projects()?;
     let temporary = projects.iter().map(|p| p.temporary_bytes).sum::<u64>();
     let other = projects.iter().map(|p| p.bytes).sum::<u64>()
-        + runner.browse_index.storage()?.0
-        + runner.rating_cache.storage_bytes()?
+        + runner.source_indexes.browse_index.storage()?.0
+        + runner.source_indexes.rating_cache.storage_bytes()?
         + preview.metrics().bytes;
     Ok((u64::from(config.temporary_mib) << 20)
         .saturating_sub(temporary)

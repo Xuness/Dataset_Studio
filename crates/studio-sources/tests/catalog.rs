@@ -133,6 +133,7 @@ fn batches_read_pack_offsets_once_and_restore_logical_order() {
         entries.push((id, text));
     }
     let inputs = [2, 1, 0].map(|i| MediaInput {
+        deadline: None,
         asset_id: entries[i].0.clone(),
         cancelled: Arc::new(AtomicBool::new(false)),
         byte_limit: 64 << 20,
@@ -165,6 +166,7 @@ fn batches_read_pack_offsets_once_and_restore_logical_order() {
     let inputs = entries
         .iter()
         .map(|(id, _)| MediaInput {
+            deadline: None,
             asset_id: id.clone(),
             cancelled: Arc::new(AtomicBool::new(true)),
             byte_limit: 64 << 20,
@@ -188,6 +190,7 @@ fn an_index_length_change_cannot_exceed_the_admitted_payload_budget() {
         .read_many(
             &source,
             &[MediaInput {
+                deadline: None,
                 asset_id: id,
                 cancelled: Arc::new(AtomicBool::new(false)),
                 byte_limit: bytes.len() as u64 - 1,

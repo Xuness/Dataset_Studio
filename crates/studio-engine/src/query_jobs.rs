@@ -1,333 +1,63 @@
+use crate::{source_indexes::SourceIndexService, sources::SourceService};
 use std::{
     cell::{Cell, RefCell},
-    time::{Duration, Instant},
-};
-use std::{
     collections::HashMap,
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, Ordering},
     },
+    time::{Duration, Instant},
 };
-use studio_application::{QueryAdapter, ReadResources};
+use studio_application::QueryAdapter;
 use studio_domain::*;
-use studio_sources::{
-    BrowseIndex, BrowseIndexStamp, IdentityIndex, QueryReader, RatingCache, rating_candidates,
-};
+use studio_sources::rating_candidates;
 use studio_storage::{QueryStage, SqliteStore};
-
-type IndexJobs = HashMap<String, (Arc<AtomicBool>, Option<Error>)>;
-#[derive(Debug, Clone)]
-pub struct RatingBuildStatus {
-    pub source_id: String,
-    pub state: String,
-    pub current_rating: Option<String>,
-    pub completed: Vec<String>,
-    pub error: Option<String>,
-}
-type RatingBuilds = HashMap<String, (Arc<AtomicBool>, RatingBuildStatus)>;
 pub struct QueryRunner {
-    pub reader: QueryReader,
     running: Mutex<HashMap<String, Arc<AtomicBool>>>,
-    indexes: Mutex<IndexJobs>,
-    rating_builds: Mutex<RatingBuilds>,
     stopping: AtomicBool,
-    resources: Arc<dyn ReadResources>,
-    pub budget: crate::query_budget::QueryBudget,
-    pub cache: crate::query_cache::CacheControl,
-    pub browse_index: BrowseIndex,
-    pub identity_index: Arc<IdentityIndex>,
+    pub sources: Arc<SourceService>,
+    pub source_indexes: Arc<SourceIndexService>,
+    pub budget: Arc<crate::query_budget::QueryBudget>,
+    pub cache: Arc<crate::query_cache::CacheControl>,
     pub ranked_indexes: Arc<crate::ranked_indexes::RankedIndexes>,
-    pub rating_cache: Arc<RatingCache>,
     query_directory: std::path::PathBuf,
 }
 impl QueryRunner {
     pub fn new(
-        resources: Arc<dyn ReadResources>,
         query_directory: std::path::PathBuf,
-        budget: crate::query_budget::QueryBudget,
-        cache: crate::query_cache::CacheControl,
+        budget: Arc<crate::query_budget::QueryBudget>,
+        cache: Arc<crate::query_cache::CacheControl>,
+        source_indexes: Arc<SourceIndexService>,
+        sources: Arc<SourceService>,
         index_directory: std::path::PathBuf,
     ) -> Self {
         Self {
-            reader: QueryReader::with_query_directory(query_directory.clone()),
-            running: Mutex::new(HashMap::new()),
-            indexes: Mutex::new(HashMap::new()),
-            rating_builds: Mutex::new(HashMap::new()),
-            stopping: AtomicBool::new(false),
-            resources,
+            query_directory,
             budget,
             cache,
-            rating_cache: Arc::new(RatingCache::new(
-                index_directory.with_file_name("rating-cache"),
-            )),
-            identity_index: Arc::new(IdentityIndex::new(index_directory.clone())),
+            source_indexes,
+            sources,
+            running: Mutex::new(HashMap::new()),
+            stopping: AtomicBool::new(false),
             ranked_indexes: Arc::new(crate::ranked_indexes::RankedIndexes::new(
                 index_directory.with_file_name("ranked-index"),
             )),
-            browse_index: BrowseIndex::new(index_directory),
-            query_directory,
         }
-    }
-    pub fn ensure_browse_index(
-        &self,
-        source: &Source,
-        cancelled: Arc<AtomicBool>,
-    ) -> Result<Option<BrowseIndexStamp>> {
-        if source.kind != "danbooru" || self.browse_index.is_current(source)? {
-            return Ok(None);
-        }
-        let budget = self.budget.wait(&cancelled)?;
-        let _permit = self.resources.acquire(
-            ReadRequest {
-                class: ReadClass::NativeQuery,
-                priority: ReadPriority::Background,
-                bytes: budget.memory_bytes,
-            },
-            &cancelled,
-        )?;
-        self.browse_index
-            .ensure(
-                source,
-                budget.memory_bytes,
-                &self.query_directory,
-                cancelled,
-            )
-            .map(Some)
-    }
-    pub fn prepare_browse_index(self: &Arc<Self>, source: &Source) -> Result<bool> {
-        if source.kind != "danbooru" || self.browse_index.is_current(source)? {
-            return Ok(true);
-        }
-        let mut jobs = self
-            .indexes
-            .lock()
-            .map_err(|_| Error::new("INTERNAL_ERROR", "排序准备状态不可用"))?;
-        if let Some((_, error)) = jobs.get(&source.id) {
-            if error.is_some() {
-                return Err(jobs
-                    .remove(&source.id)
-                    .and_then(|(_, e)| e)
-                    .expect("present error"));
-            }
-            return Ok(false);
-        }
-        if jobs.len() >= 32 {
-            return Err(Error::new("READ_BUDGET_EXCEEDED", "等待排序准备的来源过多"));
-        }
-        let cancelled = Arc::new(AtomicBool::new(false));
-        jobs.insert(source.id.clone(), (cancelled.clone(), None));
-        let runner = self.clone();
-        let source = source.clone();
-        tokio::task::spawn_blocking(move || {
-            let result = runner.ensure_browse_index(&source, cancelled);
-            if let Ok(mut jobs) = runner.indexes.lock() {
-                if let Err(error) = result {
-                    if let Some((_, state)) = jobs.get_mut(&source.id) {
-                        *state = Some(error);
-                    }
-                } else {
-                    jobs.remove(&source.id);
-                }
-            }
-        });
-        Ok(false)
-    }
-    pub fn prepare_identity_index(self: &Arc<Self>, source: &Source) -> Result<bool> {
-        if source.kind != "danbooru" || self.identity_index.is_current(source)? {
-            return Ok(true);
-        }
-        let key = format!("identity:{}", source.id);
-        let mut jobs = self
-            .indexes
-            .lock()
-            .map_err(|_| Error::new("INTERNAL_ERROR", "身份准备状态不可用"))?;
-        if let Some((_, error)) = jobs.get(&key) {
-            if error.is_some() {
-                return Err(jobs
-                    .remove(&key)
-                    .and_then(|(_, e)| e)
-                    .expect("present error"));
-            }
-            return Ok(false);
-        }
-        if jobs.len() >= 32 {
-            return Err(Error::new("READ_BUDGET_EXCEEDED", "等待身份准备的来源过多"));
-        }
-        let cancelled = Arc::new(AtomicBool::new(false));
-        jobs.insert(key.clone(), (cancelled.clone(), None));
-        let runner = self.clone();
-        let source = source.clone();
-        tokio::task::spawn_blocking(move || {
-            let result = (|| {
-                let budget = runner.budget.wait(&cancelled)?;
-                let _permit = runner.resources.acquire(
-                    ReadRequest {
-                        class: ReadClass::NativeQuery,
-                        priority: ReadPriority::Background,
-                        bytes: budget.memory_bytes,
-                    },
-                    &cancelled,
-                )?;
-                runner.identity_index.ensure(
-                    &source,
-                    budget.memory_bytes,
-                    &runner.query_directory,
-                    cancelled,
-                )
-            })();
-            if let Ok(mut jobs) = runner.indexes.lock() {
-                match result {
-                    Ok(()) => {
-                        jobs.remove(&key);
-                        runner.cache.requested.store(true, Ordering::Release);
-                    }
-                    Err(error) => {
-                        if let Some((_, state)) = jobs.get_mut(&key) {
-                            *state = Some(error);
-                        }
-                    }
-                }
-            }
-        });
-        Ok(false)
     }
     pub fn cancel(&self, id: &str) {
-        if let Ok(running) = self.running.lock()
-            && let Some(cancel) = running.get(id)
+        if let Ok(jobs) = self.running.lock()
+            && let Some(cancel) = jobs.get(id)
         {
             cancel.store(true, Ordering::Release);
         }
     }
-    pub fn rating_builds(&self) -> Result<Vec<RatingBuildStatus>> {
-        self.rating_builds
-            .lock()
-            .map(|jobs| jobs.values().map(|(_, status)| status.clone()).collect())
-            .map_err(|_| Error::new("INTERNAL_ERROR", "基础缓存任务状态不可用"))
-    }
-    pub fn cancel_rating_build(&self, source: &str) -> Result<()> {
-        validate_id(source)?;
-        if let Some((cancelled, _)) = self
-            .rating_builds
-            .lock()
-            .map_err(|_| Error::new("INTERNAL_ERROR", "基础缓存任务状态不可用"))?
-            .get(source)
-        {
-            cancelled.store(true, Ordering::Release);
-        }
-        Ok(())
-    }
-    pub fn start_rating_build(self: &Arc<Self>, source: &Source) -> Result<RatingBuildStatus> {
-        if source.kind != "danbooru" {
-            return Err(Error::new(
-                "QUERY_UNSUPPORTED",
-                "分级基础缓存用于 Danbooru 数据湖",
-            ));
-        }
-        if self.cache.config()?.long_term_mib == 0 {
-            return Err(Error::invalid("请先为长期缓存配置容量"));
-        }
-        let initial = RatingBuildStatus {
-            source_id: source.id.clone(),
-            state: "queued".into(),
-            current_rating: None,
-            completed: Vec::new(),
-            error: None,
-        };
-        let cancelled = Arc::new(AtomicBool::new(false));
-        {
-            let mut jobs = self
-                .rating_builds
-                .lock()
-                .map_err(|_| Error::new("INTERNAL_ERROR", "基础缓存任务状态不可用"))?;
-            if let Some((_, status)) = jobs.get(&source.id)
-                && matches!(status.state.as_str(), "queued" | "running")
-            {
-                return Ok(status.clone());
-            }
-            if jobs.len() >= 64 {
-                jobs.retain(|_, (_, status)| matches!(status.state.as_str(), "queued" | "running"));
-            }
-            if jobs.len() >= 64 {
-                return Err(Error::new("RESOURCE_LIMIT", "基础缓存构建任务过多"));
-            }
-            jobs.insert(source.id.clone(), (cancelled.clone(), initial.clone()));
-        }
-        let runner = self.clone();
-        let source = source.clone();
-        tokio::task::spawn_blocking(move || {
-            let outcome = (|| -> Result<()> {
-                let ratings = studio_sources::RATINGS.map(str::to_owned);
-                let _pins = runner.rating_cache.pin(&source.id, &ratings)?;
-                for rating in ratings {
-                    studio_application::read_cancelled(&cancelled)?;
-                    if let Ok(mut jobs) = runner.rating_builds.lock()
-                        && let Some((_, status)) = jobs.get_mut(&source.id)
-                    {
-                        status.state = "running".into();
-                        status.current_rating = Some(rating.clone());
-                    }
-                    let budget = runner.budget.wait(&cancelled)?;
-                    let _permit = runner.resources.acquire(
-                        ReadRequest {
-                            class: ReadClass::NativeQuery,
-                            priority: ReadPriority::Background,
-                            bytes: budget.memory_bytes,
-                        },
-                        &cancelled,
-                    )?;
-                    runner.rating_cache.ensure(
-                        &source,
-                        &rating,
-                        budget.memory_bytes,
-                        &runner.query_directory,
-                        cancelled.clone(),
-                    )?;
-                    if let Ok(mut jobs) = runner.rating_builds.lock()
-                        && let Some((_, status)) = jobs.get_mut(&source.id)
-                    {
-                        status.completed.push(rating);
-                    }
-                }
-                Ok(())
-            })();
-            if let Ok(mut jobs) = runner.rating_builds.lock()
-                && let Some((_, status)) = jobs.get_mut(&source.id)
-            {
-                status.current_rating = None;
-                match outcome {
-                    Ok(()) => status.state = "ready".into(),
-                    Err(error) => {
-                        status.state = if error.code == "CANCELLED" {
-                            "cancelled"
-                        } else {
-                            "failed"
-                        }
-                        .into();
-                        status.error = Some(error.message);
-                    }
-                }
-            }
-            runner.cache.requested.store(true, Ordering::Release);
-        });
-        Ok(initial)
-    }
     pub fn shutdown(&self) {
         self.stopping.store(true, Ordering::Release);
         self.ranked_indexes.shutdown();
-        if let Ok(jobs) = self.rating_builds.lock() {
-            for (cancelled, _) in jobs.values() {
-                cancelled.store(true, Ordering::Release);
-            }
-        }
-        if let Ok(running) = self.running.lock() {
-            for cancelled in running.values() {
-                cancelled.store(true, Ordering::Release);
-            }
-        }
-        if let Ok(indexes) = self.indexes.lock() {
-            for (cancelled, _) in indexes.values() {
-                cancelled.store(true, Ordering::Release);
+        self.source_indexes.shutdown();
+        if let Ok(jobs) = self.running.lock() {
+            for c in jobs.values() {
+                c.store(true, Ordering::Release);
             }
         }
     }
@@ -339,9 +69,15 @@ impl QueryRunner {
     ) -> Result<Vec<QuerySourceVersion>> {
         store.validate_derived(pid, spec)?;
         let native = studio_storage::native_spec(spec);
+        let read = self.sources.background(
+            ReadClass::NativeQuery,
+            METADATA_MEMORY_BYTES,
+            Arc::new(AtomicBool::new(false)),
+        )?;
+        let reader = read.query(METADATA_MEMORY_BYTES, false);
         spec.source_ids
             .iter()
-            .map(|id| self.reader.query_version(&store.source(pid, id)?, &native))
+            .map(|id| reader.query_version(&store.source(pid, id)?, &native))
             .collect()
     }
     pub fn validate_result(&self, store: &SqliteStore, result: &QueryResult) -> Result<()> {
@@ -384,9 +120,11 @@ impl QueryRunner {
             .map(|v| store.source(&result.project_id, &v.source_id))
             .collect::<Result<Vec<_>>>()?;
         for source in &sources {
-            if !fixed && source.kind == "danbooru" {
+            if !fixed && self.sources.has(source, |c| c.post_order) {
                 store.query_build_phase(&result.project_id, &result.id, "index")?;
-                if let Err(error) = self.ensure_browse_index(source, cancelled.clone())
+                if let Err(error) = self
+                    .source_indexes
+                    .ensure_browse_index(source, cancelled.clone())
                     && (studio_storage::native_spec(&result.spec).uses_metadata()
                         || result.spec.order.by_post()
                         || !matches!(error.code, "IO_ERROR" | "SOURCE_UNAVAILABLE"))
@@ -397,14 +135,13 @@ impl QueryRunner {
         }
         let budget = self.budget.wait(&cancelled)?;
         let work_memory = crate::query_budget::result_work_memory(budget.memory_bytes);
-        let reader = QueryReader::with_query_directory(self.query_directory.clone())
-            .with_query_memory(budget.memory_bytes - work_memory);
+        let read = self.sources.background(
+            ReadClass::NativeQuery,
+            budget.memory_bytes,
+            cancelled.clone(),
+        )?;
         let retain_bases = self.cache.config()?.long_term_mib > 0;
-        let reader = if retain_bases {
-            reader.with_rating_cache(self.rating_cache.clone())
-        } else {
-            reader
-        };
+        let reader = read.query(budget.memory_bytes - work_memory, retain_bases);
         let basis = store.cached_basis(&result.project_id, &result.id)?;
         let post_refresh = basis
             .as_ref()
@@ -420,14 +157,6 @@ impl QueryRunner {
         };
         store.query_build_phase(&result.project_id, &result.id, mode)?;
         let input_count = store.query_input_count(&result.project_id, &result.spec)?;
-        let _permit = self.resources.acquire(
-            ReadRequest {
-                class: ReadClass::NativeQuery,
-                priority: ReadPriority::Background,
-                bytes: budget.memory_bytes,
-            },
-            &cancelled,
-        )?;
         let mut basis_pins = Vec::new();
         let ranking = crate::ranking_query::RankingQuery::open(
             store,
@@ -437,13 +166,13 @@ impl QueryRunner {
         )?;
         for (expected, source) in result.source_versions.iter().zip(&sources) {
             if retain_bases
-                && source.kind == "danbooru"
+                && self.sources.has(source, |c| c.post_order)
                 && let Some(ratings) = rating_candidates(&studio_storage::native_spec(&result.spec))
             {
-                basis_pins.push(self.rating_cache.pin(&source.id, &ratings)?);
+                basis_pins.push(self.source_indexes.rating_cache.pin(&source.id, &ratings)?);
                 store.query_build_phase(&result.project_id, &result.id, "rating_basis")?;
                 for rating in ratings {
-                    self.rating_cache.ensure(
+                    self.source_indexes.rating_cache.ensure(
                         source,
                         &rating,
                         budget.memory_bytes,
@@ -459,12 +188,12 @@ impl QueryRunner {
             if previous == Some(expected) && !post_refresh {
                 continue;
             }
-            let index = if !fixed && source.kind == "danbooru" {
-                self.browse_index.reader(source).ok()
+            let index = if !fixed && self.sources.has(source, |c| c.post_order) {
+                self.source_indexes.browse_index.reader(source).ok()
             } else {
                 None
             };
-            if source.kind == "danbooru" && index.is_none() {
+            if self.sources.has(source, |c| c.post_order) && index.is_none() {
                 stage.borrow_mut().post_ready = false;
             }
             let native = studio_storage::native_spec(&result.spec);
@@ -529,7 +258,7 @@ impl QueryRunner {
                     .and_then(|v| v.catalog_revision.rsplit(':').next())
                     .and_then(|s| s.parse::<u64>().ok());
                 let anchor = old_sequence
-                    .map(|seq| self.browse_index.anchor(&source.id, seq))
+                    .map(|seq| self.source_indexes.browse_index.anchor(&source.id, seq))
                     .transpose()?
                     .flatten()
                     .filter(|anchor| {
@@ -679,8 +408,8 @@ fn sweep_cache(
     let policy = config.policy();
     let mut projects = runner.cache.projects()?;
     projects.sort_by_key(|p| (p.temporary_families == 0, p.touched));
-    let source_bytes = runner.browse_index.storage()?.0;
-    let basis_bytes = runner.rating_cache.storage_bytes()?;
+    let source_bytes = runner.source_indexes.browse_index.storage()?.0;
+    let basis_bytes = runner.source_indexes.rating_cache.storage_bytes()?;
     let rank_budget = crate::ranked_indexes::available_budget(runner, preview)?;
     let rank_sessions = if config.temporary_session_only {
         Some(crate::ranked_indexes::live_session_projects(runner)?)
@@ -822,7 +551,7 @@ fn sweep_cache(
                 }
             }
         }
-        let mut bases = runner.rating_cache.entries()?;
+        let mut bases = runner.source_indexes.rating_cache.entries()?;
         bases.sort_by_key(|b| b.last_used_millis);
         let mut retained_basis = basis_bytes;
         for basis in bases {
@@ -837,9 +566,11 @@ fn sweep_cache(
             if !basis.fixed
                 && !basis.active
                 && (expired || clear || excess)
-                && runner
-                    .rating_cache
-                    .remove(&basis.source_id, &basis.rating, false)?
+                && runner.source_indexes.rating_cache.remove(
+                    &basis.source_id,
+                    &basis.rating,
+                    false,
+                )?
             {
                 retained_basis = retained_basis.saturating_sub(basis.bytes);
                 reclaimed += 1;

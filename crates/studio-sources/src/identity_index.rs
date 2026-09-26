@@ -1,5 +1,5 @@
 use crate::{
-    danbooru::{Catalog, err},
+    canonical::{Catalog, err},
     duckdb::Runtime,
     query::{ChangeAnchor, analysis_sequence, changes},
 };

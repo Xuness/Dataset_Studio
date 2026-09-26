@@ -18,6 +18,23 @@ fn coordinator(queue: usize) -> ReadCoordinator {
         bytes: 100,
     }])
 }
+#[test]
+fn an_expired_waiter_leaves_the_shared_queue_without_a_reservation() {
+    let c = coordinator(2);
+    let held = c
+        .acquire(request(ReadPriority::Interactive), &AtomicBool::new(false))
+        .unwrap();
+    let result = c.acquire_until(
+        request(ReadPriority::Background),
+        &AtomicBool::new(false),
+        Some(Instant::now() + Duration::from_millis(25)),
+    );
+    assert_eq!(result.err().unwrap().code, "SOURCE_TIMEOUT");
+    assert_eq!(c.metrics()[0].queued, 0);
+    assert_eq!(c.metrics()[0].active, 1);
+    drop(held);
+    assert_eq!(c.metrics()[0].reserved_bytes, 0);
+}
 fn request(priority: ReadPriority) -> ReadRequest {
     ReadRequest {
         class: ReadClass::Media,

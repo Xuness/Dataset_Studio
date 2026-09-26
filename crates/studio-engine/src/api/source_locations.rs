@@ -9,13 +9,19 @@ pub(super) async fn relink(
     Ok(Json(
         blocking(move || {
             let mut source = s.store.source(&pid, &sid)?;
-            if source.kind != "danbooru" {
+            if !s.sources.has(&source, |c| c.relink) {
                 return Err(domain::Error::invalid("此来源不需要重新关联本机位置"));
             }
             source.index_root = Some(body.index_root.into());
             source.media_root = Some(body.media_root.into());
             // Catalog checks both manifests against the existing logical ID before mutation.
-            let probe = SourceRouter.probe(&source)?;
+            let probe = s.sources.validate_attachment(
+                &mut source,
+                studio_application::SourceReadContext::new(
+                    std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                    domain::ReadPriority::Interactive,
+                ),
+            )?;
             if probe.id != sid {
                 return Err(domain::Error::new(
                     "SOURCE_ID_MISMATCH",

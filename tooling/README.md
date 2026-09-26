@@ -93,7 +93,6 @@ Rust 测试位于 crates 内，`pnpm test` 同时执行 SDK 检查 [client-found
 
 项目恢复使用公开 SDK 的 aesthetic.recoveryPackage(projectId) 和 aesthetic.restore(packageDirectory, destination)。后者要求同身份项目已关闭、目标目录不存在；验证成功后显式 openProject(destination)。旧的 aesthetic.backup 仍只备份评审账本。外部数据湖和凭据不在恢复包内。
 
-
 ## 按轮次采样与追加评审
 
 - [integration-aesthetic-sampling.mjs](integration-aesthetic-sampling.mjs)：145 张合成图片，真实 SDK/HTTP/SQLite、16 请求并发上限、暂停重启、追加预算与幂等、原始回执和有效性摘要；在同一 48 次调用上限下比较旧组批、均衡轮次和动态轮次。只调用 loopback mock，不验证真实审美正确性。
@@ -103,3 +102,12 @@ Rust 测试位于 crates 内，`pnpm test` 同时执行 SDK 检查 [client-found
 - 同一采样集成入口也验证 `refine` / `refine_balanced` 的 v2 冻结版本、预算停靠、可选敏感度字段和 Davidson v2 快照；工作流 UI 在 2560×1440 验证新估计器及跨版本追加计划。算法与实验边界见 [ADR 0033](../docs/decisions/0033-aesthetic-neighbor-refinement.md)。
 
 - `integration-aesthetic-recovery.mjs` 的数量边界夹具会在独立测试项目中生成真实的 10000000/10000001 条工作集成员，验证所有轮次模式的预检以及超限时不创建付费意图；该部分需要额外的本机磁盘和时间。它不执行千万图模型评审。`studio-storage` 单元测试另覆盖超过 32 MiB 的诊断分块写入及暂存恢复，见 [ADR 0034](../docs/decisions/0034-aesthetic-ten-million-admission.md)。
+
+## 多站点数据湖
+
+- [integration-multibooru.mjs](integration-multibooru.mjs)：三站点隔离 fixture、预检/登记、身份、标签、原始 schema、缓存和重启；已加入 `pnpm test:integration`。
+- [multibooru-fixture.py](multibooru-fixture.py)：用标准库和仓库 DuckDB 运行库构建小型三站点夹具，不依赖真实湖或网络。
+- [smoke-multibooru-ui.mjs](smoke-multibooru-ui.mjs)：参数为上述集成生成的 `multibooru-*` 目录，在独立应用与 Edge 无头浏览器中验收识别、元数据和精确标签查询。
+- [verify-multibooru.mjs](verify-multibooru.mjs)：显式传入 JSON 样本清单才读取真实湖；每湖最多 64 个记录、8 个预览。每项声明索引/图片根目录、library_id、generation 以及样本身份、原始 JSON/schema 摘要、标签和尺寸。只写独立测试应用及报告；首次会按需构建完整的应用身份/排序索引，未进行全湖媒体扫描。
+
+实现和验证边界见 [ADR 0035](../docs/decisions/0035-source-registry-and-dispatch.md)及[验收记录](../docs/verification/2026-09-26-multibooru.md)。

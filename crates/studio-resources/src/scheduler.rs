@@ -120,6 +120,14 @@ fn millis(start: Instant) -> u64 {
 }
 impl ReadResources for ReadCoordinator {
     fn acquire(&self, request: ReadRequest, cancelled: &AtomicBool) -> Result<Box<dyn ReadLease>> {
+        self.acquire_until(request, cancelled, None)
+    }
+    fn acquire_until(
+        &self,
+        request: ReadRequest,
+        cancelled: &AtomicBool,
+        deadline: Option<Instant>,
+    ) -> Result<Box<dyn ReadLease>> {
         read_cancelled(cancelled)?;
         let start = Instant::now();
         let mut state = self.inner.state.lock().map_err(|_| lock_error())?;
@@ -144,7 +152,14 @@ impl ReadResources for ReadCoordinator {
         loop {
             let class = &mut state.classes[class_index];
             class.metrics.queued = class.queue.len();
-            if let Err(error) = read_cancelled(cancelled) {
+            let check = read_cancelled(cancelled).and_then(|()| {
+                if deadline.is_some_and(|d| Instant::now() >= d) {
+                    Err(Error::new("SOURCE_TIMEOUT", "等待来源资源超过截止时间"))
+                } else {
+                    Ok(())
+                }
+            });
+            if let Err(error) = check {
                 class.queue.retain(|w| w.id != id);
                 class.metrics.queued = class.queue.len();
                 class.metrics.cancelled_waiting += 1;

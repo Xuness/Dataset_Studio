@@ -1,3 +1,4 @@
+use crate::sources::SourceRead;
 use axum::{
     Json,
     extract::{Extension, FromRequest, Path, Query, Request, State, rejection::JsonRejection},
@@ -17,7 +18,6 @@ use studio_application::{
 };
 use studio_domain as domain;
 use studio_protocol::*;
-use studio_sources::SourceRouter;
 use studio_storage::SqliteStore;
 use utoipa::OpenApi;
 mod aesthetic;
@@ -32,6 +32,7 @@ mod resources;
 mod scoped_browse;
 mod settings;
 mod source_locations;
+mod source_probe;
 mod tools;
 
 #[derive(Clone)]
@@ -44,7 +45,7 @@ pub struct AppState {
     pub connection: EngineConnection,
     pub resources: Arc<dyn studio_application::ReadResources>,
     pub previews: Arc<crate::previews::PreviewService>,
-    pub metadata: Arc<studio_sources::MetadataReader>,
+    pub sources: Arc<crate::sources::SourceService>,
     pub queries: Arc<crate::query_jobs::QueryRunner>,
     pub ranking_reads: Arc<crate::ranking_reads::RankingReadCache>,
     pub shutdown: tokio::sync::watch::Sender<bool>,
@@ -114,6 +115,8 @@ impl IntoResponse for Failure {
             | "EVALUATION_CAPACITY_EXCEEDED"
             | "EVALUATION_CONFIG_UNSUPPORTED"
             | "EVALUATION_RATING_UNRESOLVED"
+            | "SOURCE_SITE_MISMATCH"
+            | "SOURCE_SITE_UNKNOWN"
             | "SOURCE_ID_MISMATCH"
             | "SOURCE_PATH_INVALID"
             | "FORMAT_UNSUPPORTED"
@@ -274,7 +277,7 @@ async fn asset_detail(
                 asset_id: aid,
             };
             let source = s.store.source(&pid, &sid)?;
-            let item = SourceRouter
+            let item = _permit
                 .freeze(&source, std::slice::from_ref(&key))?
                 .into_iter()
                 .next()
@@ -286,7 +289,7 @@ async fn asset_detail(
                 .copied()
                 .unwrap_or(false);
             let mut items = vec![Asset::from_domain(item.asset, selected)];
-            enrich_summaries(&s, &pid, &read_context, &mut items)?;
+            enrich_summaries(&s, &pid, &read_context, &_permit, &mut items)?;
             Ok(items.remove(0))
         })
         .await?,
@@ -297,18 +300,18 @@ fn read_permit(
     s: &AppState,
     class: domain::ReadClass,
     context: &RequestReadContext,
-) -> domain::Result<Box<dyn studio_application::ReadLease>> {
-    s.resources.acquire(
-        domain::ReadRequest {
-            class,
-            priority: context.priority,
-            bytes: if class == domain::ReadClass::NativeQuery {
-                domain::METADATA_MEMORY_BYTES
-            } else {
-                32 << 20
-            },
+) -> domain::Result<SourceRead> {
+    let mut admitted =
+        studio_application::SourceReadContext::new(context.cancelled.clone(), context.priority);
+    admitted.deadline = Some(std::time::Instant::now() + std::time::Duration::from_secs(30));
+    s.sources.admit(
+        class,
+        if class == domain::ReadClass::NativeQuery {
+            domain::METADATA_MEMORY_BYTES
+        } else {
+            32 << 20
         },
-        &context.cancelled,
+        admitted,
     )
 }
 
@@ -316,6 +319,7 @@ fn enrich_summaries(
     s: &AppState,
     pid: &str,
     context: &RequestReadContext,
+    reader: &SourceRead,
     items: &mut [Asset],
 ) -> domain::Result<()> {
     let mut groups = BTreeMap::<String, Vec<String>>::new();
@@ -327,13 +331,12 @@ fn enrich_summaries(
     }
     for (sid, ids) in groups {
         let source = s.store.source(pid, &sid)?;
-        if source.kind != "danbooru" {
+        if !s.sources.has(&source, |c| c.post_order) {
             continue;
         }
         let result = (|| {
-            prepare_metadata(s, &source)?;
-            s.metadata
-                .summaries(&source, &ids, context.cancelled.clone())
+            prepare_metadata(s, &source, reader)?;
+            reader.summaries(&source, &ids, context.cancelled.clone())
         })();
         match result {
             Ok(summaries) => {
@@ -342,13 +345,19 @@ fn enrich_summaries(
                     .map(|v| (v.asset_id.clone(), v))
                     .collect::<std::collections::HashMap<_, _>>();
                 for item in items.iter_mut().filter(|item| item.key.source_id == sid) {
-                    item.summary = summaries.remove(&item.key.asset_id).map(Into::into);
+                    item.summary = summaries.remove(&item.key.asset_id).map(|value| {
+                        let mut summary: AssetSummary = value.into();
+                        summary.site_name =
+                            s.sources.descriptor(&source).ok().map(|d| d.display_name);
+                        summary
+                    });
                 }
             }
             Err(e) if e.code == "CANCELLED" => return Err(e),
             Err(e) => {
                 for item in items.iter_mut().filter(|item| item.key.source_id == sid) {
                     item.summary = Some(AssetSummary {
+                        site_name: s.sources.descriptor(&source).ok().map(|d| d.display_name),
                         status: if e.code == "SOURCE_INDEX_PREPARING" {
                             "preparing"
                         } else {
@@ -366,8 +375,16 @@ fn enrich_summaries(
     }
     Ok(())
 }
-fn prepare_metadata(s: &AppState, source: &domain::Source) -> domain::Result<()> {
-    if !s.queries.prepare_identity_index(source)? {
+fn prepare_metadata(
+    s: &AppState,
+    source: &domain::Source,
+    reader: &SourceRead,
+) -> domain::Result<()> {
+    if !s
+        .queries
+        .source_indexes
+        .prepare_identity_index(source, reader)?
+    {
         return Err(domain::Error::new(
             "SOURCE_INDEX_PREPARING",
             "正在准备图片身份索引，完成后会自动显示帖子信息",
@@ -404,7 +421,7 @@ async fn asset_summaries(
                     )
                 })
                 .collect::<Vec<_>>();
-            enrich_summaries(&s, &pid, &read, &mut items)?;
+            enrich_summaries(&s, &pid, &read, &_permit, &mut items)?;
             let preparing = items.iter().any(|item| {
                 item.summary
                     .as_ref()
@@ -416,6 +433,7 @@ async fn asset_summaries(
                     .map(|item| AssetSummaryEntry {
                         key: item.key,
                         summary: item.summary.unwrap_or(AssetSummary {
+                            site_name: None,
                             status: "unsupported".into(),
                             post_ids: Vec::new(),
                             post_count: None,
@@ -440,9 +458,12 @@ async fn metadata(
     Ok(Json(
         blocking(move || {
             let source = s.store.source(&pid, &sid)?;
-            prepare_metadata(&s, &source)?;
+            {
+                let index = read_permit(&s, domain::ReadClass::Index, &read_context)?;
+                prepare_metadata(&s, &source, &index)?;
+            }
             let _permit = read_permit(&s, domain::ReadClass::NativeQuery, &read_context)?;
-            s.metadata
+            _permit
                 .metadata_cancelled(&source, &aid, q.into(), read_context.cancelled)
                 .map(Into::into)
         })
@@ -459,9 +480,12 @@ async fn observations(
     Ok(Json(
         blocking(move || {
             let source = s.store.source(&pid, &sid)?;
-            prepare_metadata(&s, &source)?;
+            {
+                let index = read_permit(&s, domain::ReadClass::Index, &read_context)?;
+                prepare_metadata(&s, &source, &index)?;
+            }
             let _permit = read_permit(&s, domain::ReadClass::NativeQuery, &read_context)?;
-            s.metadata
+            _permit
                 .observations_cancelled(&source, &aid, &rid, q.into(), read_context.cancelled)
                 .map(Into::into)
         })
@@ -478,9 +502,12 @@ async fn raw_metadata(
     Ok(Json(
         blocking(move || {
             let source = s.store.source(&pid, &sid)?;
-            prepare_metadata(&s, &source)?;
+            {
+                let index = read_permit(&s, domain::ReadClass::Index, &read_context)?;
+                prepare_metadata(&s, &source, &index)?;
+            }
             let _permit = read_permit(&s, domain::ReadClass::NativeQuery, &read_context)?;
-            s.metadata
+            _permit
                 .raw_metadata_cancelled(
                     &source,
                     &aid,
@@ -507,9 +534,10 @@ async fn sources(
                 .sources(&id)?
                 .into_iter()
                 .map(|source| {
-                    let probe = SourceRouter.probe(&source);
+                    let probe = _permit.probe(&source);
                     match probe {
                         Ok(p) => Source {
+                            descriptor: s.sources.descriptor(&source).ok().map(Into::into),
                             id: source.id,
                             name: source.name,
                             kind: source.kind,
@@ -520,6 +548,7 @@ async fn sources(
                             issue: None,
                         },
                         Err(e) => Source {
+                            descriptor: s.sources.descriptor(&source).ok().map(Into::into),
                             id: source.id,
                             name: source.name,
                             kind: source.kind,
@@ -551,11 +580,16 @@ async fn attach_source(
                 index_root: body.index_root.map(Into::into),
                 media_root: body.media_root.map(Into::into),
             };
-            let probe = SourceRouter.probe(&source)?;
-            domain::validate_id(&probe.id)?;
-            source.id = probe.id.clone();
+            let probe = s.sources.validate_attachment(
+                &mut source,
+                studio_application::SourceReadContext::new(
+                    std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                    domain::ReadPriority::Interactive,
+                ),
+            )?;
             s.store.attach(&id, source.clone())?;
             Ok(Source {
+                descriptor: s.sources.descriptor(&source).ok().map(Into::into),
                 id: source.id,
                 name: source.name,
                 kind: source.kind,
@@ -588,7 +622,12 @@ struct Cursor {
 fn encode_cursor(cursor: &Cursor) -> domain::Result<String> {
     Ok(URL_SAFE_NO_PAD.encode(serde_json::to_vec(cursor).map_err(domain::Error::io)?))
 }
-fn browse_sync(s: &AppState, id: &str, query: BrowseQuery) -> domain::Result<AssetPage> {
+fn browse_sync(
+    s: &AppState,
+    reader: &SourceRead,
+    id: &str,
+    query: BrowseQuery,
+) -> domain::Result<AssetPage> {
     let store = &s.store;
     let order = query
         .order
@@ -669,7 +708,7 @@ fn browse_sync(s: &AppState, id: &str, query: BrowseQuery) -> domain::Result<Ass
             },
         };
         let indexed = if cursor.sorted_result_id.is_none() {
-            scoped_browse::page(s, id, &input_scope, &mut cursor, order, limit)?
+            scoped_browse::page(s, reader, id, &input_scope, &mut cursor, order, limit)?
         } else {
             None
         };
@@ -795,7 +834,7 @@ fn browse_sync(s: &AppState, id: &str, query: BrowseQuery) -> domain::Result<Ass
             if grouped.is_empty() {
                 continue;
             }
-            let frozen = SourceRouter.freeze(source, &grouped)?;
+            let frozen = reader.freeze(source, &grouped)?;
             for item in frozen {
                 if let Some(old) = cursor.revisions.get(&source.id)
                     && old != &item.source_revision
@@ -810,7 +849,7 @@ fn browse_sync(s: &AppState, id: &str, query: BrowseQuery) -> domain::Result<Ass
                     .insert(source.id.clone(), item.source_revision);
                 resolved.insert(item.asset.key.clone(), item.asset);
             }
-            if source.kind == "danbooru" {
+            if s.sources.has(source, |c| c.post_order) {
                 studio_sources::BrowseIndex::verify_revision(
                     source,
                     &cursor.revisions[&source.id],
@@ -833,7 +872,10 @@ fn browse_sync(s: &AppState, id: &str, query: BrowseQuery) -> domain::Result<Ass
         if order.by_post() {
             let mut ready = true;
             for source in &sources {
-                ready &= s.queries.prepare_browse_index(source)?;
+                ready &= s
+                    .queries
+                    .source_indexes
+                    .prepare_browse_index(source, reader)?;
             }
             if !ready {
                 return Ok(AssetPage {
@@ -851,21 +893,17 @@ fn browse_sync(s: &AppState, id: &str, query: BrowseQuery) -> domain::Result<Ass
         let mut source_more = false;
         for source in &sources {
             let after = cursor.source_afters.get(&source.id).map(String::as_str);
-            let (mut rows, revision) = if source.kind == "danbooru" && order.by_post() {
-                let index = s.queries.browse_index.reader(source)?;
+            let (mut rows, revision) = if s.sources.has(source, |c| c.post_order) && order.by_post()
+            {
+                let index = s.queries.source_indexes.browse_index.reader(source)?;
                 let revision = format!(
                     "catalog-v1:{}:{}",
                     index.stamp.generation, index.stamp.sequence
                 );
                 (index.page(&source.id, order, after, limit + 1)?, revision)
             } else {
-                let page = SourceRouter.page_ordered(
-                    source,
-                    after,
-                    limit + 1,
-                    None,
-                    order.descending(),
-                )?;
+                let page =
+                    reader.page_ordered(source, after, limit + 1, None, order.descending())?;
                 source_more |= page.next.is_some();
                 let rows = page.items.into_iter().map(|a| (a.key, None)).collect();
                 (rows, page.revision)
@@ -918,7 +956,7 @@ fn browse_sync(s: &AppState, id: &str, query: BrowseQuery) -> domain::Result<Ass
                     .source_afters
                     .insert(source.id.clone(), last.asset_id.clone());
             }
-            for item in SourceRouter.freeze(source, &keys)? {
+            for item in reader.freeze(source, &keys)? {
                 if cursor.revisions.get(&source.id) != Some(&item.source_revision) {
                     return Err(domain::Error::new(
                         "SOURCE_CHANGED",
@@ -927,7 +965,7 @@ fn browse_sync(s: &AppState, id: &str, query: BrowseQuery) -> domain::Result<Ass
                 }
                 resolved.insert(item.asset.key.clone(), item.asset);
             }
-            if source.kind == "danbooru" {
+            if s.sources.has(source, |c| c.post_order) {
                 studio_sources::BrowseIndex::verify_revision(
                     source,
                     &cursor.revisions[&source.id],
@@ -944,7 +982,7 @@ fn browse_sync(s: &AppState, id: &str, query: BrowseQuery) -> domain::Result<Ass
     } else {
         while items.len() < limit && cursor.source < sources.len() {
             let source = &sources[cursor.source];
-            let page = SourceRouter.page(
+            let page = reader.page(
                 source,
                 cursor.after.as_deref(),
                 limit - items.len(),
@@ -1017,8 +1055,8 @@ async fn assets(
                             collection_id: collection_id.clone(),
                         },
                     });
-            let mut page = browse_sync(&s, &id, query)?;
-            enrich_summaries(&s, &id, &read_context, &mut page.items)?;
+            let mut page = browse_sync(&s, &_permit, &id, query)?;
+            enrich_summaries(&s, &id, &read_context, &_permit, &mut page.items)?;
             if let Some(scope) = ranking_scope {
                 ranking_browse::annotate(&s, &id, &scope, &read_context, &mut page.items)?;
             }
@@ -1136,8 +1174,9 @@ async fn change_selection(
                     .or_default()
                     .push(key.clone());
             }
+            let _permit = s.sources.inspect()?;
             for (sid, keys) in groups {
-                SourceRouter.freeze(&s.store.source(&id, &sid)?, &keys)?;
+                _permit.freeze(&s.store.source(&id, &sid)?, &keys)?;
             }
             s.store
                 .change_selection(&id, body.expected_revision, &add, &remove, body.clear)
@@ -1358,6 +1397,9 @@ async fn shutdown(State(s): State<AppState>) -> Json<OkResponse> {
         project,
         sources,
         attach_source,
+        source_probe::adapters,
+        source_probe::probe,
+        source_probe::requirements,
         assets,
         asset_detail,
         media,
@@ -1472,6 +1514,12 @@ async fn shutdown(State(s): State<AppState>) -> Json<OkResponse> {
 pub struct ApiDoc;
 pub fn routes() -> axum::Router<AppState> {
     axum::Router::new()
+        .route(
+            "/v1/projects/{project_id}/source-requirements",
+            post(source_probe::requirements),
+        )
+        .route("/v1/source-adapters", get(source_probe::adapters))
+        .route("/v1/source-probes", post(source_probe::probe))
         .nest("/v1/llm", llm::routes())
         .nest("/v1/projects/{project_id}/aesthetic", aesthetic::routes())
         .nest(

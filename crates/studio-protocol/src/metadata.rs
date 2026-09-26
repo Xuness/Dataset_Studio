@@ -4,6 +4,7 @@ use utoipa::ToSchema;
 
 #[derive(Serialize, ToSchema)]
 pub struct AssetSummary {
+    pub site_name: Option<String>,
     /// available, unlinked, preparing, unavailable, or unsupported.
     pub status: String,
     pub post_ids: Vec<String>,
@@ -14,6 +15,7 @@ pub struct AssetSummary {
 impl From<domain::AssetSummary> for AssetSummary {
     fn from(value: domain::AssetSummary) -> Self {
         Self {
+            site_name: None,
             status: if value.post_count == 0 {
                 "unlinked"
             } else {
@@ -143,6 +145,7 @@ impl From<domain::MetadataValue> for MetadataValue {
 #[derive(Serialize, ToSchema)]
 pub struct MetadataField {
     pub name: String,
+    pub label: Option<String>,
     pub value: Option<MetadataValue>,
     pub provenance: String,
     pub missing_reason: Option<String>,
@@ -152,6 +155,7 @@ impl From<domain::MetadataField> for MetadataField {
     fn from(v: domain::MetadataField) -> Self {
         Self {
             name: v.name,
+            label: v.label,
             value: v.value.map(Into::into),
             provenance: v.provenance,
             missing_reason: v.missing_reason,
@@ -212,6 +216,7 @@ pub struct RawMetadata {
     pub observation_id: String,
     pub format: Option<String>,
     pub schema_id: Option<String>,
+    pub schema: Option<RawSourceSchema>,
     pub json: Option<String>,
     pub bytes: Option<String>,
     pub status: String,
@@ -223,12 +228,25 @@ impl From<domain::RawMetadata> for RawMetadata {
             observation_id: v.observation_id,
             format: v.format,
             schema_id: v.schema_id,
+            schema: v.schema.map(|s| RawSourceSchema {
+                format: s.format,
+                encoding: s.encoding,
+                bytes: s.bytes,
+                data: s.data,
+            }),
             json: v.json,
             bytes: v.bytes,
             status: v.status,
             version: v.version.into(),
         }
     }
+}
+#[derive(Serialize, ToSchema)]
+pub struct RawSourceSchema {
+    pub format: String,
+    pub encoding: String,
+    pub bytes: String,
+    pub data: Option<String>,
 }
 #[derive(Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]

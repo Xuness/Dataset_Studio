@@ -1,3 +1,4 @@
+pub mod grouping;
 use std::collections::BTreeSet;
 use studio_domain::{Error, Result, aesthetic::*, llm::*};
 mod lifecycle;

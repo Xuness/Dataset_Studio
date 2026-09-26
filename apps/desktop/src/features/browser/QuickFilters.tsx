@@ -1,3 +1,4 @@
+import { sourceSupports } from "@studio/client";
 import { useEffect, useId, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -146,7 +147,7 @@ export function QuickFilters({
     .filter(
       (s) =>
         s.available &&
-        s.kind === "danbooru" &&
+        sourceSupports(s, "raw_metadata") &&
         (base.kind !== "source" || s.id === base.id),
     )
     .map((s) => s.id);
@@ -534,7 +535,7 @@ export function QuickFilters({
       {!usable && (
         <p className="filter-note">
           {!sourceIds.length
-            ? "此范围没有可用于 Rating / Tag 筛选的 Danbooru 来源。"
+            ? "此范围没有可用于 Rating / Tag 筛选的来源。"
             : option?.count === 0
               ? "当前范围还没有图片。"
               : "范围暂不可用，请刷新来源后重试。"}

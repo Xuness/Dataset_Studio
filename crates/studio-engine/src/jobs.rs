@@ -1,3 +1,4 @@
+use crate::sources::SourceService;
 use crate::worker;
 use futures::StreamExt;
 use std::{
@@ -13,7 +14,6 @@ use std::{
 };
 use studio_application::{ReadResources, SourceAdapter};
 use studio_domain::*;
-use studio_sources::SourceRouter;
 use studio_storage::{SqliteStore, atomic_json};
 use tokio::process::Command;
 use tokio_util::codec::{FramedRead, LinesCodec};
@@ -78,7 +78,11 @@ pub async fn wait_stopped(pid: &str, jid: &str) -> Result<()> {
     Err(Error::new("SOURCE_BUSY", "旧执行尝试正在停止，请稍后重试"))
 }
 
-pub async fn scheduler(store: Arc<SqliteStore>, resources: Arc<dyn ReadResources>) {
+pub async fn scheduler(
+    store: Arc<SqliteStore>,
+    resources: Arc<dyn ReadResources>,
+    sources: Arc<SourceService>,
+) {
     loop {
         let store2 = store.clone();
         let next = tokio::task::spawn_blocking(move || -> Result<Option<Job>> {
@@ -104,7 +108,14 @@ pub async fn scheduler(store: Arc<SqliteStore>, resources: Arc<dyn ReadResources
         .await;
         match next {
             Ok(Ok(Some(job))) => {
-                if let Err(error) = execute(store.clone(), job.clone(), resources.clone()).await {
+                if let Err(error) = execute(
+                    store.clone(),
+                    job.clone(),
+                    resources.clone(),
+                    sources.clone(),
+                )
+                .await
+                {
                     tracing::warn!(job_id=%job.id,code=error.code,message=%error.message,"task failed");
                     let _ = store.update_job(
                         &job.project_id,
@@ -130,6 +141,7 @@ fn prepare(
     store: &SqliteStore,
     job: &Job,
     resources: &dyn ReadResources,
+    sources: &SourceService,
     cancelled: &Arc<AtomicBool>,
 ) -> Result<(PathBuf, WorkerPlan)> {
     let frozen = store.job_run(&job.project_id, &job.id)?;
@@ -166,16 +178,22 @@ fn prepare(
         .resolve(&frozen.run)?
         .population()
     {
-        return crate::ranking::prepare(store, job, &staging, resources, cancelled.clone());
+        return crate::ranking::prepare(
+            store,
+            job,
+            &staging,
+            resources,
+            sources,
+            cancelled.clone(),
+        );
     }
     store.update_job(&job.project_id, &job.id, "preparing", 0, None, None)?;
-    crate::tool_inputs::validate_versions(store, &job.project_id, &frozen)?;
+    crate::tool_inputs::validate_versions(store, &job.project_id, &frozen, sources)?;
     let input_path = staging.join("input.jsonl");
     let mut input = File::create(&input_path).map_err(Error::io)?;
     let mut after = None;
     let mut revisions = HashMap::<String, String>::new();
     let mut count: u64 = 0;
-    let metadata = studio_sources::MetadataReader::default();
     loop {
         if store.job(&job.project_id, &job.id)?.status == "cancelled" {
             return Err(Error::new("CANCELLED", "任务已取消"));
@@ -192,16 +210,9 @@ fn prepare(
                 .push(key.clone());
         }
         for (id, keys) in groups {
-            let permit = resources.acquire(
-                ReadRequest {
-                    class: ReadClass::Index,
-                    priority: ReadPriority::Background,
-                    bytes: 32 << 20,
-                },
-                cancelled,
-            )?;
+            let permit = sources.background(ReadClass::Index, 32 << 20, cancelled.clone())?;
             let source = store.source(&job.project_id, &id)?;
-            let items = SourceRouter.freeze(&source, &keys)?;
+            let items = permit.freeze(&source, &keys)?;
             drop(permit);
             for mut item in items {
                 if count.is_multiple_of(8)
@@ -218,17 +229,14 @@ fn prepare(
                 } else {
                     ReadClass::Index
                 };
-                let _permit = resources.acquire(
-                    ReadRequest {
-                        class,
-                        priority: ReadPriority::Background,
-                        bytes: if class == ReadClass::NativeQuery {
-                            256 << 20
-                        } else {
-                            1 << 20
-                        },
+                let metadata = sources.background(
+                    class,
+                    if class == ReadClass::NativeQuery {
+                        METADATA_MEMORY_BYTES
+                    } else {
+                        1 << 20
                     },
-                    cancelled,
+                    cancelled.clone(),
                 )?;
                 crate::tool_inputs::project_fields(
                     store,
@@ -257,7 +265,7 @@ fn prepare(
         return Err(Error::new("INPUT_CHANGED", "固定输入数量不一致"));
     }
     input.sync_all().map_err(Error::io)?;
-    crate::tool_inputs::validate_versions(store, &job.project_id, &frozen)?;
+    crate::tool_inputs::validate_versions(store, &job.project_id, &frozen, sources)?;
     let plan = WorkerPlan {
         version: 1,
         job_id: job.id.clone(),
@@ -277,6 +285,7 @@ async fn execute(
     store: Arc<SqliteStore>,
     job: Job,
     resources: Arc<dyn ReadResources>,
+    sources: Arc<SourceService>,
 ) -> Result<()> {
     let _attempt = ActiveAttempt::enter(&job)?;
     let _heartbeat = if is_ranking_operator(&job.operator) {
@@ -301,7 +310,7 @@ async fn execute(
     let cancel = _attempt.1.clone();
     let preparation_resources = resources.clone();
     let (plan_path, plan) = tokio::task::spawn_blocking(move || {
-        prepare(&s, &j, preparation_resources.as_ref(), &cancel)
+        prepare(&s, &j, preparation_resources.as_ref(), &sources, &cancel)
     })
     .await
     .map_err(Error::io)??;

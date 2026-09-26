@@ -3,6 +3,8 @@ use studio_domain::*;
 pub mod aesthetic;
 pub mod aesthetic_analysis;
 pub mod llm;
+mod sources;
+pub use sources::*;
 mod tools;
 pub use tools::*;
 mod resources;
@@ -22,6 +24,19 @@ pub trait SourceAdapter: Send + Sync {
     ) -> Result<AssetPage>;
     fn freeze(&self, source: &Source, keys: &[AssetKey]) -> Result<Vec<FrozenInput>>;
     fn read(&self, source: &Source, asset_id: &str) -> Result<Media>;
+    fn page_ordered(
+        &self,
+        source: &Source,
+        after: Option<&str>,
+        limit: usize,
+        revision: Option<&str>,
+        descending: bool,
+    ) -> Result<AssetPage> {
+        if descending {
+            return Err(Error::new("QUERY_UNSUPPORTED", "来源不支持降序浏览"));
+        }
+        self.page(source, after, limit, revision)
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -41,6 +56,47 @@ pub struct Media {
 
 /// Metadata inspection is independent of project selection and task inputs.
 pub trait MetadataAdapter: Send + Sync {
+    fn metadata_context(
+        &self,
+        source: &Source,
+        asset: &str,
+        request: MetadataRequest,
+        context: &SourceReadContext,
+    ) -> Result<MetadataOverview> {
+        context.check()?;
+        self.metadata_cancelled(source, asset, request, context.cancelled.clone())
+    }
+    fn observations_context(
+        &self,
+        source: &Source,
+        asset: &str,
+        record: &str,
+        request: MetadataRequest,
+        context: &SourceReadContext,
+    ) -> Result<ObservationPage> {
+        context.check()?;
+        self.observations_cancelled(source, asset, record, request, context.cancelled.clone())
+    }
+    fn raw_context(
+        &self,
+        source: &Source,
+        asset: &str,
+        record: &str,
+        observation: &str,
+        version: &str,
+        context: &SourceReadContext,
+    ) -> Result<RawMetadata> {
+        context.check()?;
+        self.raw_metadata_cancelled(
+            source,
+            asset,
+            record,
+            observation,
+            version,
+            context.cancelled.clone(),
+        )
+    }
+
     fn summaries(
         &self,
         source: &Source,
@@ -106,6 +162,9 @@ pub trait MetadataAdapter: Send + Sync {
 
 /// Adapters stream bounded identity batches. The receiver owns deduplication and publication.
 pub trait QueryAdapter: Send + Sync {
+    fn read_version(&self, _source: &Source, _metadata: bool) -> Result<QuerySourceVersion> {
+        Err(Error::new("QUERY_UNSUPPORTED", "来源未提供独立版本探测"))
+    }
     fn fields(&self, source: &Source) -> Result<FieldDirectory>;
     fn query_version(&self, source: &Source, spec: &QuerySpec) -> Result<QuerySourceVersion>;
     fn execute_query(
@@ -116,6 +175,36 @@ pub trait QueryAdapter: Send + Sync {
         cancelled: std::sync::Arc<std::sync::atomic::AtomicBool>,
         sink: &mut dyn FnMut(&[AssetKey], u64) -> Result<()>,
     ) -> Result<()>;
+    fn execute_query_keys(
+        &self,
+        _source: &Source,
+        _spec: &QuerySpec,
+        _expected: &QuerySourceVersion,
+        _cancelled: ReadCancellation,
+        _keys: &[AssetKey],
+        _sink: &mut dyn FnMut(&[AssetKey], u64) -> Result<()>,
+    ) -> Result<()> {
+        Err(Error::new("QUERY_UNSUPPORTED", "来源不支持指定成员查询"))
+    }
+    #[allow(clippy::too_many_arguments)]
+    fn execute_delta(
+        &self,
+        _source: &Source,
+        _spec: &QuerySpec,
+        _expected: &QuerySourceVersion,
+        _previous: &ChangeAnchor,
+        _cancelled: ReadCancellation,
+        _affected: &mut dyn FnMut(&[AssetKey]) -> Result<()>,
+        _sink: &mut dyn FnMut(&[AssetKey], u64) -> Result<()>,
+    ) -> Result<bool> {
+        Ok(false)
+    }
+    fn explain(&self, _source: &Source, _spec: QuerySpec) -> Result<serde_json::Value> {
+        Err(Error::new("QUERY_UNSUPPORTED", "来源不提供查询计划诊断"))
+    }
+    fn rating_usage(&self) -> Result<(Vec<String>, u64)> {
+        Ok((vec![], 0))
+    }
 }
 
 pub trait QueryRepository: Send + Sync {

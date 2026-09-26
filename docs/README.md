@@ -6,6 +6,8 @@
 
 ## 当前模块接入
 
+数据湖来源：[统一接口与调度](decisions/0035-source-registry-and-dispatch.md)、[Yandere/Gelbooru 验收](verification/2026-09-26-multibooru.md)。
+
 | 主题               | 入口                                                                                                                                                                                                                                             |
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | LLM 调用与模块集成 | [后端和 SDK 接入](architecture/llm-integration.md)、[LLM 基础层](decisions/0023-llm-foundation.md)、[System Prompt 预设](decisions/0024-system-prompt-presets.md)                                                                                |
@@ -83,6 +85,7 @@
 
 早期阶段计划保留当时的范围与验收标准；美学排序目录同时维护阶段说明及后续计划。
 
+- [Yandere / Gelbooru 数据湖接入（2026-09-26，已接入并验收）](plans/multibooru-sources-2026-09-26.md)
 - [源码审查后的整体改进路线图（2026-09-19）](plans/architecture-improvement-2026-09-19.md)
 - [cache-settings-v0.7](plans/cache-settings-v0.7.md)
 - [frontend-usability-v0.5](plans/frontend-usability-v0.5.md)

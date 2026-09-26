@@ -119,7 +119,25 @@ export default function RankingPanel(context: ModuleContext) {
     refetchInterval: 400,
   });
   const [saved, setSaved] = useState<Collection | null>(null);
-  const hasDanbooru = context.sources.some((s) => s.kind === "danbooru");
+  const requirements = useQuery({
+    queryKey: [
+      "project",
+      projectId,
+      "ranking-source-requirements",
+      d.scope,
+      context.sources.map((s) => [s.id, s.revision]),
+    ],
+    queryFn: ({ signal }) =>
+      client.sourceAccess.requirements(
+        projectId,
+        d.scope!,
+        ["danbooru_ranking_v1"],
+        signal,
+      ),
+    enabled: draft.editable && !!d.scope,
+    retry: false,
+  });
+  const hasDanbooru = requirements.data?.supported === true;
   const option = context.inputOptions.find((o) => o.value === d.scopeId);
   const scopeCheck = useQuery({
     queryKey: ["project", projectId, "ranking-scope", d.scope],
@@ -889,8 +907,11 @@ export default function RankingPanel(context: ModuleContext) {
             <>
               {!hasDanbooru && (
                 <div className="ranking-notice">
-                  此工具使用 Danbooru 元数据。请在项目中接入 Danbooru
-                  数据湖，或切换到基础工具。
+                  {requirements.data?.sources
+                    .filter((s) => !s.supported)
+                    .map((s) => `${s.name}：${s.reason}`)
+                    .join("；") || "请选择支持此排名投影的输入范围。"}
+                  此工具使用 Danbooru 数据湖，或切换到基础工具。
                 </div>
               )}
               {issue && <p className="ranking-notice">{issue}</p>}

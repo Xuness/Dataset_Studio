@@ -914,8 +914,8 @@ function BrowserContent({
                 <option value="ranking:input">排名输入顺序</option>
               </optgroup>
             )}
-            <option value="post_id_desc">Danbooru ID 从新到旧</option>
-            <option value="post_id_asc">Danbooru ID 从旧到新</option>
+            <option value="post_id_desc">帖子 ID 降序</option>
+            <option value="post_id_asc">帖子 ID 升序</option>
             <option value="asset_key_asc">图像身份升序</option>
             <option value="asset_key_desc">图像身份降序</option>
           </select>

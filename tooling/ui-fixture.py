@@ -90,7 +90,7 @@ def quote(value):
     return "'" + str(value).replace("'", "''") + "'"
 
 try:
-    fields_text = (repo / "crates/studio-sources/src/metadata.rs").read_text(encoding="utf-8").split("const FIELDS:", 1)[1].split("];", 1)[0]
+    fields_text = (repo / "crates/studio-sources/src/profiles.rs").read_text(encoding="utf-8").split("const METADATA_FIELDS:", 1)[1].split("];", 1)[0]
     fields = re.findall(r'\(\s*"([^"]+)",\s*"([^"]+)",\s*"([^"]+)"\s*\)', fields_text)
     base_columns = "observation_id VARCHAR PRIMARY KEY,row_id BIGINT,post_id BIGINT,source_key VARCHAR,source_kind VARCHAR,observed_at VARCHAR,time_quality VARCHAR,ingested_at VARCHAR,commit_seq BIGINT"
     columns = ",".join(column + " " + {"integer": "BIGINT", "boolean": "BOOLEAN"}.get(kind, "VARCHAR") for _, column, kind in fields)

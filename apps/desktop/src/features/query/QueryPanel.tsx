@@ -1,3 +1,5 @@
+import { validSourceTag, displayTag } from "@studio/ui";
+import { sourceSupports } from "@studio/client";
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -208,6 +210,45 @@ export function QueryPanel({
     load(requestedDefinition.data);
     appliedInvocation.current = invocation.sequence;
   }, [draft.editable, invocation, requestedDefinition.data]);
+  useEffect(() => {
+    if (
+      !draft.editable ||
+      !invocation ||
+      appliedInvocation.current === invocation.sequence ||
+      !invocation.args.exactTag
+    )
+      return;
+    try {
+      const tag: unknown = JSON.parse(invocation.args.exactTag);
+      if (
+        typeof tag !== "string" ||
+        !validSourceTag(tag) ||
+        !sources.some(
+          (s) =>
+            s.id === invocation.args.sourceId && sourceSupports(s, "query"),
+        )
+      )
+        return;
+      draft.controller.set((old) => ({
+        ...old,
+        definition: null,
+        sourceId: invocation.args.sourceId!,
+        name: "标签 · " + displayTag(tag),
+        conditions: [
+          {
+            field: "tags",
+            operator: "has_tag",
+            value: { type: "text", value: tag },
+          },
+        ],
+        rule: "current_post",
+        inputScope: null,
+      }));
+      appliedInvocation.current = invocation.sequence;
+    } catch {
+      /* Only structured literal tags can populate this draft. */
+    }
+  }, [draft.editable, draft.controller, invocation, sources]);
   const [showReleased, setShowReleased] = useState(false);
   const [lastRun, setLastRun] = useState<string | null>(null);
   const submittedScope = useRef<string | null>(null);
@@ -226,7 +267,7 @@ export function QueryPanel({
             s.id === browserScope.id &&
             s.available,
         ) ??
-        sources.find((s) => s.kind === "danbooru" && s.available) ??
+        sources.find((s) => sourceSupports(s, "raw_metadata") && s.available) ??
         sources.find((s) => s.available);
       if (preferred)
         draft.controller.set((v) => ({ ...v, sourceId: preferred.id }));
@@ -587,8 +628,8 @@ export function QueryPanel({
                   update({ order: e.target.value as QuerySpec["order"] })
                 }
               >
-                <option value="post_id_desc">Danbooru ID 从新到旧</option>
-                <option value="post_id_asc">Danbooru ID 从旧到新</option>
+                <option value="post_id_desc">帖子 ID 降序</option>
+                <option value="post_id_asc">帖子 ID 升序</option>
                 <option value="asset_key_asc">图像身份升序</option>
                 <option value="asset_key_desc">图像身份降序</option>
               </select>

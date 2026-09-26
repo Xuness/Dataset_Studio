@@ -1,5 +1,5 @@
 use crate::{
-    danbooru::Catalog,
+    canonical::Catalog,
     demo_asset, demo_number,
     duckdb::{Runtime, Session},
 };
@@ -18,6 +18,13 @@ pub struct MetadataReader {
     identity_index: Option<Arc<crate::IdentityIndex>>,
 }
 impl MetadataReader {
+    fn for_context(&self, context: &studio_application::SourceReadContext) -> Self {
+        Self {
+            runtime: self.runtime.for_deadline(context.deadline),
+            identity_index: self.identity_index.clone(),
+        }
+    }
+
     /// Bounded projection of origin metadata for aesthetic grouping. Missing or conflicting
     /// ratings remain ineligible; the year is an upload-time proxy, never artwork age.
     pub fn aesthetic_groups(
@@ -62,18 +69,29 @@ impl MetadataReader {
             .map(|k| quote(&k.asset_id))
             .collect::<Vec<_>>()
             .join(",");
-        let rows=session.db.query(&format!("SELECT a.sha256,CASE WHEN count(DISTINCT o.rating)>1 THEN 'conflict' WHEN count(o.rating)<count(*) THEN 'unknown' ELSE coalesce(min(o.rating),'unknown') END,CAST(min(year(o.created_at)) AS VARCHAR),min(a.asset_id),min(o.observation_id),CAST(count(*) AS VARCHAR) FROM assets a LEFT JOIN observations o ON o.observation_id=a.observation_id WHERE a.sha256 IN ({ids}) GROUP BY a.sha256"))?;
+        let rows=session.db.query(&format!("SELECT a.sha256,CAST(count(DISTINCT o.rating) AS VARCHAR),min(o.rating),CAST(count(o.rating) AS VARCHAR),CAST(count(*) AS VARCHAR),CAST(min(year(o.created_at)) AS VARCHAR),min(a.asset_id),min(o.observation_id) FROM assets a LEFT JOIN observations o ON o.observation_id=a.observation_id WHERE a.sha256 IN ({ids}) GROUP BY a.sha256"))?;
         let mut groups = std::collections::BTreeMap::new();
         for row in rows {
-            let rating = row[1].clone().unwrap_or_else(|| "unknown".into());
-            let basis=serde_json::json!({"rule":"origin_rating_agreement_min_post_created_year_v1","version":session.version.token,"record_example":row[3],"observation_example":row[4],"record_count":row[5]}).to_string();
+            let count = |i| -> Result<u64> {
+                required(&row, i)?
+                    .parse()
+                    .map_err(|_| Error::new("SOURCE_FORMAT_ERROR", "来源聚合计数无效"))
+            };
+            let facts = studio_application::aesthetic::grouping::OriginGroupFacts {
+                distinct_ratings: count(1)?,
+                known_ratings: count(3)?,
+                record_count: count(4)?,
+                rating: row[2].clone(),
+                earliest_post_year: row[5].as_deref().and_then(|v| v.parse().ok()),
+                record_example: row[6].clone(),
+                observation_example: row[7].clone(),
+            };
             groups.insert(
                 required(&row, 0)?,
-                (
-                    rating,
-                    row[2].as_deref().and_then(|v| v.parse().ok()),
-                    basis,
-                ),
+                studio_application::aesthetic::grouping::origin_group(
+                    facts,
+                    &session.version.token,
+                )?,
             );
         }
         session.finish(source)?;
@@ -198,7 +216,7 @@ impl ReadSession {
         cancelled: ReadCancellation,
     ) -> Result<Self> {
         read_cancelled(&cancelled)?;
-        if source.kind != "danbooru" {
+        if !crate::profiles::is_canonical(source) {
             return Err(Error::new(
                 "METADATA_UNSUPPORTED",
                 "该来源尚未提供元数据检查",
@@ -321,32 +339,6 @@ fn next(
 }
 // Public common semantics and namespaced source fields. Never infer stored dimensions
 // from observations.image_width/image_height. Large strings are bounded in SQL.
-const FIELDS: &[(&str, &str, &str)] = &[
-    ("rating", "rating", "text"),
-    ("tags", "tag_string", "tags"),
-    ("tags.general", "tag_string_general", "tags"),
-    ("tags.artist", "tag_string_artist", "tags"),
-    ("tags.character", "tag_string_character", "tags"),
-    ("tags.copyright", "tag_string_copyright", "tags"),
-    ("tags.meta", "tag_string_meta", "tags"),
-    ("source_url", "source", "text"),
-    ("source_width", "image_width", "integer"),
-    ("source_height", "image_height", "integer"),
-    ("source_bytes", "file_size", "integer"),
-    ("source_extension", "file_ext", "text"),
-    ("source_md5", "md5", "text"),
-    ("created_at", "created_at", "timestamp"),
-    ("updated_at", "updated_at", "timestamp"),
-    ("danbooru.score", "score", "integer"),
-    ("danbooru.fav_count", "fav_count", "integer"),
-    ("danbooru.uploader_id", "uploader_id", "integer"),
-    ("danbooru.parent_id", "parent_id", "integer"),
-    ("danbooru.pixiv_id", "pixiv_id", "integer"),
-    ("danbooru.is_deleted", "is_deleted", "boolean"),
-    ("danbooru.is_banned", "is_banned", "boolean"),
-    ("danbooru.is_pending", "is_pending", "boolean"),
-    ("danbooru.is_flagged", "is_flagged", "boolean"),
-];
 fn field(name: &str, column: &str, kind: &str, value: &Option<String>) -> Result<MetadataField> {
     let truncated = value.as_ref().is_some_and(|v| v.chars().count() > 8192);
     let value = value
@@ -365,7 +357,7 @@ fn field(name: &str, column: &str, kind: &str, value: &Option<String>) -> Result
                     v.parse::<bool>()
                         .map_err(|_| Error::new("SOURCE_FORMAT_ERROR", "布尔元数据无效"))?,
                 ),
-                "tags" => MetadataValue::Tags(v.split_whitespace().map(Into::into).collect()),
+                "tags" => MetadataValue::Tags(source_tags(&v)),
                 "timestamp" => MetadataValue::Timestamp(v),
                 _ => MetadataValue::Text(v),
             })
@@ -373,6 +365,7 @@ fn field(name: &str, column: &str, kind: &str, value: &Option<String>) -> Result
         .transpose()?;
     Ok(MetadataField {
         name: name.into(),
+        label: crate::profiles::field_label(column).map(Into::into),
         value,
         provenance: format!("observations.{column}"),
         missing_reason: missing.then(|| "not_recorded".into()),
@@ -389,6 +382,58 @@ fn observation_predicate(record: &AssetRecord) -> String {
     }
 }
 impl MetadataAdapter for MetadataReader {
+    fn metadata_context(
+        &self,
+        source: &Source,
+        asset: &str,
+        request: MetadataRequest,
+        context: &studio_application::SourceReadContext,
+    ) -> Result<MetadataOverview> {
+        context.check()?;
+        self.for_context(context).metadata_cancelled(
+            source,
+            asset,
+            request,
+            context.cancelled.clone(),
+        )
+    }
+    fn observations_context(
+        &self,
+        source: &Source,
+        asset: &str,
+        record: &str,
+        request: MetadataRequest,
+        context: &studio_application::SourceReadContext,
+    ) -> Result<ObservationPage> {
+        context.check()?;
+        self.for_context(context).observations_cancelled(
+            source,
+            asset,
+            record,
+            request,
+            context.cancelled.clone(),
+        )
+    }
+    fn raw_context(
+        &self,
+        source: &Source,
+        asset: &str,
+        record: &str,
+        observation: &str,
+        version: &str,
+        context: &studio_application::SourceReadContext,
+    ) -> Result<RawMetadata> {
+        context.check()?;
+        self.for_context(context).raw_metadata_cancelled(
+            source,
+            asset,
+            record,
+            observation,
+            version,
+            context.cancelled.clone(),
+        )
+    }
+
     fn summaries(
         &self,
         source: &Source,
@@ -396,12 +441,12 @@ impl MetadataAdapter for MetadataReader {
         cancelled: studio_application::ReadCancellation,
     ) -> Result<Vec<AssetSummary>> {
         read_cancelled(&cancelled)?;
-        if source.kind == "danbooru"
+        if crate::profiles::is_canonical(source)
             && let Some(index) = &self.identity_index
         {
             return index.reader(source)?.summaries(&source.id, asset_ids);
         }
-        if source.kind != "danbooru" {
+        if !crate::profiles::is_canonical(source) {
             return Err(Error::new("METADATA_UNSUPPORTED", "该来源没有帖子身份摘要"));
         }
         if asset_ids.is_empty() || asset_ids.len() > 128 {
@@ -559,12 +604,36 @@ impl MetadataAdapter for MetadataReader {
             None
         };
         let object = session.catalog.asset(source, asset)?;
+        let dimensions = if crate::profiles::site(&source.kind)
+            .is_some_and(|p| p.normalizer.is_some())
+        {
+            let rows=session.db.query(&format!("SELECT left(details_json,16385) FROM assets WHERE sha256={} ORDER BY asset_id LIMIT 1",quote(asset)))?;
+            rows.first()
+                .and_then(|r| r[0].as_deref())
+                .filter(|v| v.len() <= 16384)
+                .and_then(|v| serde_json::from_str::<serde_json::Value>(v).ok())
+                .filter(|v| v["dimension_method"] == "webp-container-header-v1")
+                .and_then(|v| {
+                    Some((
+                        u32::try_from(v["stored_width"].as_u64()?).ok()?,
+                        u32::try_from(v["stored_height"].as_u64()?).ok()?,
+                    ))
+                })
+                .filter(|(w, h)| *w > 0 && *h > 0)
+        } else {
+            None
+        };
         session.finish(source)?;
         Ok(MetadataOverview {
             object,
-            stored_width: None,
-            stored_height: None,
-            dimensions_evidence: "not_inspected".into(),
+            stored_width: dimensions.map(|d| d.0),
+            stored_height: dimensions.map(|d| d.1),
+            dimensions_evidence: if dimensions.is_some() {
+                "asset_webp_header_verified"
+            } else {
+                "not_inspected"
+            }
+            .into(),
             records,
             next_cursor,
             version: session.version,
@@ -618,6 +687,7 @@ impl MetadataAdapter for MetadataReader {
                     commit_sequence: None,
                     fields: vec![MetadataField {
                         name: "demo.sample_number".into(),
+                        label: Some("生成样本编号".into()),
                         value: Some(MetadataValue::Integer(n.to_string())),
                         provenance: "studio.demo_generator".into(),
                         missing_reason: None,
@@ -646,7 +716,8 @@ impl MetadataAdapter for MetadataReader {
         if after > i64::MAX as u64 {
             return Err(Error::invalid("观察游标超出范围"));
         }
-        let projection = FIELDS
+        let fields = crate::profiles::metadata_fields(source);
+        let projection = fields
             .iter()
             .map(|(_, column, _)| format!("left(CAST({column} AS VARCHAR),8193)"))
             .collect::<Vec<_>>()
@@ -683,10 +754,27 @@ impl MetadataAdapter for MetadataReader {
                     time_quality: r[6].clone(),
                     ingested_at: r[7].clone(),
                     commit_sequence: r[8].clone(),
-                    fields: FIELDS
+                    fields: fields
                         .iter()
                         .enumerate()
-                        .map(|(i, (name, column, kind))| field(name, column, kind, &r[i + 9]))
+                        .map(|(i, (name, column, kind))| {
+                            let mut value = field(name, column, kind, &r[i + 9])?;
+                            if value.value.is_none()
+                                && let Some(index) =
+                                    fields.iter().position(|(_, c, _)| *c == "issues_json")
+                                && let Some(raw) = r[index + 9].as_deref()
+                                && let Ok(serde_json::Value::Array(issues)) =
+                                    serde_json::from_str(raw)
+                                && let Some(reason) = issues
+                                    .iter()
+                                    .find(|issue| issue["field"] == *column)
+                                    .and_then(|issue| issue["reason"].as_str())
+                            {
+                                value.missing_reason =
+                                    Some(format!("normalization_issue:{reason}"));
+                            }
+                            Ok(value)
+                        })
                         .collect::<Result<_>>()?,
                 })
             })
@@ -753,6 +841,7 @@ impl MetadataAdapter for MetadataReader {
                 observation_id: observation_id.into(),
                 format: None,
                 schema_id: None,
+                schema: None,
                 json: None,
                 bytes: None,
                 status: "missing".into(),
@@ -791,11 +880,30 @@ impl MetadataAdapter for MetadataReader {
         } else {
             (None, None, None, None, "missing")
         };
+        let schema = if let Some(id) = &schema_id {
+            let has = session.db.query(
+                "SELECT count(*) FROM information_schema.tables WHERE table_name='source_schemas'",
+            )?;
+            if has.first().and_then(|r| r[0].as_deref()) == Some("1") {
+                let rows=session.db.query(&format!("SELECT CAST(octet_length(schema_ipc) AS VARCHAR),CASE WHEN octet_length(schema_ipc)<=65536 THEN hex(schema_ipc) ELSE NULL END FROM source_schemas WHERE source_schema_id={} LIMIT 1",quote(id)))?;
+                rows.first().map(|r| RawSourceSchema {
+                    format: "arrow-ipc-schema".into(),
+                    encoding: "hex".into(),
+                    bytes: r[0].clone().unwrap_or_default(),
+                    data: r[1].clone(),
+                })
+            } else {
+                None
+            }
+        } else {
+            None
+        };
         session.finish(source)?;
         Ok(RawMetadata {
             observation_id: observation_id.into(),
             format,
             schema_id,
+            schema,
             bytes,
             json,
             status: status.into(),

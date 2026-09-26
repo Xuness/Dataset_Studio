@@ -58,7 +58,7 @@ pub(super) fn query_cache_status(s: &AppState) -> domain::Result<QueryCacheStatu
         s.queries.cache.track(&s.store, &pid)?;
     }
     let records = s.queries.cache.projects()?;
-    let (index_bytes, index_count) = s.queries.browse_index.storage()?;
+    let (index_bytes, index_count) = s.queries.source_indexes.browse_index.storage()?;
     let ranked = s.queries.ranked_indexes.metrics()?;
     Ok(QueryCacheStatus {
         quota_bytes: (u64::from(config.query_mib()) << 20).to_string(),

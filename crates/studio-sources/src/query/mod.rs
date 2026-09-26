@@ -3,7 +3,7 @@ pub(crate) mod compiler;
 mod fields;
 use crate::{
     SourceRouter,
-    danbooru::{Catalog, err},
+    canonical::{Catalog, err},
     demo_asset,
     duckdb::{Runtime, Session},
 };
@@ -27,6 +27,11 @@ pub struct QueryReader {
     candidate_ratings: Mutex<Vec<String>>,
 }
 impl QueryReader {
+    pub fn with_deadline(mut self, deadline: Option<Instant>) -> Self {
+        self.runtime = self.runtime.with_deadline(deadline);
+        self
+    }
+
     #[allow(
         clippy::too_many_arguments,
         reason = "Changed identities and matched identities have independent bounded sinks"
@@ -41,7 +46,7 @@ impl QueryReader {
         affected: &mut dyn FnMut(&[AssetKey]) -> Result<()>,
         sink: &mut dyn FnMut(&[AssetKey], u64) -> Result<()>,
     ) -> Result<bool> {
-        if source.kind != "danbooru" {
+        if !crate::profiles::is_canonical(source) {
             return Ok(false);
         }
         self.fields(source)?.validate(spec)?;
@@ -109,7 +114,7 @@ impl QueryReader {
     pub fn explain(&self, source: &Source, spec: QuerySpec) -> Result<serde_json::Value> {
         let spec = spec.normalize()?;
         self.fields(source)?.validate(&spec)?;
-        if source.kind != "danbooru" {
+        if !crate::profiles::is_canonical(source) {
             return Err(Error::new(
                 "QUERY_UNSUPPORTED",
                 "查询计划诊断用于 Danbooru 索引",
@@ -161,6 +166,11 @@ pub(crate) fn analysis_sequence(db: &Session, catalog: &Catalog) -> Result<Strin
 }
 fn version(source: &Source, catalog: &Catalog, sequence: Option<String>) -> QuerySourceVersion {
     QuerySourceVersion {
+        semantics_version: sequence.as_ref().and_then(|_| {
+            crate::profiles::site(&source.kind)?
+                .normalizer
+                .map(str::to_owned)
+        }),
         source_id: source.id.clone(),
         catalog_revision: catalog.revision.clone(),
         consistency: if sequence.is_some() {
@@ -193,13 +203,48 @@ fn assert_version(current: &QuerySourceVersion, expected: &QuerySourceVersion) -
     Ok(())
 }
 impl QueryAdapter for QueryReader {
+    fn execute_query_keys(
+        &self,
+        source: &Source,
+        spec: &QuerySpec,
+        expected: &QuerySourceVersion,
+        cancelled: Arc<AtomicBool>,
+        keys: &[AssetKey],
+        sink: &mut dyn FnMut(&[AssetKey], u64) -> Result<()>,
+    ) -> Result<()> {
+        QueryReader::execute_query_keys(self, source, spec, expected, cancelled, keys, sink)
+    }
+    fn execute_delta(
+        &self,
+        source: &Source,
+        spec: &QuerySpec,
+        expected: &QuerySourceVersion,
+        previous: &ChangeAnchor,
+        cancelled: Arc<AtomicBool>,
+        affected: &mut dyn FnMut(&[AssetKey]) -> Result<()>,
+        sink: &mut dyn FnMut(&[AssetKey], u64) -> Result<()>,
+    ) -> Result<bool> {
+        QueryReader::execute_delta(
+            self, source, spec, expected, previous, cancelled, affected, sink,
+        )
+    }
+    fn explain(&self, source: &Source, spec: QuerySpec) -> Result<serde_json::Value> {
+        QueryReader::explain(self, source, spec)
+    }
+    fn rating_usage(&self) -> Result<(Vec<String>, u64)> {
+        QueryReader::rating_usage(self)
+    }
     fn fields(&self, source: &Source) -> Result<FieldDirectory> {
         fields::directory(source)
     }
     fn query_version(&self, source: &Source, spec: &QuerySpec) -> Result<QuerySourceVersion> {
         self.fields(source)?.validate(spec)?;
+        self.read_version(source, spec.uses_metadata())
+    }
+    fn read_version(&self, source: &Source, metadata: bool) -> Result<QuerySourceVersion> {
         if source.kind == "demo" {
             return Ok(QuerySourceVersion {
+                semantics_version: None,
                 source_id: source.id.clone(),
                 catalog_revision: SourceRouter.probe(source)?.revision,
                 analysis_sequence: None,
@@ -207,7 +252,7 @@ impl QueryAdapter for QueryReader {
             });
         }
         let catalog = Catalog::open(source)?;
-        let sequence = if spec.uses_metadata() {
+        let sequence = if metadata {
             let db = self.runtime.open(&catalog.analysis_path()?)?;
             Some(analysis_sequence(&db, &catalog)?)
         } else {
