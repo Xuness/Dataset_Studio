@@ -87,7 +87,7 @@ impl DraftRepository for SqliteStore {
         let mut db = p.db.lock().map_err(lock_error)?;
         let wait_us = waiting.elapsed().as_micros() as u64;
         let writing = std::time::Instant::now();
-        let tx = db.transaction().map_err(db_error)?;
+        let tx = db.project_transaction().map_err(db_error)?;
         let old = read_draft(&tx, pid, module, instance)?;
         if old.as_ref().map_or(0, |d| d.revision) != request.expected_revision {
             return Err(Error::new("REVISION_CONFLICT", "草稿已被另一次编辑修改"));
@@ -120,7 +120,7 @@ impl DraftRepository for SqliteStore {
         key(name)?;
         let json = payload(&request)?;
         let mut db = self.registry.lock().map_err(lock_error)?;
-        let tx = db.transaction().map_err(db_error)?;
+        let tx = db.project_transaction().map_err(db_error)?;
         let old = read_preference(&tx, name)?;
         if old.as_ref().map_or(0, |p| p.revision) != request.expected_revision {
             return Err(Error::new("REVISION_CONFLICT", "偏好已被其他窗口修改"));

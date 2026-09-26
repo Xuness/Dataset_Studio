@@ -154,6 +154,20 @@ impl SourceRead {
     pub fn infer_kind(&self, source: &mut Source) -> Result<()> {
         self.context.check()?;
         if source.kind == "auto" {
+            if let Some(index) = &source.index_root {
+                let path = index.join("ONLINE.json");
+                if path.is_file() {
+                    if std::fs::metadata(&path).map_err(Error::io)?.len() > 16384 {
+                        return Err(Error::invalid("在线指针过大"));
+                    }
+                    let pointer: studio_sources::online::Pointer =
+                        serde_json::from_slice(&std::fs::read(&path).map_err(Error::io)?)
+                            .map_err(Error::io)?;
+                    source.kind = pointer.site;
+                    studio_sources::online::pointer(source)?;
+                    return Ok(());
+                }
+            }
             let root = source
                 .media_root
                 .as_ref()
@@ -249,6 +263,9 @@ impl SourceAdapter for SourceRead {
     fn freeze(&self, s: &Source, k: &[AssetKey]) -> Result<Vec<FrozenInput>> {
         self.provider(s)?.browser.freeze(s, k)
     }
+    fn freeze_at(&self, s: &Source, k: &[AssetKey], v: Option<&str>) -> Result<Vec<FrozenInput>> {
+        self.provider(s)?.browser.freeze_at(s, k, v)
+    }
     fn read(&self, s: &Source, id: &str) -> Result<Media> {
         let identity = self.verify_media_identity(s, id)?;
         let mut batch = self.read_many(
@@ -313,6 +330,19 @@ impl MediaSource for SourceRead {
     }
 }
 impl MetadataAdapter for SourceRead {
+    fn summaries_at(
+        &self,
+        s: &Source,
+        ids: &[String],
+        revision: Option<&str>,
+        c: ReadCancellation,
+    ) -> Result<Vec<AssetSummary>> {
+        self.provider(s)?
+            .metadata
+            .as_ref()
+            .ok_or_else(unsupported)?
+            .summaries_at(s, ids, revision, c)
+    }
     fn summaries(
         &self,
         s: &Source,
@@ -374,6 +404,41 @@ impl SourceQuery<'_> {
     }
 }
 impl QueryAdapter for SourceQuery<'_> {
+    fn read_version_at(
+        &self,
+        s: &Source,
+        v: Option<&str>,
+        metadata: bool,
+    ) -> Result<QuerySourceVersion> {
+        self.reader(s)?.read_version_at(s, v, metadata)
+    }
+    fn validate_version(&self, s: &Source, v: &QuerySourceVersion) -> Result<()> {
+        self.reader(s)?.validate_version(s, v)
+    }
+    fn query_page(
+        &self,
+        s: &Source,
+        q: &QuerySpec,
+        v: &QuerySourceVersion,
+        after: Option<&str>,
+        limit: usize,
+        c: ReadCancellation,
+    ) -> Result<SourceQueryPage> {
+        self.reader(s)?.query_page(s, q, v, after, limit, c)
+    }
+    fn retain_version(
+        &self,
+        s: &Source,
+        v: &QuerySourceVersion,
+        id: &str,
+        owner: &str,
+        permanent: bool,
+    ) -> Result<()> {
+        self.reader(s)?.retain_version(s, v, id, owner, permanent)
+    }
+    fn release_version(&self, s: &Source, id: &str) -> Result<()> {
+        self.reader(s)?.release_version(s, id)
+    }
     fn read_version(&self, s: &Source, metadata: bool) -> Result<QuerySourceVersion> {
         self.reader(s)?.read_version(s, metadata)
     }

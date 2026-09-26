@@ -96,13 +96,21 @@ impl QueryRunner {
             ));
         }
         store.validate_derived(&result.project_id, &result.spec)?;
-        if !result.spec.uses_only_fixed_project_data()
-            && self.versions(store, &result.project_id, &result.spec)? != result.source_versions
-        {
-            return Err(Error::new(
-                "SOURCE_CHANGED",
-                "来源版本已变化；已有结果保留固定成员，请重新计算后使用查询范围",
-            ));
+        if !result.spec.uses_only_fixed_project_data() {
+            self.validate_versions(store, &result.project_id, &result.source_versions)?;
+        }
+        Ok(())
+    }
+    pub fn validate_versions(
+        &self,
+        store: &SqliteStore,
+        pid: &str,
+        versions: &[QuerySourceVersion],
+    ) -> Result<()> {
+        let read = self.sources.inspect()?;
+        let reader = read.query(METADATA_MEMORY_BYTES, false);
+        for version in versions {
+            reader.validate_version(&store.source(pid, &version.source_id)?, version)?;
         }
         Ok(())
     }
@@ -166,6 +174,7 @@ impl QueryRunner {
         )?;
         for (expected, source) in result.source_versions.iter().zip(&sources) {
             if retain_bases
+                && !studio_sources::online::available(source)
                 && self.sources.has(source, |c| c.post_order)
                 && let Some(ratings) = rating_candidates(&studio_storage::native_spec(&result.spec))
             {
@@ -188,12 +197,16 @@ impl QueryRunner {
             if previous == Some(expected) && !post_refresh {
                 continue;
             }
-            let index = if !fixed && self.sources.has(source, |c| c.post_order) {
-                self.source_indexes.browse_index.reader(source).ok()
+            let online = studio_sources::online::available(source);
+            let index = if !online && !fixed && self.sources.has(source, |c| c.post_order) {
+                self.source_indexes
+                    .browse_index
+                    .reader_at(source, Some(&expected.catalog_revision))
+                    .ok()
             } else {
                 None
             };
-            if self.sources.has(source, |c| c.post_order) && index.is_none() {
+            if !online && self.sources.has(source, |c| c.post_order) && index.is_none() {
                 stage.borrow_mut().post_ready = false;
             }
             let native = studio_storage::native_spec(&result.spec);
@@ -202,7 +215,12 @@ impl QueryRunner {
                 let scoped = store.filter_query_input(&result.project_id, &result.spec, keys)?;
                 let ranked = ranking.filter(&scoped, ranked_candidates)?;
                 let filtered = store.filter_derived(&result.project_id, &result.spec, &ranked)?;
-                let posts = if let Some(index) = &index {
+                let posts = if online && !filtered.is_empty() {
+                    self.source_indexes
+                        .browse_index
+                        .reader_at(source, Some(&expected.catalog_revision))?
+                        .post_ids(&filtered)?
+                } else if let Some(index) = &index {
                     index.post_ids(&filtered)?
                 } else {
                     vec![None; filtered.len()]
@@ -300,36 +318,30 @@ impl QueryRunner {
         if cancelled.load(Ordering::Acquire) {
             return Err(Error::new("CANCELLED", "构建已取消"));
         }
-        // Multi-source builds have per-source transactions; check every source again
-        // before publication. This fence is explicitly not a historical snapshot.
-        if !fixed
-            && self.versions(store, &result.project_id, &result.spec)? != result.source_versions
-        {
-            return Err(Error::new(
-                "SOURCE_CHANGED",
-                "构建期间来源已更新，请重新计算",
-            ));
+        // Retained providers validate availability of the captured version;
+        // legacy providers still require their original latest-version fence.
+        if !fixed {
+            self.validate_versions(store, &result.project_id, &result.source_versions)?;
         }
         let stage = stage.into_inner();
         stage.seal()?;
         let (ratings, candidates) = reader.rating_usage()?;
         store.query_basis_usage(&result.project_id, &result.id, &ratings, candidates)?;
         store.query_build_phase(&result.project_id, &result.id, "publishing")?;
-        store.publish_stage_with_budget(
-            &result.project_id,
-            &result.id,
-            &stage,
-            mode,
-            &cancelled,
-            (budget.memory_bytes / 2).min(4 << 30),
-        )?;
-        if !fixed
-            && self.versions(store, &result.project_id, &result.spec)? != result.source_versions
-        {
-            return Err(Error::new(
-                "SOURCE_CHANGED",
-                "发布查询期间来源已更新，请刷新后重试",
-            ));
+        if store.query_storage_kind(&result.project_id, &result.id)? == "sealed" {
+            store.publish_snapshot_stage(&result.project_id, &result.id, &stage, &cancelled)?;
+        } else {
+            store.publish_stage_with_budget(
+                &result.project_id,
+                &result.id,
+                &stage,
+                mode,
+                &cancelled,
+                (budget.memory_bytes / 2).min(4 << 30),
+            )?;
+        }
+        if !fixed {
+            self.validate_versions(store, &result.project_id, &result.source_versions)?;
         }
         Ok(())
     }
@@ -399,6 +411,10 @@ fn sweep_cache(
     // Page accounting must finish before taking the lease/eviction gate.
     let owned = store.owned_projects()?;
     for pid in &owned {
+        store.expire_query_views(pid)?;
+        if store.collect_snapshot_orphans(pid)? > 0 {
+            runner.cache.requested.store(true, Ordering::Release);
+        }
         runner.cache.phase("accounting", Some(pid));
         store.refresh_query_cache_sizes(pid)?;
         runner.cache.track(store, pid)?;

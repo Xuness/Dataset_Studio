@@ -62,7 +62,7 @@ export function scopeOptions(
       options.push({
         value: result.id,
         label:
-          "查询结果 · " +
+          (result.cache.mode === "view" ? "浏览视图 · " : "查询结果 · ") +
           resultLabel(
             result,
             definitions.find((d) => d.id === result.definition_id)?.name,

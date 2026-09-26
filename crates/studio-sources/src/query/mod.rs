@@ -1,6 +1,6 @@
 pub(crate) mod changes;
 pub(crate) mod compiler;
-mod fields;
+pub(crate) mod fields;
 use crate::{
     SourceRouter,
     canonical::{Catalog, err},
@@ -46,6 +46,9 @@ impl QueryReader {
         affected: &mut dyn FnMut(&[AssetKey]) -> Result<()>,
         sink: &mut dyn FnMut(&[AssetKey], u64) -> Result<()>,
     ) -> Result<bool> {
+        if crate::online::available(source) {
+            return Ok(false);
+        }
         if !crate::profiles::is_canonical(source) {
             return Ok(false);
         }
@@ -203,6 +206,128 @@ fn assert_version(current: &QuerySourceVersion, expected: &QuerySourceVersion) -
     Ok(())
 }
 impl QueryAdapter for QueryReader {
+    fn read_version_at(
+        &self,
+        source: &Source,
+        revision: Option<&str>,
+        metadata: bool,
+    ) -> Result<QuerySourceVersion> {
+        if crate::online::available(source) {
+            return Ok(crate::online::Snapshot::open(
+                source,
+                revision,
+                Arc::new(AtomicBool::new(false)),
+                self.runtime.deadline(),
+            )?
+            .version(source));
+        }
+        let version = self.read_version(source, metadata)?;
+        if revision.is_some_and(|v| v != version.catalog_revision) {
+            return Err(Error::new("SOURCE_CHANGED", "来源版本已变化"));
+        }
+        Ok(version)
+    }
+    fn validate_version(&self, source: &Source, expected: &QuerySourceVersion) -> Result<()> {
+        if crate::online::available(source) {
+            let snapshot = crate::online::Snapshot::open(
+                source,
+                Some(&expected.catalog_revision),
+                Arc::new(AtomicBool::new(false)),
+                None,
+            )?;
+            return assert_version(&snapshot.version(source), expected);
+        }
+        assert_version(
+            &self.read_version(source, expected.analysis_sequence.is_some())?,
+            expected,
+        )
+    }
+    fn query_page(
+        &self,
+        source: &Source,
+        spec: &QuerySpec,
+        expected: &QuerySourceVersion,
+        after: Option<&str>,
+        limit: usize,
+        cancelled: Arc<AtomicBool>,
+    ) -> Result<SourceQueryPage> {
+        if source.kind == "demo" {
+            let mut keys = Vec::new();
+            self.execute_query(source, spec, expected, cancelled, &mut |batch, _| {
+                keys.extend_from_slice(batch);
+                Ok(())
+            })?;
+            keys.sort_by(|a, b| a.asset_id.cmp(&b.asset_id));
+            if spec.order.descending() {
+                keys.reverse();
+            }
+            if let Some(after) = after {
+                keys.retain(|k| {
+                    if spec.order.descending() {
+                        k.asset_id.as_str() < after
+                    } else {
+                        k.asset_id.as_str() > after
+                    }
+                });
+            }
+            let limit = limit.clamp(1, 129);
+            let more = keys.len() > limit;
+            keys.truncate(limit);
+            return Ok(SourceQueryPage {
+                next: if more {
+                    keys.last().map(|k| k.asset_id.clone())
+                } else {
+                    None
+                },
+                scanned: keys.len() as u64,
+                total_objects: 32,
+                hits: keys
+                    .into_iter()
+                    .map(|key| QueryHit { key, post_id: None })
+                    .collect(),
+            });
+        }
+        if !crate::online::available(source) {
+            return Err(Error::new(
+                "QUERY_VIEW_UNSUPPORTED",
+                "来源尚未迁移到在线读取层",
+            ));
+        }
+        let snapshot = crate::online::Snapshot::open(
+            source,
+            Some(&expected.catalog_revision),
+            cancelled,
+            self.runtime.deadline(),
+        )?;
+        assert_version(&snapshot.version(source), expected)?;
+        snapshot.page_query(source, spec, after, limit)
+    }
+    fn retain_version(
+        &self,
+        source: &Source,
+        expected: &QuerySourceVersion,
+        id: &str,
+        owner: &str,
+        permanent: bool,
+    ) -> Result<()> {
+        if source.kind == "demo" {
+            return self.validate_version(source, expected);
+        }
+        let snapshot = crate::online::Snapshot::open(
+            source,
+            Some(&expected.catalog_revision),
+            Arc::new(AtomicBool::new(false)),
+            None,
+        )?;
+        assert_version(&snapshot.version(source), expected)?;
+        snapshot.retain(id, owner, "query_view", permanent)
+    }
+    fn release_version(&self, source: &Source, id: &str) -> Result<()> {
+        if crate::online::available(source) {
+            crate::online::Snapshot::release(source, id)?;
+        }
+        Ok(())
+    }
     fn execute_query_keys(
         &self,
         source: &Source,
@@ -235,13 +360,22 @@ impl QueryAdapter for QueryReader {
         QueryReader::rating_usage(self)
     }
     fn fields(&self, source: &Source) -> Result<FieldDirectory> {
-        fields::directory(source)
+        let mut directory = fields::directory(source)?;
+        if crate::online::available(source) {
+            for field in &mut directory.fields {
+                field.cost = "online_index_or_bounded_scan".into();
+            }
+        }
+        Ok(directory)
     }
     fn query_version(&self, source: &Source, spec: &QuerySpec) -> Result<QuerySourceVersion> {
         self.fields(source)?.validate(spec)?;
         self.read_version(source, spec.uses_metadata())
     }
     fn read_version(&self, source: &Source, metadata: bool) -> Result<QuerySourceVersion> {
+        if crate::online::available(source) {
+            return Ok(crate::online::Snapshot::latest(source)?.version(source));
+        }
         if source.kind == "demo" {
             return Ok(QuerySourceVersion {
                 semantics_version: None,
@@ -301,6 +435,64 @@ impl QueryReader {
         let start = Instant::now();
         self.fields(source)?.validate(spec)?;
         check(&cancelled, start)?;
+        if crate::online::available(source) {
+            // Bound each read transaction, not the whole background capture.
+            // Large retained results may legitimately take more than ten minutes.
+            let deadline = || {
+                let window = Instant::now() + Duration::from_secs(60);
+                Some(
+                    self.runtime
+                        .deadline()
+                        .map(|d| d.min(window))
+                        .unwrap_or(window),
+                )
+            };
+            if let Some(keys) = keys {
+                let snapshot = crate::online::Snapshot::open(
+                    source,
+                    Some(&expected.catalog_revision),
+                    cancelled,
+                    deadline(),
+                )?;
+                assert_version(&snapshot.version(source), expected)?;
+                return sink(
+                    &snapshot.filter_keys(source, spec, keys)?,
+                    keys.len() as u64,
+                );
+            }
+            let indexed = {
+                let snapshot = crate::online::Snapshot::open(
+                    source,
+                    Some(&expected.catalog_revision),
+                    cancelled.clone(),
+                    deadline(),
+                )?;
+                assert_version(&snapshot.version(source), expected)?;
+                snapshot.indexed_keys(source, spec)?
+            };
+            if let Some(keys) = indexed {
+                for batch in keys.chunks(512) {
+                    studio_application::read_cancelled(&cancelled)?;
+                    sink(batch, batch.len() as u64)?;
+                }
+                return Ok(());
+            }
+            let mut after = 0;
+            loop {
+                studio_application::read_cancelled(&cancelled)?;
+                let snapshot = crate::online::Snapshot::open(
+                    source,
+                    Some(&expected.catalog_revision),
+                    cancelled.clone(),
+                    deadline(),
+                )?;
+                assert_version(&snapshot.version(source), expected)?;
+                match snapshot.stream_window(source, spec, after, sink)? {
+                    Some(next) => after = next,
+                    None => return Ok(()),
+                }
+            }
+        }
         let only_ids = keys.map(|keys| keys.iter().map(|k| k.asset_id.clone()).collect::<Vec<_>>());
         let mut predicates = compiler::storage_predicates(spec)?;
         if let Some(ids) = &only_ids {

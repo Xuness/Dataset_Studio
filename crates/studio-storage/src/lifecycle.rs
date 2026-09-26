@@ -305,9 +305,11 @@ impl SqliteStore {
             .map_err(|_| Error::new("PROJECT_BUSY", "项目已由其他引擎打开"))?;
         // Reject future formats before opening a writable connection or changing journal mode.
         migrations::check_supported(&dbpath)?;
-        let mut db =
-            Connection::open_with_flags(&dbpath, rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE)
-                .map_err(db_error)?;
+        let mut db = Connection::open_with_flags(
+            &dbpath,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE | rusqlite::OpenFlags::SQLITE_OPEN_URI,
+        )
+        .map_err(db_error)?;
         db.busy_timeout(std::time::Duration::from_secs(3))
             .map_err(db_error)?;
         db.execute_batch("PRAGMA foreign_keys=ON;")
@@ -315,10 +317,12 @@ impl SqliteStore {
         migrations::upgrade(&mut db, &directory)?;
         db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA cache_size=-65536; PRAGMA journal_size_limit=33554432;")
             .map_err(db_error)?;
+        let result_writer = crate::result_store::initialize(&directory, &manifest.id)?;
+        crate::result_store::attach(&db, &directory)?;
         // A newly acquired project lease means no previous engine still owns its tasks.
         // Cached handles return above, so opening an already active project does not interrupt it.
         {
-            let tx = db.transaction().map_err(db_error)?;
+            let tx = db.project_transaction().map_err(db_error)?;
             // Incomplete query members are never published. Rebuild is explicit after a crash.
             tx.execute("UPDATE query_results SET status='interrupted',count=NULL,error='构建被中断，请重新计算' WHERE status='running'", []).map_err(db_error)?;
             tx.execute("DELETE FROM result_references WHERE owner_kind='query_input' AND owner_id IN (SELECT id FROM query_results WHERE status NOT IN ('queued','running'))", []).map_err(db_error)?;
@@ -365,6 +369,8 @@ impl SqliteStore {
         projects.insert(
             project.id.clone(),
             Arc::new(ProjectDb {
+                result_writer: Mutex::new(result_writer),
+                result_gc_cursor: Mutex::new(None),
                 evaluation: Mutex::new(evaluation),
                 db: Mutex::new(db),
                 reads: Default::default(),

@@ -130,7 +130,7 @@ impl SqliteStore {
     pub fn begin_artifact(&self, pid: &str, item: &Artifact) -> Result<Artifact> {
         let p = self.handle(pid)?;
         let mut db = p.db.lock().map_err(lock_error)?;
-        let tx = db.transaction().map_err(db_error)?;
+        let tx = db.project_transaction().map_err(db_error)?;
         let existing: Option<String> = tx
             .query_row(
                 "SELECT id FROM artifacts WHERE job_id=?1 AND output_id=?2",
@@ -168,7 +168,7 @@ impl SqliteStore {
         }
         let p = self.handle(pid)?;
         let mut db = p.db.lock().map_err(lock_error)?;
-        let tx = db.transaction().map_err(db_error)?;
+        let tx = db.project_transaction().map_err(db_error)?;
         if read(&tx, pid, id)?.state != ArtifactState::Publishing {
             return Err(Error::new("ARTIFACT_NOT_WRITABLE", "成果已发布或已释放"));
         }
@@ -213,7 +213,7 @@ impl SqliteStore {
     ) -> Result<()> {
         let p = self.handle(pid)?;
         let mut db = p.db.lock().map_err(lock_error)?;
-        let tx = db.transaction().map_err(db_error)?;
+        let tx = db.project_transaction().map_err(db_error)?;
         let job = read_job(&tx, pid, job_id)?;
         if job.status == "cancelled" {
             return Err(Error::new("CANCELLED", "任务已取消，成果未发布"));
@@ -266,7 +266,7 @@ impl SqliteStore {
     pub fn release_artifact(&self, pid: &str, id: &str) -> Result<Artifact> {
         let p = self.handle(pid)?;
         let mut db = p.db.lock().map_err(lock_error)?;
-        let tx = db.transaction().map_err(db_error)?;
+        let tx = db.project_transaction().map_err(db_error)?;
         let item = read(&tx, pid, id)?;
         if item.state == ArtifactState::Publishing {
             return Err(Error::new("ARTIFACT_NOT_READY", "发布中的成果不能释放"));

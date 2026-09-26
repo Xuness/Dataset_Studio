@@ -14,7 +14,8 @@ use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, convert::Infallible, sync::Arc};
 use studio_application::{
-    MetadataAdapter, ProjectRepository, QueryRepository, ScopeRepository, SourceAdapter,
+    MetadataAdapter, ProjectRepository, QueryAdapter, QueryRepository, ScopeRepository,
+    SourceAdapter,
 };
 use studio_domain as domain;
 use studio_protocol::*;
@@ -26,6 +27,7 @@ mod cache_storage;
 mod llm;
 mod management;
 mod query;
+mod query_views;
 mod ranking;
 mod ranking_browse;
 mod resources;
@@ -322,6 +324,16 @@ fn enrich_summaries(
     reader: &SourceRead,
     items: &mut [Asset],
 ) -> domain::Result<()> {
+    enrich_summaries_at(s, pid, context, reader, items, &[])
+}
+fn enrich_summaries_at(
+    s: &AppState,
+    pid: &str,
+    context: &RequestReadContext,
+    reader: &SourceRead,
+    items: &mut [Asset],
+    versions: &[domain::QuerySourceVersion],
+) -> domain::Result<()> {
     let mut groups = BTreeMap::<String, Vec<String>>::new();
     for item in items.iter() {
         groups
@@ -336,7 +348,11 @@ fn enrich_summaries(
         }
         let result = (|| {
             prepare_metadata(s, &source, reader)?;
-            reader.summaries(&source, &ids, context.cancelled.clone())
+            let revision = versions
+                .iter()
+                .find(|v| v.source_id == sid)
+                .map(|v| v.catalog_revision.as_str());
+            reader.summaries_at(&source, &ids, revision, context.cancelled.clone())
         })();
         match result {
             Ok(summaries) => {
@@ -627,6 +643,7 @@ fn browse_sync(
     reader: &SourceRead,
     id: &str,
     query: BrowseQuery,
+    versions: &mut Vec<domain::QuerySourceVersion>,
 ) -> domain::Result<AssetPage> {
     let store = &s.store;
     let order = query
@@ -834,7 +851,11 @@ fn browse_sync(
             if grouped.is_empty() {
                 continue;
             }
-            let frozen = reader.freeze(source, &grouped)?;
+            let frozen = reader.freeze_at(
+                source,
+                &grouped,
+                cursor.revisions.get(&source.id).map(String::as_str),
+            )?;
             for item in frozen {
                 if let Some(old) = cursor.revisions.get(&source.id)
                     && old != &item.source_revision
@@ -895,15 +916,21 @@ fn browse_sync(
             let after = cursor.source_afters.get(&source.id).map(String::as_str);
             let (mut rows, revision) = if s.sources.has(source, |c| c.post_order) && order.by_post()
             {
-                let index = s.queries.source_indexes.browse_index.reader(source)?;
-                let revision = format!(
-                    "catalog-v1:{}:{}",
-                    index.stamp.generation, index.stamp.sequence
-                );
+                let index = s
+                    .queries
+                    .source_indexes
+                    .browse_index
+                    .reader_at(source, cursor.revisions.get(&source.id).map(String::as_str))?;
+                let revision = index.revision();
                 (index.page(&source.id, order, after, limit + 1)?, revision)
             } else {
-                let page =
-                    reader.page_ordered(source, after, limit + 1, None, order.descending())?;
+                let page = reader.page_ordered(
+                    source,
+                    after,
+                    limit + 1,
+                    cursor.revisions.get(&source.id).map(String::as_str),
+                    order.descending(),
+                )?;
                 source_more |= page.next.is_some();
                 let rows = page.items.into_iter().map(|a| (a.key, None)).collect();
                 (rows, page.revision)
@@ -956,7 +983,11 @@ fn browse_sync(
                     .source_afters
                     .insert(source.id.clone(), last.asset_id.clone());
             }
-            for item in reader.freeze(source, &keys)? {
+            for item in reader.freeze_at(
+                source,
+                &keys,
+                cursor.revisions.get(&source.id).map(String::as_str),
+            )? {
                 if cursor.revisions.get(&source.id) != Some(&item.source_revision) {
                     return Err(domain::Error::new(
                         "SOURCE_CHANGED",
@@ -1017,6 +1048,17 @@ fn browse_sync(
     let revision = hex::encode(Sha256::digest(
         serde_json::to_vec(&cursor.revisions).map_err(domain::Error::io)?,
     ));
+    for source in &sources {
+        if studio_sources::online::available(source)
+            && let Some(revision) = cursor.revisions.get(&source.id)
+        {
+            versions.push(
+                reader
+                    .query(domain::METADATA_MEMORY_BYTES, false)
+                    .read_version_at(source, Some(revision), true)?,
+            );
+        }
+    }
     Ok(AssetPage {
         items: items
             .into_iter()
@@ -1055,8 +1097,9 @@ async fn assets(
                             collection_id: collection_id.clone(),
                         },
                     });
-            let mut page = browse_sync(&s, &_permit, &id, query)?;
-            enrich_summaries(&s, &id, &read_context, &_permit, &mut page.items)?;
+            let mut versions = Vec::new();
+            let mut page = browse_sync(&s, &_permit, &id, query, &mut versions)?;
+            enrich_summaries_at(&s, &id, &read_context, &_permit, &mut page.items, &versions)?;
             if let Some(scope) = ranking_scope {
                 ranking_browse::annotate(&s, &id, &scope, &read_context, &mut page.items)?;
             }
@@ -1249,18 +1292,20 @@ async fn submit_job(
                         return Ok(job);
                     }
                     query::validate_scope(&s, &id, &scope)?;
-                    let capture = if matches!(scope.target, domain::ScopeTarget::Source { .. }) {
+                    let capture = if query::requires_capture(&s, &id, &scope)? {
                         Some(query::source_capture(&s, &id, &scope)?)
                     } else {
                         None
                     };
-                    s.store.submit_scope_job(
+                    let job = s.store.submit_scope_job(
                         &id,
                         &body.idempotency_key,
                         &scope,
                         body.delay_ms,
                         capture,
-                    )
+                    )?;
+                    query_views::retain_job(&s, &id, &job)?;
+                    Ok(job)
                 }
                 (None, Some(revision)) => {
                     s.store
@@ -1428,6 +1473,7 @@ async fn shutdown(State(s): State<AppState>) -> Json<OkResponse> {
         query::build,
         query::results,
         query::run,
+        query_views::create,
         query::result,
         query::validity,
         query::cancel,
@@ -1809,6 +1855,7 @@ pub fn routes() -> axum::Router<AppState> {
             post(query::release),
         )
         .route("/v1/projects/{pid}/scopes/capture", post(query::capture))
+        .route("/v1/projects/{pid}/query-views", post(query_views::create))
         .route(
             "/v1/projects/{pid}/selection/scope",
             post(query::select_scope),

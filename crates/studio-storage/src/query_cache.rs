@@ -139,6 +139,71 @@ pub struct QueryStage {
     pub post_ready: bool,
 }
 impl QueryStage {
+    pub(crate) fn copy_to_members(
+        &self,
+        db: &mut Connection,
+        rid: &str,
+        cancelled: &AtomicBool,
+    ) -> Result<()> {
+        if !self.db.is_autocommit() {
+            return Err(Error::invalid("查询暂存尚未封存"));
+        }
+        db.execute(
+            "INSERT OR IGNORE INTO datasets(id,state) VALUES(?1,'building')",
+            [rid],
+        )
+        .map_err(db_error)?;
+        let (state, mut source, mut asset): (String, String, String) = db
+            .query_row(
+                "SELECT state,after_source,after_asset FROM datasets WHERE id=?1",
+                [rid],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .map_err(db_error)?;
+        if state == "sealed" {
+            return Ok(());
+        }
+        let mut stmt=self.db.prepare("SELECT source_id,asset_id,post_id FROM matches WHERE (source_id,asset_id)>(?1,?2) ORDER BY source_id,asset_id LIMIT 8192").map_err(db_error)?;
+        loop {
+            studio_application::read_cancelled(cancelled)?;
+            let rows = stmt
+                .query_map(params![source, asset], |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, Option<i64>>(2)?,
+                    ))
+                })
+                .map_err(db_error)?
+                .collect::<std::result::Result<Vec<_>, _>>()
+                .map_err(db_error)?;
+            if rows.is_empty() {
+                break;
+            }
+            let tx = db.project_transaction().map_err(db_error)?;
+            let mut inserted = 0_i64;
+            {
+                let mut insert = tx
+                    .prepare("INSERT OR IGNORE INTO members VALUES(?1,?2,?3,?4)")
+                    .map_err(db_error)?;
+                for (s, a, p) in &rows {
+                    inserted += insert.execute(params![rid, s, a, p]).map_err(db_error)? as i64;
+                }
+            }
+            let last = rows.last().expect("nonempty");
+            source = last.0.clone();
+            asset = last.1.clone();
+            tx.execute(
+                "UPDATE datasets SET count=count+?2,after_source=?3,after_asset=?4 WHERE id=?1",
+                params![rid, inserted, source, asset],
+            )
+            .map_err(db_error)?;
+            tx.commit().map_err(db_error)?;
+        }
+        db.execute("UPDATE datasets SET state='sealed' WHERE id=?1", [rid])
+            .map_err(db_error)?;
+        Ok(())
+    }
     pub fn new(directory: &Path) -> Result<Self> {
         Self::with_memory(directory, 256 << 20)
     }
@@ -514,7 +579,7 @@ impl SqliteStore {
         self.mark_background(pid)?;
         let p = self.handle(pid)?;
         let mut db = p.db.lock().map_err(lock_error)?;
-        let tx = db.transaction().map_err(db_error)?;
+        let tx = db.project_transaction().map_err(db_error)?;
         query::validate_sources(&tx, &spec)?;
         query::validate_input(&tx, pid, &spec)?;
         if let Some((id, revision)) = definition {
@@ -764,7 +829,7 @@ impl SqliteStore {
                 "结果正在使用、被项目引用或已固定，暂时不能清理",
             ));
         }
-        let tx = db.transaction().map_err(db_error)?;
+        let tx = db.project_transaction().map_err(db_error)?;
         tx.execute(
             "UPDATE query_families SET cached=0,latest_count=0 WHERE id=?1",
             [&family],
@@ -1027,7 +1092,7 @@ impl SqliteStore {
             {
                 continue;
             }
-            let tx = db.transaction().map_err(db_error)?;
+            let tx = db.project_transaction().map_err(db_error)?;
             tx.execute(
                 "UPDATE query_families SET cached=0,latest_count=0 WHERE id=?1",
                 [&family],
@@ -1055,7 +1120,7 @@ impl SqliteStore {
                 .map_err(db_error)?
         };
         for family in families {
-            let tx = db.transaction().map_err(db_error)?;
+            let tx = db.project_transaction().map_err(db_error)?;
             let removed = prune(&tx, &family, live)?;
             let old_live=live.iter().any(|id|tx.query_row("SELECT EXISTS(SELECT 1 FROM query_results r JOIN query_families f ON f.id=r.family_id WHERE r.id=?1 AND r.family_id=?2 AND r.member_revision<f.latest_revision)",params![id,family],|r|r.get::<_,bool>(0)).unwrap_or(true));
             if !old_live {
@@ -1130,6 +1195,7 @@ fn apportion(bytes: u64, members: u64, total: u64) -> u64 {
 }
 fn stats(db: &Connection, sizes: (u64, u64)) -> Result<QueryCacheStats> {
     let scalar = |sql: &str| db.query_row(sql, [], |r| unsigned(r, 0)).map_err(db_error);
+    let (sealed_bytes, sealed_members, sealed_free) = crate::result_store::accounting(db)?;
     let long_term_bytes = apportion(
         sizes.0,
         scalar(
@@ -1148,9 +1214,10 @@ fn stats(db: &Connection, sizes: (u64, u64)) -> Result<QueryCacheStats> {
             "SELECT COALESCE(MAX(touched_at),0) FROM query_families WHERE cached=1",
         )?,
         retained_families: scalar("SELECT count(*) FROM query_families WHERE cached=1")?,
-        member_versions: sizes.1,
-        storage_bytes: sizes.0,
-        database_free_bytes: scalar("PRAGMA freelist_count")? * scalar("PRAGMA page_size")?,
+        member_versions: sizes.1 + sealed_members,
+        storage_bytes: sizes.0 + sealed_bytes,
+        database_free_bytes: scalar("PRAGMA freelist_count")? * scalar("PRAGMA page_size")?
+            + sealed_free,
         protected_results: scalar("SELECT count(DISTINCT result_id) FROM result_references")?,
         reused_results: scalar("SELECT count(*) FROM query_results WHERE cache_mode='reused'")?,
         incremental_results: scalar(
@@ -1165,11 +1232,12 @@ fn stats(db: &Connection, sizes: (u64, u64)) -> Result<QueryCacheStats> {
         )?,
         long_term_bytes,
         temporary_bytes: sizes.0.saturating_sub(long_term_bytes),
-        fixed_bytes: apportion(
-            sizes.0,
-            scalar("SELECT COALESCE(SUM(stored_members),0) FROM query_families WHERE fixed=1")?,
-            sizes.1,
-        ),
+        fixed_bytes: sealed_bytes
+            + apportion(
+                sizes.0,
+                scalar("SELECT COALESCE(SUM(stored_members),0) FROM query_families WHERE fixed=1")?,
+                sizes.1,
+            ),
         session_families: scalar(
             "SELECT count(*) FROM query_families WHERE cached=1 AND session_only=1 AND fixed=0",
         )?,

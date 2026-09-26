@@ -26,10 +26,32 @@ pub struct BrowseIndex {
     gates: Mutex<HashMap<String, Arc<Mutex<()>>>>,
 }
 pub struct BrowseIndexReader {
-    db: Connection,
+    db: BrowseBackend,
     pub stamp: BrowseIndexStamp,
 }
+enum BrowseBackend {
+    Legacy(Connection),
+    Online(Box<crate::online::Snapshot>),
+}
+impl std::ops::Deref for BrowseBackend {
+    type Target = Connection;
+    fn deref(&self) -> &Connection {
+        match self {
+            Self::Legacy(db) => db,
+            Self::Online(view) => &view.db,
+        }
+    }
+}
 impl BrowseIndexReader {
+    pub fn revision(&self) -> String {
+        match &self.db {
+            BrowseBackend::Online(view) => view.revision.clone(),
+            BrowseBackend::Legacy(_) => format!(
+                "catalog-v1:{}:{}",
+                self.stamp.generation, self.stamp.sequence
+            ),
+        }
+    }
     pub fn page(
         &self,
         source_id: &str,
@@ -37,6 +59,29 @@ impl BrowseIndexReader {
         after: Option<&str>,
         limit: usize,
     ) -> Result<Vec<(AssetKey, Option<i64>)>> {
+        if let BrowseBackend::Online(view) = &self.db {
+            let source = Source {
+                id: source_id.into(),
+                name: String::new(),
+                kind: view.pointer.site.clone(),
+                index_root: None,
+                media_root: None,
+            };
+            let spec = QuerySpec {
+                version: 3,
+                source_ids: vec![source_id.into()],
+                conditions: Vec::new(),
+                observation_rule: ObservationRule::CurrentPost,
+                order,
+                input_scope: None,
+            };
+            return Ok(view
+                .page_query(&source, &spec, after, limit)?
+                .hits
+                .into_iter()
+                .map(|h| (h.key, h.post_id))
+                .collect());
+        }
         let digest = after.map(hex::decode).transpose().map_err(Error::io)?;
         let post: Option<i64> = if let Some(digest) = &digest {
             self.db
@@ -91,6 +136,9 @@ impl BrowseIndexReader {
         Ok(rows)
     }
     pub fn post_ids(&self, keys: &[AssetKey]) -> Result<Vec<Option<i64>>> {
+        if let BrowseBackend::Online(view) = &self.db {
+            return view.post_ids(keys);
+        }
         let mut stmt = self
             .db
             .prepare_cached("SELECT post_id FROM objects WHERE sha=?1")
@@ -133,7 +181,7 @@ impl BrowseIndex {
         Ok((bytes, count))
     }
     pub fn verify_revision(source: &Source, revision: &str) -> Result<()> {
-        if Catalog::open(source)?.revision != revision {
+        if Catalog::open_at(source, Some(revision))?.revision != revision {
             return Err(Error::new("SOURCE_CHANGED", "浏览排序期间来源已更新"));
         }
         Ok(())
@@ -166,6 +214,9 @@ impl BrowseIndex {
         Ok(db)
     }
     pub fn is_current(&self, source: &Source) -> Result<bool> {
+        if crate::online::available(source) {
+            return Ok(true);
+        }
         let catalog = Catalog::open(source)?;
         let gate = self.gate(&source.id)?;
         let _guard = match gate.try_lock() {
@@ -418,7 +469,30 @@ impl BrowseIndex {
         self.reader(source)?.post_ids(keys)
     }
     pub fn reader(&self, source: &Source) -> Result<BrowseIndexReader> {
-        let catalog = Catalog::open(source)?;
+        self.reader_at(source, None)
+    }
+    pub fn reader_at(&self, source: &Source, revision: Option<&str>) -> Result<BrowseIndexReader> {
+        if crate::online::available(source) {
+            let view = crate::online::Snapshot::open(
+                source,
+                revision,
+                Arc::new(AtomicBool::new(false)),
+                None,
+            )?;
+            let stamp = BrowseIndexStamp {
+                generation: view.pointer.generation.clone(),
+                sequence: view.sequence,
+                count: view.count,
+                bytes: 0,
+                refreshed_objects: 0,
+                incremental: true,
+            };
+            return Ok(BrowseIndexReader {
+                db: BrowseBackend::Online(Box::new(view)),
+                stamp,
+            });
+        }
+        let catalog = Catalog::open_at(source, revision)?;
         let gate = self.gate(&source.id)?;
         let _guard = gate
             .lock()
@@ -429,7 +503,10 @@ impl BrowseIndex {
         if s.generation != catalog.generation || s.sequence != catalog.sequence {
             return Err(Error::new("SOURCE_CHANGED", "浏览索引需要刷新"));
         }
-        Ok(BrowseIndexReader { db, stamp: s })
+        Ok(BrowseIndexReader {
+            db: BrowseBackend::Legacy(db),
+            stamp: s,
+        })
     }
 }
 fn stamp(db: &Connection) -> Result<BrowseIndexStamp> {

@@ -6,7 +6,7 @@ impl SqliteStore {
         let p = self.handle(pid)?;
         self.mark_background(pid)?;
         let mut db = p.db.lock().map_err(lock_error)?;
-        let tx = db.transaction().map_err(db_error)?;
+        let tx = db.project_transaction().map_err(db_error)?;
         if management::removed(&tx, "job", id)? {
             return Err(Error::new(
                 "JOB_NOT_RETRYABLE",
@@ -37,6 +37,12 @@ impl SqliteStore {
         if let ScopeTarget::Source { source_id, .. } = &scope.target {
             self.source(pid, source_id)?;
             return Ok(vec![source_id.clone()]);
+        }
+        if let ScopeTarget::QueryResult { result_id } = &scope.target {
+            let result = self.query_result(pid, result_id)?;
+            if result.cache.mode == "view" {
+                return Ok(result.spec.source_ids);
+            }
         }
         let p = self.handle(pid)?;
         let db = p.read()?;
@@ -214,7 +220,7 @@ impl SqliteStore {
         db.progress_handler(1000, Some(move || flag.load(Ordering::Acquire)))
             .map_err(db_error)?;
         let outcome = (|| {
-            let tx = db.transaction().map_err(db_error)?;
+            let tx = db.project_transaction().map_err(db_error)?;
             let previous: Option<(String, String)> = tx
                 .query_row(
                     "SELECT id,request_hash FROM jobs WHERE idempotency_key=?1",
@@ -236,49 +242,80 @@ impl SqliteStore {
                 return read_job(&tx, pid, &id);
             }
             let id = new_id();
-            let (total, status, input_sql, results, provenance, owned_result) =
-                if let ScopeTarget::Source {
-                    source_id,
-                    revision,
-                } = &scope.target
+            let (total, status, input_sql, results, provenance, owned_result) = if let Some((
+                spec,
+                versions,
+            )) = capture
+            {
+                let spec = spec.normalize()?;
+                match &scope.target {
+                    ScopeTarget::Source {
+                        source_id,
+                        revision,
+                    } => {
+                        if spec.source_ids != vec![source_id.clone()]
+                            || !spec.conditions.is_empty()
+                            || versions.len() != 1
+                            || versions[0].source_id != *source_id
+                            || versions[0].catalog_revision != *revision
+                        {
+                            return Err(Error::new("SOURCE_CHANGED", "来源范围版本不一致"));
+                        }
+                    }
+                    ScopeTarget::QueryResult { result_id } => {
+                        let view = query::ready_result(&tx, pid, result_id)?;
+                        if view.cache.mode != "view"
+                            || view.spec != spec
+                            || view.source_versions != versions
+                        {
+                            return Err(Error::invalid("浏览视图与捕获版本不一致"));
+                        }
+                    }
+                    _ => return Err(Error::invalid("已固定范围不需要来源构建")),
+                }
+                let result = query::insert_result(&tx, pid, None, &spec, &versions)?;
+                tx.execute(
+                    "UPDATE query_results SET internal=1 WHERE id=?1",
+                    [&result.id],
+                )
+                .map_err(db_error)?;
+                if versions
+                    .iter()
+                    .any(|v| v.consistency == "retained_online_snapshot")
                 {
-                    let (spec, versions) =
-                        capture.ok_or_else(|| Error::invalid("来源范围缺少构建版本"))?;
-                    let spec = spec.normalize()?;
-                    if spec.source_ids != vec![source_id.clone()]
-                        || !spec.conditions.is_empty()
-                        || versions.len() != 1
-                        || versions[0].source_id != *source_id
-                        || versions[0].catalog_revision != *revision
-                    {
-                        return Err(Error::new("SOURCE_CHANGED", "来源范围版本不一致"));
-                    }
-                    let result = query::insert_result(&tx, pid, None, &spec, &versions)?;
-                    (
-                        0,
-                        "waiting_input",
-                        None,
-                        vec![result.id.clone()],
-                        serde_json::json!({"version":1,"scope":scope,"queries":[result.clone()],"meaning":"fixed_asset_members; metadata_values_are_not_frozen"}),
-                        Some(result.id),
+                    tx.execute(
+                        "UPDATE query_results SET storage_kind='sealed' WHERE id=?1",
+                        [&result.id],
                     )
-                } else {
-                    if capture.is_some() {
-                        return Err(Error::invalid("已固定范围不需要来源构建"));
-                    }
-                    let resolved = scopes::resolve(&tx, pid, scope)?;
-                    if resolved.count == 0 {
-                        return Err(Error::invalid("任务输入不能为空"));
-                    }
-                    (
-                        resolved.count,
-                        "queued",
-                        Some(resolved.sql),
-                        resolved.results,
-                        resolved.provenance,
-                        None,
+                    .map_err(db_error)?;
+                    tx.execute(
+                        "UPDATE query_families SET fixed=1 WHERE id=?1",
+                        [&result.id],
                     )
-                };
+                    .map_err(db_error)?;
+                }
+                (
+                    0,
+                    "waiting_input",
+                    None,
+                    vec![result.id.clone()],
+                    serde_json::json!({"version":1,"scope":scope,"queries":[result.clone()],"meaning":"fixed_asset_members; metadata_values_are_not_frozen"}),
+                    Some(result.id),
+                )
+            } else {
+                let resolved = scopes::resolve(&tx, pid, scope)?;
+                if resolved.count == 0 {
+                    return Err(Error::invalid("任务输入不能为空"));
+                }
+                (
+                    resolved.count,
+                    "queued",
+                    Some(resolved.sql),
+                    resolved.results,
+                    resolved.provenance,
+                    None,
+                )
+            };
             if let Some(sql) = &input_sql {
                 let detached: bool = tx.query_row(&format!("SELECT EXISTS(SELECT 1 FROM object_metadata s WHERE s.kind='source' AND s.deleted=1 AND EXISTS(SELECT 1 FROM ({sql}) i WHERE i.source_id=s.id))"),[],|r|r.get(0)).map_err(db_error)?;
                 if detached {
@@ -317,10 +354,51 @@ impl SqliteStore {
                 .map_err(db_error)?;
             }
             if let Some(sql) = input_sql {
+                let base = match &scope.target {
+                    ScopeTarget::QueryResult { result_id } => Some(result_id.clone()),
+                    ScopeTarget::Workset { collection_id } => tx
+                        .query_row(
+                            "SELECT result_id FROM collection_bases WHERE collection_id=?1",
+                            [collection_id],
+                            |r| r.get::<_, String>(0),
+                        )
+                        .optional()
+                        .map_err(db_error)?,
+                    ScopeTarget::Selection { .. } => tx
+                        .query_row(
+                            "SELECT result_id FROM selection_base WHERE singleton=1",
+                            [],
+                            |r| r.get::<_, String>(0),
+                        )
+                        .optional()
+                        .map_err(db_error)?,
+                    _ => None,
+                };
+                if let Some(base) = &base {
+                    tx.execute(
+                        "INSERT INTO job_input_bases VALUES(?1,?2)",
+                        params![id, base],
+                    )
+                    .map_err(db_error)?;
+                    match &scope.target {
+                        ScopeTarget::Workset { collection_id } => {
+                            tx.execute("INSERT INTO job_input_legacy SELECT ?1,source_id,asset_id FROM collection_inclusions WHERE collection_id=?2",params![id,collection_id]).map_err(db_error)?;
+                            tx.execute("INSERT INTO job_input_exclusions SELECT ?1,source_id,asset_id FROM collection_exclusions WHERE collection_id=?2",params![id,collection_id]).map_err(db_error)?;
+                        }
+                        ScopeTarget::Selection { .. } => {
+                            tx.execute("INSERT INTO job_input_legacy SELECT ?1,source_id,asset_id FROM selection",[&id]).map_err(db_error)?;
+                            tx.execute("INSERT INTO job_input_exclusions SELECT ?1,source_id,asset_id FROM selection_exclusions",[&id]).map_err(db_error)?;
+                        }
+                        _ => {}
+                    }
+                }
                 operation.update(0, Some(total));
-                let mut copied = 0;
+                let mut copied = if base.is_some() { total } else { 0 };
                 let mut after = (String::new(), String::new());
                 loop {
+                    if base.is_some() {
+                        break;
+                    }
                     studio_application::read_cancelled(&cancelled)?;
                     let last = {
                         let mut stmt = tx.prepare(&format!("SELECT source_id,asset_id FROM ({sql}) WHERE (source_id,asset_id)>(?1,?2) ORDER BY source_id,asset_id LIMIT 32768")).map_err(db_error)?;
@@ -333,7 +411,7 @@ impl SqliteStore {
                         .map_err(db_error)?
                     };
                     let Some(last) = last else { break };
-                    copied += tx.execute(&format!("INSERT INTO job_inputs SELECT ?1,source_id,asset_id FROM ({sql}) WHERE (source_id,asset_id)>(?2,?3) AND (source_id,asset_id)<=(?4,?5)"),params![id,after.0,after.1,last.0,last.1]).map_err(db_error)? as u64;
+                    copied += tx.execute(&format!("INSERT INTO job_input_legacy SELECT ?1,source_id,asset_id FROM ({sql}) WHERE (source_id,asset_id)>(?2,?3) AND (source_id,asset_id)<=(?4,?5)"),params![id,after.0,after.1,last.0,last.1]).map_err(db_error)? as u64;
                     after = last;
                     operation.update(copied, Some(total));
                 }
@@ -409,7 +487,7 @@ impl SqliteStore {
                 db.progress_handler(1000, Some(move || flag.load(Ordering::Acquire)))
                     .map_err(db_error)?;
                 let outcome = (|| {
-                    let tx = db.transaction().map_err(db_error)?;
+                    let tx = db.project_transaction().map_err(db_error)?;
                     let state: String = tx
                         .query_row("SELECT status FROM jobs WHERE id=?1", [&id], |r| r.get(0))
                         .map_err(db_error)?;
@@ -421,7 +499,25 @@ impl SqliteStore {
                     let mut copied = 0;
                     let mut after = (String::new(), String::new());
                     operation.update(0, Some(total));
+                    let sealed: bool = tx
+                        .query_row(
+                            "SELECT storage_kind='sealed' FROM query_results WHERE id=?1",
+                            [&rid],
+                            |r| r.get(0),
+                        )
+                        .map_err(db_error)?;
+                    if sealed {
+                        tx.execute(
+                            "INSERT OR REPLACE INTO job_input_bases VALUES(?1,?2)",
+                            params![id, rid],
+                        )
+                        .map_err(db_error)?;
+                        copied = total;
+                    }
                     loop {
+                        if sealed {
+                            break;
+                        }
                         studio_application::read_cancelled(&cancelled)?;
                         let last = {
                             let mut stmt=tx.prepare("SELECT source_id,asset_id FROM result_members WHERE result_id=?1 AND (source_id,asset_id)>(?2,?3) ORDER BY source_id,asset_id LIMIT 32768").map_err(db_error)?;
@@ -434,7 +530,7 @@ impl SqliteStore {
                             .map_err(db_error)?
                         };
                         let Some(last) = last else { break };
-                        copied+=tx.execute("INSERT INTO job_inputs SELECT ?1,source_id,asset_id FROM result_members WHERE result_id=?2 AND (source_id,asset_id)>(?3,?4) AND (source_id,asset_id)<=(?5,?6)",params![id,rid,after.0,after.1,last.0,last.1]).map_err(db_error)? as u64;
+                        copied+=tx.execute("INSERT INTO job_input_legacy SELECT ?1,source_id,asset_id FROM result_members WHERE result_id=?2 AND (source_id,asset_id)>(?3,?4) AND (source_id,asset_id)<=(?5,?6)",params![id,rid,after.0,after.1,last.0,last.1]).map_err(db_error)? as u64;
                         after = last;
                         operation.update(copied, Some(total));
                     }
@@ -454,7 +550,7 @@ impl SqliteStore {
                     .progress_handler(0, None::<fn() -> bool>)
                     .map_err(db_error);
                 if let Err(error) = operation.finish(outcome.and(cleared)) {
-                    let tx = db.transaction().map_err(db_error)?;
+                    let tx = db.project_transaction().map_err(db_error)?;
                     tx.execute(
                         "UPDATE jobs SET status=?2,error=?3 WHERE id=?1 AND status='waiting_input'",
                         params![
@@ -478,7 +574,7 @@ impl SqliteStore {
                     Err(std::sync::TryLockError::WouldBlock) => continue,
                     Err(error) => return Err(Error::new("INTERNAL_ERROR", error.to_string())),
                 };
-                let tx = db.transaction().map_err(db_error)?;
+                let tx = db.project_transaction().map_err(db_error)?;
                 let result = query::read_result(&tx, pid, &rid)?;
                 job_telemetry::waiting(&tx, &id, result.processed)?;
                 if !matches!(

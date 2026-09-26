@@ -10,7 +10,7 @@ pub(super) async fn validate_scope(
         blocking(move || {
             let scope = body.scope.into();
             query::validate_scope(&s, &pid, &scope)?;
-            if matches!(scope.target, domain::ScopeTarget::Source { .. }) {
+            if query::requires_capture(&s, &pid, &scope)? {
                 query::source_capture(&s, &pid, &scope)?;
             } else {
                 s.store.scope_source_ids(&pid, &scope)?;
@@ -57,7 +57,7 @@ pub(super) async fn submit(
                 request.run.clone(),
                 &s.sources,
             )?;
-            let capture = if matches!(request.scope.target, domain::ScopeTarget::Source { .. }) {
+            let capture = if query::requires_capture(&s, &pid, &request.scope)? {
                 Some(query::source_capture(&s, &pid, &request.scope)?)
             } else {
                 None
@@ -65,6 +65,7 @@ pub(super) async fn submit(
             let job = s
                 .store
                 .submit_registered_job(&pid, &request, &frozen, capture)?;
+            query_views::retain_job(&s, &pid, &job)?;
             if domain::is_ranking_operator(&job.operator) && job.stage.is_none() {
                 s.store.job_stage(
                     &pid,

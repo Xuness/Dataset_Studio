@@ -74,7 +74,7 @@ impl SqliteStore {
             let notified = (|| -> Result<()> {
                 let p = self.handle(&id)?;
                 let mut db = p.db.lock().map_err(lock_error)?;
-                let tx = db.transaction().map_err(db_error)?;
+                let tx = db.project_transaction().map_err(db_error)?;
                 if tx
                     .prepare("SELECT 1 FROM sources WHERE id=?1")
                     .map_err(db_error)?

@@ -226,6 +226,12 @@ impl SourceIndexService {
         Ok(())
     }
     pub fn start_rating_build(self: &Arc<Self>, source: &Source) -> Result<RatingBuildStatus> {
+        if studio_sources::online::available(source) {
+            return Err(Error::new(
+                "ONLINE_INDEX_READY",
+                "在线数据湖已支持直接查询，无需分级基础缓存",
+            ));
+        }
         if !self.sources.has(source, |c| c.post_order) {
             return Err(Error::new("QUERY_UNSUPPORTED", "此来源不支持分级基础缓存"));
         }

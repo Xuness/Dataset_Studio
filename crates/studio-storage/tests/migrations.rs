@@ -218,7 +218,7 @@ fn upgrade_preserves_every_relationship(from: u32) {
         after
             .query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0))
             .unwrap(),
-        12
+        13
     );
     // Exact rows, including drafts, idempotency keys, event sequences and artifact references.
     if from >= 2 {

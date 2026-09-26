@@ -1,4 +1,5 @@
 use super::*;
+use crate::ProjectTransaction;
 use crate::{SqliteStore, lock_error};
 use std::sync::Arc;
 
@@ -33,7 +34,7 @@ impl SqliteStore {
         // HTTP completion cannot overwrite a more recent executor transition.
         let current = self.evaluation(pid)?.stage(&stage.id)?;
         let stage = &current;
-        let tx = db.transaction().map_err(db_error)?;
+        let tx = db.project_transaction().map_err(db_error)?;
         project_stage(&tx, stage)?;
         crate::event(&tx, "evaluation.changed", &stage.id)?;
         crate::faults::check("project_sync_before_commit", &stage.id)?;

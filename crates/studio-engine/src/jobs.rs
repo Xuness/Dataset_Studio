@@ -212,7 +212,12 @@ fn prepare(
         for (id, keys) in groups {
             let permit = sources.background(ReadClass::Index, 32 << 20, cancelled.clone())?;
             let source = store.source(&job.project_id, &id)?;
-            let items = permit.freeze(&source, &keys)?;
+            let revision = frozen
+                .source_versions
+                .iter()
+                .find(|v| v.source_id == id)
+                .map(|v| v.catalog_revision.as_str());
+            let items = permit.freeze_at(&source, &keys, revision)?;
             drop(permit);
             for mut item in items {
                 if count.is_multiple_of(8)

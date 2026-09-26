@@ -440,7 +440,8 @@ export class StudioClient {
       },
     );
   }
-  changeSelectionScope(id: string, body: Schema["ChangeSelectionScope"]) {
+  async changeSelectionScope(id: string, body: Schema["ChangeSelectionScope"]) {
+    body = { ...body, scope: await this.queries.fixedScope(id, body.scope) };
     return this.request<Schema["Selection"]>(
       "/v1/projects/" + encodeURIComponent(id) + "/selection/scope",
       { method: "POST", body: JSON.stringify(body) },
@@ -451,7 +452,15 @@ export class StudioClient {
       "/v1/projects/" + id + "/collections",
     );
   }
-  createCollection(id: string, name: string, scope?: Schema["ScopeRef"]) {
+  async createCollection(
+    id: string,
+    name: string,
+    scope?: Schema["ScopeRef"],
+    progress?: (result: Schema["QueryResult"]) => void,
+    signal?: AbortSignal,
+  ) {
+    if (scope)
+      scope = await this.queries.fixedScope(id, scope, progress, signal);
     return this.request<Schema["Collection"]>(
       "/v1/projects/" + id + "/collections",
       { method: "POST", body: JSON.stringify({ name, scope }) },

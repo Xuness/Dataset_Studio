@@ -106,7 +106,7 @@ pub(super) fn change(
     let history_limit = store.editing_settings()?.undo_limit;
     let p = store.handle(pid)?;
     let mut db = p.db.lock().map_err(lock_error)?;
-    let tx = db.transaction().map_err(db_error)?;
+    let tx = db.project_transaction().map_err(db_error)?;
     check_revision(&tx, expected)?;
     let history_id = history::begin(
         &tx,

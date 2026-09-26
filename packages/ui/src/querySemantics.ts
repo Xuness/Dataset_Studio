@@ -1,6 +1,10 @@
 import type { QuerySpec, QueryResult } from "@studio/contracts";
 
 export function queryCacheLabel(result: QueryResult) {
+  if (result.cache.mode === "view")
+    return result.state === "released"
+      ? "浏览视图已结束；可按最新数据重新打开"
+      : "按页读取；保存工作集或提交任务时固定当前视图";
   const mode = result.cache.mode;
   if (["queued", "running"].includes(result.state)) {
     return (

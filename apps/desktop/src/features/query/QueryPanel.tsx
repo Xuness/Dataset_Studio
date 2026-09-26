@@ -396,13 +396,17 @@ export function QueryPanel({
     const unchanged =
       definition && querySignature(next) === querySignature(definition.spec);
     const result =
-      unchanged && definition
-        ? await client.queries.build(
-            projectId,
-            definition.id,
-            definition.revision,
-          )
-        : await client.queries.run(projectId, next);
+      directory.direct_query &&
+      !next.conditions.some((c) => c.field.startsWith("project.")) &&
+      (!next.input_scope || next.input_scope.target.kind === "source")
+        ? await client.queries.browse(projectId, next)
+        : unchanged && definition
+          ? await client.queries.build(
+              projectId,
+              definition.id,
+              definition.revision,
+            )
+          : await client.queries.run(projectId, next);
     submittedScope.current = JSON.stringify(browserScope);
     setLastRun(result.id);
     model.firstPage();
@@ -820,7 +824,9 @@ export function QueryPanel({
                     <small>
                       {stateNames[result.state]} ·{" "}
                       {result.count == null
-                        ? "数量待确定"
+                        ? result.cache.mode === "view"
+                          ? "未计算总数"
+                          : "数量待确定"
                         : result.count.toLocaleString() + " 张"}
                       {working && result.processed > 0
                         ? " · 已处理 " +
@@ -902,10 +908,15 @@ export function QueryPanel({
                                       )
                                     ).spec
                                   : result.spec;
-                                const next = await client.queries.runLatest(
-                                  projectId,
-                                  q,
-                                );
+                                const execute =
+                                  result.cache.mode === "view"
+                                    ? client.queries.browseLatest.bind(
+                                        client.queries,
+                                      )
+                                    : client.queries.runLatest.bind(
+                                        client.queries,
+                                      );
+                                const next = await execute(projectId, q);
                                 submittedScope.current =
                                   JSON.stringify(browserScope);
                                 setLastRun(next.id);

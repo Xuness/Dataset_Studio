@@ -151,11 +151,11 @@ pub(super) fn page(
     let mut streams = sources
         .into_iter()
         .map(|source| {
-            let index = s.queries.source_indexes.browse_index.reader(&source)?;
-            let revision = format!(
-                "catalog-v1:{}:{}",
-                index.stamp.generation, index.stamp.sequence
-            );
+            let index = s.queries.source_indexes.browse_index.reader_at(
+                &source,
+                cursor.revisions.get(&source.id).map(String::as_str),
+            )?;
+            let revision = index.revision();
             if cursor
                 .revisions
                 .get(&source.id)

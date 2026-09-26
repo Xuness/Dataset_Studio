@@ -235,15 +235,35 @@ function BrowserContent({
             : null;
         return page;
       }
-      if (scope.kind === "result")
-        return (
+      if (scope.kind === "result") {
+        const pending =
+          preparation.current?.key === requestKey
+            ? preparation.current.page
+            : null;
+        const continuation = pending?.next_cursor ?? cursor;
+        const page = (
           await client.queries.assets(projectId, scope.id, {
-            ...(cursor ? { cursor } : {}),
-            limit: pageSize,
+            ...(continuation ? { cursor: continuation } : {}),
+            limit: Math.max(1, pageSize - (pending?.items.length ?? 0)),
             order,
             signal,
           })
         ).page;
+        const items = [...(pending?.items ?? []), ...page.items];
+        const scanning =
+          !!page.scan && !!page.next_cursor && items.length < pageSize;
+        const merged = {
+          ...page,
+          items,
+          preparing:
+            scanning && !items.length ? "正在查找符合条件的图像…" : null,
+        };
+        if (!signal.aborted)
+          preparation.current = scanning
+            ? { key: requestKey, page: merged }
+            : null;
+        return merged;
+      }
       const pending =
         preparation.current?.key === requestKey
           ? preparation.current.page
@@ -291,7 +311,11 @@ function BrowserContent({
     enabled: !ranked.loading,
     retry: 1,
     refetchInterval: (q) =>
-      q.state.status !== "error" && q.state.data?.preparing
+      q.state.status !== "error" &&
+      (q.state.data?.preparing ||
+        (scope.kind === "result" &&
+          q.state.data?.scan &&
+          q.state.data.items.length < pageSize))
         ? ranked.active
           ? 500
           : 800
@@ -375,7 +399,11 @@ function BrowserContent({
     setRefreshError(null);
     try {
       const previous = await client.queries.result(projectId, scope.id);
-      const next = await client.queries.runLatest(projectId, {
+      const execute =
+        previous.cache.mode === "view"
+          ? client.queries.browseLatest.bind(client.queries)
+          : client.queries.runLatest.bind(client.queries);
+      const next = await execute(projectId, {
         ...previous.spec,
         version: 3,
         order,
@@ -395,7 +423,15 @@ function BrowserContent({
   const summaries = useQuery({
     queryKey: ["project", projectId, "asset-summaries", pageKeys],
     queryFn: ({ signal }) => client.assetSummaries(projectId, pageKeys, signal),
-    enabled: pageKeys.length > 0 && !ranked.active && !query.data?.preparing,
+    enabled:
+      pageKeys.length > 0 &&
+      pageItems.some(
+        (item) => !item.summary || item.summary.status === "preparing",
+      ) &&
+      !ranked.active &&
+      !query.data?.preparing &&
+      scope.kind !== "result" &&
+      !query.data?.result_id,
     staleTime: 15000,
     gcTime: 0,
     refetchInterval: (q) =>
@@ -417,7 +453,7 @@ function BrowserContent({
   const items = pageItems.map((item, index) => ({
     ...item,
     selected: memberSelection.data?.selected[index] ?? item.selected,
-    summary: summaries.data?.items[index]?.summary ?? item.summary ?? null,
+    summary: item.summary ?? summaries.data?.items[index]?.summary ?? null,
   }));
   useEffect(() => {
     const inactive = queryCache
@@ -827,13 +863,20 @@ function BrowserContent({
         </WorkbenchPanelPortal>
         {scope.kind === "result" &&
           (validity.data?.current === false ||
+            validity.data?.newer_available ||
             (query.error &&
               "code" in query.error &&
-              ["SORT_REQUIRES_REFRESH", "RESULT_NOT_READY"].includes(
-                String(query.error.code),
-              ))) && (
+              [
+                "SORT_REQUIRES_REFRESH",
+                "RESULT_NOT_READY",
+                "VIEW_EXPIRED",
+              ].includes(String(query.error.code)))) && (
             <div className="browser-refresh-note">
-              <span>结果需要刷新；将按最新来源检查条件。</span>
+              <span>
+                {validity.data?.current && validity.data.newer_available
+                  ? "数据湖已有更新；当前视图保持不变，可手动读取最新数据。"
+                  : "视图需要刷新；将按最新来源检查条件。"}
+              </span>
               <Button
                 disabled={refreshing || (!!refreshId && !refreshed.data?.error)}
                 onClick={() => void refreshResult()}
@@ -1025,6 +1068,13 @@ function BrowserContent({
           </div>
         </WorkbenchPanelPortal>
       </div>
+      {scope.kind === "result" && query.data?.scan && !!items.length && (
+        <p className="aesthetic-help" role="status">
+          已显示 {items.length} 项，继续查找本页结果 · 已检查{" "}
+          {query.data.scan.scanned.toLocaleString()} /{" "}
+          {query.data.scan.total.toLocaleString()} 项
+        </p>
+      )}
       {query.error ? (
         <EmptyState title="当前范围暂不可用" icon={<ImageIcon size={36} />}>
           <ErrorDetails error={query.error} />

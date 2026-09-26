@@ -51,7 +51,7 @@ fn cancelling_scoped_job_capture_rolls_back_and_keeps_reads_available() {
             if matches!(
                 context.action,
                 AuthAction::Insert {
-                    table_name: "job_inputs"
+                    table_name: "job_input_legacy"
                 }
             ) && inserts.fetch_add(1, Ordering::Relaxed) == 1
             {
@@ -198,7 +198,7 @@ fn cancelling_after_a_saved_batch_rolls_back_members_and_does_not_block_readers(
             if matches!(
                 context.action,
                 AuthAction::Insert {
-                    table_name: "collection_members"
+                    table_name: "collection_member_legacy"
                 }
             ) && inserts.fetch_add(1, Ordering::Relaxed) == 1
             {

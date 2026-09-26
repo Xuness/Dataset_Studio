@@ -319,7 +319,7 @@ fn incremental_publication_work_stays_bounded_as_the_family_grows() {
         let handle = f.store.handle(&f.pid).unwrap();
         {
             let mut db = handle.db.lock().unwrap();
-            let tx = db.transaction().unwrap();
+            let tx = db.project_transaction().unwrap();
             tx.execute(
                 "WITH RECURSIVE n(x) AS(VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<?3)
                 INSERT INTO query_member_data(family_id,source_id,asset_id,valid_from,post_id)
@@ -338,7 +338,7 @@ fn incremental_publication_work_stays_bounded_as_the_family_grows() {
             )
             .unwrap();
             tx.commit().unwrap();
-            db.execute_batch("ANALYZE").unwrap();
+            db.execute_batch("ANALYZE main").unwrap();
         }
         f.finish(&first);
         let next = f.begin(2);

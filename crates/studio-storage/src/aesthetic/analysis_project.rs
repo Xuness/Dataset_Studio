@@ -1,4 +1,5 @@
 use super::*;
+use crate::ProjectTransaction;
 use crate::{SqliteStore, lock_error};
 use studio_domain::{Collection, ScopeRef, ScopeTarget, aesthetic_analysis::*};
 
@@ -12,7 +13,7 @@ impl SqliteStore {
             p.background
                 .store(true, std::sync::atomic::Ordering::Release);
         }
-        let tx = db.transaction().map_err(db_error)?;
+        let tx = db.project_transaction().map_err(db_error)?;
         tx.execute("INSERT INTO evaluation_analysis_refs VALUES (?1,?2) ON CONFLICT(id) DO UPDATE SET state=excluded.state",params![id,item.state]).map_err(db_error)?;
         crate::event(&tx, "evaluation.analysis_changed", id)?;
         tx.commit().map_err(db_error)
@@ -25,7 +26,7 @@ impl SqliteStore {
     ) -> Result<(String, u64, u64, bool)> {
         let p = self.handle(pid)?;
         let mut db = p.db.lock().map_err(lock_error)?;
-        let tx = db.transaction().map_err(db_error)?;
+        let tx = db.project_transaction().map_err(db_error)?;
         let json = encode(&(&item.request, &item.input))?;
         let old:Option<(Option<String>,String,String,u64,u64)>=tx.query_row("SELECT collection_id,request_json,state,after_position,count FROM evaluation_workset_builds WHERE job_id=?1",[&item.id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,crate::unsigned(r,3)?,crate::unsigned(r,4)?))).optional().map_err(db_error)?;
         if let Some((id, old, state, after, count)) = old {
@@ -60,7 +61,7 @@ impl SqliteStore {
         }
         let p = self.handle(pid)?;
         let mut db = p.db.lock().map_err(lock_error)?;
-        let tx = db.transaction().map_err(db_error)?;
+        let tx = db.project_transaction().map_err(db_error)?;
         let (id,state,previous):(Option<String>,String,u64)=tx.query_row("SELECT collection_id,state,after_position FROM evaluation_workset_builds WHERE job_id=?1",[job],|r|Ok((r.get(0)?,r.get(1)?,crate::unsigned(r,2)?))).map_err(db_error)?;
         if state != "building" || previous != expected_after {
             return Err(Error::new("REVISION_CONFLICT", "派生工作集游标已变化"));
@@ -68,7 +69,7 @@ impl SqliteStore {
         let id = id.ok_or_else(|| Error::new("OBJECT_REMOVED", "派生工作集已删除"))?;
         for key in &keys {
             tx.execute(
-                "INSERT INTO collection_members VALUES (?1,?2,?3)",
+                "INSERT INTO collection_member_legacy VALUES (?1,?2,?3)",
                 params![id, key.source_id, key.asset_id],
             )
             .map_err(db_error)?;
@@ -87,7 +88,7 @@ impl SqliteStore {
     ) -> Result<Collection> {
         let p = self.handle(pid)?;
         let mut db = p.db.lock().map_err(lock_error)?;
-        let tx = db.transaction().map_err(db_error)?;
+        let tx = db.project_transaction().map_err(db_error)?;
         let (id, state, count, after): (Option<String>, String, u64, u64) = tx
             .query_row(
                 "SELECT collection_id,state,count,after_position FROM evaluation_workset_builds WHERE job_id=?1",

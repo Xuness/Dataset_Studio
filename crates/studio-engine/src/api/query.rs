@@ -40,6 +40,12 @@ pub(super) async fn run(
             let spec = domain::QuerySpec::from(body.spec).normalize()?;
             let versions = s.queries.versions(&s.store, &pid, &spec)?;
             validate_input(&s, &pid, &spec, &versions)?;
+            if versions
+                .iter()
+                .any(|v| v.consistency == "retained_online_snapshot")
+            {
+                return query_views::create_fixed(&s, &pid, spec, versions).map(Into::into);
+            }
             let _cache_gate = s.queries.cache.lock()?;
             let result = s.store.create_result_with_cache(
                 &pid,
@@ -182,6 +188,20 @@ pub(super) async fn build(
             }
             let versions = s.queries.versions(&s.store, &pid, &query.spec)?;
             validate_input(&s, &pid, &query.spec, &versions)?;
+            if versions
+                .iter()
+                .any(|v| v.consistency == "retained_online_snapshot")
+            {
+                let result = s.store.create_snapshot_result_from(
+                    &pid,
+                    Some((&qid, query.revision)),
+                    query.spec,
+                    versions,
+                    false,
+                )?;
+                query_views::retain_created(&s, &pid, &result, true)?;
+                return Ok(result.into());
+            }
             let _cache_gate = s.queries.cache.lock()?;
             let result = s.store.create_result_with_cache(
                 &pid,
@@ -264,6 +284,10 @@ pub(super) async fn validity(
                 result_id: rid,
                 current: issue.is_none(),
                 issue,
+                newer_available: result.state == domain::ResultState::Ready
+                    && s.queries
+                        .versions(&s.store, &pid, &result.spec)
+                        .is_ok_and(|v| v != result.source_versions),
             })
         })
         .await?,
@@ -289,7 +313,12 @@ pub(super) async fn release(
     Path((pid, rid)): Path<(String, String)>,
 ) -> ApiResult<QueryResult> {
     Ok(Json(
-        blocking(move || s.store.release_result(&pid, &rid).map(Into::into)).await?,
+        blocking(move || {
+            let result = s.store.release_result(&pid, &rid)?;
+            query_views::release_versions(&s, &pid, &result)?;
+            Ok(result.into())
+        })
+        .await?,
     ))
 }
 #[utoipa::path(post,path="/v1/projects/{project_id}/query-results/{result_id}/leases/{lease_id}",params(("project_id"=String,Path),("result_id"=String,Path),("lease_id"=String,Path)),responses((status=200,body=OkResponse)))]
@@ -300,6 +329,12 @@ pub(super) async fn lease_result(
 ) -> ApiResult<OkResponse> {
     Ok(Json(
         blocking(move || {
+            if s.store.query_storage_kind(&pid, &rid)? == "view" {
+                domain::validate_id(&lid)?;
+                let result = s.store.touch_query_view(&pid, &rid)?;
+                query_views::retain(&s, &pid, &result, false)?;
+                return Ok(OkResponse { ok: true });
+            }
             let _gate = s.queries.cache.lock()?;
             let result = session_result(&s, &pid, &rid, session.0.as_deref())?;
             if result.state != domain::ResultState::Ready {
@@ -353,6 +388,10 @@ pub(super) async fn result_assets(
     Ok(Json(
         blocking(move || {
             let _permit = read_permit(&s, domain::ReadClass::Index, &read_context)?;
+            let peek = s.store.query_result(&pid, &rid)?;
+            if peek.cache.mode == "view" {
+                return query_views::assets(&s, &pid, &rid, q, &read_context, &_permit);
+            }
             let result = {
                 let _gate = s.queries.cache.lock()?;
                 let result = session_result(&s, &pid, &rid, session.0.as_deref())?;
@@ -400,7 +439,19 @@ pub(super) async fn result_assets(
             let mut assets = std::collections::HashMap::new();
             for (source_id, keys) in groups {
                 let source = s.store.source(&pid, &source_id)?;
-                for item in _permit.freeze(&source, &keys)? {
+                for item in _permit.freeze_at(
+                    &source,
+                    &keys,
+                    result
+                        .source_versions
+                        .iter()
+                        .find(|v| v.source_id == source_id)
+                        .filter(|v| {
+                            v.consistency == "retained_online_snapshot"
+                                || !result.spec.uses_only_fixed_project_data()
+                        })
+                        .map(|v| v.catalog_revision.as_str()),
+                )? {
                     if !result.spec.uses_only_fixed_project_data()
                         && !result.source_versions.iter().any(|v| {
                             v.source_id == source_id && v.catalog_revision == item.source_revision
@@ -423,7 +474,22 @@ pub(super) async fn result_assets(
                         .ok_or_else(|| domain::Error::new("SOURCE_CHANGED", "结果成员已不可用"))
                 })
                 .collect::<domain::Result<Vec<_>>>()?;
-            enrich_summaries(&s, &pid, &read_context, &_permit, &mut items)?;
+            enrich_summaries_at(
+                &s,
+                &pid,
+                &read_context,
+                &_permit,
+                &mut items,
+                &result
+                    .source_versions
+                    .iter()
+                    .filter(|v| {
+                        v.consistency == "retained_online_snapshot"
+                            || !result.spec.uses_only_fixed_project_data()
+                    })
+                    .cloned()
+                    .collect::<Vec<_>>(),
+            )?;
             ranking_browse::annotate(
                 &s,
                 &pid,
@@ -451,7 +517,7 @@ pub(super) async fn result_assets(
                 .transpose()?;
             Ok(ResultAssets {
                 result_id: rid.clone(),
-                count: result.count.unwrap_or(0),
+                count: result.count,
                 page: AssetPage {
                     items,
                     next_cursor,
@@ -478,12 +544,30 @@ pub(super) fn validate_scope(
     }
     Ok(())
 }
+pub(super) fn requires_capture(
+    s: &AppState,
+    pid: &str,
+    scope: &domain::ScopeRef,
+) -> domain::Result<bool> {
+    Ok(match &scope.target {
+        domain::ScopeTarget::Source { .. } => true,
+        domain::ScopeTarget::QueryResult { result_id } => {
+            s.store.query_result(pid, result_id)?.cache.mode == "view"
+        }
+        _ => false,
+    })
+}
 pub(super) fn source_capture(
     s: &AppState,
     pid: &str,
     scope: &domain::ScopeRef,
 ) -> domain::Result<(domain::QuerySpec, Vec<domain::QuerySourceVersion>)> {
     scope.validate_project(pid)?;
+    if let domain::ScopeTarget::QueryResult { result_id } = &scope.target {
+        let result = s.store.touch_query_view(pid, result_id)?;
+        s.queries.validate_result(&s.store, &result)?;
+        return Ok((result.spec, result.source_versions));
+    }
     let domain::ScopeTarget::Source {
         source_id,
         revision,
@@ -501,13 +585,10 @@ pub(super) fn source_capture(
         order: domain::QueryOrder::AssetKeyAsc,
         input_scope: None,
     };
-    let versions = s.queries.versions(&s.store, pid, &spec)?;
-    if versions[0].catalog_revision != *revision {
-        return Err(domain::Error::new(
-            "SOURCE_CHANGED",
-            "来源版本已变化，请刷新后重试",
-        ));
-    }
+    let read = s.sources.inspect()?;
+    let reader = read.query(domain::METADATA_MEMORY_BYTES, false);
+    let versions =
+        vec![reader.read_version_at(&s.store.source(pid, source_id)?, Some(revision), false)?];
     Ok((spec, versions))
 }
 #[utoipa::path(post,path="/v1/projects/{project_id}/scopes/capture",params(("project_id"=String,Path)),request_body=CaptureScope,responses((status=200,body=QueryResult)))]
@@ -520,6 +601,11 @@ pub(super) async fn capture(
     Ok(Json(
         blocking(move || {
             let (spec, versions) = source_capture(&s, &pid, &body.scope.into())?;
+            if versions.iter().any(|v| {
+                v.consistency == "retained_online_snapshot" || v.consistency == "immutable_demo"
+            }) {
+                return query_views::create_fixed(&s, &pid, spec, versions).map(Into::into);
+            }
             let _cache_gate = s.queries.cache.lock()?;
             let result = s.store.create_result_with_cache(
                 &pid,

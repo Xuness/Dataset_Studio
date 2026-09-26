@@ -175,6 +175,7 @@ export function MetadataInspector({
     projectId,
     asset.key,
     matches ? fixed : undefined,
+    asset.summary?.version ?? undefined,
   );
   const { overview, observations, raw, data, record, observation } = state;
   return (

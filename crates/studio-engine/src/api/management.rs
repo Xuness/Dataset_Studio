@@ -233,9 +233,10 @@ pub(super) async fn action(
                     let value=s.store.object_details(&pid,kind,&id)?;
                     if value.object.revision!=body.expected_revision{return Err(domain::Error::new("REVISION_CONFLICT","对象刚被修改，请刷新详情"));}
                     if let Some(reason)=value.remove_reason{return Err(domain::Error::new("OBJECT_IN_USE",reason));}
-                    if kind==domain::ObjectKind::Artifact {release_files(&s,&pid,&id)?;} else {s.store.release_result(&pid,&id)?;}
+                    if kind==domain::ObjectKind::Artifact {release_files(&s,&pid,&id)?;} else {let result=s.store.release_result(&pid,&id)?; query_views::release_versions(&s,&pid,&result)?;}
                 } else {
                     s.store.remove_object(&pid,kind,&id,body.expected_revision)?;
+                    if kind==domain::ObjectKind::Job {query_views::release_job(&s,&pid,&id)?;}
                     if kind==domain::ObjectKind::Job {cleanup_job(&s,&pid,&id).map_err(|error|domain::Error::new("JOB_CLEANUP_PENDING",format!("任务记录已清理，部分暂存暂未删除：{}。可在管理面板重试清理。",error.message)))?;}
                 }
             },

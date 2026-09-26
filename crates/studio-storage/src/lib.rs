@@ -30,6 +30,7 @@ mod llm;
 mod migrations;
 mod query;
 mod query_cache;
+mod result_store;
 pub use cache_cleanup::QueryCleanup;
 pub use query_cache::{
     QueryCacheEntry, QueryCachePolicy, QueryCacheRequest, QueryCacheStats, QueryStage,
@@ -67,7 +68,23 @@ pub fn atomic_json(path: &Path, value: &impl Serialize) -> Result<()> {
     serde_json::to_writer_pretty(&mut file, value).map_err(Error::io)?;
     file.write_all(b"\n").map_err(Error::io)?;
     file.as_file().sync_all().map_err(Error::io)?;
-    file.persist(path).map_err(Error::io)?;
+    let mut temporary = file;
+    for attempt in 0..8 {
+        match temporary.persist(path) {
+            Ok(_) => return Ok(()),
+            Err(error) => {
+                if cfg!(windows)
+                    && matches!(error.error.raw_os_error(), Some(5 | 32 | 33))
+                    && attempt < 7
+                {
+                    temporary = error.file;
+                    std::thread::sleep(std::time::Duration::from_millis(10 << attempt.min(4)));
+                } else {
+                    return Err(Error::io(error));
+                }
+            }
+        }
+    }
     Ok(())
 }
 pub fn now() -> String {
@@ -106,6 +123,8 @@ struct Manifest {
     created_at: String,
 }
 struct ProjectDb {
+    result_writer: Mutex<Connection>,
+    result_gc_cursor: Mutex<Option<String>>,
     evaluation: Mutex<Option<Arc<aesthetic::EvaluationDb>>>,
     db: Mutex<Connection>,
     reads: read_pool::ReadPool,
@@ -113,6 +132,19 @@ struct ProjectDb {
     project: Project,
     view_open: AtomicBool,
     background: AtomicBool,
+}
+
+/// Read the control snapshot before any attached immutable-result pages. This
+/// makes the publish order (members first, control reference second) observable.
+pub(crate) trait ProjectTransaction {
+    fn project_transaction(&mut self) -> rusqlite::Result<rusqlite::Transaction<'_>>;
+}
+impl ProjectTransaction for Connection {
+    fn project_transaction(&mut self) -> rusqlite::Result<rusqlite::Transaction<'_>> {
+        let tx = Connection::transaction(self)?;
+        let _: i64 = tx.query_row("SELECT count(*) FROM main.sqlite_master", [], |r| r.get(0))?;
+        Ok(tx)
+    }
 }
 mod member_writes;
 mod read_pool;
@@ -256,7 +288,7 @@ impl SqliteStore {
         let p = self.handle(project_id)?;
         self.mark_background(project_id)?;
         let mut db = p.db.lock().map_err(lock_error)?;
-        let tx = db.transaction().map_err(db_error)?;
+        let tx = db.project_transaction().map_err(db_error)?;
         let request = format!("manifest-v1:{expected_selection}:{delay_ms}");
         let previous: Option<(String, String)> = tx
             .query_row(
@@ -302,7 +334,7 @@ impl SqliteStore {
         tx.execute("INSERT INTO jobs(id,operator,status,total,created_at,idempotency_key,request_hash,delay_ms) VALUES (?1,'core.manifest','queued',?2,?3,?4,?5,?6)",params![id,total as i64,now(),key,request,delay_ms.min(1000) as i64]).map_err(db_error)?;
         tx.execute(
             &format!(
-                "INSERT INTO job_inputs SELECT ?1,source_id,asset_id FROM ({})",
+                "INSERT INTO job_input_legacy SELECT ?1,source_id,asset_id FROM ({})",
                 selection::MEMBERS
             ),
             [&id],
@@ -370,7 +402,7 @@ impl SqliteStore {
     ) -> Result<Job> {
         let p = self.handle(project_id)?;
         let mut db = p.db.lock().map_err(lock_error)?;
-        let tx = db.transaction().map_err(db_error)?;
+        let tx = db.project_transaction().map_err(db_error)?;
         let old = read_job(&tx, project_id, id)?;
         if ["succeeded", "cancelled", "failed"].contains(&old.status.as_str()) {
             return Ok(old);
@@ -500,7 +532,7 @@ impl ProjectRepository for SqliteStore {
             ..source
         };
         let mut db = p.db.lock().map_err(lock_error)?;
-        let tx = db.transaction().map_err(db_error)?;
+        let tx = db.project_transaction().map_err(db_error)?;
         tx.execute(
             "INSERT INTO sources VALUES (?1,?2) ON CONFLICT(id) DO UPDATE SET json=excluded.json",
             params![

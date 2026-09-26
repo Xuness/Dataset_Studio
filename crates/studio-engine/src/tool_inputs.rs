@@ -1,6 +1,6 @@
 use crate::sources::{SourceRead, SourceService};
 use std::sync::{Arc, atomic::AtomicBool};
-use studio_application::{ArtifactRepository, QueryAdapter};
+use studio_application::{ArtifactRepository, QueryAdapter, QueryRepository};
 use studio_domain::*;
 use studio_storage::SqliteStore;
 
@@ -49,6 +49,15 @@ pub fn capture(
         Arc::new(AtomicBool::new(false)),
     )?;
     let reader = read.query(METADATA_MEMORY_BYTES, false);
+    let retained = match &scope.target {
+        ScopeTarget::QueryResult { result_id } => store
+            .query_result(pid, result_id)?
+            .source_versions
+            .into_iter()
+            .filter(|v| v.consistency == "retained_online_snapshot")
+            .collect::<Vec<_>>(),
+        _ => Vec::new(),
+    };
     let source_versions = store
         .scope_source_ids(pid, scope)?
         .into_iter()
@@ -63,10 +72,19 @@ pub fn capture(
                     },
                 )?;
             }
-            reader.query_version(
-                &source,
-                &version_spec(&id, &fields, is_ranking_operator(&run.operator_id)),
-            )
+            let spec = version_spec(&id, &fields, is_ranking_operator(&run.operator_id));
+            if let Some(expected) = retained.iter().find(|v| v.source_id == id) {
+                reader.validate_version(&source, expected)?;
+                return reader.read_version_at(
+                    &source,
+                    Some(&expected.catalog_revision),
+                    spec.uses_metadata(),
+                );
+            }
+            if let ScopeTarget::Source { revision, .. } = &scope.target {
+                return reader.read_version_at(&source, Some(revision), spec.uses_metadata());
+            }
+            reader.query_version(&source, &spec)
         })
         .collect::<Result<Vec<_>>>()?;
     Ok(JobRun {
@@ -88,20 +106,7 @@ pub fn validate_versions(
     )?;
     let reader = read.query(METADATA_MEMORY_BYTES, false);
     for expected in &frozen.source_versions {
-        let actual = reader.query_version(
-            &store.source(pid, &expected.source_id)?,
-            &version_spec(
-                &expected.source_id,
-                &frozen.fields,
-                is_ranking_operator(&frozen.run.operator_id),
-            ),
-        )?;
-        if &actual != expected {
-            return Err(Error::new(
-                "SOURCE_CHANGED",
-                "来源在字段冻结前发生变化，请创建新任务",
-            ));
-        }
+        reader.validate_version(&store.source(pid, &expected.source_id)?, expected)?;
     }
     Ok(())
 }

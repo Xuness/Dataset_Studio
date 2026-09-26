@@ -338,7 +338,14 @@ export function QuickFilters({
     try {
       if (building && value.resultId)
         await client.queries.cancel(projectId, value.resultId);
-      const next = await client.queries.runLatest(projectId, buildSpec());
+      const spec = buildSpec();
+      const direct =
+        directory.direct_query &&
+        !spec.conditions.some((c) => c.field.startsWith("project.")) &&
+        (!spec.input_scope || spec.input_scope.target.kind === "source");
+      const next = direct
+        ? await client.queries.browseLatest(projectId, spec)
+        : await client.queries.runLatest(projectId, spec);
       if (value.resultId && !ownedView) void release(value.resultId);
       draft.controller.set((v) => ({
         ...v,
@@ -433,7 +440,9 @@ export function QuickFilters({
   }
   const progress =
     result.data?.state === "ready"
-      ? (result.data.count ?? 0).toLocaleString() + " 张匹配"
+      ? result.data.count == null
+        ? "筛选视图已就绪 · 按页读取"
+        : result.data.count.toLocaleString() + " 张匹配"
       : building
         ? result.data?.processed
           ? "筛选中 · 已处理 " +

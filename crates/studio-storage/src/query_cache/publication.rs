@@ -85,7 +85,7 @@ pub(super) fn publish(
         ))
         .map_err(db_error)?;
         let transaction = Instant::now();
-        let tx = db.transaction().map_err(db_error)?;
+        let tx = db.project_transaction().map_err(db_error)?;
         let closing = Instant::now();
         let mut closed = 0u64;
         for source in &result.spec.source_ids {

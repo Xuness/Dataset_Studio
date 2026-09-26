@@ -6,6 +6,7 @@ publish.workspace = true
 [features]
 test-faults = []
 [dependencies]
+url.workspace = true
 tracing.workspace = true
 studio-domain = { path = "../studio-domain" }
 studio-application = { path = "../studio-application" }

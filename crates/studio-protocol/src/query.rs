@@ -190,6 +190,7 @@ pub struct FieldDirectory {
     pub observation_rules: Vec<ObservationRule>,
     pub orders: Vec<QueryOrder>,
     pub max_conditions: usize,
+    pub direct_query: bool,
 }
 impl From<domain::FieldDirectory> for FieldDirectory {
     fn from(f: domain::FieldDirectory) -> Self {
@@ -200,6 +201,7 @@ impl From<domain::FieldDirectory> for FieldDirectory {
             observation_rules: f.observation_rules.into_iter().map(Into::into).collect(),
             orders: f.orders.into_iter().map(Into::into).collect(),
             max_conditions: f.max_conditions,
+            direct_query: f.direct_query,
         }
     }
 }
@@ -329,7 +331,7 @@ pub struct QueryResults {
 #[derive(Serialize, ToSchema)]
 pub struct ResultAssets {
     pub result_id: String,
-    pub count: u64,
+    pub count: Option<u64>,
     pub page: AssetPage,
 }
 #[derive(Serialize, ToSchema)]
@@ -337,4 +339,5 @@ pub struct ResultValidity {
     pub result_id: String,
     pub current: bool,
     pub issue: Option<String>,
+    pub newer_available: bool,
 }

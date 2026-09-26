@@ -1,6 +1,6 @@
 use studio_domain::*;
 
-pub(super) fn directory(source: &Source) -> Result<FieldDirectory> {
+pub(crate) fn directory(source: &Source) -> Result<FieldDirectory> {
     if source.kind != "demo" && !crate::profiles::is_canonical(source) {
         return Err(Error::new("QUERY_UNSUPPORTED", "该来源尚未支持查询"));
     }
@@ -165,5 +165,6 @@ pub(super) fn directory(source: &Source) -> Result<FieldDirectory> {
             QueryOrder::AssetKeyDesc,
         ],
         max_conditions: 12,
+        direct_query: source.kind == "demo" || crate::online::available(source),
     })
 }

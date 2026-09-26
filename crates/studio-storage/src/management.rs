@@ -480,7 +480,7 @@ impl ManagementRepository for SqliteStore {
         }
         let p = self.handle(pid)?;
         let mut db = p.db.lock().map_err(lock_error)?;
-        let tx = db.transaction().map_err(db_error)?;
+        let tx = db.project_transaction().map_err(db_error)?;
         let old = check(&tx, &p.project, kind, id, edit.expected_revision)?;
         if old.state == "deleted" {
             return Err(Error::new("NOT_FOUND", "对象已删除"));
@@ -521,7 +521,7 @@ impl ManagementRepository for SqliteStore {
         }
         let p = self.handle(pid)?;
         let mut db = p.db.lock().map_err(lock_error)?;
-        let tx = db.transaction().map_err(db_error)?;
+        let tx = db.project_transaction().map_err(db_error)?;
         let item = check(&tx, &p.project, kind, id, expected)?;
         if let Some(reason) = removable(&tx, pid, &item)? {
             return Err(Error::new("OBJECT_IN_USE", reason));
@@ -535,8 +535,14 @@ impl ManagementRepository for SqliteStore {
                     tx.execute("DELETE FROM result_references WHERE owner_kind='query_definition_input' AND owner_id=?1",[id]).map_err(db_error)?;
                 }
                 if kind == ObjectKind::Job {
-                    tx.execute("DELETE FROM job_inputs WHERE job_id=?1", [id])
-                        .map_err(db_error)?;
+                    for table in [
+                        "job_input_bases",
+                        "job_input_exclusions",
+                        "job_input_legacy",
+                    ] {
+                        tx.execute(&format!("DELETE FROM {table} WHERE job_id=?1"), [id])
+                            .map_err(db_error)?;
+                    }
                     for table in ["result_references", "artifact_references"] {
                         tx.execute(
                             &format!("DELETE FROM {table} WHERE owner_kind IN ('job','job_input','job_scope') AND owner_id=?1"),
@@ -560,7 +566,10 @@ impl ManagementRepository for SqliteStore {
                 for table in [
                     "ranking_workset_requests",
                     "collection_scopes",
-                    "collection_members",
+                    "collection_bases",
+                    "collection_inclusions",
+                    "collection_exclusions",
+                    "collection_member_legacy",
                 ] {
                     tx.execute(&format!("DELETE FROM {table} WHERE collection_id=?1"), [id])
                         .map_err(db_error)?;
@@ -594,7 +603,7 @@ impl ManagementRepository for SqliteStore {
     ) -> Result<ManagedObject> {
         let p = self.handle(pid)?;
         let mut db = p.db.lock().map_err(lock_error)?;
-        let tx = db.transaction().map_err(db_error)?;
+        let tx = db.project_transaction().map_err(db_error)?;
         let old = check(&tx, &p.project, ObjectKind::Job, id, expected)?;
         if !matches!(old.state.as_str(), "succeeded" | "failed" | "cancelled") {
             return Err(Error::invalid("只能整理已结束的任务记录"));
@@ -609,7 +618,7 @@ impl ManagementRepository for SqliteStore {
     fn restore_source(&self, pid: &str, id: &str, expected: u64) -> Result<ManagedObject> {
         let p = self.handle(pid)?;
         let mut db = p.db.lock().map_err(lock_error)?;
-        let tx = db.transaction().map_err(db_error)?;
+        let tx = db.project_transaction().map_err(db_error)?;
         check(&tx, &p.project, ObjectKind::Source, id, expected)?;
         tx.execute("UPDATE object_metadata SET deleted=0,revision=revision+1,updated_at=?2 WHERE kind='source' AND id=?1",params![id,now()]).map_err(db_error)?;
         event(&tx, "source.attached", id)?;

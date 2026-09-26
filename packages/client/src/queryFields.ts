@@ -4,6 +4,8 @@ type Directory = Schema["FieldDirectory"];
 export function commonQueryFields(directories: Directory[]) {
   const first = directories[0];
   return {
+    direct_query:
+      directories.length > 0 && directories.every((d) => d.direct_query),
     fields: (first?.fields ?? []).flatMap((field) => {
       const peers = directories.map((d) =>
         d.fields.find((f) => f.id === field.id),

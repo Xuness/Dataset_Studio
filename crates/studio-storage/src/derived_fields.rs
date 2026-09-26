@@ -121,6 +121,7 @@ impl SqliteStore {
             }
         }
         FieldDirectory {
+            direct_query: false,
             version: 1,
             source_id: pid.into(),
             fields,

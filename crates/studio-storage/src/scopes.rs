@@ -23,6 +23,12 @@ pub(super) fn resolve(db: &Connection, pid: &str, scope: &ScopeRef) -> Result<Re
         }
         ScopeTarget::QueryResult { result_id } => {
             let result = query::ready_result(db, pid, result_id)?;
+            if result.cache.mode == "view" {
+                return Err(Error::new(
+                    "SCOPE_REQUIRES_CAPTURE",
+                    "浏览视图需要先生成固定结果",
+                ));
+            }
             (
                 format!(
                     "SELECT source_id,asset_id FROM result_members WHERE result_id='{result_id}'"
@@ -138,7 +144,7 @@ impl ScopeRepository for SqliteStore {
         let history_limit = self.editing_settings()?.undo_limit;
         let p = self.handle(pid)?;
         let mut db = p.db.lock().map_err(lock_error)?;
-        let tx = db.transaction().map_err(db_error)?;
+        let tx = db.project_transaction().map_err(db_error)?;
         selection::check_revision(&tx, expected)?;
         let resolved = resolve(&tx, pid, scope)?;
         let history_id = history::begin(
@@ -199,7 +205,7 @@ impl ScopeRepository for SqliteStore {
         let name = validate_name(name)?;
         let p = self.handle(pid)?;
         let mut db = p.db.lock().map_err(lock_error)?;
-        let tx = db.transaction().map_err(db_error)?;
+        let tx = db.project_transaction().map_err(db_error)?;
         let resolved = resolve(&tx, pid, scope)?;
         if resolved.count == 0 {
             return Err(Error::invalid("工作集成员不能为空"));
@@ -210,14 +216,53 @@ impl ScopeRepository for SqliteStore {
             params![id, name, resolved.count as i64],
         )
         .map_err(db_error)?;
-        tx.execute(
-            &format!(
-                "INSERT INTO collection_members SELECT ?1,source_id,asset_id FROM ({})",
-                resolved.sql
-            ),
-            [&id],
-        )
-        .map_err(db_error)?;
+        let base = match &scope.target {
+            ScopeTarget::QueryResult { result_id } => Some(result_id.clone()),
+            ScopeTarget::Workset { collection_id } => tx
+                .query_row(
+                    "SELECT result_id FROM collection_bases WHERE collection_id=?1",
+                    [collection_id],
+                    |r| r.get(0),
+                )
+                .optional()
+                .map_err(db_error)?,
+            ScopeTarget::Selection { .. } => tx
+                .query_row(
+                    "SELECT result_id FROM selection_base WHERE singleton=1",
+                    [],
+                    |r| r.get(0),
+                )
+                .optional()
+                .map_err(db_error)?,
+            _ => None,
+        };
+        if let Some(base) = base {
+            tx.execute(
+                "INSERT INTO collection_bases VALUES(?1,?2)",
+                params![id, base],
+            )
+            .map_err(db_error)?;
+            match &scope.target {
+                ScopeTarget::Selection { .. } => {
+                    tx.execute("INSERT INTO collection_inclusions SELECT ?1,source_id,asset_id FROM selection",[&id]).map_err(db_error)?;
+                    tx.execute("INSERT INTO collection_exclusions SELECT ?1,source_id,asset_id FROM selection_exclusions",[&id]).map_err(db_error)?;
+                }
+                ScopeTarget::Workset { collection_id } => {
+                    tx.execute("INSERT INTO collection_inclusions SELECT ?1,source_id,asset_id FROM collection_inclusions WHERE collection_id=?2",params![id,collection_id]).map_err(db_error)?;
+                    tx.execute("INSERT INTO collection_exclusions SELECT ?1,source_id,asset_id FROM collection_exclusions WHERE collection_id=?2",params![id,collection_id]).map_err(db_error)?;
+                }
+                _ => {}
+            }
+        } else {
+            tx.execute(
+                &format!(
+                    "INSERT INTO collection_members SELECT ?1,source_id,asset_id FROM ({})",
+                    resolved.sql
+                ),
+                [&id],
+            )
+            .map_err(db_error)?;
+        }
         references(&tx, "collection", &id, &resolved.results)?;
         artifact_references(&tx, "collection", &id, &resolved.artifacts)?;
         tx.execute(

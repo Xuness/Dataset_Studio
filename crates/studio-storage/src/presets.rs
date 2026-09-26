@@ -80,7 +80,7 @@ impl SqliteStore {
         }
         let p = self.handle(pid)?;
         let mut db = p.db.lock().map_err(lock_error)?;
-        let tx = db.transaction().map_err(db_error)?;
+        let tx = db.project_transaction().map_err(db_error)?;
         let id = if let Some(id) = id {
             validate_id(id)?;
             let previous = read(&tx, id)?;
@@ -116,7 +116,7 @@ impl SqliteStore {
         validate_id(id)?;
         let p = self.handle(pid)?;
         let mut db = p.db.lock().map_err(lock_error)?;
-        let tx = db.transaction().map_err(db_error)?;
+        let tx = db.project_transaction().map_err(db_error)?;
         if read(&tx, id)?.revision != expected {
             return Err(Error::new("REVISION_CONFLICT", "参数预设已被其他操作修改"));
         }

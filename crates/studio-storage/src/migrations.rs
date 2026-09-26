@@ -1,4 +1,4 @@
-//! Manifest v1 supports database v1 through v12. Only project.sqlite is migrated;
+//! Manifest v1 supports database v1 through v13. Only project.sqlite is migrated;
 //! artifacts and the manifest are immutable during this upgrade.
 use crate::{atomic_json, db_error, now};
 use rusqlite::{
@@ -12,7 +12,7 @@ use std::{
 };
 use studio_domain::{Error, Result, new_id};
 
-pub(super) const VERSION: u32 = 12;
+pub(super) const VERSION: u32 = 13;
 const V2: &str = "CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL, backup_directory TEXT);";
 const STEPS: &[(u32, &str)] = &[
     (2, V2),
@@ -26,6 +26,7 @@ const STEPS: &[(u32, &str)] = &[
     (10, include_str!("schema_v10.sql")),
     (11, include_str!("schema_v11.sql")),
     (12, include_str!("schema_v12.sql")),
+    (13, include_str!("schema_v13.sql")),
 ];
 
 fn version(db: &Connection) -> Result<u32> {

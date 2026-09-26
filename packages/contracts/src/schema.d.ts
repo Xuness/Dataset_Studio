@@ -1807,6 +1807,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{project_id}/query-views": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["browse_query"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects/{project_id}/ranking-browse": {
         parameters: {
             query?: never;
@@ -3392,6 +3408,7 @@ export interface components {
             unit?: string | null;
         };
         FieldDirectory: {
+            direct_query: boolean;
             fields: components["schemas"]["FieldDefinition"][];
             max_conditions: number;
             observation_rules: components["schemas"]["ObservationRule"][];
@@ -4723,7 +4740,7 @@ export interface components {
         };
         ResultAssets: {
             /** Format: int64 */
-            count: number;
+            count?: number | null;
             page: components["schemas"]["AssetPage"];
             result_id: string;
         };
@@ -4732,6 +4749,7 @@ export interface components {
         ResultValidity: {
             current: boolean;
             issue?: string | null;
+            newer_available: boolean;
             result_id: string;
         };
         RevealObject: {
@@ -8036,6 +8054,31 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ResultValidity"];
+                };
+            };
+        };
+    };
+    browse_query: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RunQuery"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["QueryResult"];
                 };
             };
         };

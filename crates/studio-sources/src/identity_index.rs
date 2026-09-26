@@ -138,6 +138,9 @@ impl IdentityIndex {
         Ok(db)
     }
     pub fn is_current(&self, source: &Source) -> Result<bool> {
+        if crate::online::available(source) {
+            return Ok(true);
+        }
         let catalog = Catalog::open(source)?;
         let gate = self.gate(&source.id)?;
         let Ok(_guard) = gate.try_lock() else {

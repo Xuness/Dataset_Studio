@@ -38,7 +38,8 @@ export class QueryClient {
       projectPath(projectId) + "/queries/" + encodeURIComponent(id),
     );
   }
-  save(projectId: string, body: Schema["SaveQuery"], id?: string) {
+  async save(projectId: string, body: Schema["SaveQuery"], id?: string) {
+    body = { ...body, spec: await this.fixedInput(projectId, body.spec) };
     return this.request<Schema["QueryDefinition"]>(
       projectPath(projectId) +
         "/queries" +
@@ -58,7 +59,8 @@ export class QueryClient {
       },
     );
   }
-  run(projectId: string, spec: Schema["QuerySpec"]) {
+  async run(projectId: string, spec: Schema["QuerySpec"]) {
+    spec = await this.fixedInput(projectId, spec);
     return this.request<Schema["QueryResult"]>(
       projectPath(projectId) + "/query-results",
       {
@@ -66,6 +68,15 @@ export class QueryClient {
         body: JSON.stringify({ spec }),
       },
     );
+  }
+  browse(projectId: string, spec: Schema["QuerySpec"]) {
+    return this.request<Schema["QueryResult"]>(
+      projectPath(projectId) + "/query-views",
+      { method: "POST", body: JSON.stringify({ spec }) },
+    );
+  }
+  async browseLatest(projectId: string, spec: Schema["QuerySpec"]) {
+    return this.browse(projectId, await this.latestSpec(projectId, spec));
   }
   async latestSpec(projectId: string, spec: Schema["QuerySpec"]) {
     const target = spec.input_scope?.target;
@@ -159,5 +170,50 @@ export class QueryClient {
       projectPath(projectId) + "/scopes/capture",
       { method: "POST", body: JSON.stringify({ scope }) },
     );
+  }
+  private async fixedInput(projectId: string, spec: Schema["QuerySpec"]) {
+    if (spec.input_scope?.target.kind !== "query_result") return spec;
+    return {
+      ...spec,
+      input_scope: await this.fixedScope(projectId, spec.input_scope),
+    };
+  }
+  async fixedScope(
+    projectId: string,
+    scope: Schema["ScopeRef"],
+    progress?: (result: Schema["QueryResult"]) => void,
+    signal?: AbortSignal,
+  ): Promise<Schema["ScopeRef"]> {
+    if (scope.target.kind === "query_result") {
+      const existing = await this.result(
+        projectId,
+        scope.target.result_id,
+        signal,
+      );
+      if (existing.cache.mode !== "view") return scope;
+    } else if (scope.target.kind !== "source") return scope;
+    signal?.throwIfAborted();
+    let result = await this.capture(projectId, scope);
+    try {
+      for (;;) {
+        signal?.throwIfAborted();
+        progress?.(result);
+        if (result.state === "ready")
+          return {
+            project_id: projectId,
+            target: { kind: "query_result", result_id: result.id },
+          };
+        if (!["queued", "running"].includes(result.state))
+          throw new Error(
+            result.error ?? "固定视图未完成，请在查询列表中检查结果。",
+          );
+        await new Promise((resolve) => setTimeout(resolve, 800));
+        result = await this.result(projectId, result.id, signal);
+      }
+    } catch (error) {
+      if (signal?.aborted)
+        await this.cancel(projectId, result.id).catch(() => {});
+      throw error;
+    }
   }
 }

@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { FolderOpen } from "lucide-react";
 import { Button, Dialog, Field, Brand } from "@studio/ui";
 import type { Project, Source, Schema } from "@studio/contracts";
@@ -37,6 +37,10 @@ export function ProjectDialog({
   const [sourceKind, setSourceKind] = useState("auto");
   const [error, setError] = useState("");
   const [pending, setPending] = useState(false);
+  const capture = useRef<AbortController | null>(null);
+  const [captureProgress, setCaptureProgress] = useState<
+    Schema["QueryResult"] | null
+  >(null);
   const adapters = useQuery({
     queryKey: ["source-adapters"],
     queryFn: ({ signal }) => client.sourceAccess.adapters(signal),
@@ -120,12 +124,21 @@ export function ProjectDialog({
           index_root: directory,
           media_root: media,
         });
-      if (kind === "collection" && project)
-        await client.createCollection(project.id, name, input?.scope);
+      if (kind === "collection" && project) {
+        capture.current = new AbortController();
+        await client.createCollection(
+          project.id,
+          name,
+          input?.scope,
+          setCaptureProgress,
+          capture.current.signal,
+        );
+      }
       onDone();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
+      capture.current = null;
       setPending(false);
     }
   }
@@ -313,8 +326,18 @@ export function ProjectDialog({
               {error}
             </p>
           )}
+          {pending && captureProgress && (
+            <p role="status" className="dialog-hint">
+              正在固定当前视图：已检查{" "}
+              {captureProgress.processed.toLocaleString()} 项。
+            </p>
+          )}
           <div className="dialog-actions">
-            <Button type="button" onClick={onClose} disabled={pending}>
+            <Button
+              type="button"
+              onClick={() => (pending ? capture.current?.abort() : onClose())}
+              disabled={pending && kind !== "collection"}
+            >
               取消
             </Button>
             <Button

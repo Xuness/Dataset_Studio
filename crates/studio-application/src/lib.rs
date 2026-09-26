@@ -23,6 +23,18 @@ pub trait SourceAdapter: Send + Sync {
         revision: Option<&str>,
     ) -> Result<AssetPage>;
     fn freeze(&self, source: &Source, keys: &[AssetKey]) -> Result<Vec<FrozenInput>>;
+    fn freeze_at(
+        &self,
+        source: &Source,
+        keys: &[AssetKey],
+        revision: Option<&str>,
+    ) -> Result<Vec<FrozenInput>> {
+        let rows = self.freeze(source, keys)?;
+        if revision.is_some_and(|v| rows.iter().any(|r| r.source_revision != v)) {
+            return Err(Error::new("SOURCE_CHANGED", "来源版本已变化"));
+        }
+        Ok(rows)
+    }
     fn read(&self, source: &Source, asset_id: &str) -> Result<Media>;
     fn page_ordered(
         &self,
@@ -103,6 +115,18 @@ pub trait MetadataAdapter: Send + Sync {
         asset_ids: &[String],
         cancelled: ReadCancellation,
     ) -> Result<Vec<AssetSummary>>;
+    fn summaries_at(
+        &self,
+        source: &Source,
+        asset_ids: &[String],
+        revision: Option<&str>,
+        cancelled: ReadCancellation,
+    ) -> Result<Vec<AssetSummary>> {
+        if revision.is_some() {
+            return Err(Error::new("METADATA_UNSUPPORTED", "来源不支持指定版本摘要"));
+        }
+        self.summaries(source, asset_ids, cancelled)
+    }
     fn metadata(
         &self,
         source: &Source,
@@ -162,6 +186,54 @@ pub trait MetadataAdapter: Send + Sync {
 
 /// Adapters stream bounded identity batches. The receiver owns deduplication and publication.
 pub trait QueryAdapter: Send + Sync {
+    fn read_version_at(
+        &self,
+        source: &Source,
+        revision: Option<&str>,
+        metadata: bool,
+    ) -> Result<QuerySourceVersion> {
+        let version = self.read_version(source, metadata)?;
+        if revision.is_some_and(|v| v != version.catalog_revision) {
+            return Err(Error::new("SOURCE_CHANGED", "来源版本已变化"));
+        }
+        Ok(version)
+    }
+    fn validate_version(&self, source: &Source, expected: &QuerySourceVersion) -> Result<()> {
+        if self.read_version(source, expected.analysis_sequence.is_some())? != *expected {
+            return Err(Error::new("SOURCE_CHANGED", "来源版本已变化"));
+        }
+        Ok(())
+    }
+    fn query_page(
+        &self,
+        _source: &Source,
+        _spec: &QuerySpec,
+        _expected: &QuerySourceVersion,
+        _after: Option<&str>,
+        _limit: usize,
+        _cancelled: ReadCancellation,
+    ) -> Result<SourceQueryPage> {
+        Err(Error::new(
+            "QUERY_VIEW_UNSUPPORTED",
+            "该来源需要先生成固定查询结果",
+        ))
+    }
+    fn retain_version(
+        &self,
+        _source: &Source,
+        _expected: &QuerySourceVersion,
+        _id: &str,
+        _owner: &str,
+        _permanent: bool,
+    ) -> Result<()> {
+        Err(Error::new(
+            "QUERY_VIEW_UNSUPPORTED",
+            "来源不支持保留读取视图",
+        ))
+    }
+    fn release_version(&self, _source: &Source, _id: &str) -> Result<()> {
+        Ok(())
+    }
     fn read_version(&self, _source: &Source, _metadata: bool) -> Result<QuerySourceVersion> {
         Err(Error::new("QUERY_UNSUPPORTED", "来源未提供独立版本探测"))
     }

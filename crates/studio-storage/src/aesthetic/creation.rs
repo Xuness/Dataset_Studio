@@ -1,4 +1,5 @@
 use super::*;
+use crate::ProjectTransaction;
 use crate::{SqliteStore, lock_error};
 use studio_application::aesthetic::{same_request, validate_capacity};
 
@@ -57,7 +58,7 @@ impl SqliteStore {
         let p = self.handle(pid)?;
         let ledger = self.evaluation(pid)?;
         let mut db = p.db.lock().map_err(lock_error)?;
-        let tx = db.transaction().map_err(db_error)?;
+        let tx = db.project_transaction().map_err(db_error)?;
         let intent = read_intent(&tx, id)?
             .ok_or_else(|| Error::new("EVALUATION_CREATION_INCOMPLETE", "缺少冻结创建意图"))?;
         if matches!(intent.state.as_str(), "abandoned" | "cancelled") {
@@ -105,7 +106,7 @@ impl SqliteStore {
         let p = self.handle(pid)?;
         self.mark_background(pid)?;
         let mut db = p.db.lock().map_err(lock_error)?;
-        let tx = db.transaction().map_err(db_error)?;
+        let tx = db.project_transaction().map_err(db_error)?;
         if let Some(intent) = read_intent(&tx, &request.idempotency_key)? {
             same_request(&intent.config.request, request)?;
             if matches!(intent.state.as_str(), "abandoned" | "cancelled") {
@@ -174,7 +175,7 @@ impl SqliteStore {
         let p = self.handle(pid)?;
         let ledger = self.evaluation(pid)?;
         let mut db = p.db.lock().map_err(lock_error)?;
-        let tx = db.transaction().map_err(db_error)?;
+        let tx = db.project_transaction().map_err(db_error)?;
         match ledger.stage(id) {
             Ok(_) => {
                 return Err(Error::new(

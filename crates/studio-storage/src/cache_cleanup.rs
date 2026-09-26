@@ -159,7 +159,7 @@ pub(super) fn step(db: &mut Connection, live: &HashSet<String>) -> Result<Option
     };
     let previous = task.clone();
     let result: Result<bool> = (|| {
-        let tx = db.transaction().map_err(db_error)?;
+        let tx = db.project_transaction().map_err(db_error)?;
         let (_, latest, kept) = kept_revisions(&tx, &task.family_id, live)?;
         if kept.is_empty() {
             tx.execute("UPDATE query_results SET status='released',count=NULL,error='无引用的输入缓存已回收' WHERE family_id=?1 AND status='ready'", [&task.family_id]).map_err(db_error)?;

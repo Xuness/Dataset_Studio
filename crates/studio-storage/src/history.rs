@@ -140,7 +140,7 @@ impl SqliteStore {
         for pid in self.owned_projects()? {
             let p = self.handle(&pid)?;
             let mut db = p.db.lock().map_err(lock_error)?;
-            let tx = db.transaction().map_err(db_error)?;
+            let tx = db.project_transaction().map_err(db_error)?;
             prune(&tx, undo_limit)?;
             event(&tx, "selection.history.changed", "selection")?;
             tx.commit().map_err(db_error)?;
@@ -159,7 +159,7 @@ impl SqliteStore {
         let limit = self.editing_settings()?.undo_limit;
         let p = self.handle(pid)?;
         let mut db = p.db.lock().map_err(lock_error)?;
-        let tx = db.transaction().map_err(db_error)?;
+        let tx = db.project_transaction().map_err(db_error)?;
         selection::check_revision(&tx, expected)?;
         prune(&tx, 0)?;
         event(&tx, "selection.history.changed", "selection")?;
@@ -171,7 +171,7 @@ impl SqliteStore {
         let limit = self.editing_settings()?.undo_limit;
         let p = self.handle(pid)?;
         let mut db = p.db.lock().map_err(lock_error)?;
-        let tx = db.transaction().map_err(db_error)?;
+        let tx = db.project_transaction().map_err(db_error)?;
         selection::check_revision(&tx, expected)?;
         let sql = if redo {
             "SELECT id,after_base,after_count FROM selection_history WHERE applied=0 ORDER BY id LIMIT 1"
@@ -269,7 +269,7 @@ mod tests {
             Some(move || observed.fetch_add(1, Ordering::Relaxed) > 400),
         )
         .unwrap();
-        let tx = db.transaction().unwrap();
+        let tx = db.project_transaction().unwrap();
         let id = begin(&tx, 50, "排除一张图片").unwrap();
         tx.execute(
             "INSERT INTO selection_exclusions VALUES ('source','00050000')",

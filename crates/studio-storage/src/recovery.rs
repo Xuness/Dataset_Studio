@@ -155,8 +155,19 @@ pub(crate) fn build(
     fs::create_dir(&destination).map_err(Error::io)?;
     backup(&project, &destination.join("project.sqlite"))?;
     backup(evaluation, &destination.join("evaluation.sqlite"))?;
+    if root.join("members.sqlite").exists() {
+        let members = Connection::open_with_flags(
+            root.join("members.sqlite"),
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .map_err(db_error)?;
+        backup(&members, &destination.join("members.sqlite"))?;
+    }
     let mut files = Vec::new();
-    for name in ["project.sqlite", "evaluation.sqlite"] {
+    for name in ["project.sqlite", "evaluation.sqlite", "members.sqlite"] {
+        if !destination.join(name).exists() {
+            continue;
+        }
         let (bytes, sha256) = digest(&destination.join(name))?;
         files.push(Entry {
             path: name.into(),
@@ -308,6 +319,38 @@ fn verify(directory: &Path) -> Result<Package> {
     .map_err(db_error)?;
     check_db(&p)?;
     check_db(&e)?;
+    if package.project_schema >= 13 {
+        if !seen.contains("members.sqlite") {
+            return Err(Error::new("BACKUP_INVALID", "恢复包缺少固定成员数据库"));
+        }
+        let members = Connection::open_with_flags(
+            directory.join("members.sqlite"),
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .map_err(db_error)?;
+        check_db(&members)?;
+        let owner: String = members
+            .query_row("SELECT project_id FROM owner", [], |r| r.get(0))
+            .map_err(db_error)?;
+        if owner != package.project_id {
+            return Err(Error::new("BACKUP_INVALID", "固定成员数据库身份不一致"));
+        }
+        let mut results = p
+            .prepare(
+                "SELECT id,count FROM query_results WHERE storage_kind='sealed' AND status='ready'",
+            )
+            .map_err(db_error)?;
+        for row in results
+            .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
+            .map_err(db_error)?
+        {
+            let (id, count) = row.map_err(db_error)?;
+            let valid:bool=members.query_row("SELECT EXISTS(SELECT 1 FROM datasets WHERE id=?1 AND state='sealed' AND count=?2)",params![id,count],|r|r.get(0)).map_err(db_error)?;
+            if !valid {
+                return Err(Error::new("BACKUP_INVALID", "固定结果与封存成员记录不一致"));
+            }
+        }
+    }
     let project_manifest: Manifest =
         serde_json::from_reader(File::open(directory.join("project.json")).map_err(Error::io)?)
             .map_err(Error::io)?;

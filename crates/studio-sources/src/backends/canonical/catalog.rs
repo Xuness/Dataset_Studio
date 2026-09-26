@@ -39,6 +39,7 @@ pub(crate) fn err(e: rusqlite::Error) -> Error {
     )
 }
 fn child(root: &Path, relative: &str) -> Result<PathBuf> {
+    let root = root.canonicalize().map_err(Error::io)?;
     let path = Path::new(relative);
     if path
         .components()
@@ -50,7 +51,7 @@ fn child(root: &Path, relative: &str) -> Result<PathBuf> {
         ));
     }
     let resolved = root.join(path).canonicalize().map_err(Error::io)?;
-    if !resolved.starts_with(root) {
+    if !resolved.starts_with(&root) {
         return Err(Error::new(
             "SOURCE_PATH_INVALID",
             "数据包超出已登记的数据湖目录",
@@ -67,12 +68,43 @@ pub struct Catalog {
     pub generation_path: PathBuf,
     pub generation: String,
     pub sequence: u64,
+    pub online: bool,
+    count: Option<u64>,
 }
 impl Catalog {
     pub(crate) fn connection(&self) -> &Connection {
         &self.db
     }
     pub fn open(source: &Source) -> Result<Self> {
+        Self::open_at(source, None)
+    }
+    pub fn open_at(source: &Source, revision: Option<&str>) -> Result<Self> {
+        if crate::online::available(source) {
+            let snapshot = crate::online::Snapshot::open(
+                source,
+                revision,
+                std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                None,
+            )?;
+            let root = source
+                .media_root
+                .as_ref()
+                .ok_or_else(|| Error::invalid("缺少图片湖目录"))?
+                .clone();
+            snapshot.db.execute_batch("CREATE TEMP VIEW objects AS SELECT sha256,pack_path,offset,length,stored_ext FROM visible_objects").map_err(err)?;
+            return Ok(Self {
+                db: snapshot.db,
+                revision: snapshot.revision,
+                library_id: snapshot.pointer.library_id,
+                root,
+                index: source.index_root.clone().expect("validated root"),
+                generation_path: snapshot.path.parent().expect("database parent").into(),
+                generation: snapshot.pointer.generation,
+                sequence: snapshot.sequence,
+                online: true,
+                count: Some(snapshot.count),
+            });
+        }
         let index = source
             .index_root
             .as_ref()
@@ -138,12 +170,44 @@ impl Catalog {
             generation_path: generation,
             generation: current.generation,
             sequence: seq,
+            online: false,
+            count: None,
         })
     }
+    pub fn validate_media(&self, source: &Source) -> Result<()> {
+        if self.online {
+            let root = self.root.canonicalize().map_err(Error::io)?;
+            let library: Library = serde_json::from_slice(
+                &fs::read(child(&root, "library.json")?).map_err(Error::io)?,
+            )
+            .map_err(Error::io)?;
+            if library.library_id != self.library_id
+                || library.format_version != 1
+                || library.image_format != "uncompressed-pax-tar"
+            {
+                return Err(Error::new(
+                    "SOURCE_ID_MISMATCH",
+                    "在线索引和图片湖身份不一致",
+                ));
+            }
+            profiles::validate_site(&root, &source.kind)?;
+        }
+        Ok(())
+    }
     pub fn analysis_path(&self) -> Result<PathBuf> {
+        if self.online {
+            return Err(Error::new(
+                "QUERY_UNSUPPORTED",
+                "在线来源的分析任务需要冻结投影输入",
+            ));
+        }
         child(&self.generation_path, "analysis.duckdb")
     }
     pub fn verify_unchanged(&self, source: &Source) -> Result<()> {
+        if self.online {
+            Self::open_at(source, Some(&self.revision))?;
+            return Ok(());
+        }
         let pointer: Current =
             serde_json::from_slice(&fs::read(self.index.join("CURRENT.json")).map_err(Error::io)?)
                 .map_err(Error::io)?;
@@ -171,8 +235,8 @@ impl Catalog {
             id: self.library_id.clone(),
             revision: self.revision.clone(),
             enumeration: "stored_objects".into(),
-            count: None,
-            index_version: 1,
+            count: self.count,
+            index_version: if self.online { 2 } else { 1 },
         }
     }
     pub fn page(

@@ -226,7 +226,7 @@ impl SqliteStore {
             return operation.finish(Err(db_error(error)));
         }
         let result = (|| {
-            let tx = db.transaction().map_err(db_error)?;
+            let tx = db.project_transaction().map_err(db_error)?;
             let id = new_id();
             tx.execute(
                 "INSERT INTO collections VALUES (?1,?2,0)",
@@ -253,7 +253,7 @@ impl SqliteStore {
                         .map(|n| format!("?{n}"))
                         .collect::<Vec<_>>()
                         .join(",");
-                    count += tx.execute(&format!("INSERT INTO collection_members SELECT ?1,source_id,lower(hex(asset_id)) FROM ranking_input.input_rows WHERE ordinal IN ({placeholders}) ORDER BY source_id,asset_id"),rusqlite::params_from_iter(values)).map_err(db_error)? as u64;
+                    count += tx.execute(&format!("INSERT INTO collection_member_legacy SELECT ?1,source_id,lower(hex(asset_id)) FROM ranking_input.input_rows WHERE ordinal IN ({placeholders}) ORDER BY source_id,asset_id"),rusqlite::params_from_iter(values)).map_err(db_error)? as u64;
                 }
                 operation.update(count, expected);
                 if !page.more {

@@ -21,6 +21,7 @@ export function useMetadata(
   projectId: string,
   key: AssetKey,
   preferred?: RankingInput,
+  retainedVersion?: string,
 ) {
   const [followScore, setFollowScore] = useState(true);
   const [epoch, setEpoch] = useState(0);
@@ -34,6 +35,7 @@ export function useMetadata(
     client.connection.instance_id,
     projectId,
     assetIdentity(key),
+    retainedVersion,
     epoch,
   ];
   const overview = useQuery({
@@ -42,6 +44,7 @@ export function useMetadata(
     queryFn: ({ signal }) =>
       client.metadata(projectId, key, {
         signal,
+        ...(retainedVersion ? { version: retainedVersion } : {}),
         ...(recordCursor ? { cursor: recordCursor } : {}),
       }),
   });

@@ -1,8 +1,7 @@
-use crate::{
-    canonical::Catalog,
-    demo_asset, demo_number,
-    duckdb::{Runtime, Session},
-};
+#[cfg(test)]
+use crate::duckdb::Session;
+use crate::online::metadata::{MetadataConnection, expected_metadata};
+use crate::{canonical::Catalog, demo_asset, demo_number, duckdb::Runtime};
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use serde::{Deserialize, Serialize};
 #[cfg(test)]
@@ -53,8 +52,14 @@ impl MetadataReader {
         for key in keys {
             sha(&key.asset_id)?;
         }
-        let session =
-            ReadSession::open_cancelled(self, source, &keys[0].asset_id, None, cancelled)?;
+        let token = expected_metadata(source, &expected.catalog_revision);
+        let session = ReadSession::open_cancelled(
+            self,
+            source,
+            &keys[0].asset_id,
+            token.as_deref(),
+            cancelled,
+        )?;
         if session.catalog.revision != expected.catalog_revision
             || Some(session.version.analysis_sequence.as_str())
                 != expected.analysis_sequence.as_deref()
@@ -120,7 +125,8 @@ impl MetadataReader {
         asset: &str,
         expected: &QuerySourceVersion,
     ) -> Result<FrozenField> {
-        let session = ReadSession::open(self, source, asset, None)?;
+        let token = expected_metadata(source, &expected.catalog_revision);
+        let session = ReadSession::open(self, source, asset, token.as_deref())?;
         if expected.source_id != source.id
             || expected.catalog_revision != session.catalog.revision
             || expected.analysis_sequence.as_deref()
@@ -190,7 +196,7 @@ fn required(row: &[Option<String>], i: usize) -> Result<String> {
 }
 struct ReadSession {
     catalog: Catalog,
-    db: Session,
+    db: MetadataConnection,
     version: ReadVersion,
 }
 impl ReadSession {
@@ -223,8 +229,32 @@ impl ReadSession {
             ));
         }
         sha(asset)?;
-        let catalog = Catalog::open(source).map_err(source_error)?;
+        let catalog = Catalog::open_at(source, expected).map_err(source_error)?;
         catalog.asset(source, asset)?;
+        if catalog.online {
+            let snapshot = crate::online::Snapshot::open(
+                source,
+                Some(&catalog.revision),
+                cancelled,
+                reader.runtime.deadline(),
+            )?;
+            let version = ReadVersion {
+                token: expected_metadata(source, &catalog.revision).expect("online revision"),
+                library_id: source.id.clone(),
+                generation: catalog.generation.clone(),
+                catalog_sequence: catalog.sequence.to_string(),
+                analysis_sequence: catalog.sequence.to_string(),
+                consistency: "retained_online_snapshot".into(),
+            };
+            if expected.is_some_and(|value| value != version.token) {
+                return Err(Error::new("VIEW_EXPIRED", "元数据视图身份不一致"));
+            }
+            return Ok(Self {
+                catalog,
+                db: MetadataConnection::online(snapshot)?,
+                version,
+            });
+        }
         let db = reader
             .runtime
             .open_metadata(&catalog.analysis_path().map_err(source_error)?, cancelled)?;
@@ -256,7 +286,7 @@ impl ReadSession {
         }
         Ok(Self {
             catalog,
-            db,
+            db: MetadataConnection::Native(db),
             version,
         })
     }
@@ -353,10 +383,11 @@ fn field(name: &str, column: &str, kind: &str, value: &Option<String>) -> Result
                         .map_err(|_| Error::new("SOURCE_FORMAT_ERROR", "整数元数据无效"))?;
                     MetadataValue::Integer(v)
                 }
-                "boolean" => MetadataValue::Boolean(
-                    v.parse::<bool>()
-                        .map_err(|_| Error::new("SOURCE_FORMAT_ERROR", "布尔元数据无效"))?,
-                ),
+                "boolean" => MetadataValue::Boolean(match v.as_str() {
+                    "1" | "true" => true,
+                    "0" | "false" => false,
+                    _ => return Err(Error::new("SOURCE_FORMAT_ERROR", "布尔元数据无效")),
+                }),
                 "tags" => MetadataValue::Tags(source_tags(&v)),
                 "timestamp" => MetadataValue::Timestamp(v),
                 _ => MetadataValue::Text(v),
@@ -440,8 +471,19 @@ impl MetadataAdapter for MetadataReader {
         asset_ids: &[String],
         cancelled: studio_application::ReadCancellation,
     ) -> Result<Vec<AssetSummary>> {
+        self.summaries_at(source, asset_ids, None, cancelled)
+    }
+    fn summaries_at(
+        &self,
+        source: &Source,
+        asset_ids: &[String],
+        revision: Option<&str>,
+        cancelled: studio_application::ReadCancellation,
+    ) -> Result<Vec<AssetSummary>> {
         read_cancelled(&cancelled)?;
         if crate::profiles::is_canonical(source)
+            && revision.is_none()
+            && !crate::online::available(source)
             && let Some(index) = &self.identity_index
         {
             return index.reader(source)?.summaries(&source.id, asset_ids);
@@ -455,11 +497,24 @@ impl MetadataAdapter for MetadataReader {
         for id in asset_ids {
             sha(id)?;
         }
-        let catalog = Catalog::open(source).map_err(source_error)?;
-        let db = self
-            .runtime
-            .open_metadata(&catalog.analysis_path()?, cancelled)?;
-        db.query("BEGIN TRANSACTION")?;
+        let catalog = Catalog::open_at(source, revision).map_err(source_error)?;
+        if revision.is_some_and(|r| r != catalog.revision) {
+            return Err(Error::new("SOURCE_CHANGED", "摘要版本已变化"));
+        }
+        let db = if catalog.online {
+            MetadataConnection::online(crate::online::Snapshot::open(
+                source,
+                Some(&catalog.revision),
+                cancelled,
+                self.runtime.deadline(),
+            )?)?
+        } else {
+            MetadataConnection::Native(
+                self.runtime
+                    .open_metadata(&catalog.analysis_path()?, cancelled)?,
+            )
+        };
+        db.begin()?;
         let watermarks = db.query("SELECT CAST(MAX(seq) AS VARCHAR) FROM applied")?;
         let sequence = watermarks
             .first()
@@ -471,10 +526,12 @@ impl MetadataAdapter for MetadataReader {
                 "存储与分析索引版本不同，请稍后读取身份",
             ));
         }
-        let version = format!(
-            "metadata-v1:{}:{}:{sequence}",
-            source.id, catalog.generation
-        );
+        let version = expected_metadata(source, &catalog.revision).unwrap_or_else(|| {
+            format!(
+                "metadata-v1:{}:{}:{sequence}",
+                source.id, catalog.generation
+            )
+        });
         let ids = asset_ids
             .iter()
             .map(|id| quote(id))
@@ -563,7 +620,9 @@ impl MetadataAdapter for MetadataReader {
         if let Some(value) = &after {
             sha(value)?;
         }
-        let (records, more) = if let Some(index) = &self.identity_index {
+        let (records, more) = if let Some(index) = &self.identity_index
+            && !session.catalog.online
+        {
             let reader = index.reader(source)?;
             if reader.generation != session.catalog.generation
                 || reader.sequence != session.catalog.sequence
@@ -607,7 +666,7 @@ impl MetadataAdapter for MetadataReader {
         let dimensions = if crate::profiles::site(&source.kind)
             .is_some_and(|p| p.normalizer.is_some())
         {
-            let rows=session.db.query(&format!("SELECT left(details_json,16385) FROM assets WHERE sha256={} ORDER BY asset_id LIMIT 1",quote(asset)))?;
+            let rows=session.db.query(&format!("SELECT substr(details_json,1,16385) FROM assets WHERE sha256={} ORDER BY asset_id LIMIT 1",quote(asset)))?;
             rows.first()
                 .and_then(|r| r[0].as_deref())
                 .filter(|v| v.len() <= 16384)
@@ -719,7 +778,7 @@ impl MetadataAdapter for MetadataReader {
         let fields = crate::profiles::metadata_fields(source);
         let projection = fields
             .iter()
-            .map(|(_, column, _)| format!("left(CAST({column} AS VARCHAR),8193)"))
+            .map(|(_, column, _)| format!("substr(CAST({column} AS VARCHAR),1,8193)"))
             .collect::<Vec<_>>()
             .join(",");
         let focus = if let Some(id) = &request.observation_id {
@@ -862,7 +921,7 @@ impl MetadataAdapter for MetadataReader {
         {
             return Err(Error::new("NOT_FOUND", "该观察不属于当前来源记录"));
         }
-        let rows=session.db.query(&format!("SELECT source_metadata_format,source_schema_id,CAST(octet_length(encode(source_metadata_json)) AS VARCHAR),CASE WHEN octet_length(encode(source_metadata_json))<=131072 THEN source_metadata_json ELSE NULL END FROM raw_metadata WHERE observation_id={} LIMIT 1",quote(observation_id)))?;
+        let rows = session.db.raw(observation_id)?;
         let (format, schema_id, bytes, json, status) = if let Some(row) = rows.first() {
             (
                 row[0].clone(),
@@ -881,19 +940,14 @@ impl MetadataAdapter for MetadataReader {
             (None, None, None, None, "missing")
         };
         let schema = if let Some(id) = &schema_id {
-            let has = session.db.query(
-                "SELECT count(*) FROM information_schema.tables WHERE table_name='source_schemas'",
-            )?;
-            if has.first().and_then(|r| r[0].as_deref()) == Some("1") {
-                let rows=session.db.query(&format!("SELECT CAST(octet_length(schema_ipc) AS VARCHAR),CASE WHEN octet_length(schema_ipc)<=65536 THEN hex(schema_ipc) ELSE NULL END FROM source_schemas WHERE source_schema_id={} LIMIT 1",quote(id)))?;
+            {
+                let rows = session.db.schema(id)?;
                 rows.first().map(|r| RawSourceSchema {
                     format: "arrow-ipc-schema".into(),
                     encoding: "hex".into(),
                     bytes: r[0].clone().unwrap_or_default(),
                     data: r[1].clone(),
                 })
-            } else {
-                None
             }
         } else {
             None

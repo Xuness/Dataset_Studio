@@ -1,6 +1,6 @@
 import { sourceSupports } from "@studio/client";
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQueries, useQuery } from "@tanstack/react-query";
 import { Button, ErrorDetails, ratingLabel } from "@studio/ui";
 import type { SettingsPageProps } from "./types.js";
 import { sizeLabel } from "./types.js";
@@ -11,8 +11,19 @@ import { cleanupPhase } from "./CacheCleanupProgress.js";
 export function CacheManagerPage(props: SettingsPageProps) {
   const { client, project, sources, data, busy, action } = props;
   const [chosenSource, setChosenSource] = useState("");
-  const lakes = sources.filter(
+  const candidates = sources.filter(
     (s) => sourceSupports(s, "post_order") && s.available,
+  );
+  const directories = useQueries({
+    queries: candidates.map((source) => ({
+      queryKey: ["project", project?.id, "fields", source.id, source.revision],
+      queryFn: ({ signal }: { signal: AbortSignal }) =>
+        client.queries.fields(project!.id, source.id, signal),
+      enabled: !!project,
+    })),
+  });
+  const lakes = candidates.filter(
+    (_, i) => directories[i]?.data?.direct_query === false,
   );
   const sourceId =
     lakes.find((s) => s.id === chosenSource)?.id ?? lakes[0]?.id ?? "";
@@ -35,9 +46,10 @@ export function CacheManagerPage(props: SettingsPageProps) {
       </div>
       <CacheProjectManager {...props} />
       <section className="settings-section">
-        <h4>分级基础缓存</h4>
+        <h4>旧式数据湖的分级基础缓存</h4>
         <p className="settings-note">
-          G、S、Q、E 按需建立，多个项目共用。Tag
+          在线数据湖直接分页读取，无需预建。旧式数据湖的 G、S、Q、E
+          按需建立，多个项目共用。Tag
           组合查询利用相应基础集合缩小候选范围；来源更新后按需刷新。
         </p>
         <div className="settings-toolbar">

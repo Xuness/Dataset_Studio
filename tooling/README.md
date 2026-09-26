@@ -4,6 +4,8 @@
 
 脚本使用自身位置定位仓库根目录，统一保留在 tooling 顶层。测试源码和夹具生成器随 Git 保存；运行产生的数据、截图和日志使用 `.local/`。
 
+在线湖验收：`node tooling/integration-online.mjs`（Python 需要 DuckDB 与 APSW，使用 `PYTHON` 指定）；`node tooling/smoke-online-ui.mjs <online-fixture-directory>` 检查分页视图和保存工作集；`node tooling/verify-online-lakes.mjs <lake-paths.json>` 对正式湖做有界只读抽样。路径 JSON 是含 site/index/media 的数组，不随仓库保存本机数据。协议与边界见 [P2/P3 验收](../docs/verification/2026-09-26-online-upgrade-p23.md)。
+
 ## 环境与常用命令
 
 工作台前端验收：先运行 `node tooling/integration-aesthetic-analysis.mjs` 和 `node tooling/integration-aesthetic.mjs`，再将各自成功的 `.local/test-runs/` 目录传给 `node tooling/smoke-workbench-ui.mjs <analysis-fixture>` 与 `node tooling/smoke-aesthetic-ui.mjs <evaluation-fixture>`。前者使用端口 1447，后者使用 1439；均只操作隔离合成项目。`ui-workbench.mjs` 提供功能标签/菜单的共享测试导航。 `ui-ranking-reading.mjs` 扩展工作台检查：缩略图密度、键盘跨页、大图缩放平移、滚动恢复、逐图复核草稿、丢失响应后同键重试、固定保护队列和真实离线快照对照。

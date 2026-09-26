@@ -69,6 +69,8 @@ api! {
     string_t_data:unsafe extern "C" fn(*mut RawString)->*const c_char,
     appender_create_ext:unsafe extern "C" fn(Handle,*const c_char,*const c_char,*const c_char,*mut Handle)->u32,
     append_int64:unsafe extern "C" fn(Handle,i64)->u32,
+    append_null:unsafe extern "C" fn(Handle)->u32,
+    append_varchar_length:unsafe extern "C" fn(Handle,*const c_char,u64)->u32,
     append_blob:unsafe extern "C" fn(Handle,*const c_void,u64)->u32,
     appender_end_row:unsafe extern "C" fn(Handle)->u32,
     appender_close:unsafe extern "C" fn(Handle)->u32,
@@ -148,6 +150,9 @@ impl Default for Runtime {
     }
 }
 impl Runtime {
+    pub(crate) fn deadline(&self) -> Option<Instant> {
+        self.deadline
+    }
     pub fn for_deadline(&self, deadline: Option<Instant>) -> Self {
         Self {
             deadline,
@@ -187,6 +192,14 @@ impl Runtime {
     }
     pub fn open_population(&self, path: &Path, cancelled: Arc<AtomicBool>) -> Result<Session> {
         self.open_with(path, Duration::from_secs(3600), Some(cancelled), true)
+    }
+    pub(crate) fn open_transient_population(&self, cancelled: Arc<AtomicBool>) -> Result<Session> {
+        self.open_with(
+            Path::new(":memory:"),
+            Duration::from_secs(3600),
+            Some(cancelled),
+            true,
+        )
     }
     pub fn open_metadata(&self, path: &Path, cancelled: Arc<AtomicBool>) -> Result<Session> {
         self.open_with(path, Duration::from_secs(8), Some(cancelled), false)
@@ -238,7 +251,7 @@ impl Runtime {
         Session::with_api(
             api,
             path,
-            true,
+            path != Path::new(":memory:"),
             budget.saturating_sub(started.elapsed()),
             cancelled,
             scratch,
@@ -251,6 +264,76 @@ impl Runtime {
     }
 }
 impl Session {
+    pub(crate) fn append_values(
+        &self,
+        table: &str,
+        rows: &[Vec<rusqlite::types::Value>],
+    ) -> Result<()> {
+        if rows.len() > 512
+            || !table
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+        {
+            return Err(Error::invalid("分析投影暂存批次无效"));
+        }
+        self.check_cancelled()?;
+        let table = CString::new(table).map_err(Error::io)?;
+        let mut appender = Appender {
+            raw: std::ptr::null_mut(),
+            api: &self.api,
+        };
+        if unsafe {
+            (self.api.appender_create_ext)(
+                self.connection,
+                c"temp".as_ptr(),
+                c"main".as_ptr(),
+                table.as_ptr(),
+                &mut appender.raw,
+            )
+        } != 0
+        {
+            return Err(if appender.raw.is_null() {
+                Error::new("QUERY_CANDIDATE_ERROR", "无法创建分析投影暂存")
+            } else {
+                appender.error()
+            });
+        }
+        for row in rows {
+            for value in row {
+                use rusqlite::types::Value;
+                let status = unsafe {
+                    match value {
+                        Value::Null => (self.api.append_null)(appender.raw),
+                        Value::Integer(n) => (self.api.append_int64)(appender.raw, *n),
+                        Value::Text(v) => (self.api.append_varchar_length)(
+                            appender.raw,
+                            v.as_ptr().cast(),
+                            v.len() as u64,
+                        ),
+                        Value::Blob(v) => {
+                            (self.api.append_blob)(appender.raw, v.as_ptr().cast(), v.len() as u64)
+                        }
+                        Value::Real(_) => {
+                            return Err(Error::new(
+                                "SOURCE_FORMAT_ERROR",
+                                "分析整数投影出现浮点值",
+                            ));
+                        }
+                    }
+                };
+                if status != 0 {
+                    return Err(appender.error());
+                }
+            }
+            if unsafe { (self.api.appender_end_row)(appender.raw) } != 0 {
+                return Err(appender.error());
+            }
+        }
+        if unsafe { (self.api.appender_close)(appender.raw) } != 0 {
+            return Err(appender.error());
+        }
+        Ok(())
+    }
     pub(crate) fn import_ranking_members(
         &self,
         produce: &mut studio_application::RankingMemberProducer<'_>,

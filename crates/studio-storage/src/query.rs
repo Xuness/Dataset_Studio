@@ -173,7 +173,7 @@ impl QueryRepository for SqliteStore {
         let spec = spec.normalize()?;
         let p = self.handle(pid)?;
         let mut db = p.db.lock().map_err(lock_error)?;
-        let tx = db.transaction().map_err(db_error)?;
+        let tx = db.project_transaction().map_err(db_error)?;
         validate_sources(&tx, &spec)?;
         let json = serde_json::to_string(&spec).map_err(Error::io)?;
         let id = if let Some((id, expected)) = previous {
@@ -236,7 +236,7 @@ impl QueryRepository for SqliteStore {
         let p = self.handle(pid)?;
         self.mark_background(pid)?;
         let mut db = p.db.lock().map_err(lock_error)?;
-        let tx = db.transaction().map_err(db_error)?;
+        let tx = db.project_transaction().map_err(db_error)?;
         validate_sources(&tx, &spec)?;
         if let Some((id, revision)) = definition {
             let current = read_definition(&tx, pid, id)?;
@@ -319,7 +319,7 @@ impl QueryRepository for SqliteStore {
     fn cancel_result(&self, pid: &str, id: &str) -> Result<QueryResult> {
         let p = self.handle(pid)?;
         let mut db = p.db.lock().map_err(lock_error)?;
-        let tx = db.transaction().map_err(db_error)?;
+        let tx = db.project_transaction().map_err(db_error)?;
         read_result(&tx, pid, id)?;
         if tx.execute("UPDATE query_results SET status='cancelled',count=NULL,error='已取消构建' WHERE id=?1 AND status IN ('queued','running')",[id]).map_err(db_error)?>0 { event(&tx,"result.changed",id)?; }
         clear_input_references(&tx, id)?;
@@ -330,7 +330,7 @@ impl QueryRepository for SqliteStore {
     fn release_result(&self, pid: &str, id: &str) -> Result<QueryResult> {
         let p = self.handle(pid)?;
         let mut db = p.db.lock().map_err(lock_error)?;
-        let tx = db.transaction().map_err(db_error)?;
+        let tx = db.project_transaction().map_err(db_error)?;
         let result = read_result(&tx, pid, id)?;
         if matches!(result.state, ResultState::Queued | ResultState::Running) {
             return Err(Error::new("RESULT_IN_USE", "请先取消正在构建的结果"));
@@ -387,19 +387,28 @@ pub(super) fn post_page(
             "该结果尚无帖子 ID 排序信息，请重新执行查询",
         ));
     }
-    let (family, revision): (String, i64) = db
+    let (mut family, revision, storage): (String, i64, String) = db
         .query_row(
-            "SELECT family_id,member_revision FROM query_results WHERE id=?1",
+            "SELECT family_id,member_revision,storage_kind FROM query_results WHERE id=?1",
             [id],
-            |r| Ok((r.get(0)?, r.get(1)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )
         .map_err(db_error)?;
-    let visible = "valid_from<=?2 AND (valid_until IS NULL OR valid_until>?2)";
+    let (table, owner, visible) = if storage == "sealed" {
+        family = id.into();
+        ("result_store.members", "dataset_id", "?2>=0")
+    } else {
+        (
+            "query_member_data",
+            "family_id",
+            "valid_from<=?2 AND (valid_until IS NULL OR valid_until>?2)",
+        )
+    };
     let (source, asset) = after
         .map(|k| (k.source_id.as_str(), k.asset_id.as_str()))
         .unwrap_or(("", ""));
     let post: Option<i64> = if after.is_some() {
-        db.query_row(&format!("SELECT post_id FROM query_member_data WHERE family_id=?1 AND {visible} AND source_id=?3 AND asset_id=?4"),params![family,revision,source,asset],|r|r.get(0)).optional().map_err(db_error)?.ok_or_else(||Error::invalid("结果排序游标不属于该成员版本"))?
+        db.query_row(&format!("SELECT post_id FROM {table} WHERE {owner}=?1 AND {visible} AND source_id=?3 AND asset_id=?4"),params![family,revision,source,asset],|r|r.get(0)).optional().map_err(db_error)?.ok_or_else(||Error::invalid("结果排序游标不属于该成员版本"))?
     } else {
         None
     };
@@ -427,7 +436,7 @@ pub(super) fn post_page(
             "post_id IS NOT NULL".into()
         };
         let sql = format!(
-            "SELECT source_id,asset_id FROM query_member_data WHERE family_id=?1 AND {visible} AND {condition} ORDER BY post_id {direction},source_id {direction},asset_id {direction} LIMIT ?6"
+            "SELECT source_id,asset_id FROM {table} WHERE {owner}=?1 AND {visible} AND {condition} ORDER BY post_id {direction},source_id {direction},asset_id {direction} LIMIT ?6"
         );
         let mut stmt = db.prepare(&sql).map_err(db_error)?;
         keys.extend(
@@ -469,7 +478,7 @@ impl SqliteStore {
     pub fn start_result(&self, pid: &str, id: &str) -> Result<bool> {
         let p = self.handle(pid)?;
         let mut db = p.db.lock().map_err(lock_error)?;
-        let tx = db.transaction().map_err(db_error)?;
+        let tx = db.project_transaction().map_err(db_error)?;
         let changed = tx
             .execute(
                 "UPDATE query_results SET status='running' WHERE id=?1 AND status='queued'",
@@ -495,7 +504,7 @@ impl SqliteStore {
         }
         let p = self.handle(pid)?;
         let mut db = p.db.lock().map_err(lock_error)?;
-        let tx = db.transaction().map_err(db_error)?;
+        let tx = db.project_transaction().map_err(db_error)?;
         let result = read_result(&tx, pid, id)?;
         if result.state != ResultState::Running {
             return Err(Error::new("CANCELLED", "结果已停止构建"));
@@ -531,7 +540,7 @@ impl SqliteStore {
     pub fn finish_result(&self, pid: &str, id: &str, error: Option<&Error>) -> Result<QueryResult> {
         let p = self.handle(pid)?;
         let mut db = p.db.lock().map_err(lock_error)?;
-        let tx = db.transaction().map_err(db_error)?;
+        let tx = db.project_transaction().map_err(db_error)?;
         // The final mutable-selection fence and publication share one transaction.
         let result = read_result(&tx, pid, id)?;
         if result.state != ResultState::Running {

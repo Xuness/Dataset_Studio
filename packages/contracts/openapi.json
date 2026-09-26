@@ -5299,6 +5299,46 @@
         }
       }
     },
+    "/v1/projects/{project_id}/query-views": {
+      "post": {
+        "tags": [
+          "query_views"
+        ],
+        "operationId": "browse_query",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunQuery"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QueryResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/projects/{project_id}/ranking-browse": {
       "get": {
         "tags": [
@@ -10750,9 +10790,13 @@
           "fields",
           "observation_rules",
           "orders",
-          "max_conditions"
+          "max_conditions",
+          "direct_query"
         ],
         "properties": {
+          "direct_query": {
+            "type": "boolean"
+          },
           "fields": {
             "type": "array",
             "items": {
@@ -16108,12 +16152,14 @@
         "type": "object",
         "required": [
           "result_id",
-          "count",
           "page"
         ],
         "properties": {
           "count": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int64",
             "minimum": 0
           },
@@ -16141,7 +16187,8 @@
         "type": "object",
         "required": [
           "result_id",
-          "current"
+          "current",
+          "newer_available"
         ],
         "properties": {
           "current": {
@@ -16152,6 +16199,9 @@
               "string",
               "null"
             ]
+          },
+          "newer_available": {
+            "type": "boolean"
           },
           "result_id": {
             "type": "string"

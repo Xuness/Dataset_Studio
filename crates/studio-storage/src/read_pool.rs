@@ -7,30 +7,59 @@ use std::ops::Deref;
 #[derive(Default)]
 pub(super) struct ReadPool {
     idle: Mutex<Vec<Connection>>,
+    active: Mutex<usize>,
+}
+struct ActiveRead<'a>(&'a Mutex<usize>);
+impl Drop for ActiveRead<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut count) = self.0.lock() {
+            *count -= 1;
+        }
+    }
 }
 pub(super) struct ReadGuard<'a> {
     db: Option<Connection>,
     pool: &'a ReadPool,
+    _active: ActiveRead<'a>,
 }
 impl ReadPool {
     pub fn read(&self, path: &Path) -> Result<ReadGuard<'_>> {
+        *self.active.lock().map_err(lock_error)? += 1;
+        let active = ActiveRead(&self.active);
         let cached = self.idle.lock().map_err(lock_error)?.pop();
         let db = if let Some(db) = cached {
             db
         } else {
-            let db = Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY)
-                .map_err(db_error)?;
+            let db = Connection::open_with_flags(
+                path,
+                rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY | rusqlite::OpenFlags::SQLITE_OPEN_URI,
+            )
+            .map_err(db_error)?;
             db.busy_timeout(std::time::Duration::from_secs(3))
                 .map_err(db_error)?;
+            if let Some(directory) = path.parent() {
+                crate::result_store::attach(&db, directory)?;
+            }
             db.execute_batch("PRAGMA query_only=ON; PRAGMA cache_size=-4096;")
                 .map_err(db_error)?;
             db
         };
         db.execute_batch("BEGIN").map_err(db_error)?;
+        let _: i64 = db
+            .query_row("SELECT count(*) FROM main.sqlite_master", [], |r| r.get(0))
+            .map_err(db_error)?;
         Ok(ReadGuard {
             db: Some(db),
             pool: self,
+            _active: active,
         })
+    }
+    pub fn collect_gate(&self) -> Result<Option<std::sync::MutexGuard<'_, usize>>> {
+        let gate = self.active.lock().map_err(lock_error)?;
+        if *gate > 0 {
+            return Ok(None);
+        }
+        Ok(Some(gate))
     }
 }
 impl Deref for ReadGuard<'_> {
@@ -77,7 +106,7 @@ mod tests {
         let handle = store.handle(&project.id).unwrap();
         std::thread::scope(|scope| {
             let mut writer = handle.db.lock().unwrap();
-            let tx = writer.transaction().unwrap();
+            let tx = writer.project_transaction().unwrap();
             tx.execute(
                 "INSERT INTO collections VALUES (?1,'尚未发布',0)",
                 [new_id()],
@@ -122,7 +151,7 @@ mod tests {
         let handle = store.handle(&project.id).unwrap();
         std::thread::scope(|scope| {
             let mut writer = handle.db.lock().unwrap();
-            let tx = writer.transaction().unwrap();
+            let tx = writer.project_transaction().unwrap();
             tx.execute("UPDATE tool_drafts SET value_json='{}',revision=2", [])
                 .unwrap();
             let (send, receive) = mpsc::channel();
@@ -167,7 +196,7 @@ mod tests {
         let handle = store.handle(&project.id).unwrap();
         std::thread::scope(|scope| {
             let mut writer = handle.db.lock().unwrap();
-            let tx = writer.transaction().unwrap();
+            let tx = writer.project_transaction().unwrap();
             let rid = new_id();
             let sid = new_id();
             tx.execute("INSERT INTO sources VALUES (?1,'{}')", [&sid])

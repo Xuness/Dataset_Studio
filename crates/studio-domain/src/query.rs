@@ -65,6 +65,20 @@ pub enum QueryOrder {
     PostIdAsc,
     PostIdDesc,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueryHit {
+    pub key: AssetKey,
+    pub post_id: Option<i64>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SourceQueryPage {
+    pub hits: Vec<QueryHit>,
+    /// Last examined identity, including nonmatches in a bounded scan.
+    pub next: Option<String>,
+    pub scanned: u64,
+    pub total_objects: u64,
+}
 impl QueryOrder {
     pub fn by_post(self) -> bool {
         matches!(self, Self::PostIdAsc | Self::PostIdDesc)
@@ -188,6 +202,8 @@ pub struct FieldDirectory {
     pub observation_rules: Vec<ObservationRule>,
     pub orders: Vec<QueryOrder>,
     pub max_conditions: usize,
+    #[serde(default)]
+    pub direct_query: bool,
 }
 impl FieldDirectory {
     pub fn validate(&self, spec: &QuerySpec) -> Result<()> {

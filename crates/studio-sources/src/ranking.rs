@@ -46,56 +46,64 @@ impl RankingReader {
             .map(|r| quote(r))
             .collect::<Vec<_>>()
             .join(",");
-        let catalog = Catalog::open(source)?;
+        let catalog = Catalog::open_at(source, Some(&expected.catalog_revision))?;
         if expected.source_id != source.id || expected.catalog_revision != catalog.revision {
             return Err(Error::new("SOURCE_CHANGED", "排名输入的来源版本已变化"));
         }
-        let db = self
-            .runtime
-            .open_population(&catalog.analysis_path()?, cancelled)?;
-        db.query("BEGIN TRANSACTION")?;
-        let sequence = db.query("SELECT CAST(max(seq) AS VARCHAR) FROM applied")?;
-        let sequence = sequence.first().and_then(|row| row[0].as_deref());
-        if sequence != expected.analysis_sequence.as_deref()
-            || sequence != Some(catalog.sequence.to_string().as_str())
-        {
-            return Err(Error::new(
-                "SOURCE_CHANGED",
-                "排名所需的元数据与目录水位不一致",
-            ));
-        }
-        db.import_ranking_members(produce)?;
-        db.query("CREATE TEMP TABLE ranking_scope AS SELECT DISTINCT ordinal,lower(hex(sha256)) AS sha256,basis FROM studio_ranking_scope")?;
-        let default = QuerySpec {
-            version: 3,
-            source_ids: vec![source.id.clone()],
-            conditions: vec![],
-            observation_rule: ObservationRule::CurrentPost,
-            order: QueryOrder::AssetKeyAsc,
-            input_scope: None,
+        let db = if catalog.online {
+            self.runtime.open_transient_population(cancelled.clone())?
+        } else {
+            self.runtime
+                .open_population(&catalog.analysis_path()?, cancelled.clone())?
         };
-        let mut definitions = vec![(0, &default)];
-        definitions.extend(
-            bases
-                .iter()
-                .filter(|b| b.spec.source_ids.contains(&source.id))
-                .map(|b| (b.index, &b.spec)),
-        );
-        let columns = "s.ordinal,s.basis,a.asset_id AS record_id,a.observation_id AS origin_observation_id,o.observation_id,o.post_id,o.rating,epoch_us(o.created_at) AS created_at_us,epoch_us(o.observed_at) AS observed_at_us,epoch_us(o.updated_at) AS updated_at_us,o.time_quality,o.source_priority,o.fav_count,o.up_score,o.down_score,o.score,o.tag_string_artist,o.tag_string,o.parent_id,o.is_banned,o.is_deleted,o.is_pending,o.is_flagged,CASE WHEN list_contains(string_split(o.tag_string,' '),'jpeg_artifacts') THEN 1 ELSE 0 END+CASE WHEN list_contains(string_split(o.tag_string,' '),'scan_artifacts') THEN 2 ELSE 0 END AS damage_classes,o.tag_string IS NOT NULL AS tags_known,CASE WHEN length(o.issues_json)>4096 THEN '[\"source_issues_truncated\"]' ELSE o.issues_json END AS source_issues";
-        let mut branches = Vec::new();
-        for (index, spec) in definitions {
-            // Membership is already frozen. The new image policy considers all
-            // current posts describing that exact image, even when another post
-            // originally matched the query. Explicit historical scopes retain
-            // their original observation predicates.
-            let predicate = if parameters.duplicate_heat.is_some()
-                && spec.observation_rule == ObservationRule::CurrentPost
+        db.query("BEGIN TRANSACTION")?;
+        if catalog.online {
+            crate::online::ranking::prepare(
+                &db, source, expected, bases, parameters, cancelled, produce,
+            )?;
+        } else {
+            let sequence = db.query("SELECT CAST(max(seq) AS VARCHAR) FROM applied")?;
+            let sequence = sequence.first().and_then(|row| row[0].as_deref());
+            if sequence != expected.analysis_sequence.as_deref()
+                || sequence != Some(catalog.sequence.to_string().as_str())
             {
-                "1=1".into()
-            } else {
-                ranking_predicate(spec)?
+                return Err(Error::new(
+                    "SOURCE_CHANGED",
+                    "排名所需的元数据与目录水位不一致",
+                ));
+            }
+            db.import_ranking_members(produce)?;
+            db.query("CREATE TEMP TABLE ranking_scope AS SELECT DISTINCT ordinal,lower(hex(sha256)) AS sha256,basis FROM studio_ranking_scope")?;
+            let default = QuerySpec {
+                version: 3,
+                source_ids: vec![source.id.clone()],
+                conditions: vec![],
+                observation_rule: ObservationRule::CurrentPost,
+                order: QueryOrder::AssetKeyAsc,
+                input_scope: None,
             };
-            match spec.observation_rule {
+            let mut definitions = vec![(0, &default)];
+            definitions.extend(
+                bases
+                    .iter()
+                    .filter(|b| b.spec.source_ids.contains(&source.id))
+                    .map(|b| (b.index, &b.spec)),
+            );
+            let columns = "s.ordinal,s.basis,a.asset_id AS record_id,a.observation_id AS origin_observation_id,o.observation_id,o.post_id,o.rating,epoch_us(o.created_at) AS created_at_us,epoch_us(o.observed_at) AS observed_at_us,epoch_us(o.updated_at) AS updated_at_us,o.time_quality,o.source_priority,o.fav_count,o.up_score,o.down_score,o.score,o.tag_string_artist,o.tag_string,o.parent_id,o.is_banned,o.is_deleted,o.is_pending,o.is_flagged,CASE WHEN list_contains(string_split(o.tag_string,' '),'jpeg_artifacts') THEN 1 ELSE 0 END+CASE WHEN list_contains(string_split(o.tag_string,' '),'scan_artifacts') THEN 2 ELSE 0 END AS damage_classes,o.tag_string IS NOT NULL AS tags_known,CASE WHEN length(o.issues_json)>4096 THEN '[\"source_issues_truncated\"]' ELSE o.issues_json END AS source_issues";
+            let mut branches = Vec::new();
+            for (index, spec) in definitions {
+                // Membership is already frozen. The new image policy considers all
+                // current posts describing that exact image, even when another post
+                // originally matched the query. Explicit historical scopes retain
+                // their original observation predicates.
+                let predicate = if parameters.duplicate_heat.is_some()
+                    && spec.observation_rule == ObservationRule::CurrentPost
+                {
+                    "1=1".into()
+                } else {
+                    ranking_predicate(spec)?
+                };
+                match spec.observation_rule {
                 ObservationRule::CurrentPost=>branches.push(format!("SELECT {columns} FROM ranking_scope s JOIN assets a ON a.sha256=s.sha256 JOIN current_posts cp ON cp.asset_id=a.asset_id JOIN observations o ON o.row_id=cp.row_id WHERE s.basis={index} AND ({predicate})")),
                 ObservationRule::AnyObservation=>{
                     // A later post observation is usable only when its content hash still matches this asset.
@@ -103,11 +111,12 @@ impl RankingReader {
                     branches.push(format!("SELECT {columns} FROM ranking_scope s JOIN assets a ON a.sha256=s.sha256 JOIN observations o ON o.observation_id=a.observation_id WHERE s.basis={index} AND (a.post_id IS NULL OR o.post_id IS DISTINCT FROM a.post_id) AND ({predicate})"));
                 }
             }
+            }
+            db.query(&format!(
+                "CREATE TEMP TABLE ranking_observations AS {}",
+                branches.join(" UNION ALL ")
+            ))?;
         }
-        db.query(&format!(
-            "CREATE TEMP TABLE ranking_observations AS {}",
-            branches.join(" UNION ALL ")
-        ))?;
         // Day-level snapshots overlap all exact observations within that UTC day.
         // Such a day uses updated_at as the next comparison key for every peer.
         db.query("CREATE TEMP TABLE ranking_observation_order AS SELECT *,CASE WHEN time_quality IN ('exact','date_only') THEN observed_at_us//86400000000 ELSE NULL END AS observed_day,count(DISTINCT record_id) OVER (PARTITION BY ordinal) AS record_count,count(DISTINCT rating) OVER (PARTITION BY ordinal)>1 AS rating_conflict FROM ranking_observations")?;

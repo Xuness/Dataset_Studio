@@ -1,5 +1,6 @@
 #[path = "backends/canonical/catalog.rs"]
 mod canonical;
+pub mod online;
 pub mod profiles;
 mod registry;
 pub use registry::registry;
@@ -37,7 +38,7 @@ impl SourceRouter {
             return self.page(source, after, limit, revision);
         }
         if crate::profiles::is_canonical(source) {
-            return canonical::Catalog::open(source)?
+            return canonical::Catalog::open_at(source, revision)?
                 .page_ordered(source, after, limit, revision, true);
         }
         let mut page = self.page(source, None, 128, revision)?;
@@ -92,7 +93,11 @@ impl SourceAdapter for SourceRouter {
                 count: Some(32),
                 index_version: 1,
             }),
-            kind if profiles::site(kind).is_some() => Ok(canonical::Catalog::open(source)?.probe()),
+            kind if profiles::site(kind).is_some() => {
+                let catalog = canonical::Catalog::open(source)?;
+                catalog.validate_media(source)?;
+                Ok(catalog.probe())
+            }
             _ => Err(Error::invalid("未知的数据源适配器")),
         }
     }
@@ -105,7 +110,8 @@ impl SourceAdapter for SourceRouter {
     ) -> Result<AssetPage> {
         let limit = limit.clamp(1, 128);
         if crate::profiles::is_canonical(source) {
-            return canonical::Catalog::open(source)?.page(source, after, limit, revision);
+            return canonical::Catalog::open_at(source, revision)?
+                .page(source, after, limit, revision);
         }
         if source.kind != "demo" {
             return Err(Error::invalid("未知的数据源适配器"));
@@ -126,11 +132,22 @@ impl SourceAdapter for SourceRouter {
         })
     }
     fn freeze(&self, source: &Source, keys: &[AssetKey]) -> Result<Vec<FrozenInput>> {
+        self.freeze_at(source, keys, None)
+    }
+    fn freeze_at(
+        &self,
+        source: &Source,
+        keys: &[AssetKey],
+        revision: Option<&str>,
+    ) -> Result<Vec<FrozenInput>> {
         if keys.iter().any(|k| k.source_id != source.id) {
             return Err(Error::invalid("输入对象与来源不匹配"));
         }
         if crate::profiles::is_canonical(source) {
-            let catalog = canonical::Catalog::open(source)?;
+            let catalog = canonical::Catalog::open_at(source, revision)?;
+            if revision.is_some_and(|v| v != catalog.revision) {
+                return Err(Error::new("SOURCE_CHANGED", "来源版本已变化"));
+            }
             return keys
                 .iter()
                 .map(|key| {
@@ -144,6 +161,9 @@ impl SourceAdapter for SourceRouter {
         }
         if source.kind != "demo" {
             return Err(Error::invalid("未知的数据源适配器"));
+        }
+        if revision.is_some_and(|v| v != "demo-v1") {
+            return Err(Error::new("SOURCE_CHANGED", "示例版本已变化"));
         }
         keys.iter()
             .map(|key| {

@@ -4187,6 +4187,7 @@ name = "studio-sources"
 version = "0.9.1"
 dependencies = [
  "base64 0.22.1",
+ "flate2",
  "hex",
  "image",
  "libloading 0.8.9",
@@ -4213,6 +4214,7 @@ dependencies = [
  "studio-domain",
  "tempfile",
  "tracing",
+ "url",
 ]
 
 [[package]]
