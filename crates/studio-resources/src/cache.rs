@@ -3,17 +3,20 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     fs::{self, File, OpenOptions, ReadDir},
-    io::Write,
+    io::{Read, Write},
     path::{Path, PathBuf},
     sync::{Arc, Mutex},
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Instant, SystemTime, UNIX_EPOCH},
 };
 use studio_domain::*;
 
 const MARKER: &str = "dataset-studio-rebuildable-preview-cache-v1\n";
 const MAX_ENTRY: u64 = 16 << 20;
+mod maintenance;
+#[cfg(test)]
+mod tests;
 pub fn epoch_ms() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -61,6 +64,9 @@ struct State {
     objects: PathBuf,
     _lock: File,
     pins: HashMap<String, usize>,
+    busy: HashSet<String>,
+    partials: HashSet<PathBuf>,
+    staged_bytes: u64,
     metrics: CacheMetrics,
     scan: Option<ReadDir>,
     settings: PathBuf,
@@ -68,6 +74,7 @@ struct State {
 #[derive(Clone)]
 pub struct PreviewCache {
     inner: Arc<Mutex<State>>,
+    maintenance: Arc<Mutex<()>>,
 }
 pub struct CachedPreview {
     pub bytes: Vec<u8>,
@@ -87,11 +94,39 @@ impl Drop for CachePin {
                     state.pins.remove(&self.key);
                 }
             }
-            // A quota change may have been waiting for this last reader.
-            let clear = state.metrics.clear_pending;
-            let _ = state.trim(32, clear);
+            // Destructors never perform SQLite writes, fsync or file deletion.
+            state.update_pending();
         }
     }
+}
+// Reserve one key while a file is being written or unlinked. Other keys remain
+// available. Active temporary files are excluded from orphan maintenance.
+struct Mutation {
+    inner: Arc<Mutex<State>>,
+    key: String,
+    partial: Option<PathBuf>,
+    bytes: u64,
+}
+impl Drop for Mutation {
+    fn drop(&mut self) {
+        if let Ok(mut state) = self.inner.lock() {
+            state.busy.remove(&self.key);
+            if let Some(path) = &self.partial {
+                state.partials.remove(path);
+            }
+            state.staged_bytes -= self.bytes;
+            state.update_pending();
+        }
+    }
+}
+fn ensure_objects(objects: &Path) -> Result<()> {
+    if objects.canonicalize().map_err(cache_error)? != objects {
+        return Err(Error::new(
+            "CACHE_PATH_INVALID",
+            "缓存材料目录已变化，不能继续清理或写入",
+        ));
+    }
+    Ok(())
 }
 fn cache_error(error: impl std::fmt::Display) -> Error {
     Error::new("CACHE_IO_ERROR", error.to_string())
@@ -253,11 +288,15 @@ impl PreviewCache {
             save_settings(&settings, quota_bytes, false)?;
         }
         let cache = Self {
+            maintenance: Arc::new(Mutex::new(())),
             inner: Arc::new(Mutex::new(State {
                 db,
                 objects: objects.clone(),
                 _lock: lock,
                 pins: HashMap::new(),
+                busy: HashSet::new(),
+                partials: HashSet::new(),
+                staged_bytes: 0,
                 metrics: CacheMetrics {
                     directory: directory
                         .to_string_lossy()
@@ -289,80 +328,172 @@ impl PreviewCache {
             .unwrap_or_default()
     }
     pub fn get(&self, key: &str, verified_online: bool) -> Result<Option<CachedPreview>> {
+        self.get_with(key, verified_online, || {})
+    }
+    fn get_with(
+        &self,
+        key: &str,
+        verified_online: bool,
+        before_io: impl FnOnce(),
+    ) -> Result<Option<CachedPreview>> {
         if !valid_key(key) {
             return Err(Error::invalid("缓存身份无效"));
         }
-        let mut state = self.inner.lock().map_err(cache_error)?;
-        let entry: Option<(u64, String, u64)> = state
-            .db
-            .query_row(
-                "SELECT bytes,sha256,verified_ms FROM entries WHERE key=?1",
-                [key],
-                |r| Ok((unsigned(r, 0)?, r.get(1)?, unsigned(r, 2)?)),
+        let started = Instant::now();
+        let (size, hash, verified_ms, path, pin, wait_us) = {
+            let mut state = self.inner.lock().map_err(cache_error)?;
+            let wait_us = started.elapsed().as_micros() as u64;
+            if state.busy.contains(key) {
+                state.metrics.misses += 1;
+                return Ok(None);
+            }
+            let entry: Option<(u64, String, u64)> = state
+                .db
+                .query_row(
+                    "SELECT bytes,sha256,verified_ms FROM entries WHERE key=?1",
+                    [key],
+                    |r| Ok((unsigned(r, 0)?, r.get(1)?, unsigned(r, 2)?)),
+                )
+                .optional()
+                .map_err(cache_error)?;
+            let Some((size, hash, verified_ms)) = entry else {
+                state.metrics.misses += 1;
+                return Ok(None);
+            };
+            *state.pins.entry(key.into()).or_default() += 1;
+            (
+                size,
+                hash,
+                verified_ms,
+                state.file(key),
+                CachePin {
+                    inner: self.inner.clone(),
+                    key: key.into(),
+                },
+                wait_us,
             )
-            .optional()
-            .map_err(cache_error)?;
-        let Some((size, hash, mut verified_ms)) = entry else {
-            state.metrics.misses += 1;
-            return Ok(None);
         };
-        let path = state.file(key);
+        before_io();
+        let reading = Instant::now();
         let bytes = if size <= MAX_ENTRY && path.canonicalize().ok().as_ref() == Some(&path) {
-            fs::metadata(&path)
-                .ok()
-                .filter(|m| m.is_file() && m.len() == size)
-                .and_then(|_| fs::read(&path).ok())
+            File::open(&path).ok().and_then(|file| {
+                let meta = file.metadata().ok()?;
+                if !meta.is_file() || meta.len() != size {
+                    return None;
+                }
+                let mut bytes = Vec::with_capacity(size as usize);
+                file.take(MAX_ENTRY + 1).read_to_end(&mut bytes).ok()?;
+                (bytes.len() as u64 == size).then_some(bytes)
+            })
         } else {
             None
         };
+        let read_us = reading.elapsed().as_micros() as u64;
+        let hashing = Instant::now();
         let Some(bytes) = bytes.filter(|b| hex::encode(Sha256::digest(b)) == hash) else {
-            state.metrics.corrupt += 1;
-            state.metrics.misses += 1;
-            state.remove(key)?;
+            {
+                let mut state = self.inner.lock().map_err(cache_error)?;
+                state.metrics.corrupt += 1;
+                state.metrics.misses += 1;
+            }
+            self.invalidate(key, size, path, pin)?;
             return Ok(None);
         };
-        if verified_online {
-            verified_ms = epoch_ms();
-        }
-        state
-            .db
-            .execute(
-                "UPDATE entries SET used_ms=?2,verified_ms=?3 WHERE key=?1",
-                params![key, epoch_ms() as i64, verified_ms as i64],
-            )
-            .map_err(cache_error)?;
+        let hash_us = hashing.elapsed().as_micros() as u64;
+        let updating = Instant::now();
+        let mut state = self.inner.lock().map_err(cache_error)?;
+        let update_wait_us = updating.elapsed().as_micros() as u64;
+        let verified_ms = state.db.query_row(
+            "UPDATE entries SET used_ms=MAX(used_ms,?2),verified_ms=MAX(verified_ms,?3) WHERE key=?1 RETURNING verified_ms",
+            params![key, epoch_ms() as i64, if verified_online { epoch_ms() } else { verified_ms } as i64],
+            |r| unsigned(r, 0),
+        ).map_err(cache_error)?;
         state.metrics.hits += 1;
         state.metrics.read_bytes += bytes.len() as u64;
-        *state.pins.entry(key.into()).or_default() += 1;
+        drop(state);
+        tracing::debug!(target: "studio_resources::cache", operation = "get", wait_us, update_wait_us,
+            read_us, hash_us, elapsed_us = started.elapsed().as_micros() as u64, "preview cache read");
         Ok(Some(CachedPreview {
             bytes,
             verified_ms,
-            pin: CachePin {
-                inner: self.inner.clone(),
-                key: key.into(),
-            },
+            pin,
         }))
     }
     pub fn put(&self, key: &str, bytes: &[u8]) -> Result<Option<CachePin>> {
+        self.put_with(key, bytes, || {})
+    }
+    fn put_with(
+        &self,
+        key: &str,
+        bytes: &[u8],
+        before_io: impl FnOnce(),
+    ) -> Result<Option<CachePin>> {
         if !valid_key(key) || bytes.len() as u64 > MAX_ENTRY {
             return Err(Error::invalid("缩略图缓存材料超出限制"));
         }
-        let mut state = self.inner.lock().map_err(cache_error)?;
-        state.ensure_objects()?;
-        if bytes.len() as u64 > state.metrics.quota_bytes || state.metrics.clear_pending {
-            return Ok(None);
-        }
-        if state.pins.contains_key(key) {
-            return Ok(None);
-        }
-        // Write data first. A crash before the index commit leaves an orphan which
-        // bounded maintenance removes; the index never claims a partial file.
-        let mut file = tempfile::Builder::new()
-            .prefix("partial-")
-            .tempfile_in(&state.objects)
-            .map_err(cache_error)?;
+        let started = Instant::now();
+        let size = bytes.len() as u64;
+        let (mut file, mutation, wait_us) = {
+            let mut state = self.inner.lock().map_err(cache_error)?;
+            let wait_us = started.elapsed().as_micros() as u64;
+            if size > state.metrics.quota_bytes
+                || state.metrics.clear_pending
+                || state.pins.contains_key(key)
+                || state.busy.contains(key)
+                || state
+                    .metrics
+                    .bytes
+                    .saturating_add(state.staged_bytes)
+                    .saturating_add(size)
+                    > state.metrics.quota_bytes.saturating_add(MAX_ENTRY)
+            {
+                return Ok(None);
+            }
+            ensure_objects(&state.objects)?;
+            // Creation and registration are together so maintenance cannot mistake
+            // a just-created active temporary file for an abandoned write.
+            let file = tempfile::Builder::new()
+                .prefix("partial-")
+                .tempfile_in(&state.objects)
+                .map_err(cache_error)?;
+            let partial = file.path().to_path_buf();
+            state.partials.insert(partial.clone());
+            state.busy.insert(key.into());
+            state.staged_bytes += size;
+            (
+                file,
+                Mutation {
+                    inner: self.inner.clone(),
+                    key: key.into(),
+                    partial: Some(partial),
+                    bytes: size,
+                },
+                wait_us,
+            )
+        };
+        before_io();
+        let hashing = Instant::now();
+        let hash = hex::encode(Sha256::digest(bytes));
+        let hash_us = hashing.elapsed().as_micros() as u64;
+        let writing = Instant::now();
         file.write_all(bytes).map_err(cache_error)?;
+        let write_us = writing.elapsed().as_micros() as u64;
+        let syncing = Instant::now();
         file.as_file().sync_all().map_err(cache_error)?;
+        let sync_us = syncing.elapsed().as_micros() as u64;
+        let publishing = Instant::now();
+        let mut state = self.inner.lock().map_err(cache_error)?;
+        let publish_wait_us = publishing.elapsed().as_micros() as u64;
+        // clear_pending cannot finish while this mutation exists. Recheck policy
+        // after I/O so a clear or reduced quota also covers in-flight writes.
+        if state.metrics.clear_pending
+            || size > state.metrics.quota_bytes
+            || state.metrics.bytes.saturating_add(state.staged_bytes)
+                > state.metrics.quota_bytes.saturating_add(MAX_ENTRY)
+        {
+            return Ok(None);
+        }
+        ensure_objects(&state.objects)?;
         let path = state.file(key);
         if path
             .symlink_metadata()
@@ -378,174 +509,19 @@ impl PreviewCache {
             })
             .optional()
             .map_err(cache_error)?;
-        state.db.execute("INSERT INTO entries VALUES(?1,?2,?3,?4,?4) ON CONFLICT(key) DO UPDATE SET bytes=excluded.bytes,sha256=excluded.sha256,verified_ms=excluded.verified_ms,used_ms=excluded.used_ms", params![key,bytes.len() as i64,hex::encode(Sha256::digest(bytes)),epoch_ms() as i64]).map_err(cache_error)?;
+        state.db.execute("INSERT INTO entries VALUES(?1,?2,?3,?4,?4) ON CONFLICT(key) DO UPDATE SET bytes=excluded.bytes,sha256=excluded.sha256,verified_ms=excluded.verified_ms,used_ms=excluded.used_ms", params![key,size as i64,hash,epoch_ms() as i64]).map_err(cache_error)?;
         state.metrics.bytes = state.metrics.bytes - prior.unwrap_or(0) + bytes.len() as u64;
         state.metrics.entries += u64::from(prior.is_none());
         state.metrics.writes += 1;
         *state.pins.entry(key.into()).or_default() += 1;
-        state.trim(128, false)?;
+        state.update_pending();
+        drop(state);
+        drop(mutation);
+        tracing::debug!(target: "studio_resources::cache", operation = "put", wait_us, publish_wait_us,
+            hash_us, write_us, sync_us, elapsed_us = started.elapsed().as_micros() as u64, "preview cache write");
         Ok(Some(CachePin {
             inner: self.inner.clone(),
             key: key.into(),
         }))
-    }
-    pub fn set_quota(&self, bytes: u64) -> Result<CacheMetrics> {
-        if bytes > 1024 * 1024 * 1024 * 1024 {
-            return Err(Error::invalid("缓存配额最多 1 TiB"));
-        }
-        {
-            let mut state = self.inner.lock().map_err(cache_error)?;
-            save_settings(&state.settings, bytes, state.metrics.clear_pending)?;
-            state
-                .db
-                .execute(
-                    "UPDATE settings SET value=?1 WHERE key='quota_bytes'",
-                    [bytes as i64],
-                )
-                .map_err(cache_error)?;
-            state.metrics.quota_bytes = bytes;
-            state.trim(256, false)?;
-        }
-        Ok(self.metrics())
-    }
-    /// Start durable, bounded clearing. The maintenance loop and last-pin release
-    /// continue it, and new previews bypass retention until clearing completes.
-    pub fn clear(&self) -> Result<CacheMetrics> {
-        {
-            let mut state = self.inner.lock().map_err(cache_error)?;
-            save_settings(&state.settings, state.metrics.quota_bytes, true)?;
-            state.metrics.clear_pending = true;
-            state.scan = Some(fs::read_dir(&state.objects).map_err(cache_error)?);
-            state.trim(128, true)?;
-        }
-        self.maintain(128)?;
-        Ok(self.metrics())
-    }
-    pub fn maintain(&self, limit: usize) -> Result<()> {
-        let mut state = self.inner.lock().map_err(cache_error)?;
-        state.ensure_objects()?;
-        let clear = state.metrics.clear_pending;
-        state.trim(limit.min(256), clear)?;
-        for _ in 0..limit.min(256) {
-            let next = state.scan.as_mut().and_then(Iterator::next);
-            let Some(entry) = next else {
-                state.scan = None;
-                break;
-            };
-            let entry = entry.map_err(cache_error)?;
-            let name = entry.file_name().to_string_lossy().into_owned();
-            let orphan = if let Some(key) = name.strip_suffix(".jpg").filter(|k| valid_key(k)) {
-                !state
-                    .db
-                    .query_row(
-                        "SELECT EXISTS(SELECT 1 FROM entries WHERE key=?1)",
-                        [key],
-                        |r| r.get::<_, bool>(0),
-                    )
-                    .map_err(cache_error)?
-            } else {
-                name.starts_with("partial-")
-            };
-            if orphan {
-                let kind = match entry.file_type() {
-                    Ok(kind) => kind,
-                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
-                    Err(e) => return Err(cache_error(e)),
-                };
-                if kind.is_file() {
-                    match fs::remove_file(entry.path()) {
-                        Ok(()) => state.metrics.maintenance_removed += 1,
-                        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                        Err(e) => return Err(cache_error(e)),
-                    }
-                }
-            }
-        }
-        state.finish_clear()?;
-        state.metrics.maintenance_pending = state.scan.is_some()
-            || state.metrics.clear_pending
-            || state.metrics.bytes > state.metrics.quota_bytes;
-        Ok(())
-    }
-}
-impl State {
-    fn ensure_objects(&self) -> Result<()> {
-        if self.objects.canonicalize().map_err(cache_error)? != self.objects {
-            return Err(Error::new(
-                "CACHE_PATH_INVALID",
-                "缓存材料目录已变化，不能继续清理或写入",
-            ));
-        }
-        Ok(())
-    }
-    fn file(&self, key: &str) -> PathBuf {
-        self.objects.join(format!("{key}.jpg"))
-    }
-    fn remove(&mut self, key: &str) -> Result<()> {
-        self.ensure_objects()?;
-        if !valid_key(key) {
-            return Err(Error::new("CACHE_PATH_INVALID", "缓存索引身份无效"));
-        }
-        if self.pins.contains_key(key) {
-            return Ok(());
-        }
-        let size: Option<u64> = self
-            .db
-            .query_row("SELECT bytes FROM entries WHERE key=?1", [key], |r| {
-                unsigned(r, 0)
-            })
-            .optional()
-            .map_err(cache_error)?;
-        if let Some(size) = size {
-            // Unlink only a validated fixed child filename. Never follow its target.
-            let path = self.file(key);
-            match fs::remove_file(path) {
-                Ok(()) => {}
-                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-                Err(e) => return Err(cache_error(e)),
-            }
-            self.db
-                .execute("DELETE FROM entries WHERE key=?1", [key])
-                .map_err(cache_error)?;
-            self.metrics.entries -= 1;
-            self.metrics.bytes -= size;
-        }
-        Ok(())
-    }
-    fn trim(&mut self, limit: usize, clear: bool) -> Result<()> {
-        if !clear && self.metrics.bytes <= self.metrics.quota_bytes {
-            return Ok(());
-        }
-        let keys = self
-            .db
-            .prepare("SELECT key FROM entries ORDER BY used_ms,key LIMIT ?1")
-            .map_err(cache_error)?
-            .query_map([(limit + self.pins.len()) as i64], |r| {
-                r.get::<_, String>(0)
-            })
-            .map_err(cache_error)?
-            .collect::<std::result::Result<Vec<_>, _>>()
-            .map_err(cache_error)?;
-        let mut removed = 0;
-        for key in keys {
-            if removed >= limit || (!clear && self.metrics.bytes <= self.metrics.quota_bytes) {
-                break;
-            }
-            if self.pins.contains_key(&key) {
-                continue;
-            }
-            self.remove(&key)?;
-            self.metrics.evicted += 1;
-            removed += 1;
-        }
-        self.finish_clear()?;
-        Ok(())
-    }
-    fn finish_clear(&mut self) -> Result<()> {
-        if self.metrics.clear_pending && self.metrics.entries == 0 && self.scan.is_none() {
-            save_settings(&self.settings, self.metrics.quota_bytes, false)?;
-            self.metrics.clear_pending = false;
-        }
-        Ok(())
     }
 }

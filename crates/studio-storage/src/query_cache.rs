@@ -1,6 +1,7 @@
 use crate::*;
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
+mod publication;
 
 #[derive(Debug, Clone, Default)]
 pub struct QueryCacheRequest {
@@ -871,92 +872,16 @@ impl SqliteStore {
         cache_bytes: u64,
     ) -> Result<()> {
         let p = self.handle(pid)?;
-        let mut db = p.db.lock().map_err(lock_error)?;
-        let result = query::read_result(&db, pid, rid)?;
-        if result.state != ResultState::Running {
-            return Err(Error::new("CANCELLED", "结果构建已停止"));
-        }
-        let (family, revision): (String, i64) = db
-            .query_row(
-                "SELECT family_id,member_revision FROM query_results WHERE id=?1",
-                [rid],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
-            .map_err(db_error)?;
-        // Only the project is written in these transactions; staging is sealed.
-        db.execute(
-            "ATTACH DATABASE ?1 AS query_stage",
-            [stage.file.path().to_string_lossy().as_ref()],
-        )
-        .map_err(db_error)?;
-        let old_cache: i64 = db
-            .query_row("PRAGMA cache_size", [], |r| r.get(0))
-            .map_err(db_error)?;
-        db.execute_batch(&format!(
-            "PRAGMA cache_size=-{}",
-            cache_bytes.clamp(64 << 20, 4 << 30) / 1024
-        ))
-        .map_err(db_error)?;
-        let outcome = (|| {
-            let mut changed = 0u64;
-            let mut inserted = 0u64;
-            let tx = db.transaction().map_err(db_error)?;
-            for source in &result.spec.source_ids {
-                studio_application::read_cancelled(cancelled)?;
-                let affected = if stage.full_sources.contains(source) {
-                    "1=1"
-                } else {
-                    "EXISTS(SELECT 1 FROM query_stage.affected a WHERE a.source_id=m.source_id AND a.asset_id=m.asset_id)"
-                };
-                changed+=tx.execute(&format!("UPDATE query_member_data AS m SET valid_until=?3 WHERE family_id=?1 AND source_id=?2 AND valid_until IS NULL AND ({affected}) AND NOT EXISTS(SELECT 1 FROM query_stage.matches s WHERE s.source_id=m.source_id AND s.asset_id=m.asset_id AND s.post_id IS m.post_id)"),params![family,source,revision]).map_err(db_error)? as u64;
-            }
-            let mut after = (String::new(), String::new());
-            loop {
-                studio_application::read_cancelled(cancelled)?;
-                let last = {
-                    let mut stmt=tx.prepare("SELECT source_id,asset_id FROM query_stage.matches WHERE (source_id,asset_id)>(?1,?2) ORDER BY source_id,asset_id LIMIT 32768").map_err(db_error)?;
-                    stmt.query_map(params![after.0, after.1], |r| {
-                        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
-                    })
-                    .map_err(db_error)?
-                    .last()
-                    .transpose()
-                    .map_err(db_error)?
-                };
-                let Some(last) = last else { break };
-                let added=tx.execute("INSERT INTO query_member_data(family_id,source_id,asset_id,valid_from,post_id) SELECT ?1,s.source_id,s.asset_id,?2,s.post_id FROM query_stage.matches s WHERE (s.source_id,s.asset_id)>(?3,?4) AND (s.source_id,s.asset_id)<=(?5,?6) AND NOT EXISTS(SELECT 1 FROM query_member_data m WHERE m.family_id=?1 AND m.source_id=s.source_id AND m.asset_id=s.asset_id AND m.valid_until IS NULL) ORDER BY s.source_id,s.asset_id",params![family,revision,after.0,after.1,last.0,last.1]).map_err(db_error)? as u64;
-                changed += added;
-                inserted += added;
-                after = last;
-            }
-            studio_application::read_cancelled(cancelled)?;
-            let count:i64=tx.query_row("SELECT count(*) FROM query_member_data WHERE family_id=?1 AND valid_from<=?2 AND (valid_until IS NULL OR valid_until>?2)",params![family,revision],|r|r.get(0)).map_err(db_error)?;
-            tx.execute(
-                "UPDATE query_families SET stored_members=stored_members+?2 WHERE id=?1",
-                params![family, inserted as i64],
-            )
-            .map_err(db_error)?;
-            tx.execute("UPDATE query_results SET count=?2,processed=?3,cache_mode=?4,evaluated_count=?5,changed_members=?6,post_ready=?7 WHERE id=?1",params![rid,count,stage.processed as i64,mode,stage.evaluated as i64,changed as i64,stage.post_ready]).map_err(db_error)?;
-            // An evaluated refresh can also prove that membership AND stored
-            // post associations did not change. Keep the old revision/index.
-            if changed == 0 && revision > 1 {
-                tx.execute("UPDATE query_results SET member_revision=(SELECT latest_revision FROM query_families WHERE id=?2) WHERE id=?1", params![rid, family]).map_err(db_error)?;
-            }
-            if changed > 0 {
-                touch_sizes(&tx)?;
-            }
-            tx.commit().map_err(db_error)?;
-            Ok(())
-        })();
-        let detached = db
-            .execute_batch("DETACH DATABASE query_stage;")
-            .map_err(db_error);
-        let restored = db
-            .execute_batch(&format!(
-                "PRAGMA cache_size={old_cache}; PRAGMA shrink_memory;"
-            ))
-            .map_err(db_error);
-        outcome.and(detached).and(restored)
+        let waiting = std::time::Instant::now();
+        let mut db = p.write_cancelled(cancelled)?;
+        let wait_us = waiting.elapsed().as_micros() as u64;
+        let held = std::time::Instant::now();
+        let outcome = publication::publish(&mut db, pid, rid, stage, mode, cancelled, cache_bytes);
+        let writer_us = held.elapsed().as_micros() as u64;
+        drop(db);
+        tracing::info!(target: "studio_storage::query_publish", project_id = pid, result_id = rid,
+            wait_us, writer_us, success = outcome.is_ok(), "query publication writer");
+        outcome
     }
     pub fn query_cache_stats(&self, pid: &str) -> Result<QueryCacheStats> {
         self.refresh_query_cache_sizes(pid)?;
@@ -1330,11 +1255,16 @@ pub(super) fn rollback_revision(db: &Connection, rid: &str) -> Result<()> {
             touch_sizes(db)?;
         }
     }
+    publication::forget_receipt(db, rid)?;
     Ok(())
+}
+
+pub(super) fn finish_publication(db: &Connection, rid: &str) -> Result<()> {
+    publication::forget_receipt(db, rid)
 }
 pub(super) fn recover(db: &Connection) -> Result<()> {
     let ids = {
-        let mut stmt=db.prepare("SELECT r.id FROM query_results r JOIN query_families f ON f.id=r.family_id WHERE r.status IN ('cancelled','failed','interrupted') AND r.member_revision>f.latest_revision").map_err(db_error)?;
+        let mut stmt=db.prepare("SELECT r.id FROM query_results r JOIN query_families f ON f.id=r.family_id WHERE r.status IN ('cancelled','failed','interrupted') AND (r.member_revision>f.latest_revision OR EXISTS(SELECT 1 FROM meta WHERE key='query_publication/'||r.id))").map_err(db_error)?;
         stmt.query_map([], |r| r.get::<_, String>(0))
             .map_err(db_error)?
             .collect::<std::result::Result<Vec<_>, _>>()

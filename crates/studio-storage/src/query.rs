@@ -563,6 +563,7 @@ impl SqliteStore {
         } else {
             crate::query_cache::rollback_revision(&tx, id)?;
         }
+        crate::query_cache::finish_publication(&tx, id)?;
         let result = read_result(&tx, pid, id)?;
         tx.commit().map_err(db_error)?;
         Ok(result)

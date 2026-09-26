@@ -104,6 +104,64 @@ mod tests {
         assert_eq!(handle.reads.idle.lock().unwrap().len(), 4);
     }
     #[test]
+    fn draft_reader_does_not_wait_for_the_writer_or_observe_uncommitted_drafts() {
+        use studio_application::DraftRepository;
+        let (_temp, store, project) = fixture();
+        store
+            .save_draft(
+                &project.id,
+                "query",
+                "default",
+                SaveDraft {
+                    schema_version: 1,
+                    expected_revision: 0,
+                    value: serde_json::json!({"value": "committed"}),
+                },
+            )
+            .unwrap();
+        let handle = store.handle(&project.id).unwrap();
+        std::thread::scope(|scope| {
+            let mut writer = handle.db.lock().unwrap();
+            let tx = writer.transaction().unwrap();
+            tx.execute("UPDATE tool_drafts SET value_json='{}',revision=2", [])
+                .unwrap();
+            let (send, receive) = mpsc::channel();
+            let reader = store.clone();
+            let pid = project.id.clone();
+            scope.spawn(move || send.send(reader.draft(&pid, "query", "default")).unwrap());
+            let result = receive.recv_timeout(std::time::Duration::from_secs(2));
+            tx.commit().unwrap();
+            drop(writer);
+            let draft = result
+                .expect("draft read waited for the project writer")
+                .unwrap()
+                .unwrap();
+            assert_eq!(draft.revision, 1);
+            assert_eq!(draft.value["value"], "committed");
+        });
+        assert_eq!(
+            store
+                .draft(&project.id, "query", "default")
+                .unwrap()
+                .unwrap()
+                .revision,
+            2
+        );
+        let conflict = store
+            .save_draft(
+                &project.id,
+                "query",
+                "default",
+                SaveDraft {
+                    schema_version: 1,
+                    expected_revision: 1,
+                    value: serde_json::json!({}),
+                },
+            )
+            .unwrap_err();
+        assert_eq!(conflict.code, "REVISION_CONFLICT");
+    }
+    #[test]
     fn cold_accounting_is_off_writer_and_rejects_stale_storage_revisions() {
         let (_temp, store, project) = fixture();
         let handle = store.handle(&project.id).unwrap();

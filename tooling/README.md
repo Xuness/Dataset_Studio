@@ -76,6 +76,8 @@ Rust 测试位于 crates 内，`pnpm test` 同时执行 SDK 检查 [client-found
 
 ## 夹具与结果归档
 
+数据库在线升级 P1 的规模实验与并发测试由 Rust 测试集维护，包含在 `pnpm check`。独立复跑命令、SQLite 版本与测量边界见 [P1 验收](../docs/verification/2026-09-26-online-upgrade-phase1.md)；存储或预览改动还需运行 `pnpm test:integration`。
+
 - [engine-fixture.mjs](engine-fixture.mjs)：独立引擎启动、请求、等待与停止。
 - [client-fixture.mjs](client-fixture.mjs)：测试使用的 SDK 装载。
 - [llm-fixture.mjs](llm-fixture.mjs)：本机模拟供应商服务，不调用商业模型。

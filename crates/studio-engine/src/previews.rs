@@ -581,10 +581,12 @@ impl PreviewService {
     }
     pub async fn run(self: Arc<Self>) {
         let mut maintenance = tokio::time::interval(Duration::from_secs(2));
+        let mut maintained_at = Instant::now();
         while !self.stopping.load(Ordering::Acquire) {
             tokio::select! { _ = self.notify.notified() => {}, _ = maintenance.tick() => {
                 let cache = self.cache.clone();
                 let _ = tokio::task::spawn_blocking(move || cache.maintain(128)).await;
+                maintained_at = Instant::now();
             } }
             // A small, bounded gather window groups visible-range requests by pack.
             tokio::time::sleep(Duration::from_millis(8)).await;
@@ -594,6 +596,12 @@ impl PreviewService {
                     break;
                 }
                 self.batch(batch).await;
+                // Continuous cold requests must not starve deferred pin cleanup.
+                if maintained_at.elapsed() >= Duration::from_secs(2) {
+                    let cache = self.cache.clone();
+                    let _ = tokio::task::spawn_blocking(move || cache.maintain(128)).await;
+                    maintained_at = Instant::now();
+                }
             }
         }
         let batch = self.take_batch();

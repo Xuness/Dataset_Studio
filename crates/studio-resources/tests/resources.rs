@@ -149,6 +149,12 @@ fn cache_survives_restart_verifies_bytes_and_preserves_pins() {
     assert_eq!(cache.metrics().entries, 1);
     assert_eq!(cache.clear().unwrap().entries, 1);
     drop(pin);
+    assert_eq!(
+        cache.metrics().entries,
+        1,
+        "pin release only marks pending maintenance"
+    );
+    cache.maintain(128).unwrap();
     assert_eq!(cache.metrics().entries, 0);
     cache.set_quota(100).unwrap();
     drop(cache.put(&key(2), b"valid preview").unwrap());

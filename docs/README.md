@@ -8,6 +8,8 @@
 
 数据湖来源：[统一接口与调度](decisions/0035-source-registry-and-dispatch.md)、[Yandere/Gelbooru 验收](verification/2026-09-26-multibooru.md)、[多湖交互与查询缓存补齐](verification/2026-09-26-multibooru-followup.md)。
 
+在线架构升级：[阶段计划](plans/数据库架构审查升级-2026-09-26/README.md)、[发布与预览并发边界](decisions/0036-online-read-path-preparation.md)、[P1 验收](verification/2026-09-26-online-upgrade-phase1.md)。
+
 | 主题               | 入口                                                                                                                                                                                                                                             |
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | LLM 调用与模块集成 | [后端和 SDK 接入](architecture/llm-integration.md)、[LLM 基础层](decisions/0023-llm-foundation.md)、[System Prompt 预设](decisions/0024-system-prompt-presets.md)                                                                                |
@@ -84,6 +86,8 @@
 ## 实施计划
 
 早期阶段计划保留当时的范围与验收标准；美学排序目录同时维护阶段说明及后续计划。
+
+- [数据库架构升级：在线读取、热更新与三站更新管理（2026-09-26）](plans/数据库架构审查升级-2026-09-26/README.md)
 
 - [Yandere / Gelbooru 数据湖接入（2026-09-26，已接入并验收）](plans/multibooru-sources-2026-09-26.md)
 - [源码审查后的整体改进路线图（2026-09-19）](plans/architecture-improvement-2026-09-19.md)

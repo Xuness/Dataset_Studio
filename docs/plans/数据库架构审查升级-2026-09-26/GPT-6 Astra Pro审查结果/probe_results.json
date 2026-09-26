@@ -1,0 +1,573 @@
+{
+  "scope": "Isolated in-memory synthetic SQL experiment, not actual Studio Rust runtime or a production latency benchmark.",
+  "sqlite_version": "3.46.1",
+  "foreign_keys": "disabled; schema kept, parent rows not material to access-plan test",
+  "source_files_sha256": {
+    "crates/studio-storage/src/schema_v6.sql": "e6dcb66c6b811d42bb3ddcc1d3a176746379b358f4956446ae7d266e03f53961",
+    "crates/studio-storage/src/query_cache.rs": "a2bd694b54438d01a6aa611aae37510b69e75d79cdeed80bd30273596f894f15"
+  },
+  "sql": {
+    "table": "CREATE TABLE query_member_data (\n    family_id TEXT NOT NULL REFERENCES query_families(id),\n    source_id TEXT NOT NULL REFERENCES sources(id),\n    asset_id TEXT NOT NULL,\n    valid_from INTEGER NOT NULL,\n    valid_until INTEGER,\n    post_id INTEGER,\n    PRIMARY KEY(family_id,source_id,asset_id,valid_from)\n) WITHOUT ROWID;",
+    "indexes": "CREATE INDEX query_members_post ON query_member_data(family_id,post_id,source_id,asset_id,valid_from);\nCREATE INDEX query_members_expired ON query_member_data(family_id,valid_until) WHERE valid_until IS NOT NULL;",
+    "original_incremental_update": "UPDATE query_member_data AS m SET valid_until=?3 WHERE family_id=?1 AND source_id=?2 AND valid_until IS NULL AND (EXISTS(SELECT 1 FROM query_stage.affected a WHERE a.source_id=m.source_id AND a.asset_id=m.asset_id)) AND NOT EXISTS(SELECT 1 FROM query_stage.matches s WHERE s.source_id=m.source_id AND s.asset_id=m.asset_id AND s.post_id IS m.post_id)",
+    "candidate_change_driven_update": "UPDATE query_member_data AS m SET valid_until=?3 WHERE family_id=?1 AND source_id=?2 AND valid_until IS NULL AND m.asset_id IN (SELECT a.asset_id FROM query_stage.affected a WHERE a.source_id=?2) AND NOT EXISTS(SELECT 1 FROM query_stage.matches s WHERE s.source_id=m.source_id AND s.asset_id=m.asset_id AND s.post_id IS m.post_id)",
+    "original_filtered_count": "SELECT count(*) FROM query_member_data WHERE family_id=?1 AND valid_from<=?2 AND (valid_until IS NULL OR valid_until>?2)"
+  },
+  "scale_tests": [
+    {
+      "members": 10000,
+      "affected_assets": 1,
+      "membership_or_post_changes": 0,
+      "original_incremental_update": {
+        "query_plan": [
+          [
+            4,
+            0,
+            0,
+            "SEARCH m USING PRIMARY KEY (family_id=? AND source_id=?)"
+          ],
+          [
+            15,
+            0,
+            0,
+            "CORRELATED SCALAR SUBQUERY 1"
+          ],
+          [
+            19,
+            15,
+            0,
+            "SEARCH a USING PRIMARY KEY (source_id=? AND asset_id=?)"
+          ],
+          [
+            29,
+            0,
+            0,
+            "CORRELATED SCALAR SUBQUERY 2"
+          ],
+          [
+            33,
+            29,
+            0,
+            "SEARCH s USING PRIMARY KEY (source_id=? AND asset_id=?)"
+          ]
+        ],
+        "progress_callbacks": 1300,
+        "callback_interval_vm_instructions": 100,
+        "approx_vm_instructions": 130000,
+        "note": "VM instruction count is quantized by the callback interval; <100 may report 0.",
+        "elapsed_seconds_not_production_benchmark": 0.0019416920000026039,
+        "rows_changed": 0,
+        "result": []
+      },
+      "candidate_change_driven_update": {
+        "query_plan": [
+          [
+            4,
+            0,
+            0,
+            "SEARCH m USING PRIMARY KEY (family_id=? AND source_id=? AND asset_id=?)"
+          ],
+          [
+            12,
+            0,
+            0,
+            "LIST SUBQUERY 1"
+          ],
+          [
+            14,
+            12,
+            0,
+            "SEARCH a USING PRIMARY KEY (source_id=?)"
+          ],
+          [
+            37,
+            0,
+            0,
+            "CORRELATED SCALAR SUBQUERY 2"
+          ],
+          [
+            41,
+            37,
+            0,
+            "SEARCH s USING PRIMARY KEY (source_id=? AND asset_id=?)"
+          ]
+        ],
+        "progress_callbacks": 0,
+        "callback_interval_vm_instructions": 100,
+        "approx_vm_instructions": 0,
+        "note": "VM instruction count is quantized by the callback interval; <100 may report 0.",
+        "elapsed_seconds_not_production_benchmark": 6.655999999338746e-05,
+        "rows_changed": 0,
+        "result": []
+      },
+      "original_filtered_count": {
+        "query_plan": [
+          [
+            3,
+            0,
+            0,
+            "SEARCH query_member_data USING PRIMARY KEY (family_id=?)"
+          ]
+        ],
+        "progress_callbacks": 700,
+        "callback_interval_vm_instructions": 100,
+        "approx_vm_instructions": 70000,
+        "note": "VM instruction count is quantized by the callback interval; <100 may report 0.",
+        "elapsed_seconds_not_production_benchmark": 0.0008956330000273738,
+        "rows_changed": null,
+        "result": [
+          [
+            10000
+          ]
+        ]
+      }
+    },
+    {
+      "members": 100000,
+      "affected_assets": 1,
+      "membership_or_post_changes": 0,
+      "original_incremental_update": {
+        "query_plan": [
+          [
+            4,
+            0,
+            0,
+            "SEARCH m USING PRIMARY KEY (family_id=? AND source_id=?)"
+          ],
+          [
+            15,
+            0,
+            0,
+            "CORRELATED SCALAR SUBQUERY 1"
+          ],
+          [
+            19,
+            15,
+            0,
+            "SEARCH a USING PRIMARY KEY (source_id=? AND asset_id=?)"
+          ],
+          [
+            29,
+            0,
+            0,
+            "CORRELATED SCALAR SUBQUERY 2"
+          ],
+          [
+            33,
+            29,
+            0,
+            "SEARCH s USING PRIMARY KEY (source_id=? AND asset_id=?)"
+          ]
+        ],
+        "progress_callbacks": 13000,
+        "callback_interval_vm_instructions": 100,
+        "approx_vm_instructions": 1300000,
+        "note": "VM instruction count is quantized by the callback interval; <100 may report 0.",
+        "elapsed_seconds_not_production_benchmark": 0.017962576999991597,
+        "rows_changed": 0,
+        "result": []
+      },
+      "candidate_change_driven_update": {
+        "query_plan": [
+          [
+            4,
+            0,
+            0,
+            "SEARCH m USING PRIMARY KEY (family_id=? AND source_id=? AND asset_id=?)"
+          ],
+          [
+            12,
+            0,
+            0,
+            "LIST SUBQUERY 1"
+          ],
+          [
+            14,
+            12,
+            0,
+            "SEARCH a USING PRIMARY KEY (source_id=?)"
+          ],
+          [
+            37,
+            0,
+            0,
+            "CORRELATED SCALAR SUBQUERY 2"
+          ],
+          [
+            41,
+            37,
+            0,
+            "SEARCH s USING PRIMARY KEY (source_id=? AND asset_id=?)"
+          ]
+        ],
+        "progress_callbacks": 0,
+        "callback_interval_vm_instructions": 100,
+        "approx_vm_instructions": 0,
+        "note": "VM instruction count is quantized by the callback interval; <100 may report 0.",
+        "elapsed_seconds_not_production_benchmark": 8.269400001381655e-05,
+        "rows_changed": 0,
+        "result": []
+      },
+      "original_filtered_count": {
+        "query_plan": [
+          [
+            3,
+            0,
+            0,
+            "SEARCH query_member_data USING PRIMARY KEY (family_id=?)"
+          ]
+        ],
+        "progress_callbacks": 7000,
+        "callback_interval_vm_instructions": 100,
+        "approx_vm_instructions": 700000,
+        "note": "VM instruction count is quantized by the callback interval; <100 may report 0.",
+        "elapsed_seconds_not_production_benchmark": 0.008756256000026497,
+        "rows_changed": null,
+        "result": [
+          [
+            100000
+          ]
+        ]
+      }
+    },
+    {
+      "members": 500000,
+      "affected_assets": 1,
+      "membership_or_post_changes": 0,
+      "original_incremental_update": {
+        "query_plan": [
+          [
+            4,
+            0,
+            0,
+            "SEARCH m USING PRIMARY KEY (family_id=? AND source_id=?)"
+          ],
+          [
+            15,
+            0,
+            0,
+            "CORRELATED SCALAR SUBQUERY 1"
+          ],
+          [
+            19,
+            15,
+            0,
+            "SEARCH a USING PRIMARY KEY (source_id=? AND asset_id=?)"
+          ],
+          [
+            29,
+            0,
+            0,
+            "CORRELATED SCALAR SUBQUERY 2"
+          ],
+          [
+            33,
+            29,
+            0,
+            "SEARCH s USING PRIMARY KEY (source_id=? AND asset_id=?)"
+          ]
+        ],
+        "progress_callbacks": 65000,
+        "callback_interval_vm_instructions": 100,
+        "approx_vm_instructions": 6500000,
+        "note": "VM instruction count is quantized by the callback interval; <100 may report 0.",
+        "elapsed_seconds_not_production_benchmark": 0.09757227500000454,
+        "rows_changed": 0,
+        "result": []
+      },
+      "candidate_change_driven_update": {
+        "query_plan": [
+          [
+            4,
+            0,
+            0,
+            "SEARCH m USING PRIMARY KEY (family_id=? AND source_id=? AND asset_id=?)"
+          ],
+          [
+            12,
+            0,
+            0,
+            "LIST SUBQUERY 1"
+          ],
+          [
+            14,
+            12,
+            0,
+            "SEARCH a USING PRIMARY KEY (source_id=?)"
+          ],
+          [
+            37,
+            0,
+            0,
+            "CORRELATED SCALAR SUBQUERY 2"
+          ],
+          [
+            41,
+            37,
+            0,
+            "SEARCH s USING PRIMARY KEY (source_id=? AND asset_id=?)"
+          ]
+        ],
+        "progress_callbacks": 0,
+        "callback_interval_vm_instructions": 100,
+        "approx_vm_instructions": 0,
+        "note": "VM instruction count is quantized by the callback interval; <100 may report 0.",
+        "elapsed_seconds_not_production_benchmark": 8.772199998929864e-05,
+        "rows_changed": 0,
+        "result": []
+      },
+      "original_filtered_count": {
+        "query_plan": [
+          [
+            3,
+            0,
+            0,
+            "SEARCH query_member_data USING PRIMARY KEY (family_id=?)"
+          ]
+        ],
+        "progress_callbacks": 35000,
+        "callback_interval_vm_instructions": 100,
+        "approx_vm_instructions": 3500000,
+        "note": "VM instruction count is quantized by the callback interval; <100 may report 0.",
+        "elapsed_seconds_not_production_benchmark": 0.049037284999997155,
+        "rows_changed": null,
+        "result": [
+          [
+            500000
+          ]
+        ]
+      }
+    }
+  ],
+  "semantic_test": {
+    "same_rows_and_old_revision_members": true,
+    "details": {
+      "original_incremental_update": {
+        "before": 6,
+        "closed": 2,
+        "inserted": 2,
+        "after": 6,
+        "count_delta_correct": true,
+        "rows": [
+          [
+            "family",
+            "other",
+            "remove",
+            1,
+            null,
+            88
+          ],
+          [
+            "family",
+            "source",
+            "keep",
+            1,
+            null,
+            11
+          ],
+          [
+            "family",
+            "source",
+            "new",
+            2,
+            null,
+            16
+          ],
+          [
+            "family",
+            "source",
+            "nullkeep",
+            1,
+            null,
+            null
+          ],
+          [
+            "family",
+            "source",
+            "relink",
+            0,
+            1,
+            9
+          ],
+          [
+            "family",
+            "source",
+            "relink",
+            1,
+            2,
+            13
+          ],
+          [
+            "family",
+            "source",
+            "relink",
+            2,
+            null,
+            14
+          ],
+          [
+            "family",
+            "source",
+            "remove",
+            1,
+            2,
+            12
+          ],
+          [
+            "family",
+            "source",
+            "untouched",
+            1,
+            null,
+            15
+          ]
+        ],
+        "old_revision_members": [
+          [
+            "other",
+            "remove",
+            88
+          ],
+          [
+            "source",
+            "keep",
+            11
+          ],
+          [
+            "source",
+            "nullkeep",
+            null
+          ],
+          [
+            "source",
+            "relink",
+            13
+          ],
+          [
+            "source",
+            "remove",
+            12
+          ],
+          [
+            "source",
+            "untouched",
+            15
+          ]
+        ]
+      },
+      "candidate_change_driven_update": {
+        "before": 6,
+        "closed": 2,
+        "inserted": 2,
+        "after": 6,
+        "count_delta_correct": true,
+        "rows": [
+          [
+            "family",
+            "other",
+            "remove",
+            1,
+            null,
+            88
+          ],
+          [
+            "family",
+            "source",
+            "keep",
+            1,
+            null,
+            11
+          ],
+          [
+            "family",
+            "source",
+            "new",
+            2,
+            null,
+            16
+          ],
+          [
+            "family",
+            "source",
+            "nullkeep",
+            1,
+            null,
+            null
+          ],
+          [
+            "family",
+            "source",
+            "relink",
+            0,
+            1,
+            9
+          ],
+          [
+            "family",
+            "source",
+            "relink",
+            1,
+            2,
+            13
+          ],
+          [
+            "family",
+            "source",
+            "relink",
+            2,
+            null,
+            14
+          ],
+          [
+            "family",
+            "source",
+            "remove",
+            1,
+            2,
+            12
+          ],
+          [
+            "family",
+            "source",
+            "untouched",
+            1,
+            null,
+            15
+          ]
+        ],
+        "old_revision_members": [
+          [
+            "other",
+            "remove",
+            88
+          ],
+          [
+            "source",
+            "keep",
+            11
+          ],
+          [
+            "source",
+            "nullkeep",
+            null
+          ],
+          [
+            "source",
+            "relink",
+            13
+          ],
+          [
+            "source",
+            "remove",
+            12
+          ],
+          [
+            "source",
+            "untouched",
+            15
+          ]
+        ]
+      }
+    }
+  }
+}

@@ -64,7 +64,13 @@ impl DraftRepository for SqliteStore {
         key(module)?;
         key(instance)?;
         let p = self.handle(pid)?;
-        read_draft(&*p.db.lock().map_err(lock_error)?, pid, module, instance)
+        let started = std::time::Instant::now();
+        let db = p.read()?;
+        let outcome = read_draft(&db, pid, module, instance);
+        tracing::debug!(target: "studio_storage::drafts", project_id = pid,
+            elapsed_us = started.elapsed().as_micros() as u64,
+            success = outcome.is_ok(), "draft snapshot read");
+        outcome
     }
     fn save_draft(
         &self,
@@ -77,7 +83,10 @@ impl DraftRepository for SqliteStore {
         key(instance)?;
         let json = payload(&request)?;
         let p = self.handle(pid)?;
+        let waiting = std::time::Instant::now();
         let mut db = p.db.lock().map_err(lock_error)?;
+        let wait_us = waiting.elapsed().as_micros() as u64;
+        let writing = std::time::Instant::now();
         let tx = db.transaction().map_err(db_error)?;
         let old = read_draft(&tx, pid, module, instance)?;
         if old.as_ref().map_or(0, |d| d.revision) != request.expected_revision {
@@ -97,6 +106,10 @@ impl DraftRepository for SqliteStore {
         let draft = read_draft(&tx, pid, module, instance)?
             .ok_or_else(|| Error::new("DATABASE_ERROR", "草稿保存后不可读"))?;
         tx.commit().map_err(db_error)?;
+        let transaction_us = writing.elapsed().as_micros() as u64;
+        drop(db);
+        tracing::debug!(target: "studio_storage::drafts", project_id = pid,
+            wait_us, transaction_us, "draft committed");
         Ok(draft)
     }
     fn preference(&self, name: &str) -> Result<Option<Preference>> {

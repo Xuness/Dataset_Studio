@@ -4179,6 +4179,7 @@ dependencies = [
  "studio-application",
  "studio-domain",
  "tempfile",
+ "tracing",
 ]
 
 [[package]]
