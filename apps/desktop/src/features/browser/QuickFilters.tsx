@@ -1,4 +1,3 @@
-import { sourceSupports } from "@studio/client";
 import { useEffect, useId, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -27,6 +26,8 @@ import type { BrowseFilters, BrowseScope, ModuleContext } from "@studio/ui";
 import type { QuerySpec, QueryResult } from "@studio/contracts";
 import type { StudioClient } from "@studio/client";
 import { rankableScope } from "./rankingBrowse.js";
+import { useQueryFields } from "../query/useQueryFields.js";
+import { conditionIssue } from "../query/QueryConditions.js";
 
 type FilterDraft = {
   expanded?: boolean;
@@ -143,16 +144,33 @@ export function QuickFilters({
           (o) =>
             o.value === (base.kind === "selection" ? "selection" : base.id),
         );
-  const sourceIds = sources
-    .filter(
-      (s) =>
-        s.available &&
-        sourceSupports(s, "raw_metadata") &&
-        (base.kind !== "source" || s.id === base.id),
-    )
-    .map((s) => s.id);
+  const scoped = !!option && option.scope.target.kind !== "source";
+  const scopeSources = useQuery({
+    queryKey: [
+      "project",
+      projectId,
+      "filter-sources",
+      option?.scope,
+      option?.count,
+    ],
+    queryFn: ({ signal }) =>
+      client.sourceAccess.requirements(projectId, option!.scope, [], signal),
+    enabled: scoped && option.count !== 0,
+  });
+  const sourceIds = scoped
+    ? (scopeSources.data?.sources.map((s) => s.source_id) ?? [])
+    : base.kind === "source"
+      ? [base.id]
+      : sources.map((s) => s.id);
+  const directory = useQueryFields(client, projectId, sources, sourceIds);
   const usable =
     sourceIds.length > 0 &&
+    sourceIds.length <= 8 &&
+    !directory.pending &&
+    !directory.error &&
+    !scopeSources.error &&
+    directory.orders.includes(browser.order) &&
+    directory.observation_rules.includes("current_post") &&
     (base.kind === "all" || !!option) &&
     option?.count !== 0;
   const originalClauses = filterConditions(value.filters);
@@ -162,7 +180,18 @@ export function QuickFilters({
       : c,
   );
   const signature = JSON.stringify(clauses);
-  const issue = filterError(value.filters);
+  const issue =
+    filterError(value.filters) ||
+    (!directory.pending && !directory.error
+      ? clauses
+          .map((c) =>
+            conditionIssue(
+              c,
+              directory.fields.find((f) => f.id === c.field),
+            ),
+          )
+          .find(Boolean)
+      : "");
   const result = useQuery({
     queryKey: ["project", projectId, "quick-filter", value.resultId],
     queryFn: ({ signal }) =>
@@ -176,6 +205,12 @@ export function QuickFilters({
   const building =
     !!value.resultId &&
     (!result.data || ["queued", "running"].includes(result.data.state));
+  const sourceSetChanged =
+    ownedView &&
+    result.data &&
+    (!scoped || !!scopeSources.data) &&
+    JSON.stringify([...sourceIds].sort()) !==
+      JSON.stringify([...result.data.spec.source_ids].sort());
   const migrationInfo = useQuery({
     queryKey: ["project", projectId, "quick-filter-upgrade", value.resultId],
     queryFn: ({ signal }) =>
@@ -494,9 +529,10 @@ export function QuickFilters({
                   : "各组条件同时满足；分级多选为任一满足。"}
               </span>
               <span className="grow" />
-              {value.resultId && signature !== value.submitted && (
-                <span className="filter-unapplied">条件尚未应用</span>
-              )}
+              {value.resultId &&
+                (signature !== value.submitted || sourceSetChanged) && (
+                  <span className="filter-unapplied">条件尚未应用</span>
+                )}
               <Button
                 type="button"
                 disabled={!clauses.length || !!issue || building}
@@ -534,14 +570,25 @@ export function QuickFilters({
       )}
       {!usable && (
         <p className="filter-note">
-          {!sourceIds.length
-            ? "此范围没有可用于 Rating / Tag 筛选的来源。"
-            : option?.count === 0
-              ? "当前范围还没有图片。"
-              : "范围暂不可用，请刷新来源后重试。"}
+          {(scoped && scopeSources.isPending && option?.count !== 0) ||
+          directory.pending
+            ? "正在检查范围中的数据湖…"
+            : (directory.error?.message ??
+              (sourceIds.length && !directory.orders.includes(browser.order)
+                ? "此范围不支持当前浏览排序，请切换为图像身份排序后筛选。"
+                : !sourceIds.length
+                  ? "此范围没有可用于 Rating / Tag 筛选的来源。"
+                  : option?.count === 0
+                    ? "当前范围还没有图片。"
+                    : "范围暂不可用，请刷新来源后重试。"))}
         </p>
       )}
       {issue && <p className="condition-error">{issue}</p>}
+      {sourceSetChanged && (
+        <p role="status" className="filter-note">
+          项目的数据湖范围已变化；当前结果保留原来源，请重新应用筛选以使用新范围。
+        </p>
+      )}
       {notice && (
         <p role="status" className="filter-note">
           {notice}
@@ -554,12 +601,20 @@ export function QuickFilters({
       )}
       {!!(
         error ||
+        scopeSources.error ||
+        directory.error ||
         result.error ||
         (result.data?.state !== "released" && result.data?.error)
       ) && (
         <ErrorDetails
           compact
-          error={error || result.error || result.data?.error}
+          error={
+            error ||
+            scopeSources.error ||
+            directory.error ||
+            result.error ||
+            result.data?.error
+          }
         />
       )}
       {result.data &&

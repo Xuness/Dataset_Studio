@@ -262,6 +262,117 @@ try {
   checks.push(
     "restart reuses registration/indexes; authoritative lake files unchanged",
   );
+  async function cached(ids, inputScope) {
+    const created = await engine.api(
+      `/v1/projects/${project.id}/query-results`,
+      "POST",
+      {
+        spec: {
+          version: 3,
+          source_ids: ids,
+          observation_rule: "current_post",
+          order: "asset_key_asc",
+          conditions: [
+            post(10001),
+            {
+              field: "rating",
+              operator: "eq",
+              value: { type: "text", value: "g" },
+            },
+          ],
+          ...(inputScope ? { input_scope: inputScope } : {}),
+        },
+      },
+    );
+    const result = await engine.wait(
+      `/v1/projects/${project.id}/query-results/${created.id}`,
+      (r) => !["queued", "running"].includes(r.state),
+    );
+    assert.equal(result.state, "ready", JSON.stringify(result));
+    return result;
+  }
+  const pair = [sources.yandere.id, sources.gelbooru.id];
+  const singleY = await cached([pair[0]]);
+  const singleG = await cached([pair[1]]);
+  const together = await cached(pair);
+  assert.equal(singleY.count, 1);
+  assert.equal(singleG.count, 1);
+  assert.equal(together.count, 2);
+  assert.notEqual(together.cache.mode, "reused");
+  assert.equal((await cached([...pair].reverse())).cache.mode, "reused");
+  const workset = await engine.api(
+    `/v1/projects/${project.id}/collections`,
+    "POST",
+    {
+      name: "Gelbooru only",
+      scope: {
+        project_id: project.id,
+        target: { kind: "query_result", result_id: singleG.id },
+      },
+    },
+  );
+  const worksetScope = {
+    project_id: project.id,
+    target: { kind: "workset", collection_id: workset.id },
+  };
+  const scopeSources = await engine.api(
+    `/v1/projects/${project.id}/source-requirements`,
+    "POST",
+    { scope: worksetScope, projections: [] },
+  );
+  assert.deepEqual(
+    scopeSources.sources.map((s) => s.source_id),
+    [sources.gelbooru.id],
+  );
+  const limited = await cached(
+    scopeSources.sources.map((s) => s.source_id),
+    worksetScope,
+  );
+  assert.equal(limited.count, 1);
+  assert.notEqual(limited.cache.mode, "reused");
+  const basesBefore = await engine.api("/v1/cache/rating-bases");
+  for (const id of pair) {
+    assert.ok(
+      basesBefore.items.some((b) => b.source_id === id && b.rating === "g"),
+    );
+  }
+  await engine.api(`/v1/cache/rating-bases/${pair[0]}/g/release`, "POST");
+  const basesAfter = await engine.api("/v1/cache/rating-bases");
+  assert.ok(
+    !basesAfter.items.some((b) => b.source_id === pair[0] && b.rating === "g"),
+  );
+  assert.deepEqual(
+    basesAfter.items.filter((b) => b.source_id === pair[1]),
+    basesBefore.items.filter((b) => b.source_id === pair[1]),
+  );
+  checks.push(
+    "single and mixed query caches are distinct, reordered source sets reuse, fixed scopes resolve actual sources, and clearing one lake's rating basis preserves the other",
+  );
+
+  // Mutate only this owned fixture after the read-only phase's stamp comparison.
+  await promisify(execFile)(
+    process.env.PYTHON ?? "python",
+    [
+      resolve(root, "tooling/query-fixture-update.py"),
+      resolve(runDir, "yandere"),
+      "rebuild",
+    ],
+    { windowsHide: true },
+  );
+  const refreshed = await cached(pair);
+  assert.notEqual(refreshed.cache.mode, "reused");
+  assert.equal(refreshed.count, 2);
+  const gReused = await cached([pair[1]]);
+  assert.equal(gReused.cache.mode, "reused");
+  assert.deepEqual(gReused.source_versions, singleG.source_versions);
+  assert.equal((await cached([pair[1]], worksetScope)).cache.mode, "reused");
+  const current = await engine.api(
+    `/v1/projects/${project.id}/query-results/${together.id}/validity`,
+  );
+  assert.equal(current.current, false);
+  checks.push(
+    "rebuilding one lake invalidates its mixed query while unrelated single-source and fixed-scope caches remain reusable",
+  );
   await writeFile(
     resolve(runDir, "report.json"),
     JSON.stringify({ status: "passed", checks }, null, 2),

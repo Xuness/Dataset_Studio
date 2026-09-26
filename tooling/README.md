@@ -107,7 +107,7 @@ Rust 测试位于 crates 内，`pnpm test` 同时执行 SDK 检查 [client-found
 
 - [integration-multibooru.mjs](integration-multibooru.mjs)：三站点隔离 fixture、预检/登记、身份、标签、原始 schema、缓存和重启；已加入 `pnpm test:integration`。
 - [multibooru-fixture.py](multibooru-fixture.py)：用标准库和仓库 DuckDB 运行库构建小型三站点夹具，不依赖真实湖或网络。
-- [smoke-multibooru-ui.mjs](smoke-multibooru-ui.mjs)：参数为上述集成生成的 `multibooru-*` 目录，在独立应用与 Edge 无头浏览器中验收识别、元数据和精确标签查询。
+- [smoke-multibooru-ui.mjs](smoke-multibooru-ui.mjs)：参数为上述集成生成的 `multibooru-*` 目录，在独立应用与 Edge 无头浏览器中验收连续添加三个湖、多湖查询编辑/恢复/缓存、共同字段、精确标签、旧草稿迁移，以及无关来源离线时的工作集筛选；只对指定测试夹具临时模拟离线并恢复。
 - [verify-multibooru.mjs](verify-multibooru.mjs)：显式传入 JSON 样本清单才读取真实湖；每湖最多 64 个记录、8 个预览。每项声明索引/图片根目录、library_id、generation 以及样本身份、原始 JSON/schema 摘要、标签和尺寸。只写独立测试应用及报告；首次会按需构建完整的应用身份/排序索引，未进行全湖媒体扫描。
 
 实现和验证边界见 [ADR 0035](../docs/decisions/0035-source-registry-and-dispatch.md)及[验收记录](../docs/verification/2026-09-26-multibooru.md)。

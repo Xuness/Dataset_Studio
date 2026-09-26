@@ -2,6 +2,8 @@
 
 实现见 [ADR 0035](../decisions/0035-source-registry-and-dispatch.md)。本轮没有向用户现有项目登记来源；用户将在新项目中自行添加。
 
+后续根据实际使用反馈补齐了继续添加入口、多湖查询编辑和工作集来源解析，见[补充验收](2026-09-26-multibooru-followup.md)。以下为初次接入的验证边界。
+
 ## 工程与集成
 
 - `pnpm check` 通过：类型、模块边界、生成契约、Rust 格式、全目标 Clippy、217 个 Rust 测试及客户端基础/媒体测试。

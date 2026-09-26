@@ -32,6 +32,7 @@ import {
 } from "./QueryConditions.js";
 import type { useProjectQueries } from "./useProjectQueries.js";
 import { resultLabel } from "../scopes/scopes.js";
+import { useQueryFields } from "./useQueryFields.js";
 import "./query.css";
 const stateNames: Record<QueryResult["state"], string> = {
   queued: "等待执行",
@@ -46,7 +47,7 @@ type Model = ReturnType<typeof useProjectQueries>;
 type QueryDraft = {
   definition: QueryDefinition | null;
   name: string;
-  sourceId: string;
+  sourceIds: string[] | null;
   conditions: QuerySpec["conditions"];
   rule: QuerySpec["observation_rule"];
   order: QuerySpec["order"];
@@ -55,7 +56,7 @@ type QueryDraft = {
 const initialDraft: QueryDraft = {
   definition: null,
   name: "资料筛选",
-  sourceId: "",
+  sourceIds: null,
   conditions: [],
   rule: "current_post",
   order: "post_id_desc",
@@ -63,10 +64,24 @@ const initialDraft: QueryDraft = {
 };
 function decodeDraft(value: unknown): QueryDraft | null {
   if (!value || typeof value !== "object") return null;
-  const v = value as QueryDraft;
+  const v = value as QueryDraft & { sourceId?: string };
+  const sourceIds =
+    v.sourceIds === undefined
+      ? Array.isArray(v.definition?.spec?.source_ids) &&
+        v.definition.spec.source_ids.length > 1
+        ? v.definition.spec.source_ids
+        : typeof v.sourceId === "string"
+          ? v.sourceId
+            ? [v.sourceId]
+            : null
+          : undefined
+      : v.sourceIds;
   if (
     typeof v.name !== "string" ||
-    typeof v.sourceId !== "string" ||
+    (sourceIds !== null &&
+      (!Array.isArray(sourceIds) ||
+        sourceIds.length > 8 ||
+        sourceIds.some((id) => typeof id !== "string" || !id))) ||
     !Array.isArray(v.conditions) ||
     v.conditions.length > 12 ||
     !["current_post", "any_observation"].includes(v.rule) ||
@@ -98,6 +113,7 @@ function decodeDraft(value: unknown): QueryDraft | null {
     return null;
   return {
     ...v,
+    sourceIds: sourceIds === null ? null : [...new Set(sourceIds)],
     inputScope: v.inputScope ?? v.definition?.spec.input_scope ?? null,
   };
 }
@@ -168,8 +184,8 @@ export function QueryPanel({
     initialDraft,
     decodeDraft,
   );
-  const { definition, name, sourceId, conditions, rule, order, inputScope } =
-    draft.value;
+  const { definition, name, conditions, rule, order, inputScope } = draft.value;
+  const sourceIds = draft.value.sourceIds ?? [];
   const update = (patch: Partial<QueryDraft>) =>
     draft.controller.set((v) => ({ ...v, ...patch }));
   const [pending, setPending] = useState(false);
@@ -232,7 +248,7 @@ export function QueryPanel({
       draft.controller.set((old) => ({
         ...old,
         definition: null,
-        sourceId: invocation.args.sourceId!,
+        sourceIds: [invocation.args.sourceId!],
         name: "标签 · " + displayTag(tag),
         conditions: [
           {
@@ -252,36 +268,37 @@ export function QueryPanel({
   const [showReleased, setShowReleased] = useState(false);
   const [lastRun, setLastRun] = useState<string | null>(null);
   const submittedScope = useRef<string | null>(null);
-  const multiSource = !!definition && definition.spec.source_ids.length > 1;
   const listed = model.definitions.data?.items ?? [];
   const savedDefinitions =
     definition && !listed.some((q) => q.id === definition.id)
       ? [definition, ...listed]
       : listed;
   useEffect(() => {
-    if (draft.editable && !sourceId) {
-      const preferred =
-        sources.find(
+    if (draft.editable && draft.value.sourceIds === null) {
+      const preferred = sources
+        .filter(
           (s) =>
-            browserScope.kind === "source" &&
-            s.id === browserScope.id &&
-            s.available,
-        ) ??
-        sources.find((s) => sourceSupports(s, "raw_metadata") && s.available) ??
-        sources.find((s) => s.available);
-      if (preferred)
-        draft.controller.set((v) => ({ ...v, sourceId: preferred.id }));
+            sourceSupports(s, "query") &&
+            s.available &&
+            (browserScope.kind !== "source" || s.id === browserScope.id),
+        )
+        .map((s) => s.id);
+      if (preferred.length && preferred.length <= 8)
+        draft.controller.set((v) => ({ ...v, sourceIds: preferred }));
     }
-  }, [draft.editable, draft.controller, sourceId, sources, browserScope]);
-  const directory = useQuery({
-    queryKey: ["project", projectId, "fields", sourceId],
-    queryFn: ({ signal }) => client.queries.fields(projectId, sourceId, signal),
-    enabled: !!sourceId,
-  });
-  const fields =
-    directory.data?.fields.filter((f) => f.operators.length > 0) ?? [];
+  }, [
+    draft.editable,
+    draft.controller,
+    draft.value.sourceIds,
+    sources,
+    browserScope,
+  ]);
+  const directory = useQueryFields(client, projectId, sources, sourceIds);
+  const fields = directory.fields;
   const invalid =
-    !multiSource &&
+    !directory.orders.includes(order) ||
+    !directory.observation_rules.includes(rule) ||
+    conditions.length > directory.max_conditions ||
     conditions.some(
       (c) =>
         !!conditionIssue(
@@ -305,17 +322,14 @@ export function QueryPanel({
     JSON.stringify(selectedOption.scope) !== JSON.stringify(inputScope);
   const running = model.results.data?.items.find((r) => r.id === lastRun);
   const building = !!running && ["queued", "running"].includes(running.state);
-  const spec = (): QuerySpec =>
-    multiSource && definition
-      ? definition.spec
-      : {
-          version: 3,
-          source_ids: [sourceId],
-          conditions,
-          observation_rule: rule,
-          order,
-          ...(inputScope ? { input_scope: inputScope } : {}),
-        };
+  const spec = (): QuerySpec => ({
+    version: 3,
+    source_ids: sourceIds,
+    conditions,
+    observation_rule: rule,
+    order,
+    ...(inputScope ? { input_scope: inputScope } : {}),
+  });
   async function action(fn: () => Promise<unknown>) {
     setPending(true);
     setError(null);
@@ -335,7 +349,7 @@ export function QueryPanel({
     update({
       definition: query,
       name: query.name,
-      sourceId: query.spec.source_ids[0] ?? "",
+      sourceIds: query.spec.source_ids,
       conditions: query.spec.conditions,
       rule: query.spec.observation_rule,
       order: query.spec.order,
@@ -345,12 +359,14 @@ export function QueryPanel({
     setNotice("");
   }
   function fresh() {
-    const source = browserScope.kind === "source" ? browserScope.id : sourceId;
-    draft.controller.set({ ...initialDraft, sourceId: source });
+    const selected = browserScope.kind === "source" ? [browserScope.id] : null;
+    draft.controller.set({ ...initialDraft, sourceIds: selected });
     setError(null);
     setNotice("");
   }
   async function save() {
+    if (!sourceIds.length || directory.pending || directory.error || invalid)
+      return;
     const saved = await client.queries.save(
       projectId,
       {
@@ -368,6 +384,14 @@ export function QueryPanel({
     setNotice("查询条件已保存。");
   }
   async function run() {
+    if (
+      !sourceIds.length ||
+      directory.pending ||
+      directory.error ||
+      invalid ||
+      staleInput
+    )
+      return;
     const next = await client.queries.latestSpec(projectId, spec());
     const unchanged =
       definition && querySignature(next) === querySignature(definition.spec);
@@ -397,7 +421,8 @@ export function QueryPanel({
     setLastRun(null);
   }, [running, browserScope, onResult, name]);
   const mismatch =
-    browserScope.kind === "source" && browserScope.id !== sourceId;
+    browserScope.kind === "source" &&
+    (sourceIds.length !== 1 || sourceIds[0] !== browserScope.id);
   const displayedResults = (model.results.data?.items ?? []).filter(
     (r) => showReleased || r.state !== "released",
   );
@@ -482,44 +507,58 @@ export function QueryPanel({
                 <span>查询名称</span>
                 <input
                   aria-label="查询名称"
-                  disabled={multiSource}
                   value={name}
                   onChange={(e) => update({ name: e.target.value })}
                   maxLength={120}
                   required
                 />
               </label>
-              <label>
-                <span>查询数据湖</span>
-                <select
-                  aria-label="查询数据湖"
-                  disabled={multiSource}
-                  value={sourceId}
-                  required
-                  onChange={(e) =>
-                    update({
-                      sourceId: e.target.value,
-                      inputScope: null,
-                      conditions: [],
-                    })
-                  }
-                >
-                  <option value="" disabled>
-                    选择数据湖
-                  </option>
-                  {sources.map((s) => (
-                    <option key={s.id} value={s.id} disabled={!s.available}>
+              <fieldset className="query-sources" aria-label="查询数据湖">
+                <legend>查询数据湖（可多选，最多 8 个）</legend>
+                {[
+                  ...sources,
+                  ...sourceIds
+                    .filter((id) => !sources.some((s) => s.id === id))
+                    .map((id) => ({ id, name: id, available: false })),
+                ].map((s) => {
+                  const checked = sourceIds.includes(s.id);
+                  const source = sources.find((item) => item.id === s.id);
+                  const supported = !!source && sourceSupports(source, "query");
+                  return (
+                    <label key={s.id}>
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        disabled={
+                          !checked &&
+                          (!s.available || !supported || sourceIds.length >= 8)
+                        }
+                        onChange={(e) =>
+                          update({
+                            sourceIds: e.target.checked
+                              ? [...sourceIds, s.id]
+                              : sourceIds.filter((id) => id !== s.id),
+                            inputScope:
+                              inputScope?.target.kind === "source"
+                                ? null
+                                : inputScope,
+                          })
+                        }
+                      />
                       {s.name}
-                      {s.available ? "" : "（不可用）"}
-                    </option>
-                  ))}
-                </select>
-              </label>
+                      {!s.available
+                        ? "（不可用）"
+                        : !supported
+                          ? "（不支持查询）"
+                          : ""}
+                    </label>
+                  );
+                })}
+              </fieldset>
               <label>
                 <span>范围限制</span>
                 <select
                   aria-label="查询范围限制"
-                  disabled={multiSource}
                   value={
                     !inputScope || inputScope.target.kind === "source"
                       ? ""
@@ -552,7 +591,10 @@ export function QueryPanel({
             </div>
             {mismatch && (
               <p className="query-scope-note">
-                当前查询：{sources.find((s) => s.id === sourceId)?.name}
+                当前查询：
+                {sourceIds
+                  .map((id) => sources.find((s) => s.id === id)?.name ?? id)
+                  .join("、") || "未选择来源"}
                 ；当前浏览：{browserScope.name}。
                 <button type="button" onClick={fresh}>
                   以浏览来源新建查询
@@ -595,21 +637,27 @@ export function QueryPanel({
                 </button>
               </div>
             )}
-            {multiSource ? (
+            {sourceIds.length > 1 && (
               <p className="query-rule-hint">
-                此定义包含多个数据湖，可按保存的条件重新计算。
+                多湖查询使用所选来源共同支持的字段与操作；同一图片在不同数据湖中分别保留。
               </p>
-            ) : (
-              <QueryConditions
-                fields={fields}
-                conditions={conditions}
-                onChange={(conditions) => update({ conditions })}
-              />
             )}
+            <QueryConditions
+              fields={fields}
+              conditions={conditions}
+              onChange={(conditions) => update({ conditions })}
+            />
+            {!directory.pending &&
+              sourceIds.length > 0 &&
+              (!directory.orders.includes(order) ||
+                !directory.observation_rules.includes(rule)) && (
+                <p className="condition-error">
+                  所选来源不共同支持当前排序或观察规则，请调整后执行。
+                </p>
+              )}
             <div className="query-run-row">
               <select
                 aria-label="观察判定规则"
-                disabled={multiSource}
                 value={rule}
                 onChange={(e) =>
                   update({
@@ -617,32 +665,64 @@ export function QueryPanel({
                   })
                 }
               >
-                <option value="current_post">当前帖子记录</option>
-                <option value="any_observation">任一关联历史记录</option>
+                <option
+                  value="current_post"
+                  disabled={
+                    !directory.observation_rules.includes("current_post")
+                  }
+                >
+                  当前帖子记录
+                </option>
+                <option
+                  value="any_observation"
+                  disabled={
+                    !directory.observation_rules.includes("any_observation")
+                  }
+                >
+                  任一关联历史记录
+                </option>
               </select>
               <select
                 aria-label="查询排序"
-                disabled={multiSource}
                 value={order}
                 onChange={(e) =>
                   update({ order: e.target.value as QuerySpec["order"] })
                 }
               >
-                <option value="post_id_desc">帖子 ID 降序</option>
-                <option value="post_id_asc">帖子 ID 升序</option>
-                <option value="asset_key_asc">图像身份升序</option>
-                <option value="asset_key_desc">图像身份降序</option>
+                <option
+                  value="post_id_desc"
+                  disabled={!directory.orders.includes("post_id_desc")}
+                >
+                  帖子 ID 降序
+                </option>
+                <option
+                  value="post_id_asc"
+                  disabled={!directory.orders.includes("post_id_asc")}
+                >
+                  帖子 ID 升序
+                </option>
+                <option
+                  value="asset_key_asc"
+                  disabled={!directory.orders.includes("asset_key_asc")}
+                >
+                  图像身份升序
+                </option>
+                <option
+                  value="asset_key_desc"
+                  disabled={!directory.orders.includes("asset_key_desc")}
+                >
+                  图像身份降序
+                </option>
               </select>
               <span className="grow" />
               <Button
                 type="button"
                 disabled={
                   pending ||
-                  multiSource ||
                   invalid ||
-                  !sourceId ||
+                  !sourceIds.length ||
                   !name.trim() ||
-                  directory.isPending ||
+                  directory.pending ||
                   !!directory.error
                 }
                 onClick={() => void action(save)}
@@ -658,8 +738,8 @@ export function QueryPanel({
                   building ||
                   invalid ||
                   !!staleInput ||
-                  !sourceId ||
-                  directory.isPending ||
+                  !sourceIds.length ||
+                  directory.pending ||
                   !!directory.error
                 }
               >
@@ -755,6 +835,14 @@ export function QueryPanel({
                           { hour: "2-digit", minute: "2-digit" },
                         )}
                       </span>
+                    </small>
+                    <small>
+                      数据湖：
+                      {result.spec.source_ids
+                        .map(
+                          (id) => sources.find((s) => s.id === id)?.name ?? id,
+                        )
+                        .join("、")}
                     </small>
                     <p
                       className="result-condition-summary"

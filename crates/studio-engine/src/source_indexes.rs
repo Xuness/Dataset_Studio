@@ -227,10 +227,7 @@ impl SourceIndexService {
     }
     pub fn start_rating_build(self: &Arc<Self>, source: &Source) -> Result<RatingBuildStatus> {
         if !self.sources.has(source, |c| c.post_order) {
-            return Err(Error::new(
-                "QUERY_UNSUPPORTED",
-                "分级基础缓存用于 Danbooru 数据湖",
-            ));
+            return Err(Error::new("QUERY_UNSUPPORTED", "此来源不支持分级基础缓存"));
         }
         if self.cache.config()?.long_term_mib == 0 {
             return Err(Error::invalid("请先为长期缓存配置容量"));

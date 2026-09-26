@@ -12,7 +12,7 @@ export function CacheManagerPage(props: SettingsPageProps) {
   const { client, project, sources, data, busy, action } = props;
   const [chosenSource, setChosenSource] = useState("");
   const lakes = sources.filter(
-    (s) => sourceSupports(s, "raw_metadata") && s.available,
+    (s) => sourceSupports(s, "post_order") && s.available,
   );
   const sourceId =
     lakes.find((s) => s.id === chosenSource)?.id ?? lakes[0]?.id ?? "";

@@ -982,6 +982,11 @@ function Studio({
       { label: "新建项目…", action: () => setDialog("new") },
       { label: "打开项目…", action: () => setDialog("open") },
       {
+        label: "添加数据湖…",
+        action: () => setDialog("source"),
+        disabled: !project,
+      },
+      {
         label: "项目管理…",
         action: () => openManagement({ kind: "project", id: currentId }),
         disabled: !project,
@@ -1102,6 +1107,16 @@ function Studio({
         <div className="tree-heading">
           <ChevronDown size={12} />
           <span>数据湖</span>
+          <span className="grow" />
+          <button
+            type="button"
+            title="添加数据湖"
+            aria-label="添加数据湖"
+            className="icon-button"
+            onClick={() => setDialog("source")}
+          >
+            <Plus size={12} />
+          </button>
         </div>
         {sources.data?.items.map((source) => (
           <SourceRow

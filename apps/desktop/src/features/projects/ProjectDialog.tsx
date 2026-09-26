@@ -149,6 +149,7 @@ export function ProjectDialog({
           {kind === "source" && (
             <Field label="数据源类型">
               <select
+                aria-label="数据源类型"
                 value={sourceKind}
                 onChange={(e) => {
                   setSourceKind(e.target.value);

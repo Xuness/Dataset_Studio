@@ -1,5 +1,6 @@
 import { SourceClient } from "./sources.js";
 export { sourceSupports } from "./sources.js";
+export { commonQueryFields } from "./queryFields.js";
 import type {
   Schema,
   EngineConnection,

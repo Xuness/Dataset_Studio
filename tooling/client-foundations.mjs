@@ -493,6 +493,57 @@ assert.equal(
 checks.push(
   "comparison direction uses actual A/B percentiles, preserves unknowns, and old ranking sessions restore with bounded display defaults",
 );
+const { commonQueryFields } = await compiled(
+  "packages/client/src/queryFields.ts",
+  "query-fields",
+);
+const fieldContract = (id, field_type, operators, unit = null) => ({
+  id,
+  name: id,
+  field_type,
+  operators,
+  unit,
+  sortable: false,
+});
+const directoryContract = (fields, orders, rules, max_conditions = 12) => ({
+  fields,
+  orders,
+  observation_rules: rules,
+  max_conditions,
+});
+const combinedFields = commonQueryFields([
+  directoryContract(
+    [
+      fieldContract("rating", "text", ["eq", "in"]),
+      fieldContract("fav_count", "integer", ["gte"]),
+      fieldContract("size", "integer", ["gte"], "byte"),
+      fieldContract("ambiguous", "integer", ["eq"]),
+    ],
+    ["post_id_asc", "asset_key_asc"],
+    ["current_post", "any_observation"],
+  ),
+  directoryContract(
+    [
+      fieldContract("rating", "text", ["eq"]),
+      fieldContract("size", "integer", ["gte"], "pixel"),
+      fieldContract("ambiguous", "text", ["eq"]),
+    ],
+    ["asset_key_asc"],
+    ["current_post"],
+    4,
+  ),
+]);
+assert.deepEqual(
+  combinedFields.fields.map((field) => [field.id, field.operators]),
+  [["rating", ["eq"]]],
+);
+assert.deepEqual(combinedFields.orders, ["asset_key_asc"]);
+assert.deepEqual(combinedFields.observation_rules, ["current_post"]);
+assert.equal(combinedFields.max_conditions, 4);
+assert.deepEqual(commonQueryFields([]).fields, []);
+checks.push(
+  "multi-source field contracts preserve only compatible types, units, operators, orders and observation rules",
+);
 await writeFile(
   resolve(directory, "report.json"),
   JSON.stringify({ passed: true, checks }, null, 2),

@@ -9,12 +9,10 @@ pub(super) async fn requirements(
 ) -> ApiResult<SourceRequirementsResult> {
     Ok(Json(
         blocking(move || {
-            if body.projections.is_empty()
-                || body.projections.len() > 16
-                || body.projections.iter().any(|p| p.len() > 128)
-            {
-                return Err(domain::Error::invalid("需要 1–16 个有界投影名称"));
+            if body.projections.len() > 16 || body.projections.iter().any(|p| p.len() > 128) {
+                return Err(domain::Error::invalid("最多允许 16 个有界投影名称"));
             }
+            // An empty requirement list resolves the scope's actual source set.
             let scope: domain::ScopeRef = body.scope.into();
             scope.validate_project(&pid)?;
             let rows = s

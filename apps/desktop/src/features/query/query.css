@@ -53,6 +53,25 @@
   font-size: 12px;
   color: #b6b6b6;
 }
+.query-sources {
+  margin: 0;
+  padding: 6px 8px;
+  min-width: 0;
+  max-height: 130px;
+  overflow-y: auto;
+  border: 1px solid #535353;
+  border-radius: 3px;
+  font-size: 12px;
+}
+.query-sources label {
+  flex-direction: row;
+  align-items: center;
+  overflow-wrap: anywhere;
+}
+.query-sources input[type="checkbox"] {
+  min-height: 0;
+  flex-shrink: 0;
+}
 .query-panel input,
 .query-panel select {
   min-height: 29px;
