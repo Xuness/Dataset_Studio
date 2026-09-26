@@ -24,6 +24,7 @@ use utoipa::OpenApi;
 mod aesthetic;
 mod aesthetic_analysis;
 mod cache_storage;
+mod lake_updates;
 mod llm;
 mod management;
 mod query;
@@ -39,6 +40,7 @@ mod tools;
 
 #[derive(Clone)]
 pub struct AppState {
+    pub lake_updates: Arc<dyn studio_application::lake_updates::LakeUpdateBackend>,
     pub aesthetic: Arc<crate::aesthetic::Runner>,
     pub aesthetic_analysis: Arc<crate::aesthetic::analysis::Runner>,
     pub llm: Arc<studio_application::llm::LlmService>,
@@ -92,7 +94,8 @@ impl IntoResponse for Failure {
             | "SCOPE_PROJECT_MISMATCH"
             | "SOURCE_LOCATION_CONFLICT"
             | "PROJECT_ID_CONFLICT"
-            | "IDEMPOTENCY_CONFLICT" => StatusCode::CONFLICT,
+            | "IDEMPOTENCY_CONFLICT"
+            | "UPDATE_CONFLICT" => StatusCode::CONFLICT,
             "LLM_QUEUE_FULL"
             | "EVALUATION_BUSY"
             | "EVALUATION_STORAGE_UNHEALTHY"
@@ -104,7 +107,10 @@ impl IntoResponse for Failure {
             | "SOURCE_UNAVAILABLE"
             | "METADATA_RUNTIME_UNAVAILABLE"
             | "READ_BUDGET_EXCEEDED"
-            | "CACHE_BUSY" => StatusCode::SERVICE_UNAVAILABLE,
+            | "CACHE_BUSY"
+            | "UPDATE_UNAVAILABLE"
+            | "UPDATE_NETWORK"
+            | "UPDATE_REMOTE_ERROR" => StatusCode::SERVICE_UNAVAILABLE,
             "LOCATION_UNAVAILABLE" => StatusCode::NOT_FOUND,
             "SOURCE_TIMEOUT" => StatusCode::GATEWAY_TIMEOUT,
             "SOURCE_RESOURCE_LIMIT" | "METADATA_LIMIT" => StatusCode::PAYLOAD_TOO_LARGE,
@@ -124,7 +130,10 @@ impl IntoResponse for Failure {
             | "FORMAT_UNSUPPORTED"
             | "METADATA_UNSUPPORTED"
             | "METADATA_RUNTIME_UNSUPPORTED"
-            | "SOURCE_FORMAT_UNSUPPORTED" => StatusCode::BAD_REQUEST,
+            | "SOURCE_FORMAT_UNSUPPORTED"
+            | "UPDATE_UNSUPPORTED"
+            | "UPDATE_CREDENTIAL_REQUIRED"
+            | "UPDATE_BASELINE_REQUIRED" => StatusCode::BAD_REQUEST,
             "QUERY_UNSUPPORTED"
             | "RANKING_SCOPE_UNSUPPORTED"
             | "RANKING_SOURCE_UNSUPPORTED"
@@ -1545,7 +1554,12 @@ async fn shutdown(State(s): State<AppState>) -> Json<OkResponse> {
         management::presets,
         management::save_preset,
         management::delete_preset,
-        management::reveal
+        management::reveal,
+        lake_updates::status, lake_updates::configure, lake_updates::capabilities, lake_updates::lakes,
+        lake_updates::register, lake_updates::credentials, lake_updates::clear_credentials, lake_updates::probe,
+        lake_updates::preview, lake_updates::jobs, lake_updates::create, lake_updates::job, lake_updates::action,
+        lake_updates::items, lake_updates::coverage, lake_updates::schedules, lake_updates::schedule, lake_updates::remove_schedule,
+        lake_updates::create_input, lake_updates::input, lake_updates::append_input, lake_updates::seal_input
     ),
     components(schemas(
         EngineConnection,
@@ -1567,6 +1581,7 @@ pub fn routes() -> axum::Router<AppState> {
         .route("/v1/source-adapters", get(source_probe::adapters))
         .route("/v1/source-probes", post(source_probe::probe))
         .nest("/v1/llm", llm::routes())
+        .nest("/v1/lake-updates", lake_updates::routes())
         .nest("/v1/projects/{project_id}/aesthetic", aesthetic::routes())
         .nest(
             "/v1/projects/{project_id}/aesthetic/analysis",

@@ -159,6 +159,310 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/lake-updates/capabilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["lake_updates_capabilities"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lake-updates/credentials": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["lake_updates_credentials"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lake-updates/credentials/{site}/clear": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["lake_updates_clear_credentials"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lake-updates/inputs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["lake_updates_create_input"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lake-updates/inputs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["lake_updates_input"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lake-updates/inputs/{id}/append": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["lake_updates_append_input"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lake-updates/inputs/{id}/seal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["lake_updates_seal_input"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lake-updates/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["lake_updates_jobs"];
+        put?: never;
+        post: operations["lake_updates_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lake-updates/jobs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["lake_updates_job"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lake-updates/jobs/{id}/actions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["lake_updates_action"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lake-updates/jobs/{id}/coverage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["lake_updates_coverage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lake-updates/jobs/{id}/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["lake_updates_items"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lake-updates/lakes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["lake_updates_lakes"];
+        put?: never;
+        post: operations["lake_updates_register"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lake-updates/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["lake_updates_preview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lake-updates/probes/{site}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["lake_updates_probe"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lake-updates/runtime": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["lake_updates_configure"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lake-updates/schedules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["lake_updates_schedules"];
+        put?: never;
+        post: operations["lake_updates_schedule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lake-updates/schedules/{id}/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["lake_updates_remove_schedule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lake-updates/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["lake_updates_status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/llm/generate": {
         parameters: {
             query?: never;
@@ -3037,6 +3341,10 @@ export interface components {
             message: string;
             request_id: string;
         };
+        AppendLakeUpdateInput: {
+            object_sha256s?: string[] | null;
+            post_ids?: number[] | null;
+        };
         Artifact: {
             /** Format: int64 */
             count?: number | null;
@@ -3331,13 +3639,31 @@ export interface components {
             /** Format: int32 */
             undo_limit: number;
         };
+        ConfigureLakeUpdates: {
+            python: string;
+            state_root: string;
+            store_root: string;
+        };
         CreateCollection: {
             name: string;
             scope?: null | components["schemas"]["ScopeRef"];
         };
+        CreateLakeUpdate: {
+            definition: components["schemas"]["LakeUpdateDefinition"];
+            request_key: string;
+        };
+        CreateLakeUpdateInput: {
+            library_id: string;
+            provenance?: unknown;
+            source_version?: string | null;
+        };
         CreateProject: {
             name: string;
             parent_directory?: string | null;
+        };
+        DeleteSchedule: {
+            /** Format: int64 */
+            revision: number;
         };
         DeleteToolPreset: {
             /** Format: int64 */
@@ -3490,6 +3816,304 @@ export interface components {
         };
         Jobs: {
             items: components["schemas"]["Job"][];
+        };
+        LakeApiProbe: {
+            fields: string[];
+            range_verified: boolean;
+            /** Format: int32 */
+            records: number;
+            site: components["schemas"]["LakeUpdateSite"];
+            /** Format: int32 */
+            status: number;
+        };
+        LakeCredentialStatus: {
+            credential_set: boolean;
+            /** Format: int64 */
+            revision?: number | null;
+            site: components["schemas"]["LakeUpdateSite"];
+        };
+        LakeImagePolicy: {
+            allow_sample?: boolean;
+            existing?: string | null;
+            profile: components["schemas"]["LakeImageProfile"];
+        };
+        /** @enum {string} */
+        LakeImageProfile: "metadata_only" | "original" | "webp-2048-q95";
+        /** @enum {string} */
+        LakeUpdateAction: "pause" | "resume" | "retry" | "replay" | "cancel";
+        LakeUpdateActionRequest: {
+            action: components["schemas"]["LakeUpdateAction"];
+        };
+        LakeUpdateCapabilities: {
+            items: components["schemas"]["LakeUpdateCapability"][];
+        };
+        LakeUpdateCapability: {
+            /** Format: int32 */
+            adapter_version: number;
+            change_sequence: boolean;
+            created_range: string;
+            credential_set: boolean;
+            deletion_discovery: string;
+            full_change_history: boolean;
+            id_lists: boolean;
+            id_ranges: boolean;
+            /** Format: int32 */
+            page_size: number;
+            site: components["schemas"]["LakeUpdateSite"];
+            updated_range: boolean;
+        };
+        LakeUpdateCoverage: {
+            coverage?: unknown;
+            job_id: string;
+            state: components["schemas"]["LakeUpdateJobState"];
+        };
+        LakeUpdateDefinition: {
+            /** Format: int32 */
+            item_budget?: number | null;
+            library_id: string;
+            media?: null | components["schemas"]["LakeImagePolicy"];
+            /** Format: int32 */
+            page_budget?: number | null;
+            range: components["schemas"]["LakeUpdateRange"];
+        };
+        LakeUpdateInput: {
+            /** Format: int64 */
+            count: number;
+            created_at: string;
+            id: string;
+            lake_id: string;
+            provenance: unknown;
+            sha256?: string | null;
+            source_version: string;
+            state: string;
+        };
+        LakeUpdateItem: {
+            asset_id?: string | null;
+            /** Format: int32 */
+            attempts: number;
+            observation_id?: string | null;
+            /** Format: int64 */
+            post_id: number;
+            reason?: string | null;
+            /** Format: double */
+            retry_at: number;
+            state: string;
+        };
+        LakeUpdateItems: {
+            items: components["schemas"]["LakeUpdateItem"][];
+            /** Format: int64 */
+            next_cursor?: number | null;
+        };
+        LakeUpdateJob: {
+            counts: {
+                [key: string]: number;
+            };
+            created_at: string;
+            cursor: components["schemas"]["LakeUpdateProgress"];
+            definition: components["schemas"]["LakeUpdateDefinition"];
+            error_code?: string | null;
+            error_message?: string | null;
+            /** Format: int64 */
+            execution: number;
+            id: string;
+            lake_id: string;
+            request_key: string;
+            /** Format: double */
+            retry_at: number;
+            state: components["schemas"]["LakeUpdateJobState"];
+            telemetry?: components["schemas"]["LakeUpdateTelemetry"];
+            updated_at: string;
+        };
+        /** @enum {string} */
+        LakeUpdateJobState: "queued" | "running" | "paused" | "cancelled" | "completed" | "completed_with_exclusions" | "waiting_retry" | "waiting_space" | "waiting_credentials" | "needs_review";
+        LakeUpdateJobs: {
+            items: components["schemas"]["LakeUpdateJob"][];
+            next_cursor?: string | null;
+        };
+        LakeUpdatePreview: {
+            definition: components["schemas"]["LakeUpdateDefinition"];
+            /** Format: int64 */
+            known_candidates?: number | null;
+            note?: string | null;
+            scan_strategy: string;
+        };
+        LakeUpdateProgress: {
+            /**
+             * Format: int64
+             * @default null
+             */
+            baseline: number | null;
+            /**
+             * Format: int64
+             * @default null
+             */
+            change_through: number | null;
+            /** @default null */
+            completed_at: string | null;
+            /** @default false */
+            initialized: boolean;
+            /**
+             * Format: int64
+             * @default null
+             */
+            input_seq: number | null;
+            /** @default false */
+            metadata_complete: boolean;
+            /**
+             * Format: int64
+             * @default null
+             */
+            next_id: number | null;
+            /**
+             * Format: int64
+             * @default 0
+             */
+            pages: number;
+            /**
+             * Format: int64
+             * @default null
+             */
+            position: number | null;
+            /** @default null */
+            scope: string | null;
+            /**
+             * Format: int64
+             * @default 0
+             */
+            slice_items: number;
+            /**
+             * Format: int64
+             * @default 0
+             */
+            slice_pages: number;
+            /**
+             * Format: int64
+             * @default null
+             */
+            upper: number | null;
+        };
+        LakeUpdateRange: {
+            input_id: string;
+            /** @enum {string} */
+            kind: "input";
+        } | {
+            ids: number[];
+            /** @enum {string} */
+            kind: "ids";
+        } | {
+            /** Format: int64 */
+            end: number;
+            /** @enum {string} */
+            kind: "id_range";
+            /** Format: int64 */
+            start: number;
+        } | {
+            /** Format: int64 */
+            after_id?: number | null;
+            /** @enum {string} */
+            kind: "new";
+        } | {
+            /** Format: int64 */
+            after: number;
+            /** Format: int64 */
+            end_id?: number | null;
+            /** @enum {string} */
+            kind: "changes";
+            /** Format: int64 */
+            start_id?: number | null;
+        } | {
+            end: string;
+            /** Format: int64 */
+            end_id?: number | null;
+            /** @enum {string} */
+            kind: "created";
+            start: string;
+            /** Format: int64 */
+            start_id?: number | null;
+            timezone: string;
+        } | {
+            end: string;
+            /** Format: int64 */
+            end_id?: number | null;
+            /** @enum {string} */
+            kind: "updated";
+            start: string;
+            /** Format: int64 */
+            start_id?: number | null;
+            timezone: string;
+        } | {
+            /** Format: int64 */
+            end_id?: number | null;
+            /** @enum {string} */
+            kind: "local";
+            missing_media?: boolean | null;
+            observed_before?: string | null;
+            /** Format: int64 */
+            start_id?: number | null;
+        };
+        LakeUpdateSchedule: {
+            definition: components["schemas"]["LakeUpdateDefinition"];
+            enabled: boolean;
+            /** Format: int32 */
+            every_seconds?: number | null;
+            id: string;
+            last_job?: string | null;
+            next_run_at: string;
+            /** Format: int64 */
+            revision: number;
+        };
+        LakeUpdateScheduleSaved: {
+            id: string;
+            /** Format: int64 */
+            revision: number;
+        };
+        LakeUpdateSchedules: {
+            items: components["schemas"]["LakeUpdateSchedule"][];
+        };
+        LakeUpdateServiceStatus: {
+            configured: boolean;
+            credentials: components["schemas"]["LakeCredentialStatus"][];
+            /** Format: int32 */
+            protocol_version: number;
+            worker_recent: boolean;
+        };
+        /** @enum {string} */
+        LakeUpdateSite: "danbooru" | "yandere" | "gelbooru";
+        LakeUpdateTelemetry: {
+            /**
+             * Format: int64
+             * @default null
+             */
+            current_bytes: number | null;
+            /**
+             * Format: int64
+             * @default null
+             */
+            current_post_id: number | null;
+            /**
+             * Format: int64
+             * @default null
+             */
+            current_total_bytes: number | null;
+            /**
+             * Format: double
+             * @default null
+             */
+            download_rate_bps: number | null;
+            /**
+             * Format: int64
+             * @default null
+             */
+            downloaded_bytes: number | null;
+            /**
+             * Format: int64
+             * @default null
+             */
+            metadata_bytes: number | null;
+            /** @default null */
+            phase: string | null;
+            /** @default null */
+            sampled_at: string | null;
         };
         LlmCatalog: {
             fetched_at: string;
@@ -4698,6 +5322,12 @@ export interface components {
             library_id: string;
             token: string;
         };
+        RegisterUpdateLake: {
+            index_root: string;
+            library_id: string;
+            media_root: string;
+            site: components["schemas"]["LakeUpdateSite"];
+        };
         RelinkSource: {
             index_root: string;
             media_root: string;
@@ -4769,6 +5399,16 @@ export interface components {
             /** Format: int32 */
             schema_version: number;
             value: unknown;
+        };
+        SaveLakeUpdateSchedule: {
+            enabled?: boolean;
+            /** Format: int32 */
+            every_seconds?: number | null;
+            first_run_at: string;
+            identity?: string | null;
+            /** Format: int64 */
+            revision?: number | null;
+            spec: components["schemas"]["LakeUpdateDefinition"];
         };
         SaveLlmModel: {
             config: components["schemas"]["LlmModelConfig"];
@@ -4882,6 +5522,18 @@ export interface components {
         SetCacheQuota: {
             /** Format: int32 */
             quota_mib: number;
+        };
+        /** @description No Debug implementation: key material must never enter tracing. */
+        SetLakeCredentials: {
+            api_key: string;
+            login: string;
+            /** @enum {string} */
+            site: "danbooru";
+        } | {
+            api_key: string;
+            /** @enum {string} */
+            site: "gelbooru";
+            user_id: string;
         };
         SetQueryCache: {
             /** Format: int32 */
@@ -5002,6 +5654,16 @@ export interface components {
             idempotency_key: string;
             run: components["schemas"]["OperatorRun"];
             scope: components["schemas"]["ScopeRef"];
+        };
+        UpdateLake: {
+            id: string;
+            index_root: string;
+            media: string;
+            registered_at: string;
+            site: components["schemas"]["LakeUpdateSite"];
+        };
+        UpdateLakes: {
+            items: components["schemas"]["UpdateLake"][];
         };
     };
     responses: never;
@@ -5228,6 +5890,490 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Health"];
+                };
+            };
+        };
+    };
+    lake_updates_capabilities: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LakeUpdateCapabilities"];
+                };
+            };
+        };
+    };
+    lake_updates_credentials: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetLakeCredentials"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LakeCredentialStatus"];
+                };
+            };
+        };
+    };
+    lake_updates_clear_credentials: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                site: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LakeCredentialStatus"];
+                };
+            };
+        };
+    };
+    lake_updates_create_input: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateLakeUpdateInput"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LakeUpdateInput"];
+                };
+            };
+        };
+    };
+    lake_updates_input: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LakeUpdateInput"];
+                };
+            };
+        };
+    };
+    lake_updates_append_input: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AppendLakeUpdateInput"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LakeUpdateInput"];
+                };
+            };
+        };
+    };
+    lake_updates_seal_input: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LakeUpdateInput"];
+                };
+            };
+        };
+    };
+    lake_updates_jobs: {
+        parameters: {
+            query?: {
+                after?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LakeUpdateJobs"];
+                };
+            };
+        };
+    };
+    lake_updates_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateLakeUpdate"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LakeUpdateJob"];
+                };
+            };
+        };
+    };
+    lake_updates_job: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LakeUpdateJob"];
+                };
+            };
+        };
+    };
+    lake_updates_action: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LakeUpdateActionRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LakeUpdateJob"];
+                };
+            };
+        };
+    };
+    lake_updates_coverage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LakeUpdateCoverage"];
+                };
+            };
+        };
+    };
+    lake_updates_items: {
+        parameters: {
+            query?: {
+                after?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LakeUpdateItems"];
+                };
+            };
+        };
+    };
+    lake_updates_lakes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdateLakes"];
+                };
+            };
+        };
+    };
+    lake_updates_register: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegisterUpdateLake"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdateLake"];
+                };
+            };
+        };
+    };
+    lake_updates_preview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LakeUpdateDefinition"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LakeUpdatePreview"];
+                };
+            };
+        };
+    };
+    lake_updates_probe: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                site: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LakeApiProbe"];
+                };
+            };
+        };
+    };
+    lake_updates_configure: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConfigureLakeUpdates"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+        };
+    };
+    lake_updates_schedules: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LakeUpdateSchedules"];
+                };
+            };
+        };
+    };
+    lake_updates_schedule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveLakeUpdateSchedule"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LakeUpdateScheduleSaved"];
+                };
+            };
+        };
+    };
+    lake_updates_remove_schedule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeleteSchedule"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
+                };
+            };
+        };
+    };
+    lake_updates_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LakeUpdateServiceStatus"];
                 };
             };
         };

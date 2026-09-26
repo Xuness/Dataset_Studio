@@ -2,6 +2,8 @@
 
 以下命令均从仓库根目录运行。日常启动、所需环境及数据目录见[仓库说明](../README.md)，架构与历史验收见[文档导航](../docs/README.md)。
 
+三站更新后端：`node tooling/integration-lake-updates.mjs`。完整 HTTP/SDK 与 Store 验收需要设置 `STUDIO_LAKE_TEST_PYTHON`（安装 Store 依赖的 Python）和 `STUDIO_LAKE_TEST_STORE`（Store 仓库根）。夹具由 `lake-updates-fixture.py` 生成，仅使用 `.local/test-runs/` 隔离湖；未配置伴随运行环境时只检查可选后端状态。在线读取回归另见 `node tooling/integration-online.mjs`。
+
 脚本使用自身位置定位仓库根目录，统一保留在 tooling 顶层。测试源码和夹具生成器随 Git 保存；运行产生的数据、截图和日志使用 `.local/`。
 
 在线湖验收：`node tooling/integration-online.mjs`（Python 需要 DuckDB 与 APSW，使用 `PYTHON` 指定）；`node tooling/smoke-online-ui.mjs <online-fixture-directory>` 检查分页视图和保存工作集；`node tooling/verify-online-lakes.mjs <lake-paths.json>` 对正式湖做有界只读抽样。路径 JSON 是含 site/index/media 的数组，不随仓库保存本机数据。协议与边界见 [P2/P3 验收](../docs/verification/2026-09-26-online-upgrade-p23.md)。

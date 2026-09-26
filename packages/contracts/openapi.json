@@ -354,6 +354,680 @@
         }
       }
     },
+    "/v1/lake-updates/capabilities": {
+      "get": {
+        "tags": [
+          "lake_updates"
+        ],
+        "operationId": "lake_updates_capabilities",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LakeUpdateCapabilities"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/lake-updates/credentials": {
+      "put": {
+        "tags": [
+          "lake_updates"
+        ],
+        "operationId": "lake_updates_credentials",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetLakeCredentials"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LakeCredentialStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/lake-updates/credentials/{site}/clear": {
+      "post": {
+        "tags": [
+          "lake_updates"
+        ],
+        "operationId": "lake_updates_clear_credentials",
+        "parameters": [
+          {
+            "name": "site",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LakeCredentialStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/lake-updates/inputs": {
+      "post": {
+        "tags": [
+          "lake_updates"
+        ],
+        "operationId": "lake_updates_create_input",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateLakeUpdateInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LakeUpdateInput"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/lake-updates/inputs/{id}": {
+      "get": {
+        "tags": [
+          "lake_updates"
+        ],
+        "operationId": "lake_updates_input",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LakeUpdateInput"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/lake-updates/inputs/{id}/append": {
+      "post": {
+        "tags": [
+          "lake_updates"
+        ],
+        "operationId": "lake_updates_append_input",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AppendLakeUpdateInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LakeUpdateInput"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/lake-updates/inputs/{id}/seal": {
+      "post": {
+        "tags": [
+          "lake_updates"
+        ],
+        "operationId": "lake_updates_seal_input",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LakeUpdateInput"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/lake-updates/jobs": {
+      "get": {
+        "tags": [
+          "lake_updates"
+        ],
+        "operationId": "lake_updates_jobs",
+        "parameters": [
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LakeUpdateJobs"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "lake_updates"
+        ],
+        "operationId": "lake_updates_create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateLakeUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LakeUpdateJob"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/lake-updates/jobs/{id}": {
+      "get": {
+        "tags": [
+          "lake_updates"
+        ],
+        "operationId": "lake_updates_job",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LakeUpdateJob"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/lake-updates/jobs/{id}/actions": {
+      "post": {
+        "tags": [
+          "lake_updates"
+        ],
+        "operationId": "lake_updates_action",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LakeUpdateActionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LakeUpdateJob"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/lake-updates/jobs/{id}/coverage": {
+      "get": {
+        "tags": [
+          "lake_updates"
+        ],
+        "operationId": "lake_updates_coverage",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LakeUpdateCoverage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/lake-updates/jobs/{id}/items": {
+      "get": {
+        "tags": [
+          "lake_updates"
+        ],
+        "operationId": "lake_updates_items",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LakeUpdateItems"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/lake-updates/lakes": {
+      "get": {
+        "tags": [
+          "lake_updates"
+        ],
+        "operationId": "lake_updates_lakes",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateLakes"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "lake_updates"
+        ],
+        "operationId": "lake_updates_register",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterUpdateLake"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateLake"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/lake-updates/preview": {
+      "post": {
+        "tags": [
+          "lake_updates"
+        ],
+        "operationId": "lake_updates_preview",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LakeUpdateDefinition"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LakeUpdatePreview"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/lake-updates/probes/{site}": {
+      "post": {
+        "tags": [
+          "lake_updates"
+        ],
+        "operationId": "lake_updates_probe",
+        "parameters": [
+          {
+            "name": "site",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LakeApiProbe"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/lake-updates/runtime": {
+      "put": {
+        "tags": [
+          "lake_updates"
+        ],
+        "operationId": "lake_updates_configure",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfigureLakeUpdates"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/lake-updates/schedules": {
+      "get": {
+        "tags": [
+          "lake_updates"
+        ],
+        "operationId": "lake_updates_schedules",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LakeUpdateSchedules"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "lake_updates"
+        ],
+        "operationId": "lake_updates_schedule",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveLakeUpdateSchedule"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LakeUpdateScheduleSaved"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/lake-updates/schedules/{id}/remove": {
+      "post": {
+        "tags": [
+          "lake_updates"
+        ],
+        "operationId": "lake_updates_remove_schedule",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteSchedule"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/lake-updates/status": {
+      "get": {
+        "tags": [
+          "lake_updates"
+        ],
+        "operationId": "lake_updates_status",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LakeUpdateServiceStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/llm/generate": {
       "post": {
         "tags": [
@@ -9269,6 +9943,32 @@
           }
         }
       },
+      "AppendLakeUpdateInput": {
+        "type": "object",
+        "properties": {
+          "object_sha256s": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          },
+          "post_ids": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          }
+        },
+        "additionalProperties": false
+      },
       "Artifact": {
         "type": "object",
         "required": [
@@ -10511,6 +11211,26 @@
         },
         "additionalProperties": false
       },
+      "ConfigureLakeUpdates": {
+        "type": "object",
+        "required": [
+          "python",
+          "store_root",
+          "state_root"
+        ],
+        "properties": {
+          "python": {
+            "type": "string"
+          },
+          "state_root": {
+            "type": "string"
+          },
+          "store_root": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
       "CreateCollection": {
         "type": "object",
         "required": [
@@ -10533,6 +11253,41 @@
         },
         "additionalProperties": false
       },
+      "CreateLakeUpdate": {
+        "type": "object",
+        "required": [
+          "request_key",
+          "definition"
+        ],
+        "properties": {
+          "definition": {
+            "$ref": "#/components/schemas/LakeUpdateDefinition"
+          },
+          "request_key": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CreateLakeUpdateInput": {
+        "type": "object",
+        "required": [
+          "library_id"
+        ],
+        "properties": {
+          "library_id": {
+            "type": "string"
+          },
+          "provenance": {},
+          "source_version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
       "CreateProject": {
         "type": "object",
         "required": [
@@ -10550,6 +11305,19 @@
           }
         },
         "additionalProperties": false
+      },
+      "DeleteSchedule": {
+        "type": "object",
+        "required": [
+          "revision"
+        ],
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
       },
       "DeleteToolPreset": {
         "type": "object",
@@ -11137,6 +11905,1027 @@
             "items": {
               "$ref": "#/components/schemas/Job"
             }
+          }
+        }
+      },
+      "LakeApiProbe": {
+        "type": "object",
+        "required": [
+          "site",
+          "status",
+          "records",
+          "range_verified",
+          "fields"
+        ],
+        "properties": {
+          "fields": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "range_verified": {
+            "type": "boolean"
+          },
+          "records": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "site": {
+            "$ref": "#/components/schemas/LakeUpdateSite"
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "LakeCredentialStatus": {
+        "type": "object",
+        "required": [
+          "site",
+          "credential_set"
+        ],
+        "properties": {
+          "credential_set": {
+            "type": "boolean"
+          },
+          "revision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "site": {
+            "$ref": "#/components/schemas/LakeUpdateSite"
+          }
+        }
+      },
+      "LakeImagePolicy": {
+        "type": "object",
+        "required": [
+          "profile"
+        ],
+        "properties": {
+          "allow_sample": {
+            "type": "boolean"
+          },
+          "existing": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "profile": {
+            "$ref": "#/components/schemas/LakeImageProfile"
+          }
+        },
+        "additionalProperties": false
+      },
+      "LakeImageProfile": {
+        "type": "string",
+        "enum": [
+          "metadata_only",
+          "original",
+          "webp-2048-q95"
+        ]
+      },
+      "LakeUpdateAction": {
+        "type": "string",
+        "enum": [
+          "pause",
+          "resume",
+          "retry",
+          "replay",
+          "cancel"
+        ]
+      },
+      "LakeUpdateActionRequest": {
+        "type": "object",
+        "required": [
+          "action"
+        ],
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/LakeUpdateAction"
+          }
+        },
+        "additionalProperties": false
+      },
+      "LakeUpdateCapabilities": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LakeUpdateCapability"
+            }
+          }
+        }
+      },
+      "LakeUpdateCapability": {
+        "type": "object",
+        "required": [
+          "site",
+          "adapter_version",
+          "page_size",
+          "id_ranges",
+          "id_lists",
+          "created_range",
+          "updated_range",
+          "change_sequence",
+          "full_change_history",
+          "deletion_discovery",
+          "credential_set"
+        ],
+        "properties": {
+          "adapter_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "change_sequence": {
+            "type": "boolean"
+          },
+          "created_range": {
+            "type": "string"
+          },
+          "credential_set": {
+            "type": "boolean"
+          },
+          "deletion_discovery": {
+            "type": "string"
+          },
+          "full_change_history": {
+            "type": "boolean"
+          },
+          "id_lists": {
+            "type": "boolean"
+          },
+          "id_ranges": {
+            "type": "boolean"
+          },
+          "page_size": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "site": {
+            "$ref": "#/components/schemas/LakeUpdateSite"
+          },
+          "updated_range": {
+            "type": "boolean"
+          }
+        }
+      },
+      "LakeUpdateCoverage": {
+        "type": "object",
+        "required": [
+          "job_id",
+          "state"
+        ],
+        "properties": {
+          "coverage": {},
+          "job_id": {
+            "type": "string"
+          },
+          "state": {
+            "$ref": "#/components/schemas/LakeUpdateJobState"
+          }
+        }
+      },
+      "LakeUpdateDefinition": {
+        "type": "object",
+        "required": [
+          "library_id",
+          "range"
+        ],
+        "properties": {
+          "item_budget": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "library_id": {
+            "type": "string"
+          },
+          "media": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LakeImagePolicy"
+              }
+            ]
+          },
+          "page_budget": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "range": {
+            "$ref": "#/components/schemas/LakeUpdateRange"
+          }
+        },
+        "additionalProperties": false
+      },
+      "LakeUpdateInput": {
+        "type": "object",
+        "required": [
+          "id",
+          "lake_id",
+          "state",
+          "source_version",
+          "provenance",
+          "created_at",
+          "count"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "lake_id": {
+            "type": "string"
+          },
+          "provenance": {},
+          "sha256": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source_version": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        }
+      },
+      "LakeUpdateItem": {
+        "type": "object",
+        "required": [
+          "post_id",
+          "state",
+          "attempts",
+          "retry_at"
+        ],
+        "properties": {
+          "asset_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "attempts": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "observation_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "post_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "retry_at": {
+            "type": "number",
+            "format": "double"
+          },
+          "state": {
+            "type": "string"
+          }
+        }
+      },
+      "LakeUpdateItems": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LakeUpdateItem"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "LakeUpdateJob": {
+        "type": "object",
+        "required": [
+          "id",
+          "lake_id",
+          "request_key",
+          "definition",
+          "state",
+          "cursor",
+          "counts",
+          "created_at",
+          "updated_at",
+          "retry_at",
+          "execution"
+        ],
+        "properties": {
+          "counts": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "cursor": {
+            "$ref": "#/components/schemas/LakeUpdateProgress"
+          },
+          "definition": {
+            "$ref": "#/components/schemas/LakeUpdateDefinition"
+          },
+          "error_code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error_message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "execution": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "id": {
+            "type": "string"
+          },
+          "lake_id": {
+            "type": "string"
+          },
+          "request_key": {
+            "type": "string"
+          },
+          "retry_at": {
+            "type": "number",
+            "format": "double"
+          },
+          "state": {
+            "$ref": "#/components/schemas/LakeUpdateJobState"
+          },
+          "telemetry": {
+            "$ref": "#/components/schemas/LakeUpdateTelemetry"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        }
+      },
+      "LakeUpdateJobState": {
+        "type": "string",
+        "enum": [
+          "queued",
+          "running",
+          "paused",
+          "cancelled",
+          "completed",
+          "completed_with_exclusions",
+          "waiting_retry",
+          "waiting_space",
+          "waiting_credentials",
+          "needs_review"
+        ]
+      },
+      "LakeUpdateJobs": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LakeUpdateJob"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "LakeUpdatePreview": {
+        "type": "object",
+        "required": [
+          "definition",
+          "scan_strategy"
+        ],
+        "properties": {
+          "definition": {
+            "$ref": "#/components/schemas/LakeUpdateDefinition"
+          },
+          "known_candidates": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scan_strategy": {
+            "type": "string"
+          }
+        }
+      },
+      "LakeUpdateProgress": {
+        "type": "object",
+        "properties": {
+          "baseline": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "default": null,
+            "minimum": 0
+          },
+          "change_through": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "default": null,
+            "minimum": 0
+          },
+          "completed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          },
+          "initialized": {
+            "type": "boolean",
+            "default": false
+          },
+          "input_seq": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "default": null,
+            "minimum": 0
+          },
+          "metadata_complete": {
+            "type": "boolean",
+            "default": false
+          },
+          "next_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "default": null,
+            "minimum": 0
+          },
+          "pages": {
+            "type": "integer",
+            "format": "int64",
+            "default": 0,
+            "minimum": 0
+          },
+          "position": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "default": null,
+            "minimum": 0
+          },
+          "scope": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          },
+          "slice_items": {
+            "type": "integer",
+            "format": "int64",
+            "default": 0,
+            "minimum": 0
+          },
+          "slice_pages": {
+            "type": "integer",
+            "format": "int64",
+            "default": 0,
+            "minimum": 0
+          },
+          "upper": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "default": null,
+            "minimum": 0
+          }
+        }
+      },
+      "LakeUpdateRange": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "input_id",
+              "kind"
+            ],
+            "properties": {
+              "input_id": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "input"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "ids",
+              "kind"
+            ],
+            "properties": {
+              "ids": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "format": "int64",
+                  "minimum": 0
+                }
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "ids"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "start",
+              "end",
+              "kind"
+            ],
+            "properties": {
+              "end": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "id_range"
+                ]
+              },
+              "start": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "after_id": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "minimum": 0
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "new"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "after",
+              "kind"
+            ],
+            "properties": {
+              "after": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "end_id": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "minimum": 0
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "changes"
+                ]
+              },
+              "start_id": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "minimum": 0
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "start",
+              "end",
+              "timezone",
+              "kind"
+            ],
+            "properties": {
+              "end": {
+                "type": "string"
+              },
+              "end_id": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "minimum": 0
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "created"
+                ]
+              },
+              "start": {
+                "type": "string"
+              },
+              "start_id": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "minimum": 0
+              },
+              "timezone": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "start",
+              "end",
+              "timezone",
+              "kind"
+            ],
+            "properties": {
+              "end": {
+                "type": "string"
+              },
+              "end_id": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "minimum": 0
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "updated"
+                ]
+              },
+              "start": {
+                "type": "string"
+              },
+              "start_id": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "minimum": 0
+              },
+              "timezone": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "end_id": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "minimum": 0
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "local"
+                ]
+              },
+              "missing_media": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "observed_before": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "start_id": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "minimum": 0
+              }
+            }
+          }
+        ]
+      },
+      "LakeUpdateSchedule": {
+        "type": "object",
+        "required": [
+          "id",
+          "definition",
+          "next_run_at",
+          "enabled",
+          "revision"
+        ],
+        "properties": {
+          "definition": {
+            "$ref": "#/components/schemas/LakeUpdateDefinition"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "every_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "id": {
+            "type": "string"
+          },
+          "last_job": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "next_run_at": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "LakeUpdateScheduleSaved": {
+        "type": "object",
+        "required": [
+          "id",
+          "revision"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "LakeUpdateSchedules": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LakeUpdateSchedule"
+            }
+          }
+        }
+      },
+      "LakeUpdateServiceStatus": {
+        "type": "object",
+        "required": [
+          "configured",
+          "protocol_version",
+          "worker_recent",
+          "credentials"
+        ],
+        "properties": {
+          "configured": {
+            "type": "boolean"
+          },
+          "credentials": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LakeCredentialStatus"
+            }
+          },
+          "protocol_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "worker_recent": {
+            "type": "boolean"
+          }
+        }
+      },
+      "LakeUpdateSite": {
+        "type": "string",
+        "enum": [
+          "danbooru",
+          "yandere",
+          "gelbooru"
+        ]
+      },
+      "LakeUpdateTelemetry": {
+        "type": "object",
+        "properties": {
+          "current_bytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "default": null,
+            "minimum": 0
+          },
+          "current_post_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "default": null,
+            "minimum": 0
+          },
+          "current_total_bytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "default": null,
+            "minimum": 0
+          },
+          "download_rate_bps": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "default": null
+          },
+          "downloaded_bytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "default": null,
+            "minimum": 0
+          },
+          "metadata_bytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "default": null,
+            "minimum": 0
+          },
+          "phase": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          },
+          "sampled_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
           }
         }
       },
@@ -16004,6 +17793,30 @@
           }
         }
       },
+      "RegisterUpdateLake": {
+        "type": "object",
+        "required": [
+          "library_id",
+          "site",
+          "media_root",
+          "index_root"
+        ],
+        "properties": {
+          "index_root": {
+            "type": "string"
+          },
+          "library_id": {
+            "type": "string"
+          },
+          "media_root": {
+            "type": "string"
+          },
+          "site": {
+            "$ref": "#/components/schemas/LakeUpdateSite"
+          }
+        },
+        "additionalProperties": false
+      },
       "RelinkSource": {
         "type": "object",
         "required": [
@@ -16267,6 +18080,47 @@
             "minimum": 0
           },
           "value": {}
+        },
+        "additionalProperties": false
+      },
+      "SaveLakeUpdateSchedule": {
+        "type": "object",
+        "required": [
+          "spec",
+          "first_run_at"
+        ],
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "every_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "first_run_at": {
+            "type": "string"
+          },
+          "identity": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "revision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "spec": {
+            "$ref": "#/components/schemas/LakeUpdateDefinition"
+          }
         },
         "additionalProperties": false
       },
@@ -16735,6 +18589,55 @@
             "minimum": 0
           }
         }
+      },
+      "SetLakeCredentials": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "login",
+              "api_key",
+              "site"
+            ],
+            "properties": {
+              "api_key": {
+                "type": "string"
+              },
+              "login": {
+                "type": "string"
+              },
+              "site": {
+                "type": "string",
+                "enum": [
+                  "danbooru"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "user_id",
+              "api_key",
+              "site"
+            ],
+            "properties": {
+              "api_key": {
+                "type": "string"
+              },
+              "site": {
+                "type": "string",
+                "enum": [
+                  "gelbooru"
+                ]
+              },
+              "user_id": {
+                "type": "string"
+              }
+            }
+          }
+        ],
+        "description": "No Debug implementation: key material must never enter tracing."
       },
       "SetQueryCache": {
         "type": "object",
@@ -17222,6 +19125,47 @@
           }
         },
         "additionalProperties": false
+      },
+      "UpdateLake": {
+        "type": "object",
+        "required": [
+          "id",
+          "site",
+          "media",
+          "index_root",
+          "registered_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "index_root": {
+            "type": "string"
+          },
+          "media": {
+            "type": "string"
+          },
+          "registered_at": {
+            "type": "string"
+          },
+          "site": {
+            "$ref": "#/components/schemas/LakeUpdateSite"
+          }
+        }
+      },
+      "UpdateLakes": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UpdateLake"
+            }
+          }
+        }
       }
     }
   }

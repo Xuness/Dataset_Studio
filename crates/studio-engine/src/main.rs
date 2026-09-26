@@ -3,6 +3,7 @@ mod api;
 mod artifacts;
 mod cache_config;
 mod jobs;
+mod lake_updates;
 mod llm_invocations;
 mod previews;
 mod query_budget;
@@ -203,7 +204,19 @@ async fn serve(root: PathBuf, port: u16, cache_dir: Option<PathBuf>) -> Result<(
         .set_quota(u64::from(queries.cache.config()?.preview_mib) << 20)?;
     let aesthetic = Arc::new(aesthetic::Runner::default());
     let aesthetic_analysis = Arc::new(aesthetic::analysis::Runner::default());
+    use studio_application::lake_updates::LakeUpdateBackend;
+    let lake_updates = Arc::new(lake_updates::Backend::new(root.clone()));
+    let lake_update_supervisor = tokio::spawn(lake_updates.clone().supervise());
+    if lake_updates.configured()
+        && let Err(error) = lake_updates.ensure_worker()
+    {
+        tracing::warn!(
+            code = error.code,
+            "lake update worker unavailable; browsing remains available"
+        );
+    }
     let state = api::AppState {
+        lake_updates: lake_updates.clone(),
         aesthetic: aesthetic.clone(),
         aesthetic_analysis: aesthetic_analysis.clone(),
         llm: {
@@ -416,6 +429,8 @@ async fn serve(root: PathBuf, port: u16, cache_dir: Option<PathBuf>) -> Result<(
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     }
     drop(lease);
+    lake_updates.shutdown();
+    let _ = lake_update_supervisor.await;
     result
 }
 fn remove_abandoned_query_temps(directory: &std::path::Path, prefix: &str) -> Result<()> {

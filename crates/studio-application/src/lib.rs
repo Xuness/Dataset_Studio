@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use studio_domain::*;
 pub mod aesthetic;
 pub mod aesthetic_analysis;
+pub mod lake_updates;
 pub mod llm;
 mod sources;
 pub use sources::*;

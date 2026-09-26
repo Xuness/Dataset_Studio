@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 pub mod aesthetic;
 pub mod aesthetic_analysis;
+pub mod lake_updates;
 pub mod llm;
 mod sources;
 pub use sources::*;

@@ -27,6 +27,8 @@ mod ranking_browse;
 pub use ranking_browse::*;
 mod management;
 pub use management::*;
+mod lake_updates;
+pub use lake_updates::*;
 use utoipa::ToSchema;
 pub const API_VERSION: u32 = 1;
 
