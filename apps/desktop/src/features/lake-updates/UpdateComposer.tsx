@@ -365,21 +365,43 @@ export function UpdateComposer({
               <label>
                 每轮最多扫描页数
                 <input
+                  type="number"
+                  min={1}
+                  max={100000}
                   inputMode="numeric"
                   value={d.pageBudget}
                   onChange={(e) => set({ pageBudget: e.target.value })}
                 />
               </label>
+              <p className="lake-hint">
+                一页是一次候选元数据扫描，不是图片下载数量。
+                {d.lakes.map((id) => {
+                  const lake = lakes.find((l) => l.id === id);
+                  const capability = capabilities.find(
+                    (c) => c.site === lake?.site,
+                  );
+                  return lake && capability
+                    ? ` ${sites[lake.site]} 每页上限 ${capability.page_size} 条。`
+                    : "";
+                })}
+                过滤后不足一页或没有匹配记录，也可能消耗扫描页数。
+              </p>
               <label>
                 每轮最多处理记录数
                 <input
+                  type="number"
+                  min={1}
+                  max={10000000}
                   inputMode="numeric"
                   value={d.itemBudget}
                   onChange={(e) => set({ itemBudget: e.target.value })}
                 />
               </label>
               <p className="lake-hint">
-                达到预算会暂停；继续时从原检查点开始下一轮。
+                按 API
+                返回并匹配范围的帖子记录计数；复用、仅元数据和无图记录也计入，
+                不代表成功下载的图片数。任一预算耗尽会暂停，需点“继续”从检查点开始下一轮，
+                每轮预算重新计算。任务范围由上方选项决定；希望一次跑完时请为预算留出余量。
               </p>
             </div>
           </details>

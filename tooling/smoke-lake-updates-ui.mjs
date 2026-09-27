@@ -421,6 +421,65 @@ try {
   await expect(dialog.getByLabel("编码质量", { exact: true })).toHaveValue(
     "82",
   );
+  await expect(
+    dialog
+      .getByLabel("管理保存预设", { exact: true })
+      .locator("option:checked"),
+  ).toHaveText("工作集 JPEG 768");
+  await expect(dialog.locator(".lake-preset-status")).toContainText(
+    "当前设置与预设一致",
+  );
+  await dialog.getByLabel("编码质量", { exact: true }).fill("70");
+  await expect(dialog.locator(".lake-preset-status")).toContainText(
+    "当前设置已修改",
+  );
+  await dialog.getByRole("button", { name: "应用预设", exact: true }).click();
+  await expect(dialog.getByLabel("编码质量", { exact: true })).toHaveValue(
+    "82",
+  );
+  await dialog.getByLabel("管理保存预设", { exact: true }).selectOption("");
+  await expect(dialog.getByLabel("编码质量", { exact: true })).toHaveValue(
+    "82",
+  );
+  await dialog.getByLabel("保存策略", { exact: true }).selectOption("original");
+  await dialog
+    .getByLabel("管理保存预设", { exact: true })
+    .selectOption({ label: "工作集 JPEG 768" });
+  await expect(dialog.getByLabel("保存策略", { exact: true })).toHaveValue(
+    "custom",
+  );
+  await expect(
+    dialog.getByLabel("最长边（像素）", { exact: true }),
+  ).toHaveValue("768");
+  await expect(dialog.getByLabel("编码质量", { exact: true })).toHaveValue(
+    "82",
+  );
+  await expect(dialog.getByLabel("背景颜色", { exact: true })).toHaveValue(
+    "#112233",
+  );
+  await expect(dialog.getByLabel("已有图片", { exact: true })).toHaveValue(
+    "match_profile",
+  );
+  await expect(dialog.getByLabel("范围", { exact: true })).toHaveValue(
+    "missing",
+  );
+  await expect(
+    dialog.getByRole("region", { name: "所选预设参数" }),
+  ).toContainText("JPEG · 768 / Q82");
+  await dialog.locator("summary").filter({ hasText: "高级预算" }).click();
+  await expect(
+    dialog.getByLabel("每轮最多扫描页数", { exact: true }),
+  ).toHaveValue("1000");
+  await expect(
+    dialog.getByLabel("每轮最多处理记录数", { exact: true }),
+  ).toHaveValue("100000");
+  await expect(dialog.getByText(/Yandere 每页上限 200 条/)).toBeVisible();
+  await expect(dialog.getByText(/不代表成功下载的图片数/)).toBeVisible();
+  await dialog.locator("summary").filter({ hasText: "高级预算" }).click();
+  await page.screenshot({ path: resolve(run, "preset-applied.png") });
+  checks.push(
+    "both preset selectors apply all media fields, explicit reapply restores edits, saved summary and dirty status agree, range and budgets stay unchanged",
+  );
   await dialog.getByLabel("编码格式", { exact: true }).selectOption("png");
   await expect(dialog.getByLabel("编码质量", { exact: true })).toHaveCount(0);
   await dialog.getByLabel("编码格式", { exact: true }).selectOption("webp");

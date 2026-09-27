@@ -2,12 +2,14 @@ import { useState } from "react";
 import type { StudioClient } from "@studio/client";
 import { Button, DraftStatus, ErrorDetails } from "@studio/ui";
 import { useLakePreference } from "./queries.js";
+import { ImagePolicySummary } from "./ImagePolicySummary.js";
 import {
   decodePresets,
   defaultEncoding,
   encodingForFormat,
   fieldsForPolicy,
   imagePolicy,
+  imagePolicyLabel,
   initialPresets,
 } from "./imagePolicy.js";
 import type { Encoding, ImageFields } from "./imagePolicy.js";
@@ -32,6 +34,25 @@ export function ImagePolicyEditor({
   const [error, setError] = useState<unknown>(null),
     [notice, setNotice] = useState("");
   const e = d.encoding ?? defaultEncoding;
+  const selectedPreset = presets.value.items.find((p) => p.id === editing);
+  let matchesPreset = false;
+  if (selectedPreset) {
+    try {
+      matchesPreset =
+        JSON.stringify(imagePolicy(d)) ===
+        JSON.stringify(imagePolicy(fieldsForPolicy(selectedPreset.media)));
+    } catch {
+      // Incomplete edits still allow restoring the saved preset.
+    }
+  }
+  function applyPreset(id: string) {
+    const preset = presets.value.items.find((p) => p.id === id);
+    setEditing(id);
+    setName(preset?.name ?? "");
+    setError(null);
+    setNotice("");
+    if (preset) onChange(fieldsForPolicy(preset.media));
+  }
   const update = (patch: Partial<Encoding>) =>
     onChange({ encoding: { ...e, ...patch } });
   async function save(overwrite: boolean) {
@@ -78,14 +99,14 @@ export function ImagePolicyEditor({
               const preset = presets.value.items.find(
                 (p) => `preset:${p.id}` === id,
               );
-              onChange(
-                preset
-                  ? fieldsForPolicy(preset.media)
-                  : {
-                      profile: id as ImageFields["profile"],
-                      allowSample: false,
-                    },
-              );
+              if (preset) applyPreset(preset.id);
+              else {
+                setNotice("");
+                onChange({
+                  profile: id as ImageFields["profile"],
+                  allowSample: false,
+                });
+              }
             }}
           >
             <option value="">请选择策略</option>
@@ -104,6 +125,19 @@ export function ImagePolicyEditor({
             )}
           </select>
         </label>
+        {selectedPreset && (
+          <div className="lake-preset-status">
+            <p role="status">
+              预设「{selectedPreset.name}」 ·{" "}
+              {matchesPreset
+                ? "当前设置与预设一致"
+                : "当前设置已修改，预设保持不变"}
+            </p>
+            <Button onClick={() => applyPreset(selectedPreset.id)}>
+              应用预设
+            </Button>
+          </div>
+        )}
         {d.profile === "custom" && (
           <>
             <label>
@@ -326,19 +360,13 @@ export function ImagePolicyEditor({
         <DraftStatus controller={presets.controller} quiet />
         <div className="lake-fields">
           <label>
-            已有预设
+            已有预设（选择即应用）
             <select
               aria-label="管理保存预设"
               value={editing}
-              onChange={(ev) => {
-                setEditing(ev.target.value);
-                setName(
-                  presets.value.items.find((p) => p.id === ev.target.value)
-                    ?.name ?? "",
-                );
-              }}
+              onChange={(ev) => applyPreset(ev.target.value)}
             >
-              <option value="">新预设</option>
+              <option value="">新预设（保留当前设置）</option>
               {presets.value.items.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name}
@@ -356,6 +384,23 @@ export function ImagePolicyEditor({
             />
           </label>
         </div>
+        {selectedPreset && (
+          <section className="lake-summary" aria-label="所选预设参数">
+            <strong>{selectedPreset.name}</strong>
+            <p>{imagePolicyLabel(selectedPreset.media)}</p>
+            <ImagePolicySummary policy={selectedPreset.media} />
+            {selectedPreset.media.profile !== "metadata_only" && (
+              <p className="lake-hint">
+                {selectedPreset.media.existing === "match_profile"
+                  ? "已有图片：补入符合策略的版本"
+                  : "已有图片：保留可复用图片，只补缺图"}
+                {selectedPreset.media.allow_sample
+                  ? " · 允许备用图片"
+                  : " · 不使用备用图片"}
+              </p>
+            )}
+          </section>
+        )}
         <div className="lake-actions">
           <Button
             disabled={!d.profile || !presets.editable}
@@ -376,6 +421,7 @@ export function ImagePolicyEditor({
                 items: presets.value.items.filter((p) => p.id !== editing),
               });
               setEditing("");
+              setName("");
               setNotice("预设已移除，当前配置和已有任务保留。");
             }}
           >
@@ -383,7 +429,8 @@ export function ImagePolicyEditor({
           </Button>
         </div>
         <p className="lake-hint">
-          预设包含保存方式、编码、已有图片与备用图选项，跨项目共享。应用后仍可调整。
+          选择已有预设会立即填入上方参数；修改后可点“应用预设”恢复保存值。
+          预设包含保存方式、编码、已有图片与备用图选项，跨项目共享，不改变更新范围和预算。
         </p>
         {error != null && <ErrorDetails error={error} />}
         {notice && <p role="status">{notice}</p>}

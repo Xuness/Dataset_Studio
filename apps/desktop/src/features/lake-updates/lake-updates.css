@@ -162,6 +162,23 @@
   color: var(--muted);
   line-height: 1.6;
 }
+.lake-preset-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border-left: 2px solid var(--accent);
+  background: var(--recessed);
+  font-size: 12px;
+}
+.lake-preset-status p {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.lake-preset-status button {
+  flex-shrink: 0;
+}
 .lake-composer {
   width: min(760px, 78vw);
   max-width: 100%;
