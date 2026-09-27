@@ -65,7 +65,7 @@ export const itemStates: Record<string, string> = {
 };
 export const active = (job: UpdateJob) =>
   job.execution_active ||
-  ["queued", "running", "waiting_retry"].includes(job.state);
+  ["queued", "running", "waiting_retry", "waiting_space"].includes(job.state);
 export const problemCount = (job: UpdateJob) =>
   ["failed", "needs_review", "unavailable"].reduce(
     (n, k) => n + (job.counts[k] ?? 0),

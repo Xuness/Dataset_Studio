@@ -13,7 +13,9 @@ export function useLakeStatus(client: StudioClient, visible = false) {
       visible
         ? 2500
         : query.state.data?.activity?.counts.some((c) =>
-              ["running", "queued", "waiting_retry"].includes(c.state),
+              ["running", "queued", "waiting_retry", "waiting_space"].includes(
+                c.state,
+              ),
             )
           ? 5000
           : 15000,

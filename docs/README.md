@@ -12,6 +12,8 @@
 
 下载恢复：[图片断点与后台自动接续](decisions/0042-resumable-lake-transfers.md)、[2026-09-28 验收](verification/2026-09-28-lake-resume.md)。
 
+下载状态修正：[暂存配额释放与等待状态刷新验收](verification/2026-09-28-lake-spool-refresh.md)。
+
 数据湖来源：[统一接口与调度](decisions/0035-source-registry-and-dispatch.md)、[Yandere/Gelbooru 验收](verification/2026-09-26-multibooru.md)、[多湖交互与查询缓存补齐](verification/2026-09-26-multibooru-followup.md)。
 
 在线架构升级：[阶段计划](plans/数据库架构审查升级-2026-09-26/README.md)、[发布与预览并发边界](decisions/0036-online-read-path-preparation.md)、[在线湖与固定成员协议](decisions/0037-versioned-online-lakes.md)、[P1 验收](verification/2026-09-26-online-upgrade-phase1.md)、[P2/P3 迁移验收](verification/2026-09-26-online-upgrade-p23.md)、[Danbooru 工作区归并](verification/2026-09-26-danbooru-workspace-relocation.md)。

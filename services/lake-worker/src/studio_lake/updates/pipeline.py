@@ -260,8 +260,10 @@ class Pipeline:
                         self.downloads[future] = item
 
                 idle = not self.downloads and not self.encodes and not self.waiting
-                if (idle or space_blocked) and self.ready:
-                    self.publish(force=True)
+                if (idle or space_blocked) and self.ready and self.publish(force=True):
+                    # Publication releases staging leases. Recheck admission next turn
+                    # before treating the previous allocation failure as disk pressure.
+                    space_blocked = False
                 self.stats.flush(scanning=self.scan is not None)
                 if idle and not self.ready and self.scan is None:
                     if space_blocked:

@@ -481,6 +481,46 @@ try {
   checks.push(
     "persisted resume counters and bounded network diagnostics survive UI reload through the public API",
   );
+  const waitingMessage =
+    "Waiting for SSD spool space; staged files remain resumable";
+  await promisify(execFile)(
+    python,
+    [
+      "-c",
+      "import sys,time; sys.path.insert(0, sys.argv[1]); from studio_lake.updates.state import State; State(sys.argv[2]).update(sys.argv[3], state='waiting_space', retry_at=time.time()+3600, error_code='UPDATE_SPACE', error_message=sys.argv[4])",
+      resolve(root, "services/lake-worker/src"),
+      resolve(run, "controller"),
+      recoveredId,
+      waitingMessage,
+    ],
+    { windowsHide: true },
+  );
+  await page.reload();
+  await page.locator(".lake-table .lake-row-link").first().click();
+  const jobDetails = page.locator(".lake-details");
+  const jobState = jobDetails
+    .locator("dt")
+    .filter({ hasText: /^状态$/ })
+    .locator("+ dd");
+  await expect(jobState).toHaveText("等待空间");
+  await promisify(execFile)(
+    python,
+    [
+      "-c",
+      "import sys; sys.path.insert(0, sys.argv[1]); from studio_lake.updates.state import State; State(sys.argv[2]).update(sys.argv[3], state='completed', retry_at=0, error_code=None, error_message=None)",
+      resolve(root, "services/lake-worker/src"),
+      resolve(run, "controller"),
+      recoveredId,
+    ],
+    { windowsHide: true },
+  );
+  // No reload, reselect or focus change after the backend leaves waiting_space.
+  await expect(jobState).toHaveText("已完成", { timeout: 10000 });
+  await expect(jobDetails).not.toContainText(waitingMessage);
+  await page.screenshot({ path: resolve(run, "spool-wait-completed.png") });
+  checks.push(
+    "selected waiting-space task refreshes to backend completion and clears its error without user interaction",
+  );
   await page.getByRole("button", { name: "新建更新", exact: true }).click();
   dialog = page.getByRole("dialog", { name: "新建数据湖更新", exact: true });
   await dialog

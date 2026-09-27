@@ -464,6 +464,43 @@ def test_reuse_and_deleted_posts_do_not_require_download_spool(tmp_path):
     assert done["counts"] == {"reused": 1, "unavailable": 1} and images.calls == 1
 
 
+@pytest.mark.parametrize("space_remains", [True, False])
+def test_publishing_frees_spool_before_rechecking_disk_pressure(tmp_path, monkeypatch, space_remains):
+    from types import SimpleNamespace
+    import studio_lake.updates.resources as module
+
+    lib, state = setup(tmp_path, "danbooru")
+    configure(state, publish_items=32, publish_interval_seconds=60)
+    data = png("blue")
+    remote = FakeSite("danbooru", [post("danbooru", pid, data) for pid in range(11, 15)])
+    images = Images(data)
+    # Only one image can hold a staging lease; releasing it must unblock the next.
+    resources = Resources(max_download_bytes=16 * 1024, spool_bytes=64 * 1024, reserve_bytes=0)
+    runner = Runner(state, {"danbooru": remote}, resources=resources, image_http=images)
+    task = job(state, lib, {"kind": "id_range", "start": 11, "end": 15}, "original")
+    published = []
+    original = runner.publish_images
+
+    def publish(*args):
+        original(*args)
+        published.extend(r["post_id"] for r in args[2])
+
+    monkeypatch.setattr(runner, "publish_images", publish)
+    monkeypatch.setattr(module.shutil, "disk_usage", lambda _: SimpleNamespace(
+        free=1024 * 1024 if space_remains or not published else 0,
+    ))
+    done = runner.run(task["id"])
+    if not space_remains:
+        assert done["state"] == "waiting_space" and done["counts"] == {"stored": 1, "pending": 3}, done
+        assert published == [11] and not resources.reservations
+        space_remains = True
+        state.action(task["id"], "resume")
+        done = runner.run(task["id"])
+    assert done["state"] == "completed" and done["counts"] == {"stored": 4}, done
+    assert published == [11, 12, 13, 14] and images.calls == 4
+    assert not resources.reservations
+
+
 def test_disk_full_waits_and_preserves_metadata_checkpoint(tmp_path, monkeypatch):
     from pathlib import Path
     import errno
