@@ -2,9 +2,9 @@
 
 以下命令均从仓库根目录运行。日常启动、所需环境及数据目录见[仓库说明](../README.md)，架构与历史验收见[文档导航](../docs/README.md)。
 
-三站更新后端：`node tooling/integration-lake-updates.mjs`。完整 HTTP/SDK 与 Store 验收需要设置 `STUDIO_LAKE_TEST_PYTHON`（安装 Store 依赖的 Python）和 `STUDIO_LAKE_TEST_STORE`（Store 仓库根）。夹具由 `lake-updates-fixture.py` 生成，仅使用 `.local/test-runs/` 隔离湖；未配置伴随运行环境时只检查可选后端状态。在线读取回归另见 `node tooling/integration-online.mjs`。
+三站更新服务已纳入 `services/lake-worker`，运行源码随引擎打包，不需要另一个 Store 仓库。先运行 `pwsh -File tooling/setup-lake-worker.ps1 -Dev` 安装本项目的 Python 依赖，也可用 `STUDIO_LAKE_TEST_PYTHON` 指定已有环境。`pnpm test:lake` 覆盖编码、归档和恢复；`node tooling/integration-lake-updates.mjs` 验证内置运行器与 HTTP/SDK；`pnpm test:lake-ui` 验证真实界面和命名策略预设。夹具仅使用 `.local/test-runs/` 隔离湖，无正式 API 抓取。标准 `pnpm check` 已包括 Python 服务测试，完整集成入口包括更新 HTTP 回归。在线读取回归另见 `node tooling/integration-online.mjs`。
 
-三站更新工作台：`node tooling/smoke-lake-updates-ui.mjs`，使用同一组 Store 环境变量、配对仓库的测试依赖和本机 Edge，端口 1453。脚本创建隔离真实在线湖、控制库和项目，验证范围冻结、跨项目/重启、三湖提交、计划、凭据及不同窗口尺寸；不会使用正式凭据或调用源站 API。
+三站更新工作台：`node tooling/smoke-lake-updates-ui.mjs`，使用本项目的 Python 环境与本机 Edge，端口 1453。脚本创建隔离真实在线湖、控制库和项目，验证范围冻结、跨项目/重启、三湖提交、计划、凭据及不同窗口尺寸；不会使用正式凭据或调用源站 API。
 
 脚本使用自身位置定位仓库根目录，统一保留在 tooling 顶层。测试源码和夹具生成器随 Git 保存；运行产生的数据、截图和日志使用 `.local/`。
 

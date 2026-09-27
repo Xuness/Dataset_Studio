@@ -294,7 +294,7 @@ try {
     await sleep(150);
   }
   function changed(_event, name) {
-    if (!name || !/\.(rs|toml)$/.test(String(name))) return;
+    if (!name || !/\.(rs|toml|py)$/.test(String(name))) return;
     clearTimeout(debounce);
     debounce = setTimeout(
       () =>
@@ -306,6 +306,17 @@ try {
   }
   watchers.push(
     watch(resolve(root, "crates"), { recursive: true }, changed),
+    watch(
+      resolve(root, "services/lake-worker/src"),
+      { recursive: true },
+      (event, name) => {
+        if (name?.endsWith(".py")) changed(event, name);
+      },
+    ),
+    watch(resolve(root, "services/lake-worker"), (event, name) => {
+      if (name === "worker.py" || name === "pyproject.toml")
+        changed(event, name);
+    }),
     watch(root, (event, name) => {
       if (name === "Cargo.toml") changed(event, name);
     }),

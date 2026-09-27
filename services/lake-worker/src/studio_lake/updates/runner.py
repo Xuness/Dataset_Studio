@@ -1,0 +1,725 @@
+"""Background coordinator: one owner, concurrent lakes, ordered archive publications."""
+
+from concurrent.futures import ThreadPoolExecutor
+import json
+from pathlib import Path
+import threading
+import time
+
+from ..library import Batch
+from ..online_migrate import connect
+from ..util import FileLock, atomic_json, contained, now, read_json, stable_id
+from .archive import commit_page, commit_media, reconcile, online, io_lock, checkpoint_key
+from .media import Resources, prepare
+from .protocol import timestamp
+from .sites import Site, UpdateError, Response
+from .state import State, TERMINAL
+from .references import categories
+
+
+def lease(lib, identity, sequence=None, expires_ms=None):
+    with FileLock(lib.cache / ".online.lock"):
+        pointer = read_json(lib.cache / "ONLINE.json")
+        db = connect(contained(lib.cache, pointer["file"]))
+        try:
+            with db:
+                if sequence is None:
+                    db.execute("DELETE FROM leases WHERE id=?", ("update:" + identity,))
+                else:
+                    floor = int(next(db.execute("SELECT value FROM online_state WHERE key='min_seq'"))[0])
+                    if sequence < floor:
+                        raise UpdateError("SOURCE_CHANGED", "The input version is no longer retained")
+                    db.execute(
+                        "INSERT INTO leases VALUES(?,?,?,?,'update-input') ON CONFLICT(id) DO UPDATE SET seq=excluded.seq,expires_ms=excluded.expires_ms",
+                        ("update:" + identity, sequence, expires_ms, identity),
+                    )
+        finally:
+            db.close()
+
+
+class Runner:
+    def __init__(self, state, sites=None, resources=None, image_http=None):
+        self.state = state
+        self.sites = sites or {}
+        self.resources = resources or Resources()
+        self.image_http = image_http
+        self.stop = threading.Event()
+        self.site_lock = threading.Lock()
+
+    def site(self, name):
+        with self.site_lock:
+            if name not in self.sites:
+                self.sites[name] = Site(name, self.state.credentials(name), rate_root=self.state.root)
+            elif isinstance(self.sites[name], Site):
+                self.sites[name].credentials = self.state.credentials(name)
+            return self.sites[name]
+
+    def run(self, identity):
+        self.state.job(identity)
+        try:
+            with FileLock(self.state.root / "executions" / (identity + ".lock"), timeout=0):
+                self._run_guarded(identity)
+        except RuntimeError as error:
+            if not str(error).startswith("另一个进程正在使用此工作区"):
+                raise
+        job = self.state.job(identity)
+        if job["state"] == "cancelled" and not job["execution_active"]:
+            lease(self.state.library(job["lake_id"]), identity)
+        return job
+
+    def _run_guarded(self, identity):
+        job = self.state.job(identity)
+        if job["state"] in TERMINAL | {"paused", "waiting_credentials", "needs_review"}:
+            return job
+        try:
+            lib = self.state.library(job["lake_id"])
+            with FileLock(lib.cache / ".daily-run.lock", timeout=0.1):
+                return self._run(lib, identity)
+        except UpdateError as error:
+            current = self.state.job(identity)
+            if current["state"] in {"paused", "cancelled"}:
+                return current
+            if error.code == "CANCELLED":
+                state = "queued" if self.stop.is_set() else "paused"
+            elif error.code == "UPDATE_CREDENTIAL_REQUIRED":
+                state = "waiting_credentials"
+            elif error.code == "UPDATE_SPACE":
+                state = "waiting_space"
+            elif error.code in {"UPDATE_NETWORK", "UPDATE_REMOTE_ERROR"}:
+                state = "waiting_retry"
+            else:
+                state = "needs_review"
+            self.state.update(
+                identity,
+                state=state,
+                error_code=error.code,
+                error_message=str(error),
+                retry_at=time.time() + max(60, error.retry_after),
+            )
+        except Exception as error:
+            current = self.state.job(identity)
+            if current["state"] in {"paused", "cancelled"}:
+                return current
+            if isinstance(error, RuntimeError) and str(error).startswith("另一个进程正在使用此工作区"):
+                if current["state"] != "running":
+                    self.state.update(
+                        identity,
+                        state="waiting_retry",
+                        retry_at=time.time() + 30,
+                        error_code="UPDATE_BUSY",
+                        error_message="Another producer owns this lake; waiting",
+                    )
+                return self.state.job(identity)
+            # Raw exceptions may include request URLs from third-party libraries. Keep them private.
+            code = "UPDATE_IO" if isinstance(error, OSError) else "UPDATE_INTEGRITY"
+            import errno
+            import traceback
+
+            with (self.state.root / "errors.jsonl").open("a", encoding="utf-8") as report:
+                report.write(
+                    json.dumps(
+                        {
+                            "at": now(),
+                            "job_id": identity,
+                            "code": code,
+                            "exception": type(error).__name__,
+                            "frames": [
+                                {
+                                    "file": Path(frame.filename).name,
+                                    "line": frame.lineno,
+                                    "function": frame.name,
+                                }
+                                for frame in traceback.extract_tb(error.__traceback__)
+                            ],
+                        }
+                    )
+                    + "\n"
+                )
+            self.state.update(
+                identity,
+                state="waiting_space"
+                if isinstance(error, OSError) and error.errno == errno.ENOSPC
+                else "needs_review",
+                error_code=code,
+                error_message="Archive or execution failed ("
+                + type(error).__name__
+                + "); durable checkpoints retained",
+            )
+        return self.state.job(identity)
+
+    def _run(self, lib, identity):
+        job = self.state.job(identity)
+        generation = job["execution"]
+        if job["cursor"].get("input_generation"):
+            with online(lib) as (_, status):
+                if status["generation"] != job["cursor"]["input_generation"]:
+                    raise UpdateError(
+                        "SOURCE_CHANGED", "The fixed local input belongs to another online generation"
+                    )
+        last_check, was_cancelled = 0.0, False
+
+        def cancelled():
+            nonlocal last_check, was_cancelled
+            if self.stop.is_set():
+                return True
+            if time.monotonic() - last_check >= 0.1:
+                with self.state.db() as db:
+                    current = db.execute(
+                        "SELECT state,execution FROM jobs WHERE id=?", (identity,)
+                    ).fetchone()
+                was_cancelled = (
+                    current["state"] in {"paused", "cancelled"} or current["execution"] != generation
+                )
+                last_check = time.monotonic()
+            return was_cancelled
+
+        def check():
+            nonlocal last_check
+            last_check = 0
+            if cancelled():
+                raise UpdateError("CANCELLED", "Update paused at a safe boundary")
+
+        check()
+        self.state.update(identity, state="running", error_code=None, error_message=None)
+        self.state.progress(
+            identity,
+            phase="recovering",
+            current_post_id=None,
+            downloaded_bytes_delta=0,
+            metadata_bytes_delta=0,
+        )
+        # Recovery only scans small batch manifests; image verification is scoped to new batches.
+        lib.recover()
+        reconcile(self.state, lib, identity)
+        job = self.state.job(identity)
+        if job["cursor"].get("slice_execution", 0) != generation:
+            cursor = {**job["cursor"], "slice_pages": 0, "slice_items": 0, "slice_execution": generation}
+            self.state.update(identity, cursor=cursor)
+            job = self.state.job(identity)
+        site = self.site(self.state.lake(job["lake_id"])["site"])
+        if not job["cursor"].get("initialized"):
+            self.initialize(lib, job, site, check, cancelled)
+        while True:
+            check()
+            job = self.state.job(identity)
+            cursor, spec = job["cursor"], job["definition"]
+            if cursor.get("input_seq") is not None and not cursor.get("metadata_complete"):
+                lease(lib, identity, cursor["input_seq"])
+            if (
+                cursor.get("slice_pages", 0) >= spec["page_budget"]
+                or cursor.get("slice_items", 0) >= spec["item_budget"]
+            ):
+                self.state.update(
+                    identity,
+                    state="paused",
+                    error_code="UPDATE_BUDGET",
+                    error_message="Run budget reached; resume continues the same range",
+                )
+                break
+            if not cursor.get("metadata_complete"):
+                self.page(lib, job, site, check, cancelled)
+                latest = self.state.job(identity)["cursor"]
+                if not latest.get("metadata_complete") and all(
+                    latest.get(k) == cursor.get(k) for k in ("pages", "next_id", "position")
+                ):
+                    raise UpdateError(
+                        "UPDATE_NO_PROGRESS", "Archived page did not advance the execution checkpoint"
+                    )
+            self.metadata_coverage(lib, self.state.job(identity))
+            self.images(lib, self.state.job(identity), site, check, cancelled)
+            job = self.state.job(identity)
+            if job["cursor"].get("metadata_complete"):
+                counts = job["counts"]
+                if counts.get("pending", 0) or counts.get("pending_metadata", 0):
+                    continue
+                if counts.get("failed", 0) or counts.get("needs_review", 0):
+                    with self.state.db() as db:
+                        exhausted = db.execute(
+                            "SELECT 1 FROM items WHERE job_id=? AND state='failed' AND attempts>=8 LIMIT 1",
+                            (identity,),
+                        ).fetchone()
+                    waiting = (
+                        bool(counts.get("failed", 0)) and not counts.get("needs_review", 0) and not exhausted
+                    )
+                    self.state.update(
+                        identity,
+                        state="waiting_retry" if waiting else "needs_review",
+                        retry_at=time.time() + 60,
+                        error_code="UPDATE_MEDIA_INCOMPLETE",
+                        error_message="Metadata published; media gaps remain",
+                    )
+                else:
+                    self.finish(lib, job)
+                break
+        return self.state.job(identity)
+
+    def metadata_coverage(self, lib, job):
+        cursor = job["cursor"]
+        if not cursor.get("metadata_complete"):
+            return
+        if job["definition"]["range"]["kind"] == "new":
+            with lib.writer_lock():
+                old = lib.setting("update_new_metadata_cursor")
+                if old is None or old == cursor["baseline"]:
+                    lib.set_setting("update_new_metadata_cursor", cursor["upper"] - 1)
+        with self.state.db() as db:
+            db.execute(
+                "INSERT OR IGNORE INTO coverage VALUES(?,?,?,?,?,?,?,?)",
+                (
+                    job["id"],
+                    job["lake_id"],
+                    json.dumps(job["definition"]["range"]),
+                    1,
+                    0,
+                    job["counts"].get("unavailable", 0),
+                    cursor["scope"],
+                    now(),
+                ),
+            )
+
+    def initialize(self, lib, job, site, check, cancelled):
+        scope = job["definition"]["range"]
+        kind = scope["kind"]
+        cursor = {
+            "initialized": True,
+            "pages": 0,
+            "slice_pages": 0,
+            "slice_items": 0,
+            "metadata_complete": False,
+            "input_seq": None,
+            "scope": "accessible_posts_at_request_time",
+            "slice_execution": job["execution"],
+        }
+        if kind == "input":
+            frozen = self.state.input(scope["input_id"])
+            if frozen["state"] != "sealed":
+                raise UpdateError("UPDATE_CONFLICT", "Input must be sealed")
+            cursor.update(next_id=1, upper=2**63 - 1, input_id=frozen["id"], input_sha256=frozen["sha256"])
+        elif kind == "ids":
+            cursor.update(position=0, next_id=scope["ids"][0], upper=scope["ids"][-1] + 1)
+        elif kind == "id_range":
+            cursor.update(next_id=scope["start"], upper=scope["end"])
+        elif kind == "new":
+            after = scope.get("after_id")
+            if after is None:
+                after = lib.setting("update_new_metadata_cursor")
+            if after is None and site.name == "danbooru":
+                after = lib.setting("api_watermark")
+            if after is None:
+                raise UpdateError(
+                    "UPDATE_BASELINE_REQUIRED",
+                    "An explicit verified starting ID is required; maximum imported ID is not coverage",
+                )
+            cursor.update(next_id=after + 1, baseline=after, upper=None)
+        else:
+            cursor.update(next_id=scope.get("start_id", 1), upper=scope.get("end_id"))
+        if kind == "local":
+            with online(lib) as (db, status):
+                cursor["input_seq"] = int(status["served_seq"])
+                cursor["input_generation"] = status["generation"]
+                if cursor["upper"] is None:
+                    cursor["upper"] = next(
+                        db.execute("SELECT coalesce(max(post_id),0)+1 FROM post_versions")
+                    )[0]
+            lease(lib, job["id"], cursor["input_seq"])
+        if cursor["upper"] is None or kind == "changes":
+            params = {"limit": 1}
+            if site.name == "gelbooru":
+                params.update(page="dapi", s="post", q="index", json=1, tags="sort:id:desc")
+            else:
+                visibility = "deleted:all holds:all pending:all" if site.name == "yandere" else "status:any"
+                params["tags"] = visibility + (
+                    " order:change_desc" if kind == "changes" else " order:id_desc"
+                )
+            response = self.request_page(lib, job, site, params, cancelled)
+            try:
+                rows = site.parse(response)
+                if kind == "changes":
+                    cursor["change_through"] = max([int(r[1]["change"]) for r in rows] or [scope["after"]])
+                    cursor["upper"] = cursor["upper"] or 2**63 - 1
+                else:
+                    cursor["upper"] = max([r[1]["id"] + 1 for r in rows] + [cursor["next_id"]])
+                check()
+                commit_page(self.state, lib, job, site, response, rows, set(), cursor)
+            except UpdateError as e:
+                commit_page(self.state, lib, job, site, response, [], set(), job["cursor"], error=e)
+                raise
+        else:
+            key = stable_id("update-registration-v1", job["id"])
+            with io_lock(self.state.root, lib), lib.writer_lock():
+                if not lib.committed_key(key):
+                    batch = Batch(
+                        lib,
+                        key,
+                        {
+                            "kind": "update_registration",
+                            "update_job_id": job["id"],
+                            "update_role": "register",
+                            "definition": job["definition"],
+                            "cursor": cursor,
+                        },
+                    )
+                    batch.commit(
+                        settings={
+                            checkpoint_key(job["id"]): {"definition": job["definition"], "cursor": cursor}
+                        }
+                    )
+        reconcile(self.state, lib, job["id"])
+
+    def page(self, lib, job, site, check, cancelled):
+        self.state.progress(job["id"], phase="metadata", current_post_id=None)
+        scope, cursor = job["definition"]["range"], dict(job["cursor"])
+        kind = scope["kind"]
+        size = site.capabilities()["page_size"]
+        size = min(size, job["definition"]["item_budget"] - cursor.get("slice_items", 0))
+        ids = None
+        if kind == "input":
+            size = 1 if site.name == "gelbooru" else size
+            with self.state.db() as db:
+                ids = [
+                    r[0]
+                    for r in db.execute(
+                        "SELECT post_id FROM input_ids WHERE input_id=? AND post_id>=? ORDER BY post_id LIMIT ?",
+                        (scope["input_id"], cursor["next_id"], size),
+                    )
+                ]
+        elif kind == "ids":
+            size = 1 if site.name == "gelbooru" else size
+            ids = scope["ids"][cursor["position"] : cursor["position"] + size]
+        elif kind == "local":
+            size = 1 if site.name == "gelbooru" else size
+            with online(lib) as (db, _):
+                seq = cursor["input_seq"]
+                # Bound scanned IDs first; filters cannot turn one request into a full-lake scan.
+                rows = list(
+                    db.execute(
+                        "SELECT p.post_id,p.asset_id,o.observed_at FROM post_versions p JOIN observations o USING(row_id) "
+                        "WHERE p.post_id>=? AND p.post_id<? AND p.valid_from<=? "
+                        "AND (p.valid_until IS NULL OR p.valid_until>?) ORDER BY p.post_id LIMIT ?",
+                        (cursor["next_id"], cursor["upper"], seq, seq, size),
+                    )
+                )
+            ids = []
+            for pid, aid, observed in rows:
+                if scope.get("missing_media") and aid is not None:
+                    continue
+                if (
+                    scope.get("observed_before")
+                    and observed
+                    and timestamp(observed) >= timestamp(scope["observed_before"])
+                ):
+                    continue
+                ids.append(pid)
+            if rows:
+                cursor["next_id"] = rows[-1][0] + 1
+            else:
+                cursor["metadata_complete"] = True
+        if cursor["next_id"] >= cursor["upper"] or ids == []:
+            if kind == "local" and not cursor["metadata_complete"]:
+                cursor["slice_pages"] += 1
+            else:
+                cursor["metadata_complete"] = True
+            self.save_cursor(lib, job, cursor)
+            return
+        after = (
+            scope.get("after")
+            if kind == "changes"
+            else int(timestamp(scope["start"]).timestamp()) - 1
+            if kind == "updated" and site.name == "gelbooru"
+            else None
+        )
+        params = site.params(
+            job["cursor"]["next_id"],
+            cursor["upper"],
+            size,
+            ids=ids,
+            change_after=after,
+            change_through=cursor.get("change_through"),
+        )
+        if kind == "created" and site.name in {"danbooru", "yandere"}:
+            from datetime import timedelta
+
+            start = (timestamp(scope["start"]) - timedelta(days=1)).date().isoformat()
+            end = (timestamp(scope["end"]) + timedelta(days=1)).date().isoformat()
+            params["tags"] += f" date:{start}..{end}"
+        response = self.request_page(lib, job, site, params, cancelled)
+        try:
+            rows = site.parse(response)
+            received = [r[1]["id"] for r in rows]
+            if (
+                len(rows) > size
+                or received != sorted(received)
+                or (ids is not None and set(received) - set(ids))
+                or any(i < job["cursor"]["next_id"] or i >= cursor["upper"] for i in received)
+            ):
+                raise UpdateError(
+                    "UPDATE_PAGE_INVALID", "API ignored range/order or returned an overlapping page"
+                )
+            selected = set(received)
+            if kind in {"created", "updated"}:
+                field = "created_at" if kind == "created" else "updated_at"
+                selected = set()
+                for ordinal, (_, record) in enumerate(rows):
+                    value = site.normalize(record, "range-check", ordinal, now()).get(field)
+                    if value is None:
+                        raise UpdateError(
+                            "UPDATE_RESPONSE_INVALID", "Date cannot be established for a returned post"
+                        )
+                    if timestamp(scope["start"]) <= timestamp(value) < timestamp(scope["end"]):
+                        selected.add(record["id"])
+            if kind == "changes" and any(
+                not scope["after"] < int(r[1].get("change", -1)) <= cursor["change_through"] for r in rows
+            ):
+                raise UpdateError("UPDATE_PAGE_INVALID", "API ignored the frozen change range")
+            if kind == "ids":
+                cursor["position"] += len(ids)
+                cursor["metadata_complete"] = cursor["position"] == len(scope["ids"])
+                cursor["next_id"] = (
+                    scope["ids"][cursor["position"]] if not cursor["metadata_complete"] else cursor["upper"]
+                )
+            elif kind == "input":
+                cursor["next_id"] = ids[-1] + 1
+            elif kind != "local":
+                cursor["metadata_complete"] = not received
+                if received:
+                    cursor["next_id"] = received[-1] + 1
+            cursor["pages"] += 1
+            cursor["slice_pages"] += 1
+            cursor["slice_items"] += len(selected)
+            cursor["replay_saved_response"] = False
+            tag_types = categories(self.state, lib, job, site, rows, selected, cancelled)
+            self.state.progress(
+                job["id"], phase="publishing_metadata", metadata_bytes_delta=len(response.body)
+            )
+            check()
+            commit_page(
+                self.state,
+                lib,
+                job,
+                site,
+                response,
+                rows,
+                selected,
+                cursor,
+                expected_ids=ids,
+                tag_types=tag_types,
+            )
+        except UpdateError as e:
+            if e.code != "CANCELLED":
+                commit_page(self.state, lib, job, site, response, [], set(), job["cursor"], error=e)
+            raise
+        reconcile(self.state, lib, job["id"])
+
+    def request_page(self, lib, job, site, params, cancelled):
+        if not job["cursor"].get("replay_saved_response"):
+            return site.request(params, cancelled)
+        from ..util import file_hash
+
+        with lib.journal() as journal:
+            rows = journal.execute(
+                "SELECT c.manifest_json FROM commits c JOIN update_run_batches b USING(seq,batch_id) "
+                "WHERE b.job_id=? ORDER BY c.seq DESC LIMIT 32",
+                (job["id"],),
+            ).fetchall()
+        for row in rows:
+            manifest = json.loads(row[0])
+            source = manifest["source"]
+            request = source.get("request", {})
+            if (
+                source.get("update_role") != "error"
+                or request.get("status") != 200
+                or request.get("parameters") != params
+            ):
+                continue
+            path = lib.root / "segments" / manifest["batch_id"] / "response_body.bin"
+            if file_hash(path) != source["response_sha256"]:
+                raise UpdateError("UPDATE_INTEGRITY", "Saved response checksum mismatch")
+            return Response(
+                path.read_bytes(), 200, {**request, "replayed_observed_at": source["observed_at"]}
+            )
+        raise UpdateError(
+            "UPDATE_REPLAY_UNAVAILABLE", "No matching saved successful response; use retry to fetch again"
+        )
+
+    def save_cursor(self, lib, job, cursor):
+        key = stable_id("update-progress-v1", job["id"], cursor)
+        with io_lock(self.state.root, lib), lib.writer_lock():
+            if not lib.committed_key(key):
+                batch = Batch(
+                    lib,
+                    key,
+                    {
+                        "kind": "update_progress",
+                        "update_job_id": job["id"],
+                        "update_role": "progress",
+                        "definition": job["definition"],
+                        "cursor": cursor,
+                    },
+                )
+                batch.commit(
+                    settings={checkpoint_key(job["id"]): {"definition": job["definition"], "cursor": cursor}}
+                )
+        reconcile(self.state, lib, job["id"])
+
+    def images(self, lib, job, site, check, cancelled):
+        with self.state.db() as db:
+            items = [
+                dict(r)
+                for r in db.execute(
+                    "SELECT * FROM items WHERE job_id=? AND state IN ('pending','failed','pending_metadata') "
+                    "AND retry_at<=? AND attempts<8 ORDER BY post_id LIMIT 8",
+                    (job["id"], time.time()),
+                )
+            ]
+        if not items:
+            return
+        results = []
+        for item in items:
+            check()
+            if item["state"] == "pending_metadata":
+                response = site.request(
+                    site.params(item["post_id"], item["post_id"] + 1, 1, ids=[item["post_id"]]), cancelled
+                )
+                try:
+                    rows = site.parse(response)
+                    if any(r[1]["id"] != item["post_id"] for r in rows):
+                        raise UpdateError("UPDATE_PAGE_INVALID", "Retry returned an unexpected post")
+                    tag_types = categories(self.state, lib, job, site, rows, {item["post_id"]}, cancelled)
+                    commit_page(
+                        self.state,
+                        lib,
+                        job,
+                        site,
+                        response,
+                        rows,
+                        {item["post_id"]},
+                        job["cursor"],
+                        expected_ids=[item["post_id"]],
+                        retry=True,
+                        tag_types=tag_types,
+                    )
+                except UpdateError as e:
+                    commit_page(
+                        self.state, lib, job, site, response, [], set(), job["cursor"], error=e, retry=True
+                    )
+                    raise
+                reconcile(self.state, lib, job["id"])
+                with self.state.db() as db:
+                    item = dict(
+                        db.execute(
+                            "SELECT * FROM items WHERE job_id=? AND post_id=?", (job["id"], item["post_id"])
+                        ).fetchone()
+                    )
+                if item["state"] != "pending":
+                    continue
+            try:
+                result = prepare(
+                    lib,
+                    job,
+                    item,
+                    site,
+                    self.resources,
+                    cancelled,
+                    self.image_http,
+                    lambda **values: self.state.progress(job["id"], **values),
+                )
+            except UpdateError as e:
+                if e.code in {"CANCELLED", "UPDATE_SPACE"}:
+                    if results:
+                        commit_media(self.state, lib, job, results, job["cursor"])
+                        reconcile(self.state, lib, job["id"])
+                    raise
+                result = {"state": "needs_review", "reason": e.code}
+            result.update(
+                post_id=item["post_id"], observation_id=item["observation_id"], attempt=item["attempts"] + 1
+            )
+            results.append(result)
+            if sum(r.get("stored_bytes", 0) for r in results) >= 32 * 1024**2:
+                break
+        if not results:
+            return
+        check()
+        self.state.progress(job["id"], phase="publishing_media", current_post_id=None)
+        commit_media(self.state, lib, job, results, job["cursor"])
+        reconcile(self.state, lib, job["id"])
+        for result in results:
+            if result.get("ready_path"):
+                path = Path(result["ready_path"])
+                if path.parent == lib.cache / "updates" / job["id"]:
+                    path.unlink(missing_ok=True)
+                    path.with_suffix(".json").unlink(missing_ok=True)
+
+    def finish(self, lib, job):
+        exclusions = job["counts"].get("unavailable", 0)
+        cursor = {**job["cursor"], "completed_at": now()}
+        self.save_cursor(lib, job, cursor)
+        with self.state.db() as db:
+            db.execute(
+                "INSERT OR REPLACE INTO coverage VALUES(?,?,?,?,?,?,?,?)",
+                (
+                    job["id"],
+                    job["lake_id"],
+                    json.dumps(job["definition"]["range"]),
+                    1,
+                    int(job["definition"]["media"]["profile"] != "metadata_only"),
+                    exclusions,
+                    cursor["scope"],
+                    now(),
+                ),
+            )
+        lease(lib, job["id"])
+        self.state.update(job["id"], state="completed_with_exclusions" if exclusions else "completed")
+        self.state.progress(job["id"], phase="completed", current_post_id=None, download_rate_bps=0)
+
+    def serve(self):
+        background_io = False
+        import os
+
+        if os.name == "nt":
+            import ctypes
+            from ctypes import wintypes
+
+            kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel.GetCurrentProcess.restype = wintypes.HANDLE
+            kernel.SetPriorityClass.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+            background_io = bool(kernel.SetPriorityClass(kernel.GetCurrentProcess(), 0x00100000))
+        with (
+            FileLock(self.state.root / "runner.lock", timeout=0.1),
+            ThreadPoolExecutor(max_workers=3) as pool,
+        ):
+            active = {}
+            while not self.stop.is_set():
+                self.state.tick_schedules()
+                for lake, future in list(active.items()):
+                    if future.done():
+                        future.result()
+                        del active[lake]
+                with self.state.db() as db:
+                    candidates = db.execute(
+                        "SELECT id,lake_id FROM jobs WHERE state IN ('queued','running','waiting_retry','waiting_space') "
+                        "AND retry_at<=? ORDER BY created_at,id LIMIT 100",
+                        (time.time(),),
+                    ).fetchall()
+                for job in candidates:
+                    if len(active) >= 3:
+                        break
+                    if job["lake_id"] not in active:
+                        active[job["lake_id"]] = pool.submit(self.run, job["id"])
+                atomic_json(
+                    self.state.root / "heartbeat.json",
+                    {
+                        "protocol_version": 1,
+                        "at": now(),
+                        "active_lakes": list(active),
+                        "background_io": background_io,
+                    },
+                )
+                self.stop.wait(1)
+
+
+def serve(root):
+    runner = Runner(State(root))
+    try:
+        runner.serve()
+    except KeyboardInterrupt:
+        runner.stop.set()

@@ -1,4 +1,10 @@
 import type { Schema } from "@studio/contracts";
+import {
+  defaultEncoding,
+  imagePolicy,
+  imagePolicyLabel,
+} from "./imagePolicy.js";
+import type { ImageFields } from "./imagePolicy.js";
 export type Definition = Schema["LakeUpdateDefinition"];
 export type UpdateJob = Schema["LakeUpdateJob"];
 export type Lake = Schema["UpdateLake"];
@@ -106,12 +112,7 @@ export function rangeLabel(spec: Definition) {
       return "固定成员范围";
   }
 }
-export const policyLabel = (spec: Definition) =>
-  ({
-    metadata_only: "仅元数据",
-    original: "原图",
-    "webp-2048-q95": "WebP · 2048 / Q95",
-  })[spec.media?.profile ?? "metadata_only"];
+export const policyLabel = (spec: Definition) => imagePolicyLabel(spec.media);
 export function actions(job: UpdateJob): Schema["LakeUpdateAction"][] {
   if (job.execution_active)
     return ["paused", "cancelled"].includes(job.state)
@@ -130,7 +131,7 @@ export const actionLabels = {
   replay: "使用已保存响应重新解析",
   cancel: "取消后续工作",
 };
-export type FormDraft = {
+export type FormDraft = ImageFields & {
   lakes: string[];
   kind:
     | "new"
@@ -143,9 +144,6 @@ export type FormDraft = {
     | "changes"
     | "input";
   inputIds: Record<string, string>;
-  profile: "" | Schema["LakeImageProfile"];
-  existing: "keep" | "match_profile";
-  allowSample: boolean;
   perLake: Record<string, { ids?: string; after?: string }>;
   startId: string;
   endId: string;
@@ -164,6 +162,7 @@ export const initialDraft: FormDraft = {
   lakes: [],
   kind: "new",
   profile: "",
+  encoding: defaultEncoding,
   existing: "keep",
   allowSample: false,
   perLake: {},
@@ -201,11 +200,13 @@ export function decodeDraft(value: unknown): FormDraft | null {
   )
     return null;
   if (
-    !["", "metadata_only", "original", "webp-2048-q95"].includes(v.profile) ||
+    !["", "metadata_only", "original", "webp-2048-q95", "custom"].includes(
+      v.profile,
+    ) ||
     !["now", "once", "interval"].includes(v.execution)
   )
     return null;
-  return { ...initialDraft, ...v };
+  return { ...initialDraft, ...v, encoding: v.encoding ?? defaultEncoding };
 }
 function integer(
   value: string,
@@ -337,11 +338,7 @@ export function definitions(d: FormDraft): Definition[] {
     return {
       library_id,
       range,
-      media: {
-        profile: d.profile as Schema["LakeImageProfile"],
-        existing: d.existing,
-        allow_sample: d.profile === "original" ? false : d.allowSample,
-      },
+      media: imagePolicy(d),
       page_budget: integer(d.pageBudget, "页数预算", 1, 100000),
       item_budget: integer(d.itemBudget, "记录预算", 1, 10000000),
     };

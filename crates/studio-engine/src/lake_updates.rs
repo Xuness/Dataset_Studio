@@ -17,6 +17,7 @@ pub struct Backend {
     config_path: PathBuf,
     runtime: Mutex<Option<LakeUpdateRuntime>>,
     worker: Mutex<Option<Child>>,
+    bundle: Mutex<Option<PathBuf>>,
     stopped: AtomicBool,
 }
 fn lock_error<T>(_: std::sync::PoisonError<T>) -> Error {
@@ -36,11 +37,16 @@ impl Backend {
         let config_path = root.join("lake-update-runtime.json");
         let runtime = fs::read(&config_path)
             .ok()
-            .and_then(|v| serde_json::from_slice(&v).ok());
+            .and_then(|v| serde_json::from_slice::<Value>(&v).ok())
+            .and_then(|mut v| {
+                v.as_object_mut()?.remove("store_root");
+                serde_json::from_value(v).ok()
+            });
         Self {
             config_path,
             runtime: Mutex::new(runtime),
             worker: Mutex::new(None),
+            bundle: Mutex::new(None),
             stopped: AtomicBool::new(false),
         }
     }
@@ -51,24 +57,33 @@ impl Backend {
             .clone()
             .ok_or_else(|| Error::new("UPDATE_UNAVAILABLE", "请先配置数据湖更新运行环境"))
     }
-    fn command(runtime: &LakeUpdateRuntime, mode: &str) -> Command {
+    fn command(&self, runtime: &LakeUpdateRuntime, mode: &str) -> Result<Command> {
+        let mut bundle = self.bundle.lock().map_err(lock_error)?;
+        if bundle.is_none() {
+            *bundle = Some(crate::lake_worker_bundle::install(
+                self.config_path.parent().unwrap(),
+            )?);
+        }
+        let worker_root = bundle.as_ref().unwrap();
         let mut command = Command::new(&runtime.python);
         command
-            .arg("-m")
-            .arg("danbooru_store.updates")
+            .arg("-I")
+            .arg("-X")
+            .arg("utf8")
+            .arg(worker_root.join("worker.py"))
             .arg("--root")
             .arg(&runtime.state_root)
             .arg("--mode")
             .arg(mode)
-            .current_dir(&runtime.store_root)
-            .env("PYTHONPATH", runtime.store_root.join("src"))
+            .current_dir(worker_root)
+            .env_remove("PYTHONPATH")
             .env("PYTHONIOENCODING", "utf-8");
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
             command.creation_flags(0x08000000);
         }
-        command
+        Ok(command)
     }
     pub fn ensure_worker(&self) -> Result<()> {
         if self.stopped.load(Ordering::Acquire) {
@@ -81,7 +96,8 @@ impl Backend {
         {
             return Ok(());
         }
-        let child = Self::command(&runtime, "serve")
+        let child = self
+            .command(&runtime, "serve")?
             .arg("--watch-stdin")
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
@@ -98,23 +114,21 @@ impl LakeUpdateBackend for Backend {
     }
     fn configure(&self, mut runtime: LakeUpdateRuntime) -> Result<()> {
         if !runtime.python.is_absolute()
-            || !runtime.store_root.is_absolute()
             || !runtime.state_root.is_absolute()
             || !runtime.python.is_file()
-            || !runtime
-                .store_root
-                .join("src/danbooru_store/updates/__main__.py")
-                .is_file()
         {
             return Err(Error::invalid(
-                "更新运行环境需要有效的 Python、Store 源码与状态目录绝对路径",
+                "更新运行环境需要有效的 Python 与状态目录绝对路径；运行器随 Studio 提供",
             ));
         }
         runtime.python = runtime.python.canonicalize().map_err(Error::io)?;
-        runtime.store_root = runtime.store_root.canonicalize().map_err(Error::io)?;
         fs::create_dir_all(&runtime.state_root).map_err(Error::io)?;
         runtime.state_root = runtime.state_root.canonicalize().map_err(Error::io)?;
-        if runtime.state_root == runtime.store_root || runtime.state_root == runtime.python {
+        if runtime.state_root == runtime.python
+            || runtime
+                .state_root
+                .starts_with(self.config_path.parent().unwrap().join("lake-worker"))
+        {
             return Err(Error::invalid("状态目录不能覆盖程序文件"));
         }
         {
@@ -162,7 +176,8 @@ impl LakeUpdateBackend for Backend {
         if request.len() > 2 * 1024 * 1024 {
             return Err(Error::invalid("更新请求过大，请使用分页范围"));
         }
-        let mut child = Self::command(&runtime, "rpc")
+        let mut child = self
+            .command(&runtime, "rpc")?
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())

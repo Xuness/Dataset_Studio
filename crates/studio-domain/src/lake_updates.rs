@@ -32,7 +32,6 @@ pub struct LakePreparedInput {
 #[serde(deny_unknown_fields)]
 pub struct LakeUpdateRuntime {
     pub python: PathBuf,
-    pub store_root: PathBuf,
     pub state_root: PathBuf,
 }
 

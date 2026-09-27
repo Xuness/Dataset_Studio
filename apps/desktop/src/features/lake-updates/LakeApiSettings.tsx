@@ -16,7 +16,6 @@ export function LakeApiSettings({ client }: SettingsPageProps) {
     [notice, setNotice] = useState("");
   const [runtime, setRuntime] = useState({
     python: "",
-    store_root: "",
     state_root: "",
   });
   async function act(run: () => Promise<unknown>, notice: string) {
@@ -41,21 +40,15 @@ export function LakeApiSettings({ client }: SettingsPageProps) {
       {!status.data?.configured ? (
         <div className="lake-fields">
           <h3>配置更新运行环境</h3>
+          <p className="lake-hint">
+            更新服务由 Studio 内置提供。Python 环境需要安装项目声明的运行依赖。
+          </p>
           <label>
             Python 可执行文件
             <input
               value={runtime.python}
               onChange={(e) =>
                 setRuntime({ ...runtime, python: e.target.value })
-              }
-            />
-          </label>
-          <label>
-            Store 仓库目录
-            <input
-              value={runtime.store_root}
-              onChange={(e) =>
-                setRuntime({ ...runtime, store_root: e.target.value })
               }
             />
           </label>
@@ -83,6 +76,8 @@ export function LakeApiSettings({ client }: SettingsPageProps) {
       ) : (
         <>
           <dl className="wb-property-list">
+            <dt>更新服务</dt>
+            <dd>Studio 内置</dd>
             <dt>后台运行器</dt>
             <dd>
               {status.data.worker_recent ? "近期心跳正常" : "尚无近期心跳"}

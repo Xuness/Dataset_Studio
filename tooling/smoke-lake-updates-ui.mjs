@@ -1,4 +1,5 @@
-// Isolated real engine + Store + UI. No real lakes, schedules or API credentials.
+import { lakeWorkerPython } from "./lake-worker-runtime.mjs";
+// Isolated real engine + embedded worker + UI. No real lakes, schedules or API credentials.
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
@@ -11,9 +12,8 @@ import { EngineFixture, sleep } from "./engine-fixture.mjs";
 import { clientFixture } from "./client-fixture.mjs";
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const run = resolve(root, ".local/test-runs/lake-update-ui-" + Date.now());
-const python = process.env.STUDIO_LAKE_TEST_PYTHON,
-  store = process.env.STUDIO_LAKE_TEST_STORE;
-assert.ok(python && store, "Set the isolated Store test runtime variables");
+const python = lakeWorkerPython(root);
+assert.ok(python, "Set STUDIO_LAKE_TEST_PYTHON to the worker test environment");
 await mkdir(run, { recursive: true });
 const engine = new EngineFixture(root, resolve(run, "engine"));
 const checks = [],
@@ -22,6 +22,23 @@ const checks = [],
 let browser, vite, page;
 const url = "http://127.0.0.1:1453";
 try {
+  const imagePolicyModel = ts.transpileModule(
+    await readFile(
+      resolve(root, "apps/desktop/src/features/lake-updates/imagePolicy.ts"),
+      "utf8",
+    ),
+    {
+      compilerOptions: {
+        module: ts.ModuleKind.ESNext,
+        target: ts.ScriptTarget.ES2022,
+      },
+    },
+  ).outputText;
+  await writeFile(resolve(run, "imagePolicy.js"), imagePolicyModel);
+  await writeFile(
+    resolve(run, "package.json"),
+    JSON.stringify({ type: "module" }),
+  );
   const model = ts.transpileModule(
     await readFile(
       resolve(root, "apps/desktop/src/features/lake-updates/model.ts"),
@@ -68,7 +85,7 @@ try {
   );
   await promisify(execFile)(
     python,
-    [resolve(root, "tooling/lake-updates-fixture.py"), run, store, "--assets"],
+    [resolve(root, "tooling/lake-updates-fixture.py"), run, "--assets"],
     { windowsHide: true },
   );
   const targets = JSON.parse(
@@ -79,7 +96,6 @@ try {
   let client = new StudioClient(engine.connection);
   await client.lakeUpdates.configure({
     python,
-    store_root: store,
     state_root: resolve(run, "controller"),
   });
   const project = await client.createProject({
@@ -372,13 +388,49 @@ try {
     ),
   ).toPass({ timeout: 60000 });
   checks.push(
-    "three-lake explicit-policy submission through real UI, API and Store; existing media remains reusable",
+    "three-lake explicit-policy submission through real UI, API and embedded worker; existing media remains reusable",
   );
   await page.getByRole("button", { name: "新建更新", exact: true }).click();
   dialog = page.getByRole("dialog", { name: "新建数据湖更新", exact: true });
   await dialog
     .getByRole("button", { name: "配置另一批更新", exact: true })
     .click();
+  await dialog.getByLabel("保存策略", { exact: true }).selectOption("custom");
+  await dialog.getByLabel("编码格式", { exact: true }).selectOption("jpeg");
+  await dialog.getByLabel("最长边（像素）", { exact: true }).fill("768");
+  await dialog.getByLabel("编码质量", { exact: true }).fill("82");
+  await dialog.getByLabel("背景颜色", { exact: true }).fill("#112233");
+  await dialog
+    .getByLabel("已有图片", { exact: true })
+    .selectOption("match_profile");
+  await dialog.locator("summary").filter({ hasText: "保存与管理预设" }).click();
+  await dialog.getByLabel("预设名称", { exact: true }).fill("工作集 JPEG 768");
+  await dialog.getByRole("button", { name: "另存为预设", exact: true }).click();
+  await expect(
+    dialog.getByText("预设已保存；已创建任务仍使用各自固定的配置。", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  await dialog.getByLabel("保存策略", { exact: true }).selectOption("original");
+  await dialog
+    .getByLabel("保存策略", { exact: true })
+    .selectOption({ label: "工作集 JPEG 768" });
+  await expect(dialog.getByLabel("编码格式", { exact: true })).toHaveValue(
+    "jpeg",
+  );
+  await expect(dialog.getByLabel("编码质量", { exact: true })).toHaveValue(
+    "82",
+  );
+  await dialog.getByLabel("编码格式", { exact: true }).selectOption("png");
+  await expect(dialog.getByLabel("编码质量", { exact: true })).toHaveCount(0);
+  await dialog.getByLabel("编码格式", { exact: true }).selectOption("webp");
+  await dialog.getByLabel("无损 WebP", { exact: true }).check();
+  await expect(dialog.getByLabel("编码质量", { exact: true })).toHaveCount(0);
+  await dialog
+    .getByLabel("保存策略", { exact: true })
+    .selectOption({ label: "工作集 JPEG 768" });
+  await dialog.locator("summary").filter({ hasText: "保存与管理预设" }).click();
+  await page.screenshot({ path: resolve(run, "encoding-jpeg-2560.png") });
   await dialog.getByLabel("执行", { exact: true }).selectOption("once");
   await dialog
     .getByLabel("首次执行（本机时间）", { exact: true })
@@ -396,6 +448,15 @@ try {
   ).toBeVisible({ timeout: 60000 });
   await dialog.getByRole("button", { name: "关闭", exact: true }).click();
   assert.equal((await client.lakeUpdates.schedules()).items.length, 3);
+  for (const schedule of (await client.lakeUpdates.schedules()).items) {
+    assert.equal(schedule.definition.media.profile, "custom");
+    assert.equal(schedule.definition.media.encoding.quality, 82);
+    assert.equal(schedule.definition.media.encoding.max_edge, 768);
+    assert.equal(schedule.definition.media.encoding.background, "#112233");
+  }
+  checks.push(
+    "codec-specific options, alpha background, saved recipe application and frozen schedule parameters",
+  );
   assert.ok(
     (await client.lakeUpdates.schedules()).items.every((s) => !s.enabled),
   );
@@ -461,6 +522,34 @@ try {
     .click();
   dialog = page.getByRole("dialog", { name: "新建数据湖更新", exact: true });
   await expect(dialog.getByLabel("范围", { exact: true })).toHaveValue("input");
+  await dialog.locator("summary").filter({ hasText: "保存与管理预设" }).click();
+  await dialog
+    .getByLabel("管理保存预设", { exact: true })
+    .selectOption({ label: "工作集 JPEG 768" });
+  await dialog.getByLabel("编码质量", { exact: true }).fill("80");
+  await dialog
+    .getByRole("button", { name: "用当前设置更新预设", exact: true })
+    .click();
+  await expect(
+    dialog.getByText("预设已保存；已创建任务仍使用各自固定的配置。", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  assert.ok(
+    (await client.lakeUpdates.schedules()).items.every(
+      (s) => s.definition.media.encoding.quality === 82,
+    ),
+  );
+  await dialog.getByRole("button", { name: "删除预设", exact: true }).click();
+  await expect(
+    dialog.getByLabel("管理保存预设", { exact: true }).locator("option"),
+  ).toHaveCount(1);
+  await expect(dialog.getByLabel("编码质量", { exact: true })).toHaveValue(
+    "80",
+  );
+  checks.push(
+    "editing or deleting a preset preserves already frozen schedules and the current draft",
+  );
   await dialog
     .getByRole("button", { name: "检查任务摘要", exact: true })
     .click();

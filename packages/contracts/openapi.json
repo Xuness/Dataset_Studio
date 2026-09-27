@@ -11335,7 +11335,6 @@
         "type": "object",
         "required": [
           "python",
-          "store_root",
           "state_root"
         ],
         "properties": {
@@ -11346,7 +11345,11 @@
             "type": "string"
           },
           "store_root": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Accepted for older clients; worker sources always come from Studio."
           }
         },
         "additionalProperties": false
@@ -12085,6 +12088,111 @@
           }
         }
       },
+      "LakeImageAlpha": {
+        "type": "string",
+        "enum": [
+          "preserve",
+          "flatten",
+          "reject"
+        ]
+      },
+      "LakeImageAnimation": {
+        "type": "string",
+        "enum": [
+          "preserve",
+          "first_frame"
+        ]
+      },
+      "LakeImageEncoding": {
+        "type": "object",
+        "required": [
+          "version",
+          "format",
+          "animation",
+          "alpha"
+        ],
+        "properties": {
+          "alpha": {
+            "$ref": "#/components/schemas/LakeImageAlpha"
+          },
+          "animation": {
+            "$ref": "#/components/schemas/LakeImageAnimation"
+          },
+          "background": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "compress_level": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "format": {
+            "$ref": "#/components/schemas/LakeImageFormat"
+          },
+          "lossless": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "max_edge": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "method": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "optimize": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "quality": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "subsampling": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "LakeImageFormat": {
+        "type": "string",
+        "enum": [
+          "webp",
+          "jpeg",
+          "png"
+        ]
+      },
       "LakeImagePolicy": {
         "type": "object",
         "required": [
@@ -12093,6 +12201,16 @@
         "properties": {
           "allow_sample": {
             "type": "boolean"
+          },
+          "encoding": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LakeImageEncoding"
+              }
+            ]
           },
           "existing": {
             "type": [
@@ -12111,7 +12229,8 @@
         "enum": [
           "metadata_only",
           "original",
-          "webp-2048-q95"
+          "webp-2048-q95",
+          "custom"
         ]
       },
       "LakeUpdateAction": {

@@ -17,6 +17,7 @@ import {
 } from "./model.js";
 import type { UpdateJob } from "./model.js";
 import { lakeKey, useLakeRefresh } from "./queries.js";
+import { ImagePolicySummary } from "./ImagePolicySummary.js";
 export function JobDetails({
   client,
   job,
@@ -199,6 +200,7 @@ export function JobDetails({
               : "—"}
           </dd>
         </dl>
+        <ImagePolicySummary policy={job.definition.media} />
       </details>
       <details>
         <summary>已验证范围</summary>

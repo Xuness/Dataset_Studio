@@ -4,6 +4,7 @@ mod artifacts;
 mod cache_config;
 mod jobs;
 mod lake_updates;
+mod lake_worker_bundle;
 mod llm_invocations;
 mod previews;
 mod query_budget;

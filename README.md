@@ -18,6 +18,8 @@ Ctrl+Z 撤销图片选择，Ctrl+Y 或 Ctrl+Shift+Z 重做。“设置 → 编�
 
 分级基础缓存按数据湖共享，组合筛选使用候选记录缩小查询范围；项目结果按长期、临时或仅本次会话管理。顶部“设置”统一提供容量、缓存管理和查询内存选项。缓存管理可查看所有项目（包括已关闭项目）的查询、固定输入引用和排名索引，并按项调整保留或清理。固定工作集上的成果分级筛选跨每日数据湖更新复用；涉及最新来源字段的条件仍按需刷新。行为与兼容规则见[缓存分层与设置决策](docs/decisions/0008-cache-tiers-settings.md)、[固定查询与缓存明细](docs/decisions/0021-fixed-query-dependencies-and-cache-inventory.md)及[实施与验收清单](docs/plans/cache-settings-v0.7.md)。
 
+“工具 → 数据湖”管理 Danbooru、Yandere、Gelbooru 的共享更新、预约计划和项目范围准备。API 抓取、图片编码、断点恢复及归档发布已由本仓库的 `services/lake-worker` 维护，运行源码内置于引擎，不再需要 Danbooru-Store 源码目录。保存策略支持原文件、WebP/JPEG/PNG 自定义编码与命名预设；详见[数据湖更新服务](services/lake-worker/README.md)。
+
 ## 启动
 
 在 Windows 上双击仓库根目录的 **启动开发版.bat**。
@@ -38,7 +40,7 @@ pwsh -File tooling/start-dev.ps1
 需要调试未优化的引擎时，在新的开发环境启动时传入 `--engine-profile=debug`，或设置 `STUDIO_ENGINE_PROFILE=debug`；默认是 `release`。命令行选项优先于环境变量。运行缓存以实际 EXE 的 SHA-256 标识，`.local/dev/development-build.json` 记录构建类型和实例。已有开发环境会被复用，因此切换类型前需结束原开发协调进程。
 
 - 修改前端和 CSS：Vite 热更新。
-- 修改 crates 下的 Rust：自动增量编译、重新生成契约、重启开发引擎。已确认的任务检查点保留，界面重新连接。
+- 修改 crates 下的 Rust 或 services/lake-worker 下的运行源码：自动增量编译、重新生成契约、重启开发引擎。已确认的任务检查点保留，界面重新连接。
 - 修改桌面宿主：Tauri 开发工具负责重建窗口。
 - 关闭窗口会释放项目视图并结束当前桌面开发控制台；引擎独立运行，后台工作完成后释放项目锁。
 - 停止开发引擎：在仓库目录运行 `pnpm engine:stop`。已固定输入的任务按检查点恢复，运行中断的查询结果需要重新计算。
@@ -47,7 +49,7 @@ pwsh -File tooling/start-dev.ps1
 
 需要 PowerShell 7、Node.js 22.12 或更新版本、pnpm 10.30.3、Rust 1.94 或更新版本、Visual Studio C++ 工具链与 WebView2。脚本只调整子进程的 MSVC 编译环境。
 
-运行集成测试和使用 Python 夹具的界面验证时，还需要可通过 `python` 命令调用的 **Python 3.11 x64**。本机使用 3.11.9；CI 显式选择 3.11 x64。夹具只使用 Python 标准库和 `tooling/setup-duckdb.ps1` 准备的 DuckDB DLL，不需要额外安装 Python 包。开发与验证入口见 [tooling 导航](tooling/README.md)。
+运行集成测试和使用 Python 夹具的界面验证时，还需要可通过 `python` 命令调用的 **Python 3.11 x64**。本机使用 3.11.9；CI 显式选择 3.11 x64。原有浏览夹具使用 Python 标准库和 DuckDB DLL；数据湖更新及其测试还需运行 `pwsh -File tooling/setup-lake-worker.ps1 -Dev` 安装项目内声明的 Python 依赖。开发与验证入口见 [tooling 导航](tooling/README.md)。
 
 ## 首次使用
 

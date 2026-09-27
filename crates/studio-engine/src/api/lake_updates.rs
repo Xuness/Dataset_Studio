@@ -63,7 +63,6 @@ pub(super) async fn configure(
         s.lake_updates
             .configure(domain::lake_updates::LakeUpdateRuntime {
                 python: body.python.into(),
-                store_root: body.store_root.into(),
                 state_root: body.state_root.into(),
             })
     })

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { ImagePolicyEditor } from "./ImagePolicyEditor.js";
 import type { StudioClient } from "@studio/client";
 import type { Schema } from "@studio/contracts";
 import { Button, DraftStatus, ErrorDetails, WorkbenchDialog } from "@studio/ui";
@@ -310,62 +311,7 @@ export function UpdateComposer({
           </details>
           <details open>
             <summary>更新内容</summary>
-            <div className="lake-fields">
-              <label>
-                保存策略
-                <select
-                  aria-label="保存策略"
-                  value={d.profile}
-                  onChange={(e) =>
-                    set({
-                      profile: e.target.value as FormDraft["profile"],
-                      allowSample: false,
-                    })
-                  }
-                >
-                  <option value="">请选择策略</option>
-                  <option value="metadata_only">仅元数据</option>
-                  <option value="original">保存原图</option>
-                  <option value="webp-2048-q95">
-                    WebP · 最长边 2048 / 质量 95
-                  </option>
-                </select>
-              </label>
-              {d.profile && d.profile !== "metadata_only" && (
-                <>
-                  <label>
-                    已有图片
-                    <select
-                      aria-label="已有图片"
-                      value={d.existing}
-                      onChange={(e) =>
-                        set({
-                          existing: e.target.value as FormDraft["existing"],
-                        })
-                      }
-                    >
-                      <option value="keep">保留可复用图片，只补缺图</option>
-                      <option value="match_profile">
-                        补入符合所选策略的版本
-                      </option>
-                    </select>
-                  </label>
-                  <p className="lake-hint">
-                    保存原图不会自动替换全部已有 HF 缩图。旧版本会保留。
-                  </p>
-                  {d.profile !== "original" && (
-                    <label className="lake-check">
-                      <input
-                        type="checkbox"
-                        checked={d.allowSample}
-                        onChange={(e) => set({ allowSample: e.target.checked })}
-                      />
-                      原件不可用时允许备用图片
-                    </label>
-                  )}
-                </>
-              )}
-            </div>
+            <ImagePolicyEditor client={client} value={d} onChange={set} />
           </details>
           <details open>
             <summary>执行方式</summary>

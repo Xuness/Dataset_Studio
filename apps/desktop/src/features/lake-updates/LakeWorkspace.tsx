@@ -1,3 +1,4 @@
+import { ImagePolicySummary } from "./ImagePolicySummary.js";
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Database, Plus, RefreshCw } from "lucide-react";
@@ -642,6 +643,7 @@ function ScheduleDetails({
         <summary>计划设置</summary>
         <p>{rangeLabel(s.definition)}</p>
         <p>{policyLabel(s.definition)}</p>
+        <ImagePolicySummary policy={s.definition.media} />
         <div className="lake-fields">
           <label className="lake-check">
             <input

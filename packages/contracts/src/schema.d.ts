@@ -3674,7 +3674,8 @@ export interface components {
         ConfigureLakeUpdates: {
             python: string;
             state_root: string;
-            store_root: string;
+            /** @description Accepted for older clients; worker sources always come from Studio. */
+            store_root?: string | null;
         };
         CreateCollection: {
             name: string;
@@ -3864,13 +3865,39 @@ export interface components {
             revision?: number | null;
             site: components["schemas"]["LakeUpdateSite"];
         };
+        /** @enum {string} */
+        LakeImageAlpha: "preserve" | "flatten" | "reject";
+        /** @enum {string} */
+        LakeImageAnimation: "preserve" | "first_frame";
+        LakeImageEncoding: {
+            alpha: components["schemas"]["LakeImageAlpha"];
+            animation: components["schemas"]["LakeImageAnimation"];
+            background?: string | null;
+            /** Format: int32 */
+            compress_level?: number | null;
+            format: components["schemas"]["LakeImageFormat"];
+            lossless?: boolean | null;
+            /** Format: int32 */
+            max_edge?: number | null;
+            /** Format: int32 */
+            method?: number | null;
+            optimize?: boolean | null;
+            /** Format: int32 */
+            quality?: number | null;
+            subsampling?: string | null;
+            /** Format: int32 */
+            version: number;
+        };
+        /** @enum {string} */
+        LakeImageFormat: "webp" | "jpeg" | "png";
         LakeImagePolicy: {
             allow_sample?: boolean;
+            encoding?: null | components["schemas"]["LakeImageEncoding"];
             existing?: string | null;
             profile: components["schemas"]["LakeImageProfile"];
         };
         /** @enum {string} */
-        LakeImageProfile: "metadata_only" | "original" | "webp-2048-q95";
+        LakeImageProfile: "metadata_only" | "original" | "webp-2048-q95" | "custom";
         /** @enum {string} */
         LakeUpdateAction: "pause" | "resume" | "retry" | "replay" | "cancel";
         LakeUpdateActionRequest: {

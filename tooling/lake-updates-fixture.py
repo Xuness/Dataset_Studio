@@ -4,13 +4,14 @@ from pathlib import Path
 import json
 import sys
 
-root, store = Path(sys.argv[1]).resolve(), Path(sys.argv[2]).resolve()
-sys.path.insert(0, str(store / "src"))
-from danbooru_store.config import Config
-from danbooru_store.library import Library
-from danbooru_store.index import Index
-from danbooru_store.online_migrate import migrate, verify_projection, activate_projection
-from danbooru_store.util import atomic_json
+root = Path(sys.argv[1]).resolve()
+worker = Path(__file__).resolve().parents[1] / "services/lake-worker"
+sys.path.insert(0, str(worker / "src"))
+from studio_lake.config import Config
+from studio_lake.library import Library
+from studio_lake.index import Index
+from studio_lake.online_migrate import migrate, verify_projection, activate_projection
+from studio_lake.util import atomic_json
 
 items = []
 for site in ["danbooru", "yandere", "gelbooru"]:
@@ -24,10 +25,10 @@ for site in ["danbooru", "yandere", "gelbooru"]:
     activate_projection(lib.root, lib.cache)
     items.append({"library_id": lib.info["library_id"], "site": site, "media_root": str(lib.root), "index_root": str(lib.cache)})
     if "--assets" in sys.argv:
-        # Use the paired Store repository's recorded-site fixture, never a real API.
+        # Use the Studio worker's recorded-site fixture, never a real API.
         import importlib.util
-        sys.path.insert(0, str(store / "tests"))
-        module_spec = importlib.util.spec_from_file_location("lake_update_fixture", store / "tests/test_updates.py")
+        sys.path.insert(0, str(worker / "tests"))
+        module_spec = importlib.util.spec_from_file_location("lake_update_fixture", worker / "tests/test_updates.py")
         support = importlib.util.module_from_spec(module_spec)
         module_spec.loader.exec_module(support)
         state = support.State(root / "controller")

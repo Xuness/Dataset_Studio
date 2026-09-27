@@ -23,6 +23,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: pnpm install --frozen-lockfile
       - run: pwsh -File tooling/setup-duckdb.ps1
+      - run: pwsh -File tooling/setup-lake-worker.ps1 -Dev
       - run: node tooling/prepare-sidecar.mjs
       - run: pnpm check
       - run: pnpm test:integration

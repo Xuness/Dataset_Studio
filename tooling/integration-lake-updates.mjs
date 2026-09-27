@@ -1,3 +1,4 @@
+import { lakeWorkerPython } from "./lake-worker-runtime.mjs";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -9,8 +10,7 @@ import { clientFixture } from "./client-fixture.mjs";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const runDir = resolve(root, ".local/test-runs", "lake-updates-" + Date.now());
-const python = process.env.STUDIO_LAKE_TEST_PYTHON;
-const store = process.env.STUDIO_LAKE_TEST_STORE;
+const python = lakeWorkerPython(root);
 await mkdir(runDir, { recursive: true });
 const engine = new EngineFixture(root, resolve(runDir, "engine"));
 const checks = [];
@@ -20,10 +20,10 @@ try {
   let client = new StudioClient(engine.connection);
   assert.equal((await client.lakeUpdates.status()).configured, false);
   checks.push("optional runtime does not affect browsing engine");
-  if (python && store) {
+  if (python) {
     await promisify(execFile)(
       python,
-      [resolve(root, "tooling/lake-updates-fixture.py"), runDir, store],
+      [resolve(root, "tooling/lake-updates-fixture.py"), runDir],
       { windowsHide: true },
     );
     const targets = JSON.parse(
@@ -31,10 +31,13 @@ try {
     );
     await client.lakeUpdates.configure({
       python,
-      store_root: store,
+      store_root: resolve(runDir, "missing-legacy-store-checkout"),
       state_root: resolve(runDir, "controller"),
     });
     assert.equal((await client.lakeUpdates.capabilities()).items.length, 3);
+    checks.push(
+      "embedded Studio worker runs when legacy Store checkout path does not exist",
+    );
     for (const target of targets) await client.lakeUpdates.register(target);
     assert.equal((await client.lakeUpdates.lakes()).items.length, 3);
     const secret = "integration-only-not-a-real-api-key";
@@ -140,7 +143,7 @@ try {
     );
   } else {
     checks.push(
-      "Store runtime integration skipped: set STUDIO_LAKE_TEST_PYTHON and STUDIO_LAKE_TEST_STORE",
+      "Worker integration skipped: run setup-lake-worker.ps1 or set STUDIO_LAKE_TEST_PYTHON",
     );
   }
   await writeFile(

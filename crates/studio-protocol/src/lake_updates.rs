@@ -116,6 +116,50 @@ pub enum LakeImageProfile {
     Original,
     #[serde(rename = "webp-2048-q95")]
     Webp2048Q95,
+    Custom,
+}
+#[derive(Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LakeImageFormat {
+    Webp,
+    Jpeg,
+    Png,
+}
+#[derive(Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LakeImageAnimation {
+    Preserve,
+    FirstFrame,
+}
+#[derive(Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LakeImageAlpha {
+    Preserve,
+    Flatten,
+    Reject,
+}
+#[derive(Clone, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LakeImageEncoding {
+    pub version: u32,
+    pub format: LakeImageFormat,
+    pub max_edge: Option<u32>,
+    pub animation: LakeImageAnimation,
+    pub alpha: LakeImageAlpha,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub background: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quality: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lossless: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub method: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub optimize: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub subsampling: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compress_level: Option<u8>,
 }
 #[derive(Clone, Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
@@ -125,6 +169,8 @@ pub struct LakeImagePolicy {
     pub allow_sample: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub existing: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub encoding: Option<LakeImageEncoding>,
 }
 #[derive(Clone, Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
@@ -142,7 +188,9 @@ pub struct LakeUpdateDefinition {
 #[serde(deny_unknown_fields)]
 pub struct ConfigureLakeUpdates {
     pub python: String,
-    pub store_root: String,
+    /// Accepted for older clients; worker sources always come from Studio.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub store_root: Option<String>,
     pub state_root: String,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
