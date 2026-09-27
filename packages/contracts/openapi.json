@@ -12311,6 +12311,14 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          },
+          "resume_from": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
           }
         }
       },
@@ -12466,6 +12474,44 @@
           }
         },
         "additionalProperties": false
+      },
+      "LakeTransferError": {
+        "type": "object",
+        "required": [
+          "post_id",
+          "exception",
+          "received_bytes",
+          "resumable_bytes",
+          "elapsed_seconds",
+          "at"
+        ],
+        "properties": {
+          "at": {
+            "type": "string"
+          },
+          "elapsed_seconds": {
+            "type": "number",
+            "format": "double"
+          },
+          "exception": {
+            "type": "string"
+          },
+          "post_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "received_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "resumable_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
       },
       "LakeUpdateAction": {
         "type": "string",
@@ -13582,6 +13628,31 @@
             "default": null,
             "minimum": 0
           },
+          "last_recovery_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          },
+          "last_recovery_reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          },
+          "last_transfer_error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LakeTransferError"
+              }
+            ],
+            "default": null
+          },
           "metadata_active": {
             "type": [
               "boolean",
@@ -13630,6 +13701,24 @@
             "default": null,
             "minimum": 0
           },
+          "recovery_count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "default": null,
+            "minimum": 0
+          },
+          "resumed_requests": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "default": null,
+            "minimum": 0
+          },
           "sampled_at": {
             "type": [
               "string",
@@ -13656,6 +13745,15 @@
             "propertyNames": {
               "type": "string"
             }
+          },
+          "transport_failures": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "default": null,
+            "minimum": 0
           },
           "waiting_download": {
             "type": [

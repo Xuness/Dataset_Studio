@@ -385,6 +385,12 @@ pub struct LakeUpdateTelemetry {
     pub api_requests: Option<u64>,
     pub image_requests: Option<u64>,
     pub throttled_requests: Option<u64>,
+    pub resumed_requests: Option<u64>,
+    pub transport_failures: Option<u64>,
+    pub recovery_count: Option<u64>,
+    pub last_recovery_at: Option<String>,
+    pub last_recovery_reason: Option<String>,
+    pub last_transfer_error: Option<LakeTransferError>,
     pub active_downloads: Option<u32>,
     pub waiting_download: Option<u64>,
     pub active_encodes: Option<u32>,
@@ -400,6 +406,16 @@ pub struct LakeImageTransfer {
     pub phase: String,
     pub current_bytes: Option<u64>,
     pub current_total_bytes: Option<u64>,
+    pub resume_from: Option<u64>,
+}
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct LakeTransferError {
+    pub post_id: u64,
+    pub exception: String,
+    pub received_bytes: u64,
+    pub resumable_bytes: u64,
+    pub elapsed_seconds: f64,
+    pub at: String,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct LakeUpdateJobs {

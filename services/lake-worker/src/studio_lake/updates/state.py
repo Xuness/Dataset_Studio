@@ -61,7 +61,9 @@ class State:
     def __init__(self, root):
         self.root = Path(root).resolve()
         self.root.mkdir(parents=True, exist_ok=True)
-        with ExitStack() as upgrade, self.db() as db:
+        # The daemon and the first RPC can both open a new database. Serialize before enabling WAL;
+        # SQLite can reject competing journal-mode changes without invoking the busy timeout.
+        with FileLock(self.root / "initialize.lock", timeout=10), ExitStack() as upgrade, self.db() as db:
             version = db.execute("PRAGMA user_version").fetchone()[0]
             application = db.execute("PRAGMA application_id").fetchone()[0]
             if (
@@ -112,10 +114,10 @@ class State:
     @contextmanager
     def db(self):
         db = Connection(self.root / "updates.sqlite", timeout=10)
-        db.execute("PRAGMA journal_mode=WAL")
-        db.execute("PRAGMA synchronous=FULL")
-        db.execute("PRAGMA foreign_keys=ON")
         try:
+            db.execute("PRAGMA journal_mode=WAL")
+            db.execute("PRAGMA synchronous=FULL")
+            db.execute("PRAGMA foreign_keys=ON")
             with db:
                 yield db
         finally:
@@ -250,6 +252,12 @@ class State:
         out = dict(row)
         out["telemetry"] = json.loads(telemetry[0]) if telemetry else {}
         out["execution_active"] = self.execution_active(identity)
+        if row["state"] == "running" and not out["execution_active"]:
+            # A crashed worker's last frame is not live progress. The supervisor will reclaim the job.
+            out["telemetry"].update(phase="waiting_worker", download_rate_bps=0,
+                                    publish_rate_images_per_second=0, current_post_id=None,
+                                    current_bytes=None, current_total_bytes=None, files=[],
+                                    active_downloads=0, active_encodes=0, waiting_encode=0, metadata_active=False)
         out["definition"], out["cursor"], out["counts"] = (
             json.loads(out["definition"]),
             json.loads(out["cursor"]),

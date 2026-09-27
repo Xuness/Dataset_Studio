@@ -149,10 +149,7 @@ class FileLock(AbstractContextManager):
 
     def __enter__(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        self.handle = self.path.open("a+b")
-        if self.path.stat().st_size == 0:
-            self.handle.write(b"0")
-            self.handle.flush()
+        self.handle = self.path.open("a+b", buffering=0)
         end = time.monotonic() + self.timeout
         while True:
             try:
@@ -165,25 +162,38 @@ class FileLock(AbstractContextManager):
                     import fcntl
 
                     fcntl.flock(self.handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-                return self
+                break
             except OSError:
                 if time.monotonic() >= end:
                     self.handle.close()
                     raise RuntimeError(f"另一个进程正在使用此工作区: {self.path}") from None
                 time.sleep(0.1)
+        try:
+            # Windows can lock beyond EOF. Initialize only after taking the byte-range lock;
+            # concurrent pre-lock writes to a newly created file can otherwise fail with EACCES.
+            if os.fstat(self.handle.fileno()).st_size == 0:
+                self.handle.write(b"0")
+                self.handle.flush()
+            return self
+        except BaseException:
+            self.__exit__(None, None, None)
+            raise
 
     def __exit__(self, *args):
-        if self.handle:
-            self.handle.seek(0)
-            if os.name == "nt":
-                import msvcrt
+        handle, self.handle = self.handle, None
+        if handle:
+            try:
+                handle.seek(0)
+                if os.name == "nt":
+                    import msvcrt
 
-                msvcrt.locking(self.handle.fileno(), msvcrt.LK_UNLCK, 1)
-            else:
-                import fcntl
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
 
-                fcntl.flock(self.handle.fileno(), fcntl.LOCK_UN)
-            self.handle.close()
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+            finally:
+                handle.close()
 
 
 def typed_value(value):

@@ -373,8 +373,11 @@ def cleanup_media_receipts(lib, source):
     directory = contained(lib.cache / "updates", source["update_job_id"])
     # Derive paths from verified archive identities, never from an archived absolute path.
     for result in source["results"]:
-        if result["state"] != "stored":
+        if result["state"] not in {"stored", "reused"}:
             continue
         key = stable_id(result["observation_id"], source["definition"]["media"])
-        for suffix in (".ready", ".json", ".downloaded", ".download.json", ".tmp"):
+        for suffix in (".ready", ".json", ".downloaded", ".download.json", ".tmp",
+                       ".partial", ".partial.json"):
             contained(directory, key + suffix).unlink(missing_ok=True)
+        for temporary in directory.glob(key + ".*.tmp"):
+            temporary.unlink(missing_ok=True)

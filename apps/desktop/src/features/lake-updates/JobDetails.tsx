@@ -149,6 +149,10 @@ export function JobDetails({
               <dd>{t.image_requests ?? 0}</dd>
               <dt>远端限流响应</dt>
               <dd>{t.throttled_requests ?? 0}</dd>
+              <dt>断点续传请求</dt>
+              <dd>{t.resumed_requests ?? 0}</dd>
+              <dt>传输中断次数</dt>
+              <dd>{t.transport_failures ?? 0}</dd>
             </dl>
             <p className="lake-hint">
               下载中包含连接与限流等待；入湖速度按成功发布的图片记录统计，复用和异常单独计数。
@@ -166,6 +170,8 @@ export function JobDetails({
                         <small>
                           {bytesLabel(f.current_bytes)} /{" "}
                           {bytesLabel(f.current_total_bytes)}
+                          {!!f.resume_from &&
+                            ` · 从 ${bytesLabel(f.resume_from)} 接续`}
                         </small>
                       )}
                     </div>
@@ -236,6 +242,28 @@ export function JobDetails({
           <summary>诊断与恢复</summary>
           <p>任务 {job.id}</p>
           <CopyButton text={job.id} />
+          <p className="lake-hint">
+            前端重新打开后会读取原任务进度。后台服务异常退出后会自动接续原任务；手动暂停的任务保持暂停。
+            未完成图片保留校验检查点，服务器支持范围请求时接续下载；不支持时重新下载该张图片。
+          </p>
+          {!!t.recovery_count && (
+            <p>
+              后台自动接续 {t.recovery_count} 次，最近一次：
+              {dateLabel(t.last_recovery_at)}
+            </p>
+          )}
+          {t.last_transfer_error && (
+            <p>
+              最近传输中断：#{t.last_transfer_error.post_id} ·{" "}
+              {t.last_transfer_error.exception}
+              {" · "}
+              {dateLabel(t.last_transfer_error.at)}
+              {" · "}已接收 {bytesLabel(t.last_transfer_error.received_bytes)}，
+              可接续 {bytesLabel(t.last_transfer_error.resumable_bytes)}
+              （该次尝试 {t.last_transfer_error.elapsed_seconds.toFixed(1)}{" "}
+              秒；后续重试可能已完成）。
+            </p>
+          )}
           {job.error_code && <p>错误代码：{job.error_code}</p>}
           {actions(job).includes("replay") && (
             <Button

@@ -101,6 +101,14 @@ pwsh -File tooling/setup-lake-worker.ps1 -Dev
 
 设计与兼容边界见 [ADR 0041](../../docs/decisions/0041-lake-download-pipeline.md)。
 
+## 断点与异常恢复
+
+未完成图片保留 `.partial` / `.partial.json` 校验检查点。断网、暂停或服务退出后，下一次执行自动请求剩余字节；强制终止进程时回到最近一次持久检查点，通常最多回退约 4 MiB 或两秒的数据。只有原图校验和或强 ETag 足以验证内容时才使用范围请求，服务器不支持时安全重下该张图片；损坏或变化的断点不会直接拼接入湖。
+
+前端重新打开后读取原任务；后台 worker 退出由引擎监督器重新拉起，原运行任务自动恢复归档/候选队列后接续。手动暂停、取消和已完成的任务保持原状态。任务详情的“诊断与恢复”显示后台接续记录和最近网络异常，流水线统计显示断点续传次数。网络异常只保留类型与字节/时间信息，避免泄露请求 URL 和凭据。
+
+不需要迁移正式湖或重建已有任务；旧版尚未保留的半张下载无法找回。协议、强制终止测试与行为边界见 [ADR 0042](../../docs/decisions/0042-resumable-lake-transfers.md)。
+
 ## 验证
 
 `pnpm test:lake`、`node tooling/integration-lake-updates.mjs`、`pnpm test:lake-ui`。优先使用 `.local/runtime/lake-worker`，也可指定 `STUDIO_LAKE_TEST_PYTHON`，不再使用 `STUDIO_LAKE_TEST_STORE`。夹具和证据只写入 `.local/`；测试不访问真实站点，不创建正式计划。

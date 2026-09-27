@@ -3922,6 +3922,8 @@ export interface components {
             phase: string;
             /** Format: int64 */
             post_id: number;
+            /** Format: int64 */
+            resume_from?: number | null;
         };
         LakePipelineConfig: {
             /** Format: int32 */
@@ -3970,6 +3972,18 @@ export interface components {
             download_concurrency: number;
             /** Format: double */
             image_requests_per_second?: number | null;
+        };
+        LakeTransferError: {
+            at: string;
+            /** Format: double */
+            elapsed_seconds: number;
+            exception: string;
+            /** Format: int64 */
+            post_id: number;
+            /** Format: int64 */
+            received_bytes: number;
+            /** Format: int64 */
+            resumable_bytes: number;
         };
         /** @enum {string} */
         LakeUpdateAction: "pause" | "resume" | "retry" | "replay" | "cancel";
@@ -4301,6 +4315,12 @@ export interface components {
              */
             image_requests: number | null;
             /** @default null */
+            last_recovery_at: string | null;
+            /** @default null */
+            last_recovery_reason: string | null;
+            /** @default null */
+            last_transfer_error: null | components["schemas"]["LakeTransferError"];
+            /** @default null */
             metadata_active: boolean | null;
             /**
              * Format: int64
@@ -4324,6 +4344,16 @@ export interface components {
              * @default null
              */
             ready_images: number | null;
+            /**
+             * Format: int64
+             * @default null
+             */
+            recovery_count: number | null;
+            /**
+             * Format: int64
+             * @default null
+             */
+            resumed_requests: number | null;
             /** @default null */
             sampled_at: string | null;
             /**
@@ -4335,6 +4365,11 @@ export interface components {
             timings_seconds: {
                 [key: string]: number;
             };
+            /**
+             * Format: int64
+             * @default null
+             */
+            transport_failures: number | null;
             /**
              * Format: int64
              * @default null

@@ -449,6 +449,38 @@ try {
   checks.push(
     "three-lake explicit-policy submission through real UI, API and embedded worker; existing media remains reusable",
   );
+  const recoveredId = recent.items[0].id;
+  await promisify(execFile)(
+    python,
+    [
+      "-c",
+      "import sys; sys.path.insert(0, sys.argv[1]); from studio_lake.updates.state import State; State(sys.argv[2]).progress(sys.argv[3], resumed_requests=2, transport_failures=1, recovery_count=1, last_recovery_at='2026-09-28T00:00:00+08:00', last_transfer_error={'post_id':11,'exception':'ReadTimeout','received_bytes':1048576,'resumable_bytes':1048576,'elapsed_seconds':45.0,'at':'2026-09-28T00:00:00+08:00'})",
+      resolve(root, "services/lake-worker/src"),
+      resolve(run, "controller"),
+      recoveredId,
+    ],
+    { windowsHide: true },
+  );
+  assert.equal(
+    (await client.lakeUpdates.job(recoveredId)).telemetry.resumed_requests,
+    2,
+  );
+  await page.reload();
+  await page.locator(".lake-table .lake-row-link").first().click();
+  await expect(page.locator(".lake-details")).toContainText("断点续传请求");
+  await page
+    .locator(".lake-details summary")
+    .filter({ hasText: "诊断与恢复" })
+    .click();
+  await expect(page.locator(".lake-details")).toContainText(
+    "后台自动接续 1 次",
+  );
+  await expect(page.locator(".lake-details")).toContainText("ReadTimeout");
+  await expect(page.locator(".lake-details")).toContainText("可接续 1.0 MiB");
+  await page.screenshot({ path: resolve(run, "download-recovery.png") });
+  checks.push(
+    "persisted resume counters and bounded network diagnostics survive UI reload through the public API",
+  );
   await page.getByRole("button", { name: "新建更新", exact: true }).click();
   dialog = page.getByRole("dialog", { name: "新建数据湖更新", exact: true });
   await dialog

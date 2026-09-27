@@ -357,6 +357,8 @@ def test_shared_encoder_memory_admission_and_live_limit_changes(tmp_path):
 
 
 def test_spool_admission_and_release_do_not_overbook(tmp_path):
+    # Production paths are updates/<job>; do not count sibling pytest cases as other jobs.
+    tmp_path = tmp_path / "updates" / "job"
     resources = Resources(max_download_bytes=1024, spool_bytes=8192, reserve_bytes=0)
     a = resources.try_reserve(tmp_path, "a")
     b = resources.try_reserve(tmp_path, "b")

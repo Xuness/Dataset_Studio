@@ -119,9 +119,10 @@ class Runner:
             self.state.update(
                 identity,
                 state=state,
-                error_code=error.code,
-                error_message=str(error),
-                retry_at=time.time() + max(60, error.retry_after),
+                error_code="UPDATE_INTERRUPTED" if state == "queued" else error.code,
+                error_message="Update service stopped; saved work will resume automatically"
+                if state == "queued" else str(error),
+                retry_at=0 if state == "queued" else time.time() + max(60, error.retry_after),
             )
         except Exception as error:
             current = self.state.job(identity)
@@ -210,11 +211,24 @@ class Runner:
                 raise UpdateError("CANCELLED", "Update paused at a safe boundary")
 
         check()
-        self.state.update(identity, state="running", error_code=None, error_message=None)
+        interrupted = job["state"] == "running" or job.get("error_code") == "UPDATE_INTERRUPTED"
+        self.state.update(identity, state="running", error_code=None, error_message=None, retry_at=0)
+        if interrupted:
+            self.state.progress(identity, recovery_count_delta=1, last_recovery_at=now(),
+                                last_recovery_reason="worker_interrupted" if job["state"] == "running"
+                                else "service_restarted")
         self.state.progress(
             identity,
             phase="recovering",
             current_post_id=None,
+            current_bytes=None,
+            current_total_bytes=None,
+            files=[],
+            download_rate_bps=0,
+            publish_rate_images_per_second=0,
+            active_downloads=0,
+            active_encodes=0,
+            waiting_encode=0,
             downloaded_bytes_delta=0,
             metadata_bytes_delta=0,
         )
@@ -674,39 +688,51 @@ class Runner:
             kernel.GetCurrentProcess.restype = wintypes.HANDLE
             kernel.SetPriorityClass.argtypes = [wintypes.HANDLE, wintypes.DWORD]
             background_io = bool(kernel.SetPriorityClass(kernel.GetCurrentProcess(), 0x00100000))
-        with (
-            FileLock(self.state.root / "runner.lock", timeout=0.1),
-            ThreadPoolExecutor(max_workers=3) as pool,
-        ):
-            active = {}
-            while not self.stop.is_set():
-                self.refresh_settings()
-                self.state.tick_schedules()
-                for lake, future in list(active.items()):
-                    if future.done():
-                        future.result()
-                        del active[lake]
-                with self.state.db() as db:
-                    candidates = db.execute(
-                        "SELECT id,lake_id FROM jobs WHERE state IN ('queued','running','waiting_retry','waiting_space') "
-                        "AND retry_at<=? ORDER BY created_at,id LIMIT 100",
-                        (time.time(),),
-                    ).fetchall()
-                for job in candidates:
-                    if len(active) >= self.resources.config["active_lakes"]:
-                        break
-                    if job["lake_id"] not in active:
-                        active[job["lake_id"]] = pool.submit(self.run, job["id"])
-                atomic_json(
-                    self.state.root / "heartbeat.json",
-                    {
-                        "protocol_version": 1,
-                        "at": now(),
-                        "active_lakes": list(active),
-                        "background_io": background_io,
-                    },
-                )
-                self.stop.wait(1)
+        try:
+            with (
+                FileLock(self.state.root / "runner.lock", timeout=0.1),
+                ThreadPoolExecutor(max_workers=3) as pool,
+            ):
+                try:
+                    self.schedule(pool, background_io)
+                finally:
+                    # Stop all work before ThreadPoolExecutor waits, including coordinator failures.
+                    self.stop.set()
+        finally:
+            if background_io:
+                kernel.SetPriorityClass(kernel.GetCurrentProcess(), 0x00200000)
+
+    def schedule(self, pool, background_io):
+        active = {}
+        while not self.stop.is_set():
+            self.refresh_settings()
+            self.state.tick_schedules()
+            for lake, future in list(active.items()):
+                if future.done():
+                    future.result()
+                    del active[lake]
+            with self.state.db() as db:
+                candidates = db.execute(
+                    "SELECT id,lake_id FROM jobs WHERE state IN ('queued','running','waiting_retry','waiting_space') "
+                    "AND retry_at<=? ORDER BY created_at,id LIMIT 100",
+                    (time.time(),),
+                ).fetchall()
+            for job in candidates:
+                if len(active) >= self.resources.config["active_lakes"]:
+                    break
+                if job["lake_id"] not in active:
+                    active[job["lake_id"]] = pool.submit(self.run, job["id"])
+            atomic_json(
+                self.state.root / "heartbeat.json",
+                {
+                    "protocol_version": 1,
+                    "at": now(),
+                    "active_lakes": list(active),
+                    "background_io": background_io,
+                },
+            )
+            self.stop.wait(1)
+
 
 
 def serve(root):

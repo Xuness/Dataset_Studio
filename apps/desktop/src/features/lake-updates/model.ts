@@ -32,6 +32,7 @@ export const states: Record<Schema["LakeUpdateJobState"], string> = {
 };
 export const phases: Record<string, string> = {
   recovering: "恢复检查点",
+  waiting_worker: "等待后台服务自动接续",
   metadata: "获取元数据",
   publishing_metadata: "发布元数据",
   downloading: "下载图片",

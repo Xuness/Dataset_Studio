@@ -12,8 +12,10 @@ class Telemetry:
         old = job.get("telemetry") or {}
         self.base = {
             k: old.get(k, 0)
-            for k in ("downloaded_bytes", "image_requests", "api_requests", "throttled_requests")
+            for k in ("downloaded_bytes", "image_requests", "api_requests", "throttled_requests",
+                      "resumed_requests", "transport_failures")
         }
+        self.last_transfer_error = old.get("last_transfer_error")
         self.totals = {k: 0 for k in self.base}
         self.times = dict(old.get("timings_seconds") or {})
         self.files = {}
@@ -24,7 +26,9 @@ class Telemetry:
     def add(self, post_id=None, **values):
         with self.lock:
             for key, value in values.items():
-                if key.endswith("_seconds_delta"):
+                if key == "last_transfer_error":
+                    self.last_transfer_error = value
+                elif key.endswith("_seconds_delta"):
                     name = key.removesuffix("_seconds_delta")
                     self.times[name] = self.times.get(name, 0) + value
                 elif key.endswith("_delta"):
@@ -97,5 +101,6 @@ class Telemetry:
                 "metadata_active": scanning and not stopping,
                 "files": files[:48],
                 "timings_seconds": dict(self.times),
+                "last_transfer_error": self.last_transfer_error,
             }
         self.state.progress(self.identity, **value)

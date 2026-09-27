@@ -1,6 +1,5 @@
 """Bounded SSD downloads and explicit media-variant reuse; no network inside lake transactions."""
 
-import hashlib
 import errno
 import json
 import os
@@ -13,12 +12,12 @@ from PIL import Image
 import requests
 
 from ..image_policy import prepare_image, profile_id, ImagePolicyError
-from ..util import atomic_json, digest, file_hash, retry_after_seconds, stable_id
+from ..util import atomic_json, digest, file_hash, stable_id
 from .archive import online, record_by_id
 from .sites import UpdateError
 from .resources import Resources as Resources
 from .resources import Reservation
-from . import rate
+from .transfer import fetch
 
 
 # The service applies its explicit configurable pixel and memory guards before load().
@@ -198,104 +197,21 @@ def download(lib, job, item, site, resources, cancelled, sessions, progress=None
     saved = cached(raw, raw_receipt)
     if saved:
         return {**saved, "download_path": str(raw)}
-    http = sessions.get()
     error = {"state": "failed", "reason": "download_failed", "retry_at": time.time() + 60}
     for kind, url in urls:
-        if cancelled():
-            raise UpdateError("CANCELLED", "Update paused")
-        partial = directory / (key + ".partial")
-        limit = resources.max_download_bytes
-        reported = length = 0
         try:
-            progress(
-                phase="rate_wait", current_post_id=item["post_id"], current_bytes=0, current_total_bytes=None
-            )
-            if site.rate_root is not None and sessions.injected is None:
-                rate.wait_start(
-                    site.rate_root,
-                    site.name,
-                    cancelled,
-                    lambda: resources.config["sites"][site.name]["image_requests_per_second"],
-                )
-            progress(phase="connecting", image_requests_delta=1)
-            started = time.perf_counter()
-            with http.get(url, stream=True, timeout=(10, 45), allow_redirects=False) as response:
-                progress(connect_seconds_delta=time.perf_counter() - started)
-                if response.status_code != 200:
-                    delay = retry_after_seconds(response.headers) or 60
-                    if response.status_code in {429, 503}:
-                        progress(throttled_requests_delta=1)
-                        if site.rate_root is not None:
-                            rate.cooldown(site.rate_root, site.name, delay, image=True)
-                    error = {
-                        "state": "failed"
-                        if response.status_code == 429 or response.status_code >= 500
-                        else "needs_review",
-                        "reason": f"image_http_{response.status_code}",
-                        "retry_at": time.time() + delay,
-                    }
-                    continue
-                total = response.headers.get("Content-Length", "")
-                total = (
-                    int(total)
-                    if str(total).isdigit() and not response.headers.get("Content-Encoding")
-                    else None
-                )
-                if total is not None and total > limit:
-                    raise UpdateError("UPDATE_RESOURCE_LIMIT", "Image exceeds configured byte limit")
-                progress(phase="downloading", current_bytes=0, current_total_bytes=total)
-                sampled = started = time.perf_counter()
-                md5, sha = hashlib.md5(), hashlib.sha256()
-                with partial.open("wb") as output:
-                    for chunk in response.iter_content(256 * 1024):
-                        if cancelled():
-                            raise UpdateError("CANCELLED", "Update paused")
-                        length += len(chunk)
-                        if length > limit:
-                            raise UpdateError("UPDATE_RESOURCE_LIMIT", "Image exceeds configured byte limit")
-                        resources.bandwidth(len(chunk), cancelled)
-                        output.write(chunk)
-                        md5.update(chunk)
-                        sha.update(chunk)
-                        stamp = time.perf_counter()
-                        if stamp - sampled >= 0.5:
-                            progress(current_bytes=length, downloaded_bytes_delta=length - reported)
-                            reported, sampled = length, stamp
-                    output.flush()
-                    os.fsync(output.fileno())
-                progress(download_seconds_delta=time.perf_counter() - started)
-            progress(phase="verifying", current_bytes=length, downloaded_bytes_delta=length - reported)
-            reported = length
-            if (
-                kind == "original"
-                and observation.get("md5")
-                and md5.hexdigest() != observation["md5"].lower()
-            ):
-                return {"state": "needs_review", "reason": "original_md5_mismatch"}
-            partial.replace(raw)
-            saved = {
-                "state": "downloaded",
-                "sha256": sha.hexdigest(),
-                "download_bytes": length,
-                "selected_url_kind": kind,
-                "original_md5_verified": kind == "original" and bool(observation.get("md5")),
-            }
-            atomic_json(raw_receipt, saved)
-            progress(phase="waiting_encode")
-            return {**saved, "download_path": str(raw)}
+            error = fetch(directory, key, url, kind, observation, site, resources,
+                          cancelled, sessions, progress)
+            if error["state"] in {"downloaded", "stored"}:
+                return error
         except UpdateError:
             raise
-        except requests.RequestException:
-            error = {"state": "failed", "reason": "image_transport_failed", "retry_at": time.time() + 60}
         except (OSError, ValueError) as failure:
             if isinstance(failure, OSError) and failure.errno == errno.ENOSPC:
                 raise UpdateError("UPDATE_SPACE", "Waiting for SSD space during download") from None
             error = {"state": "needs_review", "reason": "image_download_or_storage_error"}
-        finally:
-            if length > reported:
-                progress(downloaded_bytes_delta=length - reported)
-            partial.unlink(missing_ok=True)
     return error
+
 
 
 def encode_download(lib, job, item, downloaded, resources, cancelled, progress=None):
