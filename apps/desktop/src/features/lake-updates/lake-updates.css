@@ -1,0 +1,277 @@
+.lake-workspace {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  background: var(--recessed);
+}
+.lake-preparations {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+.lake-workspace > .wb-shell {
+  flex: 1;
+  min-height: 0;
+}
+.lake-workspace .wb-panel-content {
+  overflow: auto;
+}
+.lake-center {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.lake-outline {
+  padding: 5px 0;
+}
+.lake-outline > button {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  padding: 7px 10px;
+  text-align: left;
+}
+.lake-outline > button.active {
+  background: var(--active);
+}
+.lake-outline small {
+  margin-left: auto;
+  color: var(--muted);
+}
+.lake-table-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.lake-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+}
+.lake-table th {
+  text-align: left;
+  background: var(--header);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  font-weight: 500;
+}
+.lake-table td,
+.lake-table th {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.lake-table tr.selected {
+  background: var(--active);
+}
+.lake-table td:not(:first-child) {
+  white-space: nowrap;
+}
+.lake-table small {
+  display: block;
+  color: var(--muted);
+  margin-top: 4px;
+}
+.lake-row-link {
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.lake-row-link:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+.lake-empty {
+  color: var(--muted);
+  padding: 18px;
+}
+.lake-pagination,
+.lake-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.lake-pagination {
+  padding: 7px 10px;
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+}
+.lake-details {
+  padding: 6px;
+  overflow-wrap: anywhere;
+}
+.lake-details details,
+.lake-composer details,
+.lake-settings details {
+  border-bottom: 1px solid var(--line);
+}
+.lake-details summary,
+.lake-composer summary,
+.lake-settings summary {
+  padding: 8px;
+  background: var(--header);
+  cursor: pointer;
+}
+.lake-details .wb-property-list {
+  margin: 8px;
+}
+.lake-property-pair {
+  display: contents;
+}
+.lake-details p {
+  margin: 9px;
+}
+.lake-details .lake-actions {
+  margin: 8px 0;
+}
+.lake-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+}
+.lake-fields > label:not(.lake-check) {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.8fr) minmax(100px, 1.5fr);
+  gap: 12px;
+  align-items: center;
+}
+.lake-fields input,
+.lake-fields select,
+.lake-fields textarea {
+  width: 100%;
+  min-width: 0;
+}
+.lake-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.lake-check input {
+  width: auto;
+}
+.lake-hint {
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+.lake-composer {
+  width: min(760px, 78vw);
+  max-width: 100%;
+}
+.lake-composer fieldset {
+  padding: 0;
+  margin: 0;
+  border: 0;
+  min-width: 0;
+}
+.lake-composer > footer {
+  padding: 12px 0;
+  position: sticky;
+  bottom: 0;
+  background: var(--panel);
+}
+.lake-summary {
+  padding: 10px;
+  border-top: 1px solid var(--line);
+  background: var(--recessed);
+}
+.lake-summary > div + div {
+  margin-top: 12px;
+}
+.lake-summary p {
+  margin: 5px 0;
+  overflow-wrap: anywhere;
+}
+.lake-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  background: var(--header);
+}
+.lake-item-list > div {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 8px;
+  border-top: 1px solid var(--line);
+  font-size: 12px;
+}
+.lake-item-list small {
+  grid-column: 1/-1;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+}
+.lake-file-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 8px;
+}
+.lake-file-progress progress {
+  width: 100%;
+  height: 5px;
+  accent-color: var(--accent);
+  border: 0;
+}
+.lake-site-status > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.lake-activity {
+  position: absolute;
+  right: 10px;
+  bottom: 33px;
+  width: min(680px, 90vw);
+  max-height: 55vh;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 6px 28px #0008;
+}
+.lake-activity header,
+.lake-activity footer {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px;
+  background: var(--header);
+}
+.lake-activity > div {
+  overflow: auto;
+}
+.lake-activity > div > button {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+.lake-activity > div > p {
+  padding: 12px;
+}
+@media (max-width: 1100px) {
+  .lake-table td:last-child,
+  .lake-table th:last-child {
+    display: none;
+  }
+  .lake-composer {
+    width: 70vw;
+  }
+}

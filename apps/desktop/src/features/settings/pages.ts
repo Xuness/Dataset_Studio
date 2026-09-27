@@ -5,9 +5,16 @@ import { EditingSettingsPage } from "./EditingSettingsPage.js";
 import { CacheSettingsPage } from "./CacheSettingsPage.js";
 import { CacheManagerPage } from "./CacheManagerPage.js";
 import { PerformanceSettingsPage } from "./PerformanceSettingsPage.js";
+import { LakeApiSettings } from "../lake-updates/LakeApiSettings.js";
 
 /** Register a settings page here; it stays outside the project's business views. */
 export const settingsPages = [
+  {
+    id: "lake-api",
+    title: "数据湖 API",
+    Icon: Database,
+    Component: LakeApiSettings,
+  },
   { id: "llm", title: "API 与模型", Icon: Plug, Component: LlmSettingsPage },
   {
     id: "system-prompts",

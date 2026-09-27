@@ -25,15 +25,33 @@ pub(super) async fn status(State(s): State<AppState>) -> ApiResult<LakeUpdateSer
             protocol_version: 1,
             worker_recent: false,
             credentials: vec![],
+            activity: LakeUpdateActivity::default(),
+            preparation_count: 0,
+            preparation_attention_count: 0,
+            preparations: vec![],
         }));
     }
-    let value = blocking(move || s.lake_updates.execute(Op::Status, json!({}))).await?;
+    let (value, pending, attention, preparations) = blocking(move || {
+        let value = s.lake_updates.execute(Op::Status, json!({}))?;
+        let (pending, attention, preparations) = s.store.lake_input_activity()?;
+        let rows = preparations
+            .into_iter()
+            .map(|r| serde_json::from_value(json!(r)).map_err(domain::Error::io))
+            .collect::<domain::Result<Vec<LakeUpdatePreparation>>>()?;
+        Ok((value, pending, attention, rows))
+    })
+    .await?;
     Ok(Json(LakeUpdateServiceStatus {
         configured: true,
         protocol_version: 1,
         worker_recent: value["worker_recent"].as_bool().unwrap_or(false),
         credentials: serde_json::from_value(value["credentials"].clone())
             .map_err(|_| Failure(domain::Error::new("UPDATE_PROTOCOL", "凭据状态格式不兼容")))?,
+        activity: serde_json::from_value(value["activity"].clone())
+            .map_err(|_| Failure(domain::Error::new("UPDATE_PROTOCOL", "更新活动格式不兼容")))?,
+        preparation_count: pending,
+        preparation_attention_count: attention,
+        preparations,
     }))
 }
 #[utoipa::path(put,path="/v1/lake-updates/runtime",request_body=ConfigureLakeUpdates,responses((status=200,body=OkResponse)),operation_id="lake_updates_configure")]
@@ -107,8 +125,10 @@ pub(super) async fn preview(
 pub(super) struct ListQuery {
     after: Option<String>,
     limit: Option<u32>,
+    lake_id: Option<String>,
+    status: Option<String>,
 }
-#[utoipa::path(get,path="/v1/lake-updates/jobs",params(("after"=Option<String>,Query),("limit"=Option<u32>,Query)),responses((status=200,body=LakeUpdateJobs)),operation_id="lake_updates_jobs")]
+#[utoipa::path(get,path="/v1/lake-updates/jobs",params(("after"=Option<String>,Query),("limit"=Option<u32>,Query),("lake_id"=Option<String>,Query),("status"=Option<String>,Query)),responses((status=200,body=LakeUpdateJobs)),operation_id="lake_updates_jobs")]
 pub(super) async fn jobs(
     State(s): State<AppState>,
     Query(q): Query<ListQuery>,
@@ -116,7 +136,7 @@ pub(super) async fn jobs(
     invoke(
         s,
         Op::Jobs,
-        json!({"after":q.after.unwrap_or_default(),"limit":q.limit.unwrap_or(50)}),
+        json!({"after":q.after.unwrap_or_default(),"limit":q.limit.unwrap_or(50),"lake_id":q.lake_id,"status":q.status}),
     )
     .await
 }
@@ -146,8 +166,10 @@ pub(super) async fn action(
 pub(super) struct ItemQuery {
     after: Option<u64>,
     limit: Option<u32>,
+    status: Option<String>,
+    reason: Option<String>,
 }
-#[utoipa::path(get,path="/v1/lake-updates/jobs/{id}/items",params(("id"=String,Path),("after"=Option<u64>,Query),("limit"=Option<u32>,Query)),responses((status=200,body=LakeUpdateItems)),operation_id="lake_updates_items")]
+#[utoipa::path(get,path="/v1/lake-updates/jobs/{id}/items",params(("id"=String,Path),("after"=Option<u64>,Query),("limit"=Option<u32>,Query),("status"=Option<String>,Query),("reason"=Option<String>,Query)),responses((status=200,body=LakeUpdateItems)),operation_id="lake_updates_items")]
 pub(super) async fn items(
     State(s): State<AppState>,
     Path(id): Path<String>,
@@ -156,7 +178,7 @@ pub(super) async fn items(
     invoke(
         s,
         Op::Items,
-        json!({"id":id,"after":q.after.unwrap_or(0),"limit":q.limit.unwrap_or(100)}),
+        json!({"id":id,"after":q.after.unwrap_or(0),"limit":q.limit.unwrap_or(100),"status":q.status,"reason":q.reason}),
     )
     .await
 }
@@ -199,6 +221,14 @@ pub(super) async fn remove_schedule(
 }
 pub(super) fn routes() -> axum::Router<AppState> {
     axum::Router::new()
+        .route(
+            "/preparations",
+            get(super::lake_inputs::list).post(super::lake_inputs::create),
+        )
+        .route(
+            "/preparations/{id}/actions",
+            post(super::lake_inputs::action),
+        )
         .route("/inputs", post(create_input))
         .route("/inputs/{id}", get(input))
         .route("/inputs/{id}/append", post(append_input))

@@ -6,6 +6,24 @@ const job = (id: string) => `${base}/jobs/${encodeURIComponent(id)}`;
 
 export class LakeUpdateClient {
   constructor(private readonly request: Request) {}
+  preparations(signal?: AbortSignal) {
+    return this.request<Schema["LakeUpdatePreparations"]>(
+      `${base}/preparations`,
+      { signal: signal ?? null },
+    );
+  }
+  prepareScope(value: Schema["PrepareLakeUpdateInputs"]) {
+    return this.request<Schema["LakeUpdatePreparation"]>(
+      `${base}/preparations`,
+      { method: "POST", body: JSON.stringify(value) },
+    );
+  }
+  preparationAction(id: string, action: "resume" | "cancel") {
+    return this.request<Schema["LakeUpdatePreparation"]>(
+      `${base}/preparations/${encodeURIComponent(id)}/actions`,
+      { method: "POST", body: JSON.stringify({ action }) },
+    );
+  }
 
   createInput(value: Schema["CreateLakeUpdateInput"]) {
     return this.request<Schema["LakeUpdateInput"]>(`${base}/inputs`, {
@@ -86,16 +104,26 @@ export class LakeUpdateClient {
   }
   create(
     definition: Schema["LakeUpdateDefinition"],
-    requestKey = crypto.randomUUID(),
+    requestKey: string = crypto.randomUUID(),
   ) {
     return this.request<Schema["LakeUpdateJob"]>(`${base}/jobs`, {
       method: "POST",
       body: JSON.stringify({ definition, request_key: requestKey }),
     });
   }
-  jobs(options: { after?: string; limit?: number; signal?: AbortSignal } = {}) {
+  jobs(
+    options: {
+      after?: string | undefined;
+      limit?: number;
+      lake_id?: string | undefined;
+      status?: string | undefined;
+      signal?: AbortSignal;
+    } = {},
+  ) {
     const query = new URLSearchParams({ limit: String(options.limit ?? 50) });
     if (options.after) query.set("after", options.after);
+    if (options.lake_id) query.set("lake_id", options.lake_id);
+    if (options.status) query.set("status", options.status);
     return this.request<Schema["LakeUpdateJobs"]>(`${base}/jobs?${query}`, {
       signal: options.signal ?? null,
     });
@@ -113,10 +141,18 @@ export class LakeUpdateClient {
   }
   items(
     id: string,
-    options: { after?: number; limit?: number; signal?: AbortSignal } = {},
+    options: {
+      after?: number | undefined;
+      limit?: number;
+      status?: string | undefined;
+      reason?: string | undefined;
+      signal?: AbortSignal;
+    } = {},
   ) {
     const query = new URLSearchParams({ limit: String(options.limit ?? 100) });
     if (options.after !== undefined) query.set("after", String(options.after));
+    if (options.status) query.set("status", options.status);
+    if (options.reason) query.set("reason", options.reason);
     return this.request<Schema["LakeUpdateItems"]>(
       `${job(id)}/items?${query}`,
       { signal: options.signal ?? null },

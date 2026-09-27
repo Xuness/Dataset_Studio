@@ -1,0 +1,349 @@
+import type { Schema } from "@studio/contracts";
+export type Definition = Schema["LakeUpdateDefinition"];
+export type UpdateJob = Schema["LakeUpdateJob"];
+export type Lake = Schema["UpdateLake"];
+export type Schedule = Schema["LakeUpdateSchedule"];
+export const sites = {
+  danbooru: "Danbooru",
+  yandere: "Yandere",
+  gelbooru: "Gelbooru",
+};
+export const lakeLabel = (lakes: readonly Lake[], id: string) => {
+  const lake = lakes.find((l) => l.id === id);
+  return lake ? sites[lake.site] : `数据湖 ${id.slice(0, 8)}`;
+};
+export const states: Record<Schema["LakeUpdateJobState"], string> = {
+  queued: "排队中",
+  running: "正在运行",
+  paused: "已暂停",
+  cancelled: "已取消",
+  completed: "已完成",
+  completed_with_exclusions: "完成 · 有未获取项",
+  waiting_retry: "等待重试",
+  waiting_space: "等待空间",
+  waiting_credentials: "等待凭据",
+  needs_review: "需要检查",
+};
+export const phases: Record<string, string> = {
+  recovering: "恢复检查点",
+  metadata: "获取元数据",
+  publishing_metadata: "发布元数据",
+  downloading: "下载图片",
+  encoding: "处理图片",
+  processing_image: "处理图片",
+  publishing_media: "发布图片",
+  completed: "完成",
+};
+export const itemStates: Record<string, string> = {
+  stored: "已保存",
+  reused: "已复用",
+  metadata_only: "仅元数据",
+  pending: "待下载",
+  pending_metadata: "待刷新元数据",
+  failed: "失败",
+  needs_review: "需要检查",
+  unavailable: "未获取",
+  excluded: "不在范围内",
+  skipped: "已跳过",
+};
+export const active = (job: UpdateJob) =>
+  job.execution_active ||
+  ["queued", "running", "waiting_retry"].includes(job.state);
+export const problemCount = (job: UpdateJob) =>
+  ["failed", "needs_review", "unavailable"].reduce(
+    (n, k) => n + (job.counts[k] ?? 0),
+    0,
+  );
+export const processedCount = (job: UpdateJob) =>
+  Object.entries(job.counts)
+    .filter(([state]) => !["pending", "pending_metadata"].includes(state))
+    .reduce((n, [, v]) => n + v, 0);
+export const pendingCount = (job: UpdateJob) =>
+  problemCount(job) +
+  (job.counts.pending ?? 0) +
+  (job.counts.pending_metadata ?? 0);
+export const dateLabel = (value: string | null | undefined) =>
+  value ? new Date(value).toLocaleString() : "—";
+export const bytesLabel = (value: number | null | undefined) =>
+  value == null
+    ? "—"
+    : value < 1048576
+      ? (value / 1024).toFixed(1) + " KiB"
+      : (value / 1048576).toFixed(1) + " MiB";
+export function rangeLabel(spec: Definition) {
+  const r = spec.range;
+  switch (r.kind) {
+    case "new":
+      return r.after_id == null
+        ? "补充新帖 · 接续已验证基线"
+        : `补充新帖 · ID > ${r.after_id}`;
+    case "ids":
+      return `指定 ${r.ids.length} 个帖子`;
+    case "id_range":
+      return `帖子 ${r.start}–${r.end - 1}`;
+    case "local":
+      return r.missing_media ? "补齐本地缺图" : "刷新已有记录";
+    case "created":
+    case "updated": {
+      let start = r.start,
+        end = r.end;
+      try {
+        const format = new Intl.DateTimeFormat("zh-CN", {
+          timeZone: r.timezone,
+          dateStyle: "short",
+          timeStyle: "short",
+        });
+        start = format.format(new Date(r.start));
+        end = format.format(new Date(r.end));
+      } catch {
+        /* Older timezone databases can still display the exact UTC bounds. */
+      }
+      return `${r.kind === "created" ? "创建日期" : "最后修改时间"} · ${start} 至 ${end}（不含末端）· ${r.timezone}`;
+    }
+    case "changes":
+      return `变更序号 > ${r.after}`;
+    case "input":
+      return "固定成员范围";
+  }
+}
+export const policyLabel = (spec: Definition) =>
+  ({
+    metadata_only: "仅元数据",
+    original: "原图",
+    "webp-2048-q95": "WebP · 2048 / Q95",
+  })[spec.media?.profile ?? "metadata_only"];
+export function actions(job: UpdateJob): Schema["LakeUpdateAction"][] {
+  if (job.execution_active)
+    return ["paused", "cancelled"].includes(job.state)
+      ? []
+      : ["pause", "cancel"];
+  if (job.state === "cancelled") return [];
+  if (job.state === "completed") return [];
+  if (job.state === "completed_with_exclusions") return ["retry"];
+  if (["queued", "running"].includes(job.state)) return ["pause", "cancel"];
+  return ["resume", "retry", "replay", "cancel"];
+}
+export const actionLabels = {
+  pause: "暂停",
+  resume: "继续",
+  retry: "重试未获取项",
+  replay: "使用已保存响应重新解析",
+  cancel: "取消后续工作",
+};
+export type FormDraft = {
+  lakes: string[];
+  kind:
+    | "new"
+    | "local"
+    | "missing"
+    | "created"
+    | "updated"
+    | "ids"
+    | "id_range"
+    | "changes"
+    | "input";
+  inputIds: Record<string, string>;
+  profile: "" | Schema["LakeImageProfile"];
+  existing: "keep" | "match_profile";
+  allowSample: boolean;
+  perLake: Record<string, { ids?: string; after?: string }>;
+  startId: string;
+  endId: string;
+  from: string;
+  until: string;
+  timezone: string;
+  observedBefore: string;
+  pageBudget: string;
+  itemBudget: string;
+  execution: "now" | "once" | "interval";
+  firstRun: string;
+  intervalHours: string;
+  submissions: { key: string; spec: Definition; jobId?: string }[];
+};
+export const initialDraft: FormDraft = {
+  lakes: [],
+  kind: "new",
+  profile: "",
+  existing: "keep",
+  allowSample: false,
+  perLake: {},
+  inputIds: {},
+  startId: "",
+  endId: "",
+  from: "",
+  until: "",
+  timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+  observedBefore: "",
+  pageBudget: "1000",
+  itemBudget: "100000",
+  execution: "now",
+  firstRun: "",
+  intervalHours: "24",
+  submissions: [],
+};
+export function decodeDraft(value: unknown): FormDraft | null {
+  if (!value || typeof value !== "object") return null;
+  const v = value as FormDraft;
+  if (
+    !Array.isArray(v.lakes) ||
+    !v.lakes.every((id) => typeof id === "string") ||
+    ![
+      "new",
+      "local",
+      "missing",
+      "created",
+      "updated",
+      "ids",
+      "id_range",
+      "changes",
+      "input",
+    ].includes(v.kind)
+  )
+    return null;
+  if (
+    !["", "metadata_only", "original", "webp-2048-q95"].includes(v.profile) ||
+    !["now", "once", "interval"].includes(v.execution)
+  )
+    return null;
+  return { ...initialDraft, ...v };
+}
+function integer(
+  value: string,
+  name: string,
+  min = 1,
+  max = Number.MAX_SAFE_INTEGER - 1,
+) {
+  const n = Number(value);
+  if (!value.trim() || !Number.isSafeInteger(n) || n < min || n > max)
+    throw new Error(`${name}需为 ${min} 至 ${max} 的整数`);
+  return n;
+}
+/** Calendar boundaries are resolved in the chosen IANA zone, including DST. */
+export function dateBoundary(
+  value: string,
+  zone: string,
+  nextDay = false,
+): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw new Error("请选择完整日期");
+  const [y, m, d] = value.split("-").map(Number) as [number, number, number];
+  if (new Date(Date.UTC(y, m - 1, d)).toISOString().slice(0, 10) !== value)
+    throw new Error("日期无效");
+  const desired = Date.UTC(y, m - 1, d + (nextDay ? 1 : 0));
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: zone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  });
+  let result = desired;
+  for (let i = 0; i < 4; i++) {
+    const p = Object.fromEntries(
+      formatter.formatToParts(result).map((p) => [p.type, p.value]),
+    );
+    const actual = Date.UTC(
+      Number(p.year),
+      Number(p.month) - 1,
+      Number(p.day),
+      Number(p.hour),
+      Number(p.minute),
+      Number(p.second),
+    );
+    if (actual === desired) return new Date(result).toISOString();
+    result += desired - actual;
+  }
+  throw new Error("该时区的日期边界不存在，请调整日期或时区");
+}
+export function definitions(d: FormDraft): Definition[] {
+  if (!d.lakes.length) throw new Error("请选择数据湖");
+  if (!d.profile) throw new Error("请明确选择图片保存策略");
+  if (d.kind === "missing" && d.profile === "metadata_only")
+    throw new Error("补齐缺图需要选择图片保存策略");
+  const bounded = !["new", "ids", "input"].includes(d.kind);
+  const bounds = {
+    start_id: bounded && d.startId ? integer(d.startId, "起始 ID") : null,
+    end_id: bounded && d.endId ? integer(d.endId, "结束 ID") + 1 : null,
+  };
+  if (bounds.start_id && bounds.end_id && bounds.end_id <= bounds.start_id)
+    throw new Error("结束 ID 不能早于起始 ID");
+  return d.lakes.map((library_id) => {
+    const local = d.perLake[library_id] ?? {};
+    let range: Definition["range"];
+    switch (d.kind) {
+      case "input": {
+        const input_id = d.inputIds[library_id];
+        if (!input_id)
+          throw new Error("目标湖缺少已封存的固定输入，请重新选择准备结果");
+        range = { kind: "input", input_id };
+        break;
+      }
+      case "new":
+        range = {
+          kind: "new",
+          after_id: local.after ? integer(local.after, "新帖起点", 0) : null,
+        };
+        break;
+      case "ids": {
+        const ids = [
+          ...new Set(
+            (local.ids ?? "")
+              .split(/[\s,，]+/)
+              .filter(Boolean)
+              .map((v) => integer(v, "帖子 ID")),
+          ),
+        ];
+        if (!ids.length || ids.length > 10000)
+          throw new Error("每个湖需填写 1–10000 个帖子 ID");
+        range = { kind: "ids", ids };
+        break;
+      }
+      case "id_range":
+        range = {
+          kind: "id_range",
+          start: integer(d.startId, "起始 ID"),
+          end: integer(d.endId, "结束 ID") + 1,
+        };
+        break;
+      case "local":
+      case "missing":
+        range = {
+          kind: "local",
+          ...bounds,
+          missing_media: d.kind === "missing",
+          observed_before: d.observedBefore
+            ? new Date(d.observedBefore).toISOString()
+            : null,
+        };
+        break;
+      case "changes":
+        range = {
+          kind: "changes",
+          ...bounds,
+          after: integer(local.after ?? "", "变更序号", 0),
+        };
+        break;
+      case "created":
+      case "updated": {
+        const start = dateBoundary(d.from, d.timezone),
+          end = dateBoundary(d.until, d.timezone, true);
+        if (start >= end) throw new Error("结束日期不能早于开始日期");
+        range = { kind: d.kind, ...bounds, start, end, timezone: d.timezone };
+        break;
+      }
+    }
+    return {
+      library_id,
+      range,
+      media: {
+        profile: d.profile as Schema["LakeImageProfile"],
+        existing: d.existing,
+        allow_sample: d.profile === "original" ? false : d.allowSample,
+      },
+      page_budget: integer(d.pageBudget, "页数预算", 1, 100000),
+      item_budget: integer(d.itemBudget, "记录预算", 1, 10000000),
+    };
+  });
+}

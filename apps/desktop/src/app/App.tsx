@@ -11,6 +11,7 @@ import {
   useCallback,
   Suspense,
   useSyncExternalStore,
+  lazy,
 } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -81,6 +82,23 @@ import {
 import type { ManagementMode } from "../features/management/ManagementPanel.js";
 import { WorksetTree } from "../features/management/WorksetTree.js";
 import { DetachedSources } from "../features/management/DetachedSources.js";
+import { LakeActivity } from "../features/lake-updates/LakeActivity.js";
+import {
+  useLakePreference,
+  useLakeStatus,
+} from "../features/lake-updates/queries.js";
+import type { LakeInvocation } from "../features/lake-updates/LakeWorkspace.js";
+const LakeWorkspace = lazy(
+  () => import("../features/lake-updates/LakeWorkspace.js"),
+);
+const applicationInitial = { open: false, active: false };
+function decodeApplication(value: unknown): typeof applicationInitial | null {
+  if (!value || typeof value !== "object") return null;
+  const v = value as typeof applicationInitial;
+  return typeof v.open === "boolean" && typeof v.active === "boolean"
+    ? v
+    : null;
+}
 
 type ViewState = {
   scope: BrowseScope;
@@ -176,6 +194,33 @@ function Studio({
   onReconnect: () => void;
 }) {
   const queryClient = useQueryClient();
+  const application = useLakePreference(
+    client,
+    "studio.application-workspace",
+    applicationInitial,
+    decodeApplication,
+  );
+  const lakesActive = application.value.active;
+  const lakeStatus = useLakeStatus(client, lakesActive);
+  const [lakeInvocation, setLakeInvocation] = useState<LakeInvocation | null>(
+    null,
+  );
+  function openLakes(
+    jobId?: string,
+    lakeId?: string,
+    view?: "jobs" | "preparations",
+  ) {
+    if (!application.editable) return;
+    application.controller.set({ open: true, active: true });
+    if (jobId || lakeId || view)
+      setLakeInvocation((old) => ({
+        sequence: (old?.sequence ?? 0) + 1,
+        ...(jobId ? { jobId } : {}),
+        ...(lakeId ? { lakeId } : {}),
+        ...(view ? { view } : {}),
+      }));
+    else setLakeInvocation(null);
+  }
   const health = useQuery({
     queryKey: ["engine-health", client.connection.instance_id],
     queryFn: () => client.health(),
@@ -301,6 +346,11 @@ function Studio({
       }));
   }
   function activateView(id: string, args: Record<string, string> = {}) {
+    if (id === "app.lakes") {
+      openLakes();
+      return;
+    }
+    application.controller.set((old) => ({ ...old, active: false }));
     if (id === "core.resources") {
       setSettingsPage("cache");
       return;
@@ -658,6 +708,7 @@ function Studio({
   function restoreSelection(action: "undo" | "redo") {
     if (
       !currentId ||
+      lakesActive ||
       busy ||
       historyBusy.current ||
       selection.data?.revision === undefined ||
@@ -960,6 +1011,10 @@ function Studio({
     (id) => moduleViews.get(id)?.kind === "view" && id !== "core.resources",
   );
   function closeView(id: string) {
+    if (id === "app.lakes") {
+      application.controller.set({ open: false, active: false });
+      return;
+    }
     if (!workspace.editable) return;
     workspace.controller?.set((value) => {
       const remaining = openViews.filter((viewId) => viewId !== id);
@@ -1012,18 +1067,22 @@ function Studio({
       {
         label: "撤销选择（Ctrl+Z）",
         action: () => restoreSelection("undo"),
-        disabled: busy || !selectionHistory.data?.undo_steps,
+        disabled: lakesActive || busy || !selectionHistory.data?.undo_steps,
       },
       {
         label: "重做选择（Ctrl+Y）",
         action: () => restoreSelection("redo"),
-        disabled: busy || !selectionHistory.data?.redo_steps,
+        disabled: lakesActive || busy || !selectionHistory.data?.redo_steps,
       },
-      { label: "清除当前选择", action: clearSelection, disabled: !selected },
+      {
+        label: "清除当前选择",
+        action: clearSelection,
+        disabled: lakesActive || !selected,
+      },
       {
         label: "保存选择为工作集…",
         action: () => setDialog("collection"),
-        disabled: !hasFixedInput,
+        disabled: lakesActive || !hasFixedInput,
       },
     ],
     视图: [
@@ -1046,18 +1105,21 @@ function Studio({
         disabled: !project,
       },
     ],
-    工具: modules.entries().map((entry) => ({
-      label: entry.label,
-      action: () => modules.execute(entry.command, moduleContext),
-      disabled: !project || !workspace.editable,
-    })),
+    工具: [
+      { label: "数据湖", action: () => openLakes() },
+      ...modules.entries().map((entry) => ({
+        label: entry.label,
+        action: () => modules.execute(entry.command, moduleContext),
+        disabled: !project || !workspace.editable,
+      })),
+    ],
     窗口: [
       {
         label: "项目资源抽屉",
         action: () => setResourcesOpen((v) => !v),
         disabled: !project,
       },
-      ...(!activeSurface?.ownsWorkbench
+      ...(!lakesActive && !activeSurface?.ownsWorkbench
         ? [
             { label: "项目面板", action: () => setProjectsVisible((v) => !v) },
             {
@@ -1122,6 +1184,7 @@ function Studio({
           <SourceRow
             key={source.id}
             source={source}
+            onUpdates={() => openLakes(undefined, source.id)}
             onManage={(mode) =>
               openManagement({ kind: "source", id: source.id }, mode)
             }
@@ -1341,97 +1404,121 @@ function Studio({
         busy={busy}
         title={project?.name ?? "Dataset Studio"}
       />
-      {project && (
+      <DraftStatus controller={application.controller} quiet />
+      {(project || application.value.open) && (
         <EditorTabs
-          open={openViews}
-          active={workspace.value.moduleId}
+          open={[
+            ...(project ? openViews : []),
+            ...(application.value.open ? ["app.lakes"] : []),
+          ]}
+          active={lakesActive ? "app.lakes" : workspace.value.moduleId}
+          projectAvailable={!!project}
           disabled={!workspace.editable}
           onOpen={activateView}
           onClose={closeView}
         />
       )}
-      {project && workspace.value.moduleId === "core.browser" && (
-        <div className="options-bar">
-          <button
-            className="icon-button"
-            title="项目起始页"
-            onClick={() => void session.close()}
-          >
-            <Home size={17} />
-          </button>
-          <button
-            disabled={!project}
-            onClick={() => setQueryVisible((value) => !value)}
-          >
-            <Search size={14} />
-            查询
-          </button>
-          <span className="option-separator" />
-          <MousePointer2 size={16} />
-          <span className="option-label">选择</span>
-          <span className="option-value">{selected} 项</span>
-          <button disabled={!selected || busy} onClick={clearSelection}>
-            清除
-          </button>
-          <button
-            className="icon-button"
-            title="撤销选择（Ctrl+Z）"
-            aria-label="撤销选择"
-            disabled={busy || !selectionHistory.data?.undo_steps}
-            onClick={() => restoreSelection("undo")}
-          >
-            <Undo2 size={15} />
-          </button>
-          <button
-            className="icon-button"
-            title="重做选择（Ctrl+Y）"
-            aria-label="重做选择"
-            disabled={busy || !selectionHistory.data?.redo_steps}
-            onClick={() => restoreSelection("redo")}
-          >
-            <Redo2 size={15} />
-          </button>
-          <span className="option-separator" />
-          <button
-            disabled={!hasFixedInput || busy}
-            onClick={() => setDialog("collection")}
-            title="将当前浏览范围保存为工作集"
-          >
-            <FolderPlus size={14} />
-            保存当前范围
-          </button>
-          <button
-            disabled={!hasTaskInput || busy}
-            onClick={() =>
-              activateView("core.tools", { operatorId: "core.manifest" })
-            }
-          >
-            <FileText size={14} />
-            生成清单
-          </button>
-          <span className="grow" />
-          <button
-            className="icon-button"
-            title="项目面板"
-            onClick={() => setProjectsVisible((v) => !v)}
-          >
-            <PanelLeft size={16} />
-          </button>
-          <button
-            className="icon-button"
-            title="属性面板"
-            onClick={() => setPropertiesVisible((v) => !v)}
-          >
-            <PanelRight size={16} />
-          </button>
-        </div>
-      )}
-      {!project ? (
+      {project &&
+        !lakesActive &&
+        workspace.value.moduleId === "core.browser" && (
+          <div className="options-bar">
+            <button
+              className="icon-button"
+              title="项目起始页"
+              onClick={() => void session.close()}
+            >
+              <Home size={17} />
+            </button>
+            <button
+              disabled={!project}
+              onClick={() => setQueryVisible((value) => !value)}
+            >
+              <Search size={14} />
+              查询
+            </button>
+            <span className="option-separator" />
+            <MousePointer2 size={16} />
+            <span className="option-label">选择</span>
+            <span className="option-value">{selected} 项</span>
+            <button disabled={!selected || busy} onClick={clearSelection}>
+              清除
+            </button>
+            <button
+              className="icon-button"
+              title="撤销选择（Ctrl+Z）"
+              aria-label="撤销选择"
+              disabled={busy || !selectionHistory.data?.undo_steps}
+              onClick={() => restoreSelection("undo")}
+            >
+              <Undo2 size={15} />
+            </button>
+            <button
+              className="icon-button"
+              title="重做选择（Ctrl+Y）"
+              aria-label="重做选择"
+              disabled={busy || !selectionHistory.data?.redo_steps}
+              onClick={() => restoreSelection("redo")}
+            >
+              <Redo2 size={15} />
+            </button>
+            <span className="option-separator" />
+            <button
+              disabled={!hasFixedInput || busy}
+              onClick={() => setDialog("collection")}
+              title="将当前浏览范围保存为工作集"
+            >
+              <FolderPlus size={14} />
+              保存当前范围
+            </button>
+            <button
+              disabled={!hasTaskInput || busy}
+              onClick={() =>
+                activateView("core.tools", { operatorId: "core.manifest" })
+              }
+            >
+              <FileText size={14} />
+              生成清单
+            </button>
+            <span className="grow" />
+            <button
+              className="icon-button"
+              title="项目面板"
+              onClick={() => setProjectsVisible((v) => !v)}
+            >
+              <PanelLeft size={16} />
+            </button>
+            <button
+              className="icon-button"
+              title="属性面板"
+              onClick={() => setPropertiesVisible((v) => !v)}
+            >
+              <PanelRight size={16} />
+            </button>
+          </div>
+        )}
+      {lakesActive ? (
+        <Suspense
+          fallback={<p className="lake-empty">正在打开数据湖工作台…</p>}
+        >
+          <LakeWorkspace
+            client={client}
+            openSettings={() => setSettingsPage("lake-api")}
+            invocation={lakeInvocation}
+            {...(project
+              ? { project: { id: project.id, name: project.name, inputs } }
+              : {})}
+          />
+        </Suspense>
+      ) : !project ? (
         <main className="start-screen">
           <div className="start-actions">
             <Brand size={64} />
             <h1>Dataset Studio</h1>
             <p>打开项目，继续你的数据工作。</p>
+            <Button onClick={() => openLakes()}>
+              <Database size={15} />
+              管理数据湖更新
+            </Button>
             <Button className="primary" onClick={() => setDialog("new")}>
               <Plus size={15} />
               新建项目
@@ -1691,6 +1778,13 @@ function Studio({
           </>
         )}
         <span className="grow" />
+        <LakeActivity
+          onPreparations={() => openLakes(undefined, undefined, "preparations")}
+          status={lakeStatus.data}
+          disconnected={lakeStatus.isError}
+          onOpen={(id) => openLakes(id)}
+          onProjectTasks={project ? () => setTasksVisible(true) : undefined}
+        />
         {project && (
           <TaskActivity
             jobs={jobs.data?.items ?? []}
@@ -1738,12 +1832,14 @@ function SourceRow({
   onClick,
   onRelink,
   onManage,
+  onUpdates,
 }: {
   source: Source;
   active: boolean;
   onClick: () => void;
   onRelink: () => void;
   onManage: (mode?: ManagementMode) => void;
+  onUpdates: () => void;
 }) {
   return (
     <div className="source-tree-row">
@@ -1763,6 +1859,9 @@ function SourceRow({
       <MoreMenu
         label={source.name}
         items={[
+          ...(source.kind !== "demo"
+            ? [{ label: "管理此数据湖更新", action: onUpdates }]
+            : []),
           { label: "管理与引用关系", action: () => onManage() },
           { label: "重命名与备注…", action: () => onManage("rename") },
           ...(sourceSupports(source, "relink")

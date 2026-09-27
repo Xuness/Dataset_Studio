@@ -88,7 +88,10 @@
 早期阶段计划保留当时的范围与验收标准；美学排序目录同时维护阶段说明及后续计划。
 
 - [数据库架构升级：在线读取、热更新与三站更新管理（2026-09-26）](plans/数据库架构审查升级-2026-09-26/README.md)
-- [三站增量补全与更新管理（后端已交付，前端待设计）](plans/lake-incremental-updates-2026-09-26.md)
+- [三站增量补全与更新管理（后端已交付）](plans/lake-incremental-updates-2026-09-26.md)
+- [三站更新 UI / UX 规划（已接入）](plans/lake-updates-ui-ux-2026-09-27.md)
+- [全局数据湖工作台与固定输入（ADR 0039）](decisions/0039-lake-update-workbench.md)
+- [三站更新前端验收（2026-09-27）](verification/2026-09-27-lake-updates-ui.md)
 - [全局更新控制与归档运行器（ADR 0038）](decisions/0038-lake-update-control.md)
 - [三站更新后端与正式湖小批次验收（2026-09-27）](verification/2026-09-27-lake-updates-backend.md)
 

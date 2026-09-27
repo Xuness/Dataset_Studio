@@ -106,6 +106,12 @@ export type ModuleContext = {
   };
   invocation: { sequence: number; args: Record<string, string> } | null;
 };
+/** Application services have no project lifetime or synthetic project id. */
+export type ApplicationModuleContext = {
+  client: StudioClient;
+  openSettings: () => void;
+  project?: { id: string; name: string; inputs: ModuleScopeOption[] };
+};
 export type ModuleContribution =
   | {
       kind: "entry";

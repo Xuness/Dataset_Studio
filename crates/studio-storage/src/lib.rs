@@ -36,6 +36,7 @@ pub use query_cache::{
     QueryCacheEntry, QueryCachePolicy, QueryCacheRequest, QueryCacheStats, QueryStage,
 };
 mod history;
+mod lake_inputs;
 mod management;
 mod object_links;
 mod presets;

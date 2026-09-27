@@ -24,6 +24,7 @@ use utoipa::OpenApi;
 mod aesthetic;
 mod aesthetic_analysis;
 mod cache_storage;
+pub(crate) mod lake_inputs;
 mod lake_updates;
 mod llm;
 mod management;
@@ -1559,7 +1560,8 @@ async fn shutdown(State(s): State<AppState>) -> Json<OkResponse> {
         lake_updates::register, lake_updates::credentials, lake_updates::clear_credentials, lake_updates::probe,
         lake_updates::preview, lake_updates::jobs, lake_updates::create, lake_updates::job, lake_updates::action,
         lake_updates::items, lake_updates::coverage, lake_updates::schedules, lake_updates::schedule, lake_updates::remove_schedule,
-        lake_updates::create_input, lake_updates::input, lake_updates::append_input, lake_updates::seal_input
+        lake_updates::create_input, lake_updates::input, lake_updates::append_input, lake_updates::seal_input,
+        lake_inputs::create, lake_inputs::list, lake_inputs::action
     ),
     components(schemas(
         EngineConnection,

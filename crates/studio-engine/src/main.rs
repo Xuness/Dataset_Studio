@@ -240,6 +240,8 @@ async fn serve(root: PathBuf, port: u16, cache_dir: Option<PathBuf>) -> Result<(
         ranking_reads: Arc::new(ranking_reads::RankingReadCache::default()),
         shutdown: shutdown_tx.clone(),
     };
+    store.initialize_lake_inputs()?;
+    let lake_input_supervisor = tokio::spawn(api::lake_inputs::supervise(state.clone()));
     let token = connection.token.clone();
     let request_store = store.clone();
     let request_previews = previews.clone();
@@ -406,6 +408,7 @@ async fn serve(root: PathBuf, port: u16, cache_dir: Option<PathBuf>) -> Result<(
             tokio::select!{_ = tokio::signal::ctrl_c()=>{let _=shutdown_tx.send(true);},_ = shutdown_rx.changed()=>{}}
             abort.abort();
             jobs::shutdown();
+            api::lake_inputs::shutdown();
             store.stop_member_writes();
             query_shutdown.shutdown();
             preview_shutdown.shutdown();
@@ -428,6 +431,7 @@ async fn serve(root: PathBuf, port: u16, cache_dir: Option<PathBuf>) -> Result<(
     while aesthetic.busy() || aesthetic_analysis.busy() {
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     }
+    let _ = lake_input_supervisor.await;
     drop(lease);
     lake_updates.shutdown();
     let _ = lake_update_supervisor.await;

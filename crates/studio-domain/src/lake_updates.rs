@@ -1,6 +1,33 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+#[derive(Clone, Serialize, Deserialize)]
+pub struct LakeInputPreparation {
+    pub id: String,
+    pub project_id: String,
+    #[serde(default)]
+    pub project_name: String,
+    #[serde(default)]
+    pub label: String,
+    pub scope: crate::ScopeRef,
+    pub state: String,
+    pub result_id: Option<String>,
+    pub after: Option<crate::AssetKey>,
+    pub processed: u64,
+    pub total: Option<u64>,
+    pub inputs: Vec<LakePreparedInput>,
+    pub error: Option<String>,
+    #[serde(default)]
+    pub versions: Vec<crate::QuerySourceVersion>,
+}
+#[derive(Clone, Serialize, Deserialize)]
+pub struct LakePreparedInput {
+    pub library_id: String,
+    pub input_id: String,
+    pub count: u64,
+    pub sealed: bool,
+}
+
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct LakeUpdateRuntime {
@@ -16,6 +43,7 @@ pub enum LakeUpdateOperation {
     InputCreate,
     Input,
     InputAppend,
+    InputAppendBatch,
     InputSeal,
     Status,
     Capabilities,
@@ -41,6 +69,7 @@ impl LakeUpdateOperation {
             Self::InputCreate => "input_create",
             Self::Input => "input",
             Self::InputAppend => "input_append",
+            Self::InputAppendBatch => "input_append_batch",
             Self::InputSeal => "input_seal",
             Self::Status => "status",
             Self::Capabilities => "capabilities",

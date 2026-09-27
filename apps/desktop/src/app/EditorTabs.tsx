@@ -1,6 +1,14 @@
-import { X, Images, Sparkles, Calculator, Archive } from "lucide-react";
+import {
+  X,
+  Images,
+  Sparkles,
+  Calculator,
+  Archive,
+  Database,
+} from "lucide-react";
 import { MoreMenu } from "@studio/ui";
 const views = [
+  { id: "app.lakes", title: "数据湖", Icon: Database },
   { id: "core.browser", title: "资料浏览", Icon: Images },
   { id: "core.aesthetic", title: "美学排序", Icon: Sparkles },
   { id: "core.tools", title: "计算工具", Icon: Calculator },
@@ -12,12 +20,14 @@ export function EditorTabs({
   onOpen,
   onClose,
   disabled,
+  projectAvailable = true,
 }: {
   open: string[];
   active: string;
   onOpen: (id: string) => void;
   onClose: (id: string) => void;
   disabled: boolean;
+  projectAvailable?: boolean;
 }) {
   return (
     <nav className="editor-tabs" aria-label="工作标签">
@@ -32,7 +42,7 @@ export function EditorTabs({
             >
               <button
                 type="button"
-                disabled={disabled}
+                disabled={id !== "app.lakes" && disabled}
                 aria-pressed={active === id}
                 onClick={() => onOpen(id)}
               >
@@ -42,7 +52,7 @@ export function EditorTabs({
               <button
                 type="button"
                 className="editor-tab-close"
-                disabled={disabled}
+                disabled={id !== "app.lakes" && disabled}
                 aria-label={"关闭" + view.title + "标签"}
                 onClick={() => onClose(id)}
               >
@@ -54,10 +64,10 @@ export function EditorTabs({
       </div>
       <MoreMenu
         label="打开功能"
-        disabled={disabled}
         items={views.map((view) => ({
           label: view.title,
           action: () => onOpen(view.id),
+          disabled: view.id !== "app.lakes" && (!projectAvailable || disabled),
         }))}
       />
     </nav>

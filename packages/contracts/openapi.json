@@ -588,6 +588,22 @@
               "format": "int32",
               "minimum": 0
             }
+          },
+          {
+            "name": "lake_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -766,6 +782,22 @@
               "format": "int32",
               "minimum": 0
             }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "reason",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -823,6 +855,94 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/UpdateLake"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/lake-updates/preparations": {
+      "get": {
+        "tags": [
+          "lake_inputs"
+        ],
+        "operationId": "lake_updates_preparations",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LakeUpdatePreparations"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "lake_inputs"
+        ],
+        "operationId": "lake_updates_prepare_scope",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PrepareLakeUpdateInputs"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LakeUpdatePreparation"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/lake-updates/preparations/{id}/actions": {
+      "post": {
+        "tags": [
+          "lake_inputs"
+        ],
+        "operationId": "lake_updates_preparation_action",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LakeUpdateActionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LakeUpdatePreparation"
                 }
               }
             }
@@ -12016,6 +12136,34 @@
         },
         "additionalProperties": false
       },
+      "LakeUpdateActivity": {
+        "type": "object",
+        "required": [
+          "counts",
+          "active",
+          "attention"
+        ],
+        "properties": {
+          "active": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LakeUpdateJob"
+            }
+          },
+          "attention": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LakeUpdateJob"
+            }
+          },
+          "counts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LakeUpdateCount"
+            }
+          }
+        }
+      },
       "LakeUpdateCapabilities": {
         "type": "object",
         "required": [
@@ -12082,6 +12230,27 @@
           },
           "updated_range": {
             "type": "boolean"
+          }
+        }
+      },
+      "LakeUpdateCount": {
+        "type": "object",
+        "required": [
+          "lake_id",
+          "state",
+          "n"
+        ],
+        "properties": {
+          "lake_id": {
+            "type": "string"
+          },
+          "n": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "state": {
+            "$ref": "#/components/schemas/LakeUpdateJobState"
           }
         }
       },
@@ -12305,6 +12474,9 @@
             "format": "int64",
             "minimum": 0
           },
+          "execution_active": {
+            "type": "boolean"
+          },
           "id": {
             "type": "string"
           },
@@ -12361,6 +12533,97 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "LakeUpdatePreparation": {
+        "type": "object",
+        "required": [
+          "id",
+          "project_id",
+          "state",
+          "processed",
+          "inputs"
+        ],
+        "properties": {
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "inputs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LakeUpdatePreparedInput"
+            }
+          },
+          "label": {
+            "type": "string"
+          },
+          "processed": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "project_id": {
+            "type": "string"
+          },
+          "project_name": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "total": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "LakeUpdatePreparations": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LakeUpdatePreparation"
+            }
+          }
+        }
+      },
+      "LakeUpdatePreparedInput": {
+        "type": "object",
+        "required": [
+          "library_id",
+          "input_id",
+          "count",
+          "sealed"
+        ],
+        "properties": {
+          "count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "input_id": {
+            "type": "string"
+          },
+          "library_id": {
+            "type": "string"
+          },
+          "sealed": {
+            "type": "boolean"
           }
         }
       },
@@ -12830,6 +13093,9 @@
           "credentials"
         ],
         "properties": {
+          "activity": {
+            "$ref": "#/components/schemas/LakeUpdateActivity"
+          },
           "configured": {
             "type": "boolean"
           },
@@ -12837,6 +13103,22 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/LakeCredentialStatus"
+            }
+          },
+          "preparation_attention_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "preparation_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "preparations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LakeUpdatePreparation"
             }
           },
           "protocol_version": {
@@ -15031,6 +15313,28 @@
           },
           "value": {}
         }
+      },
+      "PrepareLakeUpdateInputs": {
+        "type": "object",
+        "required": [
+          "request_key",
+          "scope"
+        ],
+        "properties": {
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "request_key": {
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/ScopeRef"
+          }
+        },
+        "additionalProperties": false
       },
       "PresetPage": {
         "type": "object",

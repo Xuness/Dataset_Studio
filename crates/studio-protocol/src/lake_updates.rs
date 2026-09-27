@@ -3,6 +3,39 @@ use serde_json::Value;
 use std::collections::BTreeMap;
 use utoipa::ToSchema;
 
+#[derive(Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PrepareLakeUpdateInputs {
+    pub request_key: String,
+    pub scope: crate::ScopeRef,
+    pub label: Option<String>,
+}
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct LakeUpdatePreparedInput {
+    pub library_id: String,
+    pub input_id: String,
+    pub count: u64,
+    pub sealed: bool,
+}
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct LakeUpdatePreparation {
+    pub id: String,
+    pub project_id: String,
+    #[serde(default)]
+    pub project_name: String,
+    #[serde(default)]
+    pub label: String,
+    pub state: String,
+    pub processed: u64,
+    pub total: Option<u64>,
+    pub inputs: Vec<LakeUpdatePreparedInput>,
+    pub error: Option<String>,
+}
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct LakeUpdatePreparations {
+    pub items: Vec<LakeUpdatePreparation>,
+}
+
 #[derive(Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum LakeUpdateSite {
@@ -118,6 +151,26 @@ pub struct LakeUpdateServiceStatus {
     pub protocol_version: u32,
     pub worker_recent: bool,
     pub credentials: Vec<LakeCredentialStatus>,
+    #[serde(default)]
+    pub activity: LakeUpdateActivity,
+    #[serde(default)]
+    pub preparation_count: u64,
+    #[serde(default)]
+    pub preparation_attention_count: u64,
+    #[serde(default)]
+    pub preparations: Vec<LakeUpdatePreparation>,
+}
+#[derive(Default, Serialize, Deserialize, ToSchema)]
+pub struct LakeUpdateActivity {
+    pub counts: Vec<LakeUpdateCount>,
+    pub active: Vec<LakeUpdateJob>,
+    pub attention: Vec<LakeUpdateJob>,
+}
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct LakeUpdateCount {
+    pub lake_id: String,
+    pub state: LakeUpdateJobState,
+    pub n: u64,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
@@ -223,6 +276,8 @@ pub struct LakeUpdateJob {
     pub error_message: Option<String>,
     pub retry_at: f64,
     pub execution: u64,
+    #[serde(default)]
+    pub execution_active: bool,
     #[serde(default)]
     pub telemetry: LakeUpdateTelemetry,
 }

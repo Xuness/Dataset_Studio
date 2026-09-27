@@ -43,6 +43,7 @@ export {
 export type {
   ModuleDefinition,
   ModuleContext,
+  ApplicationModuleContext,
   ModuleScopeOption,
   BrowseScope,
   BrowseViewProps,

@@ -4,6 +4,8 @@
 
 三站更新后端：`node tooling/integration-lake-updates.mjs`。完整 HTTP/SDK 与 Store 验收需要设置 `STUDIO_LAKE_TEST_PYTHON`（安装 Store 依赖的 Python）和 `STUDIO_LAKE_TEST_STORE`（Store 仓库根）。夹具由 `lake-updates-fixture.py` 生成，仅使用 `.local/test-runs/` 隔离湖；未配置伴随运行环境时只检查可选后端状态。在线读取回归另见 `node tooling/integration-online.mjs`。
 
+三站更新工作台：`node tooling/smoke-lake-updates-ui.mjs`，使用同一组 Store 环境变量、配对仓库的测试依赖和本机 Edge，端口 1453。脚本创建隔离真实在线湖、控制库和项目，验证范围冻结、跨项目/重启、三湖提交、计划、凭据及不同窗口尺寸；不会使用正式凭据或调用源站 API。
+
 脚本使用自身位置定位仓库根目录，统一保留在 tooling 顶层。测试源码和夹具生成器随 Git 保存；运行产生的数据、截图和日志使用 `.local/`。
 
 在线湖验收：`node tooling/integration-online.mjs`（Python 需要 DuckDB 与 APSW，使用 `PYTHON` 指定）；`node tooling/smoke-online-ui.mjs <online-fixture-directory>` 检查分页视图和保存工作集；`node tooling/verify-online-lakes.mjs <lake-paths.json>` 对正式湖做有界只读抽样。路径 JSON 是含 site/index/media 的数组，不随仓库保存本机数据。协议与边界见 [P2/P3 验收](../docs/verification/2026-09-26-online-upgrade-p23.md)。
@@ -16,7 +18,7 @@
 
 Windows 开发环境需要 PowerShell 7、Node.js 22.12 或更新版本、pnpm 10.30.3、Rust 1.94 或更新版本、Visual Studio C++ 工具链和 WebView2。集成测试及部分界面验证还需要 **Python 3.11 x64**，`python --version` 应能找到对应解释器；本机夹具验证使用 3.11.9，CI 选择 3.11 x64。
 
-Python 夹具只依赖标准库，通过 ctypes 加载 `vendor/duckdb/duckdb.dll`。先运行 `pwsh -File tooling/setup-duckdb.ps1` 准备固定版本的 DLL，再执行相关验证；无需 pip 安装。界面冒烟脚本还需要已安装的 Microsoft Edge，原生窗口验证需要可交互的 Windows 桌面。
+传统 DuckDB Python 夹具只依赖标准库，通过 ctypes 加载 `vendor/duckdb/duckdb.dll`。先运行 `pwsh -File tooling/setup-duckdb.ps1` 准备固定版本的 DLL，再执行相关验证。在线与更新夹具还依赖上述 Python / Store 环境及 APSW 等包。界面冒烟脚本需要已安装的 Microsoft Edge，原生窗口验证需要可交互的 Windows 桌面。
 
 | 入口                                      | 用途                                                             |
 | ----------------------------------------- | ---------------------------------------------------------------- |
