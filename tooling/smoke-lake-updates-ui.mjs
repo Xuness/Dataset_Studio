@@ -346,6 +346,65 @@ try {
   await expect(page.locator(".lake-outline button")).toHaveCount(4);
   await page.screenshot({ path: resolve(run, "global-2560.png") });
   checks.push("global UE-style lake editor works without an open project");
+  await page.getByRole("button", { name: "下载与调度", exact: true }).click();
+  const tuningDialog = page.getByRole("dialog", {
+    name: "下载与调度",
+    exact: true,
+  });
+  await expect(
+    tuningDialog.getByLabel("下载并发数", { exact: true }),
+  ).toHaveValue("4");
+  await tuningDialog.getByLabel("下载并发数", { exact: true }).fill("3");
+  await tuningDialog.getByLabel("API 请求/秒", { exact: true }).fill("0.8");
+  await tuningDialog.getByLabel("图片请求/秒", { exact: true }).fill("2.75");
+  await tuningDialog
+    .getByLabel("扫描方式", { exact: true })
+    .selectOption("metadata_first");
+  await tuningDialog
+    .locator("summary")
+    .filter({ hasText: "全局资源与带宽" })
+    .click();
+  await tuningDialog.getByLabel("编码并发数", { exact: true }).fill("3");
+  await tuningDialog
+    .getByLabel("下载带宽上限（MiB/s）", { exact: true })
+    .fill("5");
+  await tuningDialog
+    .getByRole("button", { name: "保存调度设置", exact: true })
+    .click();
+  await expect(tuningDialog.getByRole("status")).toContainText(
+    "调度设置已保存",
+  );
+  const pipelineSaved = await client.lakeUpdates.pipeline();
+  assert.equal(pipelineSaved.value.sites.yandere.download_concurrency, 3);
+  assert.equal(
+    pipelineSaved.value.sites.yandere.image_requests_per_second,
+    2.75,
+  );
+  assert.equal(pipelineSaved.value.encode_concurrency, 3);
+  assert.equal(pipelineSaved.value.download_mib_per_second, 5);
+  await page.screenshot({ path: resolve(run, "pipeline-settings.png") });
+  await tuningDialog
+    .getByRole("button", { name: "关闭下载与调度", exact: true })
+    .click();
+  await page.getByRole("button", { name: "下载与调度", exact: true }).click();
+  await expect(
+    tuningDialog.getByLabel("图片请求/秒", { exact: true }),
+  ).toHaveValue("2.75");
+  await tuningDialog
+    .getByRole("button", { name: "填入建议值", exact: true })
+    .click();
+  await tuningDialog
+    .getByRole("button", { name: "保存调度设置", exact: true })
+    .click();
+  await expect(tuningDialog.getByRole("status")).toContainText(
+    "调度设置已保存",
+  );
+  await tuningDialog
+    .getByRole("button", { name: "关闭下载与调度", exact: true })
+    .click();
+  checks.push(
+    "network, scan, resource and bandwidth tuning is editable, persisted, restored and shared through the public SDK",
+  );
   await page.getByRole("button", { name: "新建更新", exact: true }).click();
   let dialog = page.getByRole("dialog", {
     name: "新建数据湖更新",

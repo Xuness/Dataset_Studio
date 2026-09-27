@@ -8,6 +8,8 @@
 
 数据湖更新：[工作台](decisions/0039-lake-update-workbench.md)、[内置服务与图片配方](decisions/0040-owned-lake-worker-and-image-recipes.md)、[运行环境与保存策略](../services/lake-worker/README.md)。
 
+下载调度升级：[流水线与共享参数](decisions/0041-lake-download-pipeline.md)、[实施计划](plans/lake-download-pipeline-2026-09-27.md)、[2026-09-27 验收](verification/2026-09-27-lake-pipeline.md)。
+
 数据湖来源：[统一接口与调度](decisions/0035-source-registry-and-dispatch.md)、[Yandere/Gelbooru 验收](verification/2026-09-26-multibooru.md)、[多湖交互与查询缓存补齐](verification/2026-09-26-multibooru-followup.md)。
 
 在线架构升级：[阶段计划](plans/数据库架构审查升级-2026-09-26/README.md)、[发布与预览并发边界](decisions/0036-online-read-path-preparation.md)、[在线湖与固定成员协议](decisions/0037-versioned-online-lakes.md)、[P1 验收](verification/2026-09-26-online-upgrade-phase1.md)、[P2/P3 迁移验收](verification/2026-09-26-online-upgrade-p23.md)、[Danbooru 工作区归并](verification/2026-09-26-danbooru-workspace-relocation.md)。

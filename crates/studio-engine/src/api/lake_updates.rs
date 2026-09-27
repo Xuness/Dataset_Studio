@@ -73,6 +73,17 @@ pub(super) async fn configure(
 pub(super) async fn capabilities(State(s): State<AppState>) -> ApiResult<LakeUpdateCapabilities> {
     invoke(s, Op::Capabilities, json!({})).await
 }
+#[utoipa::path(get,path="/v1/lake-updates/pipeline",responses((status=200,body=LakePipelineSettings)),operation_id="lake_updates_pipeline")]
+pub(super) async fn pipeline(State(s): State<AppState>) -> ApiResult<LakePipelineSettings> {
+    invoke(s, Op::PipelineGet, json!({})).await
+}
+#[utoipa::path(put,path="/v1/lake-updates/pipeline",request_body=SaveLakePipelineSettings,responses((status=200,body=LakePipelineSettings)),operation_id="lake_updates_save_pipeline")]
+pub(super) async fn save_pipeline(
+    State(s): State<AppState>,
+    Body(body): Body<SaveLakePipelineSettings>,
+) -> ApiResult<LakePipelineSettings> {
+    invoke(s, Op::PipelineSet, json!(body)).await
+}
 #[utoipa::path(get,path="/v1/lake-updates/lakes",responses((status=200,body=UpdateLakes)),operation_id="lake_updates_lakes")]
 pub(super) async fn lakes(State(s): State<AppState>) -> ApiResult<UpdateLakes> {
     invoke(s, Op::Lakes, json!({})).await
@@ -234,6 +245,7 @@ pub(super) fn routes() -> axum::Router<AppState> {
         .route("/inputs/{id}/seal", post(seal_input))
         .route("/status", get(status))
         .route("/runtime", axum::routing::put(configure))
+        .route("/pipeline", get(pipeline).put(save_pipeline))
         .route("/capabilities", get(capabilities))
         .route("/lakes", get(lakes).post(register))
         .route("/credentials", axum::routing::put(credentials))

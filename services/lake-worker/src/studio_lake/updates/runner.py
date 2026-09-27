@@ -1,6 +1,7 @@
 """Background coordinator: one owner, concurrent lakes, ordered archive publications."""
 
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import nullcontext
 import json
 from pathlib import Path
 import threading
@@ -10,7 +11,8 @@ from ..library import Batch
 from ..online_migrate import connect
 from ..util import FileLock, atomic_json, contained, now, read_json, stable_id
 from .archive import commit_page, commit_media, reconcile, online, io_lock, checkpoint_key
-from .media import Resources, prepare
+from .media import Resources
+from .settings import read as read_settings
 from .protocol import timestamp
 from .sites import Site, UpdateError, Response
 from .state import State, TERMINAL
@@ -45,11 +47,36 @@ class Runner:
         self.image_http = image_http
         self.stop = threading.Event()
         self.site_lock = threading.Lock()
+        self.settings_lock = threading.Lock()
+        self.settings_revision = -1
+        self.settings_checked = 0.0
+        self.injected_sites = set(self.sites)
+        self.refresh_settings(force=True)
+
+    def refresh_settings(self, force=False):
+        with self.settings_lock:
+            if not force and time.monotonic() - self.settings_checked < 1:
+                return
+            snapshot = read_settings(self.state)
+            self.settings_checked = time.monotonic()
+            if snapshot["revision"] == self.settings_revision:
+                return
+            self.resources.configure(snapshot["value"])
+            self.settings_revision = snapshot["revision"]
+            with self.site_lock:
+                for name, site in self.sites.items():
+                    if name not in self.injected_sites:
+                        site.delay = 1 / snapshot["value"]["sites"][name]["api_requests_per_second"]
 
     def site(self, name):
         with self.site_lock:
             if name not in self.sites:
-                self.sites[name] = Site(name, self.state.credentials(name), rate_root=self.state.root)
+                self.sites[name] = Site(
+                    name,
+                    self.state.credentials(name),
+                    rate_root=self.state.root,
+                    delay=1 / self.resources.config["sites"][name]["api_requests_per_second"],
+                )
             elif isinstance(self.sites[name], Site):
                 self.sites[name].credentials = self.state.credentials(name)
             return self.sites[name]
@@ -157,25 +184,28 @@ class Runner:
                         "SOURCE_CHANGED", "The fixed local input belongs to another online generation"
                     )
         last_check, was_cancelled = 0.0, False
+        control_lock = threading.Lock()
 
         def cancelled():
             nonlocal last_check, was_cancelled
             if self.stop.is_set():
                 return True
-            if time.monotonic() - last_check >= 0.1:
-                with self.state.db() as db:
-                    current = db.execute(
-                        "SELECT state,execution FROM jobs WHERE id=?", (identity,)
-                    ).fetchone()
-                was_cancelled = (
-                    current["state"] in {"paused", "cancelled"} or current["execution"] != generation
-                )
-                last_check = time.monotonic()
-            return was_cancelled
+            with control_lock:
+                if time.monotonic() - last_check >= 0.1:
+                    with self.state.db() as db:
+                        current = db.execute(
+                            "SELECT state,execution FROM jobs WHERE id=?", (identity,)
+                        ).fetchone()
+                    was_cancelled = (
+                        current["state"] in {"paused", "cancelled"} or current["execution"] != generation
+                    )
+                    last_check = time.monotonic()
+                return was_cancelled
 
         def check():
             nonlocal last_check
-            last_check = 0
+            with control_lock:
+                last_check = 0
             if cancelled():
                 raise UpdateError("CANCELLED", "Update paused at a safe boundary")
 
@@ -197,60 +227,38 @@ class Runner:
             self.state.update(identity, cursor=cursor)
             job = self.state.job(identity)
         site = self.site(self.state.lake(job["lake_id"])["site"])
+        site.observer = lambda **values: self.state.progress(identity, **values)
         if not job["cursor"].get("initialized"):
             self.initialize(lib, job, site, check, cancelled)
-        while True:
-            check()
-            job = self.state.job(identity)
-            cursor, spec = job["cursor"], job["definition"]
-            if cursor.get("input_seq") is not None and not cursor.get("metadata_complete"):
-                lease(lib, identity, cursor["input_seq"])
-            if (
-                cursor.get("slice_pages", 0) >= spec["page_budget"]
-                or cursor.get("slice_items", 0) >= spec["item_budget"]
-            ):
-                self.state.update(
-                    identity,
-                    state="paused",
-                    error_code="UPDATE_BUDGET",
-                    error_message="Run budget reached; resume continues the same range",
-                )
-                break
-            if not cursor.get("metadata_complete"):
-                self.page(lib, job, site, check, cancelled)
-                latest = self.state.job(identity)["cursor"]
-                if not latest.get("metadata_complete") and all(
-                    latest.get(k) == cursor.get(k) for k in ("pages", "next_id", "position")
-                ):
-                    raise UpdateError(
-                        "UPDATE_NO_PROGRESS", "Archived page did not advance the execution checkpoint"
-                    )
-            self.metadata_coverage(lib, self.state.job(identity))
-            self.images(lib, self.state.job(identity), site, check, cancelled)
-            job = self.state.job(identity)
-            if job["cursor"].get("metadata_complete"):
-                counts = job["counts"]
-                if counts.get("pending", 0) or counts.get("pending_metadata", 0):
-                    continue
-                if counts.get("failed", 0) or counts.get("needs_review", 0):
-                    with self.state.db() as db:
-                        exhausted = db.execute(
-                            "SELECT 1 FROM items WHERE job_id=? AND state='failed' AND attempts>=8 LIMIT 1",
-                            (identity,),
-                        ).fetchone()
-                    waiting = (
-                        bool(counts.get("failed", 0)) and not counts.get("needs_review", 0) and not exhausted
-                    )
-                    self.state.update(
-                        identity,
-                        state="waiting_retry" if waiting else "needs_review",
-                        retry_at=time.time() + 60,
-                        error_code="UPDATE_MEDIA_INCOMPLETE",
-                        error_message="Metadata published; media gaps remain",
-                    )
-                else:
-                    self.finish(lib, job)
-                break
+        from .pipeline import Pipeline
+
+        Pipeline(self, lib, self.state.job(identity), site, check, cancelled).run()
+        job = self.state.job(identity)
+        if job["state"] in {"paused", "cancelled"}:
+            return job
+        counts = job["counts"]
+        if counts.get("failed", 0) or counts.get("needs_review", 0):
+            with self.state.db() as db:
+                exhausted = db.execute(
+                    "SELECT 1 FROM items WHERE job_id=? AND state='failed' AND attempts>=8 LIMIT 1",
+                    (identity,),
+                ).fetchone()
+            waiting = bool(counts.get("failed", 0)) and not counts.get("needs_review", 0) and not exhausted
+            self.state.update(
+                identity,
+                state="waiting_retry" if waiting else "needs_review",
+                retry_at=time.time() + 60,
+                error_code="UPDATE_MEDIA_INCOMPLETE",
+                error_message="Metadata published; media gaps remain",
+            )
+        elif (
+            counts.get("pending", 0)
+            or counts.get("pending_metadata", 0)
+            or not job["cursor"].get("metadata_complete")
+        ):
+            raise UpdateError("UPDATE_NO_PROGRESS", "Pending records could not advance; checkpoints retained")
+        else:
+            self.finish(lib, job)
         return self.state.job(identity)
 
     def metadata_coverage(self, lib, job):
@@ -366,7 +374,7 @@ class Runner:
                     )
         reconcile(self.state, lib, job["id"])
 
-    def page(self, lib, job, site, check, cancelled):
+    def page(self, lib, job, site, check, cancelled, publication=None):
         self.state.progress(job["id"], phase="metadata", current_post_id=None)
         scope, cursor = job["definition"]["range"], dict(job["cursor"])
         kind = scope["kind"]
@@ -414,12 +422,16 @@ class Runner:
                 cursor["next_id"] = rows[-1][0] + 1
             else:
                 cursor["metadata_complete"] = True
-        if cursor["next_id"] >= cursor["upper"] or ids == []:
+        if job["cursor"]["next_id"] >= cursor["upper"] or ids == []:
             if kind == "local" and not cursor["metadata_complete"]:
                 cursor["slice_pages"] += 1
+                cursor["pages"] += 1
+                if cursor["next_id"] >= cursor["upper"]:
+                    cursor["metadata_complete"] = True
             else:
                 cursor["metadata_complete"] = True
-            self.save_cursor(lib, job, cursor)
+            with publication or nullcontext():
+                self.save_cursor(lib, job, cursor)
             return
         after = (
             scope.get("after")
@@ -483,6 +495,8 @@ class Runner:
                 cursor["metadata_complete"] = not received
                 if received:
                     cursor["next_id"] = received[-1] + 1
+            if cursor["next_id"] >= cursor["upper"]:
+                cursor["metadata_complete"] = True
             cursor["pages"] += 1
             cursor["slice_pages"] += 1
             cursor["slice_items"] += len(selected)
@@ -492,8 +506,7 @@ class Runner:
                 job["id"], phase="publishing_metadata", metadata_bytes_delta=len(response.body)
             )
             check()
-            commit_page(
-                self.state,
+            self.publish_page(
                 lib,
                 job,
                 site,
@@ -503,12 +516,19 @@ class Runner:
                 cursor,
                 expected_ids=ids,
                 tag_types=tag_types,
+                publication=publication,
             )
         except UpdateError as e:
             if e.code != "CANCELLED":
-                commit_page(self.state, lib, job, site, response, [], set(), job["cursor"], error=e)
+                self.publish_page(
+                    lib, job, site, response, [], set(), job["cursor"], error=e, publication=publication
+                )
             raise
-        reconcile(self.state, lib, job["id"])
+
+    def publish_page(self, lib, job, site, response, rows, selected, cursor, publication=None, **options):
+        with publication or nullcontext():
+            commit_page(self.state, lib, job, site, response, rows, selected, cursor, **options)
+            reconcile(self.state, lib, job["id"])
 
     def request_page(self, lib, job, site, params, cancelled):
         if not job["cursor"].get("replay_saved_response"):
@@ -561,84 +581,47 @@ class Runner:
                 )
         reconcile(self.state, lib, job["id"])
 
-    def images(self, lib, job, site, check, cancelled):
-        with self.state.db() as db:
-            items = [
-                dict(r)
-                for r in db.execute(
-                    "SELECT * FROM items WHERE job_id=? AND state IN ('pending','failed','pending_metadata') "
-                    "AND retry_at<=? AND attempts<8 ORDER BY post_id LIMIT 8",
-                    (job["id"], time.time()),
-                )
-            ]
-        if not items:
-            return
-        results = []
-        for item in items:
+    def retry_metadata(self, lib, job, item, site, check, cancelled, publication=None):
+        response = site.request(
+            site.params(item["post_id"], item["post_id"] + 1, 1, ids=[item["post_id"]]), cancelled
+        )
+        try:
+            rows = site.parse(response)
+            if any(r[1]["id"] != item["post_id"] for r in rows):
+                raise UpdateError("UPDATE_PAGE_INVALID", "Retry returned an unexpected post")
+            tag_types = categories(self.state, lib, job, site, rows, {item["post_id"]}, cancelled)
             check()
-            if item["state"] == "pending_metadata":
-                response = site.request(
-                    site.params(item["post_id"], item["post_id"] + 1, 1, ids=[item["post_id"]]), cancelled
-                )
-                try:
-                    rows = site.parse(response)
-                    if any(r[1]["id"] != item["post_id"] for r in rows):
-                        raise UpdateError("UPDATE_PAGE_INVALID", "Retry returned an unexpected post")
-                    tag_types = categories(self.state, lib, job, site, rows, {item["post_id"]}, cancelled)
-                    commit_page(
-                        self.state,
-                        lib,
-                        job,
-                        site,
-                        response,
-                        rows,
-                        {item["post_id"]},
-                        job["cursor"],
-                        expected_ids=[item["post_id"]],
-                        retry=True,
-                        tag_types=tag_types,
-                    )
-                except UpdateError as e:
-                    commit_page(
-                        self.state, lib, job, site, response, [], set(), job["cursor"], error=e, retry=True
-                    )
-                    raise
-                reconcile(self.state, lib, job["id"])
-                with self.state.db() as db:
-                    item = dict(
-                        db.execute(
-                            "SELECT * FROM items WHERE job_id=? AND post_id=?", (job["id"], item["post_id"])
-                        ).fetchone()
-                    )
-                if item["state"] != "pending":
-                    continue
-            try:
-                result = prepare(
-                    lib,
-                    job,
-                    item,
-                    site,
-                    self.resources,
-                    cancelled,
-                    self.image_http,
-                    lambda **values: self.state.progress(job["id"], **values),
-                )
-            except UpdateError as e:
-                if e.code in {"CANCELLED", "UPDATE_SPACE"}:
-                    if results:
-                        commit_media(self.state, lib, job, results, job["cursor"])
-                        reconcile(self.state, lib, job["id"])
-                    raise
-                result = {"state": "needs_review", "reason": e.code}
-            result.update(
-                post_id=item["post_id"], observation_id=item["observation_id"], attempt=item["attempts"] + 1
+            self.publish_page(
+                lib,
+                job,
+                site,
+                response,
+                rows,
+                {item["post_id"]},
+                job["cursor"],
+                expected_ids=[item["post_id"]],
+                retry=True,
+                tag_types=tag_types,
+                publication=publication,
             )
-            results.append(result)
-            if sum(r.get("stored_bytes", 0) for r in results) >= 32 * 1024**2:
-                break
-        if not results:
-            return
-        check()
+        except UpdateError as error:
+            if error.code == "CANCELLED":
+                raise
+            self.publish_page(
+                lib,
+                job,
+                site,
+                response,
+                [],
+                set(),
+                job["cursor"],
+                error=error,
+                retry=True,
+                publication=publication,
+            )
+            raise
+
+    def publish_images(self, lib, job, results):
         self.state.progress(job["id"], phase="publishing_media", current_post_id=None)
         commit_media(self.state, lib, job, results, job["cursor"])
         reconcile(self.state, lib, job["id"])
@@ -648,6 +631,8 @@ class Runner:
                 if path.parent == lib.cache / "updates" / job["id"]:
                     path.unlink(missing_ok=True)
                     path.with_suffix(".json").unlink(missing_ok=True)
+                    path.with_suffix(".downloaded").unlink(missing_ok=True)
+                    path.with_suffix(".download.json").unlink(missing_ok=True)
 
     def finish(self, lib, job):
         exclusions = job["counts"].get("unavailable", 0)
@@ -670,6 +655,12 @@ class Runner:
         lease(lib, job["id"])
         self.state.update(job["id"], state="completed_with_exclusions" if exclusions else "completed")
         self.state.progress(job["id"], phase="completed", current_post_id=None, download_rate_bps=0)
+        directory = contained(lib.cache / "updates", job["id"])
+        try:
+            directory.rmdir()
+        except OSError:
+            # Failed/review items may still own resumable files; remove only empty task directories.
+            pass
 
     def serve(self):
         background_io = False
@@ -689,6 +680,7 @@ class Runner:
         ):
             active = {}
             while not self.stop.is_set():
+                self.refresh_settings()
                 self.state.tick_schedules()
                 for lake, future in list(active.items()):
                     if future.done():
@@ -701,7 +693,7 @@ class Runner:
                         (time.time(),),
                     ).fetchall()
                 for job in candidates:
-                    if len(active) >= 3:
+                    if len(active) >= self.resources.config["active_lakes"]:
                         break
                     if job["lake_id"] not in active:
                         active[job["lake_id"]] = pool.submit(self.run, job["id"])

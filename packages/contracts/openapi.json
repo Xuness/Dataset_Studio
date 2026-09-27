@@ -862,6 +862,54 @@
         }
       }
     },
+    "/v1/lake-updates/pipeline": {
+      "get": {
+        "tags": [
+          "lake_updates"
+        ],
+        "operationId": "lake_updates_pipeline",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LakePipelineSettings"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "lake_updates"
+        ],
+        "operationId": "lake_updates_save_pipeline",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveLakePipelineSettings"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LakePipelineSettings"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/lake-updates/preparations": {
       "get": {
         "tags": [
@@ -12233,6 +12281,192 @@
           "custom"
         ]
       },
+      "LakeImageTransfer": {
+        "type": "object",
+        "required": [
+          "post_id",
+          "phase"
+        ],
+        "properties": {
+          "current_bytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "current_total_bytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "phase": {
+            "type": "string"
+          },
+          "post_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "LakePipelineConfig": {
+        "type": "object",
+        "required": [
+          "version",
+          "scan_mode",
+          "active_lakes",
+          "sites",
+          "encode_concurrency",
+          "buffer_images",
+          "metadata_prefetch_records",
+          "spool_mib",
+          "reserve_mib",
+          "max_download_mib",
+          "max_image_pixels",
+          "decode_memory_mib",
+          "publish_items",
+          "publish_mib",
+          "publish_interval_seconds"
+        ],
+        "properties": {
+          "active_lakes": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "buffer_images": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "decode_memory_mib": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "download_mib_per_second": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "encode_concurrency": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "max_download_mib": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "max_image_pixels": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "metadata_prefetch_records": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "publish_interval_seconds": {
+            "type": "number",
+            "format": "double"
+          },
+          "publish_items": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "publish_mib": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "reserve_mib": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "scan_mode": {
+            "type": "string"
+          },
+          "sites": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/components/schemas/LakeSitePipeline"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "spool_mib": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "LakePipelineSettings": {
+        "type": "object",
+        "required": [
+          "revision",
+          "value",
+          "defaults"
+        ],
+        "properties": {
+          "defaults": {
+            "$ref": "#/components/schemas/LakePipelineConfig"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "value": {
+            "$ref": "#/components/schemas/LakePipelineConfig"
+          }
+        }
+      },
+      "LakeSitePipeline": {
+        "type": "object",
+        "required": [
+          "download_concurrency",
+          "api_requests_per_second"
+        ],
+        "properties": {
+          "api_requests_per_second": {
+            "type": "number",
+            "format": "double"
+          },
+          "download_concurrency": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "image_requests_per_second": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          }
+        },
+        "additionalProperties": false
+      },
       "LakeUpdateAction": {
         "type": "string",
         "enum": [
@@ -13261,6 +13495,33 @@
       "LakeUpdateTelemetry": {
         "type": "object",
         "properties": {
+          "active_downloads": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "default": null,
+            "minimum": 0
+          },
+          "active_encodes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "default": null,
+            "minimum": 0
+          },
+          "api_requests": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "default": null,
+            "minimum": 0
+          },
           "current_bytes": {
             "type": [
               "integer",
@@ -13305,6 +13566,29 @@
             "default": null,
             "minimum": 0
           },
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LakeImageTransfer"
+            },
+            "default": []
+          },
+          "image_requests": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "default": null,
+            "minimum": 0
+          },
+          "metadata_active": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "default": null
+          },
           "metadata_bytes": {
             "type": [
               "integer",
@@ -13321,12 +13605,75 @@
             ],
             "default": null
           },
+          "publish_rate_images_per_second": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "default": null
+          },
+          "rate_window_seconds": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "default": null
+          },
+          "ready_images": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "default": null,
+            "minimum": 0
+          },
           "sampled_at": {
             "type": [
               "string",
               "null"
             ],
             "default": null
+          },
+          "throttled_requests": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "default": null,
+            "minimum": 0
+          },
+          "timings_seconds": {
+            "type": "object",
+            "default": {},
+            "additionalProperties": {
+              "type": "number",
+              "format": "double"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "waiting_download": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "default": null,
+            "minimum": 0
+          },
+          "waiting_encode": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "default": null,
+            "minimum": 0
           }
         }
       },
@@ -18503,6 +18850,24 @@
             "minimum": 0
           },
           "value": {}
+        },
+        "additionalProperties": false
+      },
+      "SaveLakePipelineSettings": {
+        "type": "object",
+        "required": [
+          "expected_revision",
+          "value"
+        ],
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "value": {
+            "$ref": "#/components/schemas/LakePipelineConfig"
+          }
         },
         "additionalProperties": false
       },

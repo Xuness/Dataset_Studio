@@ -74,6 +74,16 @@ class Site:
         self.delay, self.last = delay, 0.0
         self.gate = threading.Lock()
         self.rate_root = rate_root
+        self._events = threading.local()
+        self.observer = None
+
+    @property
+    def observer(self):
+        return getattr(self._events, "callback", None)
+
+    @observer.setter
+    def observer(self, value):
+        self._events.callback = value
 
     def capabilities(self):
         return {
@@ -118,10 +128,15 @@ class Site:
 
     def request(self, parameters, cancelled=lambda: False, resource="posts"):
         if self.rate_root is not None:
-            from .rate import admission
+            from .rate import admission, cooldown
 
             with admission(self.rate_root, self.name, cancelled, self.delay):
-                return self._request(parameters, cancelled, resource)
+                response = self._request(parameters, cancelled, resource)
+            if response.status in {429, 503}:
+                cooldown(self.rate_root, self.name, response.retry_after or 60)
+                if self.observer:
+                    self.observer(throttled_requests_delta=1)
+            return response
         return self._request(parameters, cancelled, resource)
 
     def _request(self, parameters, cancelled, resource):
@@ -147,6 +162,8 @@ class Site:
         elif self.name == "danbooru" and credentials.get("api_key"):
             auth = (credentials.get("login", ""), credentials["api_key"])
         try:
+            if self.observer:
+                self.observer(api_requests_delta=1)
             with self.http.get(url, params=params, auth=auth, timeout=(10, 45), stream=True) as r:
                 parts, total = [], 0
                 for part in r.iter_content(65536):

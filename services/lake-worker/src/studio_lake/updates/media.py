@@ -1,11 +1,10 @@
 """Bounded SSD downloads and explicit media-variant reuse; no network inside lake transactions."""
 
-from contextlib import contextmanager
 import hashlib
+import errno
 import json
 import os
 import re
-import shutil
 import threading
 import time
 from urllib.parse import urlsplit
@@ -17,42 +16,94 @@ from ..image_policy import prepare_image, profile_id, ImagePolicyError
 from ..util import atomic_json, digest, file_hash, retry_after_seconds, stable_id
 from .archive import online, record_by_id
 from .sites import UpdateError
+from .resources import Resources as Resources
+from .resources import Reservation
+from . import rate
 
 
-class Resources:
-    def __init__(self, max_download_bytes=128 * 1024**2, spool_bytes=8 * 1024**3, reserve_bytes=2 * 1024**3):
-        self.max_download_bytes, self.spool_bytes, self.reserve_bytes = (
-            max_download_bytes,
-            spool_bytes,
-            reserve_bytes,
-        )
-        self.encode = threading.Semaphore(1)
-        self.lock = threading.Lock()
-        self.reserved = 0
-        self.roots = set()
+# The service applies its explicit configurable pixel and memory guards before load().
+Image.MAX_IMAGE_PIXELS = 1_000_000_000
 
-    @contextmanager
-    def reservation(self, root):
-        need = self.max_download_bytes * 3
-        with self.lock:
-            self.roots.add(root.parent)
-            used = sum(
-                p.stat().st_size
-                for directory in self.roots
-                for p in directory.glob("*/*")
-                if p.is_file() and p.suffix in {".ready", ".partial", ".tmp"}
-            )
-            if (
-                used + self.reserved + need > self.spool_bytes
-                or shutil.disk_usage(root).free < self.reserve_bytes + need
-            ):
-                raise UpdateError("UPDATE_SPACE", "Waiting for SSD spool space")
-            self.reserved += need
-        try:
-            yield
-        finally:
+
+class ImageSessions:
+    """Each download thread owns its connection pool; no Session is shared between workers."""
+
+    def __init__(self, site, injected=None):
+        self.site, self.injected = site, injected
+        self.local, self.lock, self.sessions = threading.local(), threading.Lock(), []
+
+    def get(self):
+        if self.injected is not None:
+            return self.injected
+        if not hasattr(self.local, "session"):
+            session = requests.Session()
+            session.trust_env = False
+            session.headers["User-Agent"] = "Dataset-Studio/0.1 (local dataset archiver)"
+            session.headers["Referer"] = {
+                "danbooru": "https://danbooru.donmai.us/",
+                "yandere": "https://yande.re/",
+                "gelbooru": "https://gelbooru.com/",
+            }[self.site]
+            self.local.session = session
             with self.lock:
-                self.reserved -= need
+                self.sessions.append(session)
+        return self.local.session
+
+    def close(self):
+        for session in self.sessions:
+            session.close()
+
+
+def paths(lib, job, item):
+    directory = lib.cache / "updates" / job["id"]
+    key = stable_id(item["observation_id"], job["definition"]["media"])
+    return directory, key
+
+
+def staging_bytes(job, item, resources):
+    policy = job["definition"]["media"]
+    extra = 0
+    if policy["profile"] in {"custom", "webp-2048-q95"}:
+        record = json.loads(item["record_json"])
+        w, h = (
+            record.get("image_width", record.get("width")),
+            record.get("image_height", record.get("height")),
+        )
+        pixels = (
+            w * h
+            if isinstance(w, int) and isinstance(h, int) and w > 0 and h > 0
+            else resources.config["max_image_pixels"]
+        )
+        edge = (policy.get("encoding") or {}).get("max_edge") if policy["profile"] == "custom" else 2048
+        extra = 8 * min(pixels, resources.config["max_image_pixels"], edge * edge if edge else pixels)
+    return resources.max_download_bytes * 4 + extra
+
+
+def reserve(lib, job, item, resources, site, allow_external=False):
+    directory, key = paths(lib, job, item)
+    inspection = inspect_download(lib, job, item, site, allow_external)
+    item["_inspection"] = inspection
+    if "state" in inspection:
+        return Reservation(resources, (directory, key))
+    ready = cached(directory / (key + ".ready"), directory / (key + ".json"))
+    return resources.try_reserve(
+        directory,
+        key,
+        staging_bytes(job, item, resources),
+        prepared=bool(ready and ready.get("state") == "stored"),
+    )
+
+
+def cached(path, receipt):
+    if not path.exists() or not receipt.exists():
+        return None
+    try:
+        value = json.loads(receipt.read_text(encoding="utf-8"))
+        if value.get("sha256") == file_hash(path):
+            return value
+    except (ValueError, OSError):
+        pass
+    return None
 
 
 def reusable(lib, observation, profile, allow_sample, existing="keep"):
@@ -83,8 +134,7 @@ def reusable(lib, observation, profile, allow_sample, existing="keep"):
     return None
 
 
-def prepare(lib, job, item, site, resources, cancelled, image_http=None, progress=None):
-    progress = progress or (lambda **_: None)
+def inspect_download(lib, job, item, site, allow_external=False):
     policy = job["definition"]["media"]
     with online(lib) as (db, status):
         observation = record_by_id(
@@ -122,135 +172,210 @@ def prepare(lib, job, item, site, resources, cancelled, image_http=None, progres
                 continue
             host = parsed.hostname or ""
             domain = {"danbooru": "donmai.us", "yandere": "yande.re", "gelbooru": "gelbooru.com"}[site.name]
-            if image_http is None and host != domain and not host.endswith("." + domain):
+            if not allow_external and host != domain and not host.endswith("." + domain):
                 continue
             urls.append((kind, url))
     if not urls:
         return {"state": "unavailable", "reason": "no_image_url"}
-    directory = lib.cache / "updates" / job["id"]
-    directory.mkdir(parents=True, exist_ok=True)
-    key = stable_id(item["observation_id"], policy)
-    ready, receipt = directory / (key + ".ready"), directory / (key + ".json")
-    if ready.exists() and receipt.exists():
-        saved = json.loads(receipt.read_text(encoding="utf-8"))
-        if saved["sha256"] == file_hash(ready):
-            return {**saved, "ready_path": str(ready)}
-    own = image_http is None
-    http = image_http or requests.Session()
-    http.trust_env = False
-    http.headers["User-Agent"] = "Dataset-Studio/0.1 (local dataset archiver)"
-    http.headers["Referer"] = {
-        "danbooru": "https://danbooru.donmai.us/",
-        "yandere": "https://yande.re/",
-        "gelbooru": "https://gelbooru.com/",
-    }[site.name]
-    error = {"state": "failed", "reason": "download_failed", "retry_at": time.time() + 60}
-    try:
-        with resources.reservation(directory):
-            for kind, url in urls:
-                if cancelled():
-                    raise UpdateError("CANCELLED", "Update paused")
-                partial = directory / (key + ".partial")
-                try:
-                    with http.get(url, stream=True, timeout=(10, 45), allow_redirects=False) as response:
-                        if response.status_code != 200:
-                            delay = retry_after_seconds(response.headers) or 60
-                            error = {
-                                "state": "failed"
-                                if response.status_code == 429 or response.status_code >= 500
-                                else "needs_review",
-                                "reason": f"image_http_{response.status_code}",
-                                "retry_at": time.time() + delay,
-                            }
-                            continue
-                        length = 0
-                        reported = 0
-                        sampled = time.monotonic()
-                        total = response.headers.get("Content-Length", "")
-                        total = (
-                            int(total)
-                            if str(total).isdigit() and not response.headers.get("Content-Encoding")
-                            else None
-                        )
-                        progress(
-                            phase="downloading",
-                            current_post_id=item["post_id"],
-                            current_bytes=0,
-                            current_total_bytes=total,
-                        )
-                        with partial.open("wb") as output:
-                            for chunk in response.iter_content(256 * 1024):
-                                if cancelled():
-                                    raise UpdateError("CANCELLED", "Update paused")
-                                length += len(chunk)
-                                if length > resources.max_download_bytes:
-                                    raise UpdateError(
-                                        "UPDATE_RESOURCE_LIMIT", "Image exceeds configured byte limit"
-                                    )
-                                output.write(chunk)
-                                stamp = time.monotonic()
-                                if stamp - sampled >= 0.5:
-                                    progress(
-                                        current_bytes=length,
-                                        downloaded_bytes_delta=length - reported,
-                                        download_rate_bps=(length - reported) / (stamp - sampled),
-                                    )
-                                    reported, sampled = length, stamp
-                            output.flush()
-                            os.fsync(output.fileno())
-                        progress(current_bytes=length, downloaded_bytes_delta=length - reported)
-                    data = partial.read_bytes()
-                    if (
-                        kind == "original"
-                        and observation.get("md5")
-                        and hashlib.md5(data).hexdigest() != observation["md5"].lower()
-                    ):
-                        return {"state": "needs_review", "reason": "original_md5_mismatch"}
-                    with resources.encode:
-                        progress(phase="processing_image")
-                        import io
+    return {"observation": observation, "urls": urls}
 
-                        with Image.open(io.BytesIO(data)) as header:
-                            if header.width * header.height > 100_000_000:
-                                raise UpdateError(
-                                    "UPDATE_RESOURCE_LIMIT", "Image decode exceeds pixel budget"
-                                )
-                        stored, ext, details = prepare_image(data, policy)
-                    temporary = ready.with_suffix(".tmp")
-                    with temporary.open("wb") as output:
-                        output.write(stored)
-                        output.flush()
-                        os.fsync(output.fileno())
-                    temporary.replace(ready)
-                    saved = {
-                        "state": "stored",
-                        "sha256": digest(stored),
-                        "stored_ext": ext,
-                        "stored_bytes": len(stored),
-                        "details": {
-                            **details,
-                            "selected_url_kind": kind,
-                            "original_md5_verified": kind == "original" and bool(observation.get("md5")),
-                        },
-                    }
-                    atomic_json(receipt, saved)
-                    partial.unlink(missing_ok=True)
-                    return {**saved, "ready_path": str(ready)}
-                except UpdateError:
-                    raise
-                except requests.RequestException:
+
+def download(lib, job, item, site, resources, cancelled, sessions, progress=None):
+    progress = progress or (lambda **_: None)
+    inspection = item.get("_inspection") or inspect_download(
+        lib, job, item, site, sessions.injected is not None
+    )
+    if "state" in inspection:
+        return inspection
+    observation, urls = inspection["observation"], inspection["urls"]
+    directory, key = paths(lib, job, item)
+    directory.mkdir(parents=True, exist_ok=True)
+    ready, receipt = directory / (key + ".ready"), directory / (key + ".json")
+    saved = cached(ready, receipt)
+    if saved:
+        return {**saved, "ready_path": str(ready)}
+    raw, raw_receipt = directory / (key + ".downloaded"), directory / (key + ".download.json")
+    saved = cached(raw, raw_receipt)
+    if saved:
+        return {**saved, "download_path": str(raw)}
+    http = sessions.get()
+    error = {"state": "failed", "reason": "download_failed", "retry_at": time.time() + 60}
+    for kind, url in urls:
+        if cancelled():
+            raise UpdateError("CANCELLED", "Update paused")
+        partial = directory / (key + ".partial")
+        limit = resources.max_download_bytes
+        reported = length = 0
+        try:
+            progress(
+                phase="rate_wait", current_post_id=item["post_id"], current_bytes=0, current_total_bytes=None
+            )
+            if site.rate_root is not None and sessions.injected is None:
+                rate.wait_start(
+                    site.rate_root,
+                    site.name,
+                    cancelled,
+                    lambda: resources.config["sites"][site.name]["image_requests_per_second"],
+                )
+            progress(phase="connecting", image_requests_delta=1)
+            started = time.perf_counter()
+            with http.get(url, stream=True, timeout=(10, 45), allow_redirects=False) as response:
+                progress(connect_seconds_delta=time.perf_counter() - started)
+                if response.status_code != 200:
+                    delay = retry_after_seconds(response.headers) or 60
+                    if response.status_code in {429, 503}:
+                        progress(throttled_requests_delta=1)
+                        if site.rate_root is not None:
+                            rate.cooldown(site.rate_root, site.name, delay, image=True)
                     error = {
-                        "state": "failed",
-                        "reason": "image_transport_failed",
-                        "retry_at": time.time() + 60,
+                        "state": "failed"
+                        if response.status_code == 429 or response.status_code >= 500
+                        else "needs_review",
+                        "reason": f"image_http_{response.status_code}",
+                        "retry_at": time.time() + delay,
                     }
-                except ImagePolicyError:
-                    return {"state": "needs_review", "reason": "image_policy_rejected"}
-                except (OSError, ValueError, Image.DecompressionBombError):
-                    error = {"state": "needs_review", "reason": "image_decode_or_storage_error"}
-                finally:
-                    partial.unlink(missing_ok=True)
-    finally:
-        if own:
-            http.close()
+                    continue
+                total = response.headers.get("Content-Length", "")
+                total = (
+                    int(total)
+                    if str(total).isdigit() and not response.headers.get("Content-Encoding")
+                    else None
+                )
+                if total is not None and total > limit:
+                    raise UpdateError("UPDATE_RESOURCE_LIMIT", "Image exceeds configured byte limit")
+                progress(phase="downloading", current_bytes=0, current_total_bytes=total)
+                sampled = started = time.perf_counter()
+                md5, sha = hashlib.md5(), hashlib.sha256()
+                with partial.open("wb") as output:
+                    for chunk in response.iter_content(256 * 1024):
+                        if cancelled():
+                            raise UpdateError("CANCELLED", "Update paused")
+                        length += len(chunk)
+                        if length > limit:
+                            raise UpdateError("UPDATE_RESOURCE_LIMIT", "Image exceeds configured byte limit")
+                        resources.bandwidth(len(chunk), cancelled)
+                        output.write(chunk)
+                        md5.update(chunk)
+                        sha.update(chunk)
+                        stamp = time.perf_counter()
+                        if stamp - sampled >= 0.5:
+                            progress(current_bytes=length, downloaded_bytes_delta=length - reported)
+                            reported, sampled = length, stamp
+                    output.flush()
+                    os.fsync(output.fileno())
+                progress(download_seconds_delta=time.perf_counter() - started)
+            progress(phase="verifying", current_bytes=length, downloaded_bytes_delta=length - reported)
+            reported = length
+            if (
+                kind == "original"
+                and observation.get("md5")
+                and md5.hexdigest() != observation["md5"].lower()
+            ):
+                return {"state": "needs_review", "reason": "original_md5_mismatch"}
+            partial.replace(raw)
+            saved = {
+                "state": "downloaded",
+                "sha256": sha.hexdigest(),
+                "download_bytes": length,
+                "selected_url_kind": kind,
+                "original_md5_verified": kind == "original" and bool(observation.get("md5")),
+            }
+            atomic_json(raw_receipt, saved)
+            progress(phase="waiting_encode")
+            return {**saved, "download_path": str(raw)}
+        except UpdateError:
+            raise
+        except requests.RequestException:
+            error = {"state": "failed", "reason": "image_transport_failed", "retry_at": time.time() + 60}
+        except (OSError, ValueError) as failure:
+            if isinstance(failure, OSError) and failure.errno == errno.ENOSPC:
+                raise UpdateError("UPDATE_SPACE", "Waiting for SSD space during download") from None
+            error = {"state": "needs_review", "reason": "image_download_or_storage_error"}
+        finally:
+            if length > reported:
+                progress(downloaded_bytes_delta=length - reported)
+            partial.unlink(missing_ok=True)
     return error
+
+
+def encode_download(lib, job, item, downloaded, resources, cancelled, progress=None):
+    progress = progress or (lambda **_: None)
+    directory, key = paths(lib, job, item)
+    raw, ready = directory / (key + ".downloaded"), directory / (key + ".ready")
+    if str(raw) != downloaded.get("download_path"):
+        raise UpdateError("UPDATE_INTEGRITY", "Downloaded image escaped its task")
+    try:
+        progress(phase="waiting_encode", current_post_id=item["post_id"])
+        with Image.open(raw) as header:
+            pixels = header.width * header.height
+            if pixels > resources.config["max_image_pixels"]:
+                raise UpdateError("UPDATE_RESOURCE_LIMIT", "Image exceeds configured pixel budget")
+        # Source, conversion, alpha and output buffers; admission happens before reading full bytes.
+        estimate = pixels * 16 + raw.stat().st_size * 3
+        with resources.encoding(estimate, cancelled):
+            if cancelled():
+                raise UpdateError("CANCELLED", "Update paused")
+            progress(phase="processing_image")
+            started = time.perf_counter()
+            data = raw.read_bytes()
+            if digest(data) != downloaded["sha256"]:
+                raise UpdateError("UPDATE_INTEGRITY", "Downloaded image hash mismatch")
+            stored, ext, details = prepare_image(data, job["definition"]["media"])
+            progress(encode_seconds_delta=time.perf_counter() - started)
+            saved = {
+                "state": "stored",
+                "sha256": digest(stored),
+                "stored_ext": ext,
+                "stored_bytes": len(stored),
+                "details": {
+                    **details,
+                    "selected_url_kind": downloaded["selected_url_kind"],
+                    "original_md5_verified": downloaded["original_md5_verified"],
+                },
+            }
+            # Admission estimates may use source dimensions; check actual output before writing it.
+            resources.check_staged_size(
+                directory,
+                key,
+                raw.stat().st_size
+                + len(stored)
+                + 2 * len(json.dumps(saved, ensure_ascii=False, indent=2).encode("utf-8"))
+                + 4096,
+            )
+            temporary = ready.with_suffix(".tmp")
+            with temporary.open("wb") as output:
+                output.write(stored)
+                output.flush()
+                os.fsync(output.fileno())
+            temporary.replace(ready)
+            atomic_json(directory / (key + ".json"), saved)
+        raw.unlink(missing_ok=True)
+        (directory / (key + ".download.json")).unlink(missing_ok=True)
+        progress(phase="ready")
+        return {**saved, "ready_path": str(ready)}
+    except ImagePolicyError:
+        return {"state": "needs_review", "reason": "image_policy_rejected"}
+    except (OSError, ValueError, Image.DecompressionBombError) as error:
+        if isinstance(error, OSError) and error.errno == errno.ENOSPC:
+            raise UpdateError("UPDATE_SPACE", "Waiting for SSD space during encoding") from None
+        return {"state": "needs_review", "reason": "image_decode_or_storage_error"}
+
+
+def prepare(lib, job, item, site, resources, cancelled, image_http=None, progress=None):
+    """Standalone compatibility entry; production uses the separate pipeline stages."""
+    directory, key = paths(lib, job, item)
+    directory.mkdir(parents=True, exist_ok=True)
+    sessions = ImageSessions(site.name, image_http)
+    try:
+        reservation = reserve(lib, job, item, resources, site, image_http is not None)
+        if reservation is None:
+            raise UpdateError("UPDATE_SPACE", "Waiting for SSD spool space")
+        try:
+            result = download(lib, job, item, site, resources, cancelled, sessions, progress)
+            if result["state"] == "downloaded":
+                result = encode_download(lib, job, item, result, resources, cancelled, progress)
+            return result
+        finally:
+            reservation.release()
+    finally:
+        sessions.close()

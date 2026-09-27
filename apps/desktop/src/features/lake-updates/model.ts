@@ -39,11 +39,21 @@ export const phases: Record<string, string> = {
   processing_image: "处理图片",
   publishing_media: "发布图片",
   completed: "完成",
+  pipeline: "流水线运行",
+  rate_wait: "等待请求额度",
+  connecting: "连接图片服务器",
+  verifying: "校验原件",
+  waiting_encode: "等待编码",
+  ready: "等待发布",
+  waiting_resources: "等待队列或资源",
+  paused: "已暂停",
+  idle: "本轮已退出",
 };
 export const itemStates: Record<string, string> = {
   stored: "已保存",
   reused: "已复用",
   metadata_only: "仅元数据",
+  metadata: "仅元数据",
   pending: "待下载",
   pending_metadata: "待刷新元数据",
   failed: "失败",
@@ -61,13 +71,16 @@ export const problemCount = (job: UpdateJob) =>
     0,
   );
 export const processedCount = (job: UpdateJob) =>
-  Object.entries(job.counts)
-    .filter(([state]) => !["pending", "pending_metadata"].includes(state))
-    .reduce((n, [, v]) => n + v, 0);
+  [
+    "stored",
+    "reused",
+    "metadata",
+    "metadata_only",
+    "excluded",
+    "skipped",
+  ].reduce((n, state) => n + (job.counts[state] ?? 0), 0);
 export const pendingCount = (job: UpdateJob) =>
-  problemCount(job) +
-  (job.counts.pending ?? 0) +
-  (job.counts.pending_metadata ?? 0);
+  (job.counts.pending ?? 0) + (job.counts.pending_metadata ?? 0);
 export const dateLabel = (value: string | null | undefined) =>
   value ? new Date(value).toLocaleString() : "—";
 export const bytesLabel = (value: number | null | undefined) =>

@@ -19,6 +19,14 @@ from .read_model import activity
 def dispatch(state, command, args):
     if not isinstance(args, dict):
         raise UpdateError("INVALID_INPUT", "Command arguments must be an object")
+    if command in {"pipeline_get", "pipeline_set"}:
+        from . import settings
+
+        return (
+            settings.read(state)
+            if command == "pipeline_get"
+            else settings.save(state, args["value"], args["expected_revision"])
+        )
     if command == "status":
         heartbeat = state.root / "heartbeat.json"
         info = json.loads(heartbeat.read_text(encoding="utf-8")) if heartbeat.exists() else None
@@ -45,7 +53,7 @@ def dispatch(state, command, args):
             raise UpdateError("INVALID_INPUT", "Fixed member preparation accepts 1–4096 object hashes")
         result = None
         for offset in range(0, len(objects), 128):
-            result = state.append_input(args["id"], object_sha256s=objects[offset:offset + 128])
+            result = state.append_input(args["id"], object_sha256s=objects[offset : offset + 128])
         return result
     if command == "input_seal":
         return state.seal_input(args["id"])
@@ -61,7 +69,17 @@ def dispatch(state, command, args):
             db.execute("DELETE FROM credentials WHERE site=?", (args["site"],))
         return {"site": args["site"], "credential_set": False}
     if command == "probe":
-        site = Site(args["site"], state.credentials(args["site"]), rate_root=state.root)
+        from . import settings
+
+        if args["site"] not in Site.URLS:
+            raise UpdateError("INVALID_INPUT", "Unknown site")
+        config = settings.read(state)["value"]
+        site = Site(
+            args["site"],
+            state.credentials(args["site"]),
+            rate_root=state.root,
+            delay=1 / config["sites"][args["site"]]["api_requests_per_second"],
+        )
         try:
             params = {"limit": 1}
             if site.name == "gelbooru":
@@ -94,7 +112,10 @@ def dispatch(state, command, args):
             if baseline is None and lake["site"] == "danbooru":
                 baseline = lib.setting("api_watermark")
             if baseline is None:
-                raise UpdateError("UPDATE_BASELINE_REQUIRED", "首次补充新帖需要填写起点 ID，已有 HF 最大 ID 不能作为完整覆盖依据")
+                raise UpdateError(
+                    "UPDATE_BASELINE_REQUIRED",
+                    "首次补充新帖需要填写起点 ID，已有 HF 最大 ID 不能作为完整覆盖依据",
+                )
         if kind == "input":
             frozen = state.input(spec["range"]["input_id"])
             if frozen["lake_id"] != spec["library_id"] or frozen["state"] != "sealed":
@@ -111,11 +132,15 @@ def dispatch(state, command, args):
     if command == "create":
         return state.create(args["definition"], args["request_key"])
     if command == "jobs":
-        return state.jobs(args.get("after", ""), args.get("limit", 50), args.get("lake_id"), args.get("status"))
+        return state.jobs(
+            args.get("after", ""), args.get("limit", 50), args.get("lake_id"), args.get("status")
+        )
     if command == "job":
         return state.job(args["id"])
     if command == "items":
-        return state.items(args["id"], args.get("after", 0), args.get("limit", 100), args.get("status"), args.get("reason"))
+        return state.items(
+            args["id"], args.get("after", 0), args.get("limit", 100), args.get("status"), args.get("reason")
+        )
     if command == "action":
         return state.action(args["id"], args["action"])
     if command == "coverage":

@@ -28,6 +28,7 @@ import {
   policyLabel,
   pendingCount,
   processedCount,
+  problemCount,
   rangeLabel,
   sites,
   states,
@@ -36,6 +37,7 @@ import type { Schedule } from "./model.js";
 import { UpdateComposer } from "./UpdateComposer.js";
 import { JobDetails } from "./JobDetails.js";
 import { ScopePreparations } from "./ScopePreparations.js";
+import { PipelineSettings } from "./PipelineSettings.js";
 import "./lake-updates.css";
 
 type View = {
@@ -90,6 +92,7 @@ export default function LakeWorkspace({
     [filter, setFilter] = useState("");
   const [compose, setCompose] = useState(false),
     [register, setRegister] = useState(false);
+  const [pipelineSettings, setPipelineSettings] = useState(false);
   const [error, setError] = useState<unknown>(null),
     [pending, setPending] = useState(false);
   const [target, setTarget] = useState<Schema["RegisterUpdateLake"]>({
@@ -294,6 +297,9 @@ export default function LakeWorkspace({
               </select>
             )}
             <span className="grow" />
+            <Button onClick={() => setPipelineSettings(true)}>
+              下载与调度
+            </Button>
             <Button onClick={openSettings}>API 设置</Button>
             <Button disabled={!configured} onClick={() => setRegister(true)}>
               登记数据湖
@@ -384,8 +390,9 @@ export default function LakeWorkspace({
                       <th>任务 / 范围</th>
                       <th>数据湖</th>
                       <th>状态</th>
-                      <th>已处理</th>
+                      <th>已完成</th>
                       <th>待处理</th>
+                      <th>异常 / 未获取</th>
                       <th>创建时间</th>
                     </tr>
                   </thead>
@@ -415,6 +422,7 @@ export default function LakeWorkspace({
                         </td>
                         <td>{processedCount(j).toLocaleString()}</td>
                         <td>{pendingCount(j).toLocaleString()}</td>
+                        <td>{problemCount(j).toLocaleString()}</td>
                         <td>{dateLabel(j.created_at)}</td>
                       </tr>
                     ))}
@@ -505,6 +513,16 @@ export default function LakeWorkspace({
           )}
         </div>
       </Workbench>
+      {pipelineSettings && (
+        <WorkbenchDialog
+          title="下载与调度"
+          onClose={() => setPipelineSettings(false)}
+        >
+          <div className="lake-composer">
+            <PipelineSettings client={client} />
+          </div>
+        </WorkbenchDialog>
+      )}
       {compose && (
         <UpdateComposer
           client={client}

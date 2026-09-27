@@ -67,6 +67,17 @@ export class LakeUpdateClient {
       { signal: signal ?? null },
     );
   }
+  pipeline(signal?: AbortSignal) {
+    return this.request<Schema["LakePipelineSettings"]>(`${base}/pipeline`, {
+      signal: signal ?? null,
+    });
+  }
+  savePipeline(value: Schema["SaveLakePipelineSettings"]) {
+    return this.request<Schema["LakePipelineSettings"]>(`${base}/pipeline`, {
+      method: "PUT",
+      body: JSON.stringify(value),
+    });
+  }
   lakes(signal?: AbortSignal) {
     return this.request<Schema["UpdateLakes"]>(`${base}/lakes`, {
       signal: signal ?? null,

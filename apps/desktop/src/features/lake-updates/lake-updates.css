@@ -143,6 +143,21 @@
   gap: 12px;
   align-items: center;
 }
+.lake-parameter > label {
+  display: grid;
+  grid-template-columns: minmax(110px, 0.8fr) minmax(100px, 1.5fr);
+  gap: 12px;
+  align-items: center;
+}
+.lake-parameter .lake-hint {
+  margin: 5px 0 0;
+}
+.lake-pipeline-settings > .lake-actions {
+  position: sticky;
+  bottom: 0;
+  padding: 12px 0;
+  background: var(--panel);
+}
 .lake-fields input,
 .lake-fields select,
 .lake-fields textarea {

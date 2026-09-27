@@ -38,6 +38,31 @@ try {
     checks.push(
       "embedded Studio worker runs when legacy Store checkout path does not exist",
     );
+    const tuning = await client.lakeUpdates.pipeline();
+    assert.equal(tuning.revision, 0);
+    assert.equal(tuning.value.sites.yandere.download_concurrency, 4);
+    const changed = globalThis.structuredClone(tuning.value);
+    changed.sites.yandere.download_concurrency = 3;
+    changed.sites.yandere.image_requests_per_second = 2.75;
+    const savedTuning = await client.lakeUpdates.savePipeline({
+      expected_revision: tuning.revision,
+      value: changed,
+    });
+    assert.equal(savedTuning.revision, 1);
+    await assert.rejects(
+      client.lakeUpdates.savePipeline({ expected_revision: 0, value: changed }),
+      (e) => e.code === "REVISION_CONFLICT",
+    );
+    await assert.rejects(
+      client.lakeUpdates.savePipeline({
+        expected_revision: 1,
+        value: { ...changed, encode_concurrency: 0 },
+      }),
+      (e) => e.code === "INVALID_INPUT",
+    );
+    checks.push(
+      "revisioned pipeline settings round-trip through public API and SDK; invalid limits and stale saves rejected",
+    );
     for (const target of targets) await client.lakeUpdates.register(target);
     assert.equal((await client.lakeUpdates.lakes()).items.length, 3);
     const secret = "integration-only-not-a-real-api-key";
@@ -121,6 +146,11 @@ try {
     await engine.stop();
     await engine.start();
     client = new StudioClient(engine.connection);
+    assert.equal(
+      (await client.lakeUpdates.pipeline()).value.sites.yandere
+        .image_requests_per_second,
+      2.75,
+    );
     assert.equal(
       (await client.lakeUpdates.job(tasks[0].id)).state,
       "completed",

@@ -18,6 +18,13 @@ import {
 import type { UpdateJob } from "./model.js";
 import { lakeKey, useLakeRefresh } from "./queries.js";
 import { ImagePolicySummary } from "./ImagePolicySummary.js";
+const timingLabels: Record<string, string> = {
+  connect: "图片连接",
+  download: "下载与暂存",
+  encode: "校验与编码",
+  publish: "图片发布",
+  metadata: "元数据获取与归档",
+};
 export function JobDetails({
   client,
   job,
@@ -93,12 +100,24 @@ export function JobDetails({
           <dd>{t.current_post_id ?? "—"}</dd>
           <dt>累计下载</dt>
           <dd>{bytesLabel(t.downloaded_bytes)}</dd>
-          <dt>采样速率</dt>
+          <dt>整体下载速度</dt>
           <dd>
             {fresh && active(job)
               ? bytesLabel(t.download_rate_bps) + "/s"
               : "—"}
           </dd>
+          {t.publish_rate_images_per_second != null && (
+            <>
+              <dt>入湖速度</dt>
+              <dd>
+                {fresh && active(job)
+                  ? `${t.publish_rate_images_per_second.toFixed(2)} 图/秒`
+                  : "—"}
+              </dd>
+              <dt>统计窗口</dt>
+              <dd>近 {Math.round(t.rate_window_seconds ?? 0)} 秒</dd>
+            </>
+          )}
           <dt>遥测时间</dt>
           <dd>
             {dateLabel(t.sampled_at)}
@@ -111,6 +130,67 @@ export function JobDetails({
             </div>
           ))}
         </dl>
+        {t.active_downloads != null && (
+          <section aria-label="图片处理流水线" className="lake-summary">
+            <dl className="wb-property-list">
+              <dt>等待下载</dt>
+              <dd>{t.waiting_download ?? 0}</dd>
+              <dt>下载中</dt>
+              <dd>{t.active_downloads}</dd>
+              <dt>等待编码</dt>
+              <dd>{t.waiting_encode ?? 0}</dd>
+              <dt>编码中</dt>
+              <dd>{t.active_encodes ?? 0}</dd>
+              <dt>等待发布</dt>
+              <dd>{t.ready_images ?? 0}</dd>
+              <dt>API 请求累计</dt>
+              <dd>{t.api_requests ?? 0}</dd>
+              <dt>图片请求累计</dt>
+              <dd>{t.image_requests ?? 0}</dd>
+              <dt>远端限流响应</dt>
+              <dd>{t.throttled_requests ?? 0}</dd>
+            </dl>
+            <p className="lake-hint">
+              下载中包含连接与限流等待；入湖速度按成功发布的图片记录统计，复用和异常单独计数。
+              旧任务升级前缺失的请求计数与阶段耗时不回填。
+            </p>
+            {(t.files ?? []).length > 0 && (
+              <details open>
+                <summary>在途图片</summary>
+                <div className="lake-item-list">
+                  {t.files!.map((f) => (
+                    <div key={f.post_id}>
+                      <span>#{f.post_id}</span>
+                      <span>{phases[f.phase] ?? f.phase}</span>
+                      {f.phase === "downloading" && (
+                        <small>
+                          {bytesLabel(f.current_bytes)} /{" "}
+                          {bytesLabel(f.current_total_bytes)}
+                        </small>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
+            {Object.keys(t.timings_seconds ?? {}).length > 0 && (
+              <details>
+                <summary>阶段耗时累计</summary>
+                <dl className="wb-property-list">
+                  {Object.entries(t.timings_seconds!).map(([k, seconds]) => (
+                    <div className="lake-property-pair" key={k}>
+                      <dt>{timingLabels[k] ?? k}</dt>
+                      <dd>{seconds.toFixed(1)} 秒</dd>
+                    </div>
+                  ))}
+                </dl>
+                <p className="lake-hint">
+                  各工作项耗时之和；并行执行时可超过任务实际经过时间。
+                </p>
+              </details>
+            )}
+          </section>
+        )}
         {ratio != null && (
           <label className="lake-file-progress">
             当前文件 {ratio.toFixed(0)}%<progress max={100} value={ratio} />

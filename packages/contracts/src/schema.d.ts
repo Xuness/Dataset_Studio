@@ -367,6 +367,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/lake-updates/pipeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["lake_updates_pipeline"];
+        put: operations["lake_updates_save_pipeline"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/lake-updates/preparations": {
         parameters: {
             query?: never;
@@ -3898,6 +3914,63 @@ export interface components {
         };
         /** @enum {string} */
         LakeImageProfile: "metadata_only" | "original" | "webp-2048-q95" | "custom";
+        LakeImageTransfer: {
+            /** Format: int64 */
+            current_bytes?: number | null;
+            /** Format: int64 */
+            current_total_bytes?: number | null;
+            phase: string;
+            /** Format: int64 */
+            post_id: number;
+        };
+        LakePipelineConfig: {
+            /** Format: int32 */
+            active_lakes: number;
+            /** Format: int32 */
+            buffer_images: number;
+            /** Format: int64 */
+            decode_memory_mib: number;
+            /** Format: double */
+            download_mib_per_second?: number | null;
+            /** Format: int32 */
+            encode_concurrency: number;
+            /** Format: int64 */
+            max_download_mib: number;
+            /** Format: int64 */
+            max_image_pixels: number;
+            /** Format: int32 */
+            metadata_prefetch_records: number;
+            /** Format: double */
+            publish_interval_seconds: number;
+            /** Format: int32 */
+            publish_items: number;
+            /** Format: int64 */
+            publish_mib: number;
+            /** Format: int64 */
+            reserve_mib: number;
+            scan_mode: string;
+            sites: {
+                [key: string]: components["schemas"]["LakeSitePipeline"];
+            };
+            /** Format: int64 */
+            spool_mib: number;
+            /** Format: int32 */
+            version: number;
+        };
+        LakePipelineSettings: {
+            defaults: components["schemas"]["LakePipelineConfig"];
+            /** Format: int64 */
+            revision: number;
+            value: components["schemas"]["LakePipelineConfig"];
+        };
+        LakeSitePipeline: {
+            /** Format: double */
+            api_requests_per_second: number;
+            /** Format: int32 */
+            download_concurrency: number;
+            /** Format: double */
+            image_requests_per_second?: number | null;
+        };
         /** @enum {string} */
         LakeUpdateAction: "pause" | "resume" | "retry" | "replay" | "cancel";
         LakeUpdateActionRequest: {
@@ -4181,6 +4254,21 @@ export interface components {
         LakeUpdateSite: "danbooru" | "yandere" | "gelbooru";
         LakeUpdateTelemetry: {
             /**
+             * Format: int32
+             * @default null
+             */
+            active_downloads: number | null;
+            /**
+             * Format: int32
+             * @default null
+             */
+            active_encodes: number | null;
+            /**
+             * Format: int64
+             * @default null
+             */
+            api_requests: number | null;
+            /**
              * Format: int64
              * @default null
              */
@@ -4205,6 +4293,15 @@ export interface components {
              * @default null
              */
             downloaded_bytes: number | null;
+            /** @default [] */
+            files: components["schemas"]["LakeImageTransfer"][];
+            /**
+             * Format: int64
+             * @default null
+             */
+            image_requests: number | null;
+            /** @default null */
+            metadata_active: boolean | null;
             /**
              * Format: int64
              * @default null
@@ -4212,8 +4309,42 @@ export interface components {
             metadata_bytes: number | null;
             /** @default null */
             phase: string | null;
+            /**
+             * Format: double
+             * @default null
+             */
+            publish_rate_images_per_second: number | null;
+            /**
+             * Format: double
+             * @default null
+             */
+            rate_window_seconds: number | null;
+            /**
+             * Format: int32
+             * @default null
+             */
+            ready_images: number | null;
             /** @default null */
             sampled_at: string | null;
+            /**
+             * Format: int64
+             * @default null
+             */
+            throttled_requests: number | null;
+            /** @default {} */
+            timings_seconds: {
+                [key: string]: number;
+            };
+            /**
+             * Format: int64
+             * @default null
+             */
+            waiting_download: number | null;
+            /**
+             * Format: int32
+             * @default null
+             */
+            waiting_encode: number | null;
         };
         LlmCatalog: {
             fetched_at: string;
@@ -5505,6 +5636,11 @@ export interface components {
             schema_version: number;
             value: unknown;
         };
+        SaveLakePipelineSettings: {
+            /** Format: int64 */
+            expected_revision: number;
+            value: components["schemas"]["LakePipelineConfig"];
+        };
         SaveLakeUpdateSchedule: {
             enabled?: boolean;
             /** Format: int32 */
@@ -6330,6 +6466,48 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UpdateLake"];
+                };
+            };
+        };
+    };
+    lake_updates_pipeline: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LakePipelineSettings"];
+                };
+            };
+        };
+    };
+    lake_updates_save_pipeline: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveLakePipelineSettings"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LakePipelineSettings"];
                 };
             };
         };

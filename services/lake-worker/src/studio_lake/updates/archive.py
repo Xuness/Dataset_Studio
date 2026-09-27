@@ -16,6 +16,7 @@ from ..online_schema import settings
 from ..util import contained, digest, now, stable_id, read_json, failpoint
 from .sites import UpdateError
 from .io import device_lock
+from .settings import read as read_pipeline_settings, MIB
 
 
 def record_update_commit(db, manifest, seq):
@@ -109,7 +110,10 @@ def commit_page(
     if error:
         source["error_code"] = error.code
     with io_lock(state.root, lib), lib.writer_lock(), online(lib) as (db, status):
-        if shutil.disk_usage(lib.root).free < 2 * 1024**3 + len(response.body) * 3:
+        if (
+            shutil.disk_usage(lib.root).free
+            < read_pipeline_settings(state)["value"]["reserve_mib"] * MIB + len(response.body) * 3
+        ):
             raise UpdateError("UPDATE_SPACE", "Waiting for archive disk space")
         batch = Batch(lib, key, source)
         batch.write_bytes("response_body.bin", response.body)
@@ -234,7 +238,8 @@ def commit_media(state, lib, job, results, cursor):
     with io_lock(state.root, lib), lib.writer_lock(), online(lib) as (db, status):
         if (
             shutil.disk_usage(lib.root).free
-            < 2 * 1024**3 + sum(r.get("stored_bytes", 0) for r in results) * 2
+            < read_pipeline_settings(state)["value"]["reserve_mib"] * MIB
+            + sum(r.get("stored_bytes", 0) for r in results) * 2
         ):
             raise UpdateError("UPDATE_SPACE", "Waiting for archive disk space")
         batch = Batch(
@@ -285,7 +290,7 @@ def reconcile(state, lib, identity):
     lib.sync_online()
     with state.db() as control:
         after = control.execute(
-            "SELECT coalesce(max(seq),0) FROM applied_batches WHERE job_id=?", (identity,)
+            "SELECT max(0,coalesce(max(seq),0)-1) FROM applied_batches WHERE job_id=?", (identity,)
         ).fetchone()[0]
     while True:
         with lib.journal() as journal:
@@ -306,6 +311,7 @@ def reconcile(state, lib, identity):
                 if db.execute(
                     "SELECT 1 FROM applied_batches WHERE batch_id=?", (row["batch_id"],)
                 ).fetchone():
+                    cleanup_media_receipts(lib, source)
                     after = row["seq"]
                     continue
                 if source["update_role"] in {"page", "retry"}:
@@ -357,4 +363,18 @@ def reconcile(state, lib, identity):
                 db.execute(
                     "INSERT INTO applied_batches VALUES(?,?,?)", (row["batch_id"], identity, row["seq"])
                 )
+            cleanup_media_receipts(lib, source)
             after = row["seq"]
+
+
+def cleanup_media_receipts(lib, source):
+    if source["update_role"] != "media":
+        return
+    directory = contained(lib.cache / "updates", source["update_job_id"])
+    # Derive paths from verified archive identities, never from an archived absolute path.
+    for result in source["results"]:
+        if result["state"] != "stored":
+            continue
+        key = stable_id(result["observation_id"], source["definition"]["media"])
+        for suffix in (".ready", ".json", ".downloaded", ".download.json", ".tmp"):
+            contained(directory, key + suffix).unlink(missing_ok=True)

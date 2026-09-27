@@ -184,6 +184,45 @@ pub struct LakeUpdateDefinition {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub item_budget: Option<u32>,
 }
+#[derive(Clone, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LakeSitePipeline {
+    pub download_concurrency: u32,
+    pub api_requests_per_second: f64,
+    pub image_requests_per_second: Option<f64>,
+}
+#[derive(Clone, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LakePipelineConfig {
+    pub version: u32,
+    pub scan_mode: String,
+    pub active_lakes: u32,
+    pub sites: BTreeMap<String, LakeSitePipeline>,
+    pub encode_concurrency: u32,
+    pub buffer_images: u32,
+    pub metadata_prefetch_records: u32,
+    pub spool_mib: u64,
+    pub reserve_mib: u64,
+    pub max_download_mib: u64,
+    pub max_image_pixels: u64,
+    pub decode_memory_mib: u64,
+    pub publish_items: u32,
+    pub publish_mib: u64,
+    pub publish_interval_seconds: f64,
+    pub download_mib_per_second: Option<f64>,
+}
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct LakePipelineSettings {
+    pub revision: u64,
+    pub value: LakePipelineConfig,
+    pub defaults: LakePipelineConfig,
+}
+#[derive(Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SaveLakePipelineSettings {
+    pub expected_revision: u64,
+    pub value: LakePipelineConfig,
+}
 #[derive(Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ConfigureLakeUpdates {
@@ -341,6 +380,26 @@ pub struct LakeUpdateTelemetry {
     pub metadata_bytes: Option<u64>,
     pub download_rate_bps: Option<f64>,
     pub sampled_at: Option<String>,
+    pub publish_rate_images_per_second: Option<f64>,
+    pub rate_window_seconds: Option<f64>,
+    pub api_requests: Option<u64>,
+    pub image_requests: Option<u64>,
+    pub throttled_requests: Option<u64>,
+    pub active_downloads: Option<u32>,
+    pub waiting_download: Option<u64>,
+    pub active_encodes: Option<u32>,
+    pub waiting_encode: Option<u32>,
+    pub ready_images: Option<u32>,
+    pub metadata_active: Option<bool>,
+    pub timings_seconds: BTreeMap<String, f64>,
+    pub files: Vec<LakeImageTransfer>,
+}
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct LakeImageTransfer {
+    pub post_id: u64,
+    pub phase: String,
+    pub current_bytes: Option<u64>,
+    pub current_total_bytes: Option<u64>,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct LakeUpdateJobs {
