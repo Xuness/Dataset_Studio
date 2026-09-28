@@ -143,6 +143,10 @@ export function JobDetails({
               <dd>{t.active_encodes ?? 0}</dd>
               <dt>等待发布</dt>
               <dd>{t.ready_images ?? 0}</dd>
+              <dt>发布中</dt>
+              <dd>{t.publishing_images ?? 0}</dd>
+              <dt>等待暂存空间</dt>
+              <dd>{t.waiting_staging ?? 0}</dd>
               <dt>API 请求累计</dt>
               <dd>{t.api_requests ?? 0}</dd>
               <dt>图片请求累计</dt>
@@ -153,7 +157,47 @@ export function JobDetails({
               <dd>{t.resumed_requests ?? 0}</dd>
               <dt>传输中断次数</dt>
               <dd>{t.transport_failures ?? 0}</dd>
+              <dt>扫描重试次数</dt>
+              <dd>{t.metadata_retries ?? 0}</dd>
             </dl>
+            {!!t.metadata_retry_at &&
+              !["cancelled", "completed", "completed_with_exclusions"].includes(
+                job.state,
+              ) && (
+                <p className="lake-hint" role="status">
+                  元数据扫描等待重试：
+                  {t.metadata_error_code === "UPDATE_NETWORK"
+                    ? "API 连接暂时失败"
+                    : "API 服务暂时不可用"}
+                  。
+                  {active(job)
+                    ? `约 ${Math.max(0, Math.ceil(t.metadata_retry_at - Date.now() / 1000))} 秒后重试；已获取的图片继续处理。`
+                    : "继续任务后按检查点重试。"}
+                </p>
+              )}
+            {t.staging_limit_bytes != null && (
+              <details>
+                <summary>共享资源占用</summary>
+                <dl className="wb-property-list">
+                  <dt>SSD 暂存实际占用</dt>
+                  <dd>{bytesLabel(t.staging_bytes)}</dd>
+                  <dt>SSD 暂存预留 / 上限</dt>
+                  <dd>
+                    {bytesLabel(t.staging_reserved_bytes)} /{" "}
+                    {bytesLabel(t.staging_limit_bytes)}
+                  </dd>
+                  <dt>解码内存预留 / 上限</dt>
+                  <dd>
+                    {bytesLabel(t.decode_reserved_bytes)} /{" "}
+                    {bytesLabel(t.decode_limit_bytes)}
+                  </dd>
+                </dl>
+                <p className="lake-hint">
+                  资源额度由所有活动数据湖共享；暂存按原件、编码输出和打包阶段估算，完成后按实际大小收缩。
+                  预留额度与实际磁盘占用分别统计；解码内存为准入估算。
+                </p>
+              </details>
+            )}
             <p className="lake-hint">
               下载中包含连接与限流等待；入湖速度按成功发布的图片记录统计，复用和异常单独计数。
               旧任务升级前缺失的请求计数与阶段耗时不回填。

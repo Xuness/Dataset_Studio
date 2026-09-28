@@ -11,9 +11,9 @@ class Telemetry:
         self.lock = threading.Lock()
         old = job.get("telemetry") or {}
         self.base = {
-            k: old.get(k, 0)
+            k: old.get(k) or 0
             for k in ("downloaded_bytes", "image_requests", "api_requests", "throttled_requests",
-                      "resumed_requests", "transport_failures")
+                      "resumed_requests", "transport_failures", "metadata_retries")
         }
         self.last_transfer_error = old.get("last_transfer_error")
         self.totals = {k: 0 for k in self.base}
@@ -40,13 +40,18 @@ class Telemetry:
     def callback(self, post_id):
         return lambda **values: self.add(post_id, **values)
 
+    def forget(self, post_id):
+        with self.lock:
+            self.files.pop(post_id, None)
+
     def published_results(self, results):
         with self.lock:
             self.published += sum(r["state"] == "stored" for r in results)
             for result in results:
                 self.files.pop(result["post_id"], None)
 
-    def flush(self, *, scanning=False, stopping=None, force=False):
+    def flush(self, *, scanning=False, stopping=None, force=False, metadata_retry_at=0,
+              metadata_error_code=None, metadata_error_message=None, resources=None, waiting_staging=0):
         stamp = time.monotonic()
         if not force and stamp - self.last_flush < 0.5:
             return
@@ -76,11 +81,13 @@ class Telemetry:
             encodes = sum(f["phase"] == "processing_image" for f in files)
             waiting = sum(f["phase"] == "waiting_encode" for f in files)
             ready = sum(f["phase"] == "ready" for f in files)
+            publishing = sum(f["phase"] == "publishing_media" for f in files)
             current = next((f for f in files if f["phase"] == "downloading"), files[0] if files else {})
             value = {
                 **{k: self.base.get(k, 0) + v for k, v in self.totals.items()},
                 "phase": stopping
-                or ("pipeline" if files else "metadata" if scanning else "waiting_resources"),
+                or ("pipeline" if files else "metadata" if scanning else
+                    "metadata_retry" if metadata_retry_at else "waiting_resources"),
                 "current_post_id": current.get("post_id"),
                 "current_bytes": current.get("current_bytes")
                 if current.get("phase") == "downloading"
@@ -98,7 +105,13 @@ class Telemetry:
                 "active_encodes": encodes,
                 "waiting_encode": waiting,
                 "ready_images": ready,
+                "publishing_images": publishing,
                 "metadata_active": scanning and not stopping,
+                "metadata_retry_at": metadata_retry_at or None,
+                "metadata_error_code": metadata_error_code,
+                "metadata_error_message": metadata_error_message,
+                "waiting_staging": 0 if stopping else waiting_staging,
+                **(resources or {}),
                 "files": files[:48],
                 "timings_seconds": dict(self.times),
                 "last_transfer_error": self.last_transfer_error,

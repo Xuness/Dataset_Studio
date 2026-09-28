@@ -18,6 +18,7 @@ from .sites import UpdateError
 from .resources import Resources as Resources
 from .resources import Reservation
 from .transfer import fetch
+from .staging import estimate as staging_plan, OVERHEAD
 
 
 # The service applies its explicit configurable pixel and memory guards before load().
@@ -60,22 +61,7 @@ def paths(lib, job, item):
 
 
 def staging_bytes(job, item, resources):
-    policy = job["definition"]["media"]
-    extra = 0
-    if policy["profile"] in {"custom", "webp-2048-q95"}:
-        record = json.loads(item["record_json"])
-        w, h = (
-            record.get("image_width", record.get("width")),
-            record.get("image_height", record.get("height")),
-        )
-        pixels = (
-            w * h
-            if isinstance(w, int) and isinstance(h, int) and w > 0 and h > 0
-            else resources.config["max_image_pixels"]
-        )
-        edge = (policy.get("encoding") or {}).get("max_edge") if policy["profile"] == "custom" else 2048
-        extra = 8 * min(pixels, resources.config["max_image_pixels"], edge * edge if edge else pixels)
-    return resources.max_download_bytes * 4 + extra
+    return staging_plan(job["definition"]["media"], json.loads(item["record_json"]), resources).peak()
 
 
 def reserve(lib, job, item, resources, site, allow_external=False):
@@ -85,12 +71,16 @@ def reserve(lib, job, item, resources, site, allow_external=False):
     if "state" in inspection:
         return Reservation(resources, (directory, key))
     ready = cached(directory / (key + ".ready"), directory / (key + ".json"))
-    return resources.try_reserve(
-        directory,
-        key,
-        staging_bytes(job, item, resources),
-        prepared=bool(ready and ready.get("state") == "stored"),
-    )
+    plan = staging_plan(job["definition"]["media"], json.loads(item["record_json"]), resources)
+    if ready and ready.get("state") == "stored":
+        needed = sum(p.stat().st_size for p in directory.glob(key + ".*") if p.is_file())
+        needed += (directory / (key + ".ready")).stat().st_size + OVERHEAD
+    else:
+        needed = plan.peak()
+    lease = resources.try_reserve(directory, key, needed)
+    if lease is not None:
+        resources.plan(directory, key, plan)
+    return lease
 
 
 def cached(path, receipt):
@@ -196,6 +186,7 @@ def download(lib, job, item, site, resources, cancelled, sessions, progress=None
     raw, raw_receipt = directory / (key + ".downloaded"), directory / (key + ".download.json")
     saved = cached(raw, raw_receipt)
     if saved:
+        resources.download_size(directory, key, raw.stat().st_size)
         return {**saved, "download_path": str(raw)}
     error = {"state": "failed", "reason": "download_failed", "retry_at": time.time() + 60}
     for kind, url in urls:
@@ -226,6 +217,13 @@ def encode_download(lib, job, item, downloaded, resources, cancelled, progress=N
             pixels = header.width * header.height
             if pixels > resources.config["max_image_pixels"]:
                 raise UpdateError("UPDATE_RESOURCE_LIMIT", "Image exceeds configured pixel budget")
+            policy = job["definition"]["media"]
+            if getattr(header, "n_frames", 1) > 1 and (policy.get("encoding") or {}).get("animation", "preserve") == "preserve":
+                policy = {"profile": "original"}
+            plan = staging_plan(policy, {"width": header.width, "height": header.height}, resources,
+                                source_bytes=raw.stat().st_size, may_preserve_original=False)
+            info_bytes = sum(len(v) for v in header.info.values() if isinstance(v, (bytes, str)))
+        resources.stage_size(directory, key, plan.peak() + info_bytes * 4)
         # Source, conversion, alpha and output buffers; admission happens before reading full bytes.
         estimate = pixels * 16 + raw.stat().st_size * 3
         with resources.encoding(estimate, cancelled):
@@ -250,13 +248,12 @@ def encode_download(lib, job, item, downloaded, resources, cancelled, progress=N
                 },
             }
             # Admission estimates may use source dimensions; check actual output before writing it.
-            resources.check_staged_size(
+            resources.stage_size(
                 directory,
                 key,
-                raw.stat().st_size
-                + len(stored)
+                max(raw.stat().st_size + len(stored), 2 * len(stored))
                 + 2 * len(json.dumps(saved, ensure_ascii=False, indent=2).encode("utf-8"))
-                + 4096,
+                + OVERHEAD,
             )
             temporary = ready.with_suffix(".tmp")
             with temporary.open("wb") as output:
@@ -267,6 +264,8 @@ def encode_download(lib, job, item, downloaded, resources, cancelled, progress=N
             atomic_json(directory / (key + ".json"), saved)
         raw.unlink(missing_ok=True)
         (directory / (key + ".download.json")).unlink(missing_ok=True)
+        resources.stage_size(directory, key, 2 * len(stored)
+                             + (directory / (key + ".json")).stat().st_size + OVERHEAD)
         progress(phase="ready")
         return {**saved, "ready_path": str(ready)}
     except ImagePolicyError:

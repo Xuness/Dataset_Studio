@@ -475,7 +475,7 @@ def test_publishing_frees_spool_before_rechecking_disk_pressure(tmp_path, monkey
     remote = FakeSite("danbooru", [post("danbooru", pid, data) for pid in range(11, 15)])
     images = Images(data)
     # Only one image can hold a staging lease; releasing it must unblock the next.
-    resources = Resources(max_download_bytes=16 * 1024, spool_bytes=64 * 1024, reserve_bytes=0)
+    resources = Resources(max_download_bytes=16 * 1024, spool_bytes=100 * 1024, reserve_bytes=0)
     runner = Runner(state, {"danbooru": remote}, resources=resources, image_http=images)
     task = job(state, lib, {"kind": "id_range", "start": 11, "end": 15}, "original")
     published = []

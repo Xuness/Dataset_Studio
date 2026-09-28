@@ -20,6 +20,7 @@ class Reservation:
         with self.owner.condition:
             if not self.released:
                 self.owner.reservations.pop(self.key, None)
+                self.owner.plans.pop(self.key, None)
                 self.released = True
             self.owner.condition.notify_all()
 
@@ -34,6 +35,7 @@ class Resources:
         }
         self.condition = threading.Condition()
         self.reservations = {}
+        self.plans = {}
         self.roots = set()
         self.devices = {}
         self.encode_jobs = self.decode_bytes = 0
@@ -87,34 +89,83 @@ class Resources:
             if identity in self.reservations:
                 return None
             self.roots.add(directory.parent)
-            device = self.devices.setdefault(directory.parent, directory.parent.stat().st_dev)
-            used = 0
-            for root in self.roots:
-                for path in root.glob("*/*"):
-                    if path.suffix not in {".ready", ".downloaded", ".partial", ".tmp", ".json"}:
-                        continue
-                    stem = path.name.split(".")[0]
-                    if (path.parent, stem) in self.reservations or (path.parent, stem) == identity:
-                        continue
-                    try:
-                        used += path.stat().st_size
-                    except FileNotFoundError:
-                        pass
-            existing = sum(p.stat().st_size for p in directory.glob(key + ".*") if p.is_file())
-            need = existing + (0 if prepared else required_bytes or self.max_download_bytes * 4)
-            if need > self.spool_bytes:
-                raise UpdateError(
-                    "UPDATE_RESOURCE_LIMIT", "One image's staging allocation exceeds the SSD spool budget"
-                )
-            if used + sum(self.reservations.values()) + need > self.spool_bytes:
+            self.devices.setdefault(directory.parent, directory.parent.stat().st_dev)
+            need = required_bytes if required_bytes is not None else (0 if prepared else self.max_download_bytes * 4)
+            if not self._resize(identity, need, prepared=prepared):
                 return None
-            reserved_here = sum(
-                v for (folder, _), v in self.reservations.items() if self.devices[folder.parent] == device
-            )
-            if not prepared and shutil.disk_usage(directory).free < self.reserve_bytes + need + reserved_here:
-                return None
-            self.reservations[identity] = need
             return Reservation(self, identity)
+
+    def _actual(self):
+        sizes = {}
+        for root in self.roots:
+            for path in root.glob("*/*"):
+                if path.suffix not in {".ready", ".downloaded", ".partial", ".tmp", ".json"}:
+                    continue
+                identity = (path.parent, path.name.split(".")[0])
+                try:
+                    sizes[identity] = sizes.get(identity, 0) + path.stat().st_size
+                except FileNotFoundError:
+                    pass
+        return sizes
+
+    def _resize(self, identity, need, *, prepared=False):
+        actual = self._actual()
+        existing = actual.get(identity, 0)
+        need = max(need, existing)
+        if identity in self.reservations and need <= self.reservations[identity]:
+            self.reservations[identity] = need
+            self.condition.notify_all()
+            return True
+        if need > self.spool_bytes:
+            raise UpdateError("UPDATE_RESOURCE_LIMIT", "One image's staging allocation exceeds the SSD spool budget")
+        used = sum(max(size, self.reservations.get(key, 0)) for key, size in actual.items() if key != identity)
+        used += sum(size for key, size in self.reservations.items() if key not in actual and key != identity)
+        if used + need > self.spool_bytes:
+            return False
+        directory = identity[0]
+        device = self.devices[directory.parent]
+        promised = sum(max(0, size - actual.get(key, 0)) for key, size in self.reservations.items()
+                       if key != identity and self.devices[key[0].parent] == device)
+        # Existing bytes have already reduced disk_usage.free: reserve only future writes.
+        growth = max(0, need - existing)
+        if growth and shutil.disk_usage(directory).free < self.reserve_bytes + growth + promised:
+            return False
+        self.reservations[identity] = need
+        self.condition.notify_all()
+        return True
+
+    def plan(self, directory, key, plan):
+        with self.condition:
+            self.plans[(directory, key)] = plan
+
+    def download_size(self, directory, key, size):
+        with self.condition:
+            identity = (directory, key)
+            plan = self.plans.get(identity)
+            if plan is None:  # Standalone HTTP-range tests do not own a media lease.
+                return
+            if not self._resize(identity, plan.peak(size)):
+                raise UpdateError("UPDATE_SPACE", "Waiting for download staging space; checkpoint retained")
+
+    def stage_size(self, directory, key, needed):
+        with self.condition:
+            identity = (directory, key)
+            if identity not in self.reservations:
+                return
+            if not self._resize(identity, needed):
+                raise UpdateError("UPDATE_SPACE", "Waiting for encoding staging space; original retained")
+
+    def snapshot(self):
+        with self.condition:
+            actual = self._actual()
+            return {
+                "staging_bytes": sum(actual.values()),
+                "staging_reserved_bytes": sum(max(n, actual.get(key, 0)) for key, n in self.reservations.items())
+                + sum(n for key, n in actual.items() if key not in self.reservations),
+                "staging_limit_bytes": self.spool_bytes,
+                "decode_reserved_bytes": self.decode_bytes,
+                "decode_limit_bytes": self.config["decode_memory_mib"] * MIB,
+            }
 
     def check_staged_size(self, directory, key, needed):
         with self.condition:

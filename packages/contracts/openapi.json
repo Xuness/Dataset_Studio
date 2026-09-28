@@ -13595,6 +13595,24 @@
             "default": null,
             "minimum": 0
           },
+          "decode_limit_bytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "default": null,
+            "minimum": 0
+          },
+          "decode_reserved_bytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "default": null,
+            "minimum": 0
+          },
           "download_rate_bps": {
             "type": [
               "number",
@@ -13669,6 +13687,37 @@
             "default": null,
             "minimum": 0
           },
+          "metadata_error_code": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          },
+          "metadata_error_message": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          },
+          "metadata_retries": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "default": null,
+            "minimum": 0
+          },
+          "metadata_retry_at": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double",
+            "default": null
+          },
           "phase": {
             "type": [
               "string",
@@ -13683,6 +13732,15 @@
             ],
             "format": "double",
             "default": null
+          },
+          "publishing_images": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "default": null,
+            "minimum": 0
           },
           "rate_window_seconds": {
             "type": [
@@ -13726,6 +13784,33 @@
             ],
             "default": null
           },
+          "staging_bytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "default": null,
+            "minimum": 0
+          },
+          "staging_limit_bytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "default": null,
+            "minimum": 0
+          },
+          "staging_reserved_bytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "default": null,
+            "minimum": 0
+          },
           "throttled_requests": {
             "type": [
               "integer",
@@ -13765,6 +13850,15 @@
             "minimum": 0
           },
           "waiting_encode": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "default": null,
+            "minimum": 0
+          },
+          "waiting_staging": {
             "type": [
               "integer",
               "null"

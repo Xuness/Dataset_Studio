@@ -9,6 +9,10 @@ from .sites import UpdateError
 from .telemetry import Telemetry
 from .settings import MIB
 from .resources import Reservation
+from .publication import Publications
+from .candidates import eligible
+
+API_RETRY_SECONDS = 60
 
 
 class Pipeline:
@@ -16,7 +20,9 @@ class Pipeline:
         self.runner, self.lib, self.job, self.site = runner, lib, job, site
         self.state, self.resources = runner.state, runner.resources
         self.base_check, self.base_cancelled = check, cancelled
-        self.aborting, self.publication = threading.Event(), threading.Lock()
+        self.aborting = threading.Event()
+        self.publisher = Publications()
+        self.publication = self.publisher.lock
         self.stats = Telemetry(self.state, self.state.job(job["id"]))
         self.sessions = ImageSessions(site.name, runner.image_http)
         self.downloads, self.encodes, self.waiting, self.ready, self.leases = {}, {}, [], [], {}
@@ -24,6 +30,11 @@ class Pipeline:
         self.scan = None
         self.first_ready = None
         self.coverage_written = False
+        self.deferred = {}
+        previous = self.state.job(job["id"]).get("telemetry") or {}
+        self.metadata_retry_at = previous.get("metadata_retry_at") or 0
+        self.metadata_error_code = previous.get("metadata_error_code")
+        self.metadata_error_message = previous.get("metadata_error_message")
 
     def cancelled(self):
         return self.aborting.is_set() or self.base_cancelled()
@@ -35,15 +46,16 @@ class Pipeline:
 
     def scan_page(self, retry=None):
         self.site.observer = self.stats.add
+        started = time.perf_counter()
         try:
             return self.scan_page_inner(retry)
         finally:
+            self.stats.add(metadata_seconds_delta=time.perf_counter() - started)
             self.site.observer = None
 
     def scan_page_inner(self, retry=None):
         # HTTP never holds the checkpoint coordinator; only commit + reconciliation is serialized.
         self.check()
-        started = time.perf_counter()
         current = self.state.job(self.job["id"])
         if retry:
             self.runner.retry_metadata(
@@ -60,7 +72,6 @@ class Pipeline:
                 raise UpdateError(
                     "UPDATE_NO_PROGRESS", "Archived page did not advance the execution checkpoint"
                 )
-        self.stats.add(metadata_seconds_delta=time.perf_counter() - started)
 
     def result(self, item, value):
         value.update(
@@ -83,6 +94,13 @@ class Pipeline:
             try:
                 result = future.result()
             except UpdateError as error:
+                if error.code == "UPDATE_SPACE" and not stopping:
+                    # Header corrections or output growth can temporarily exceed
+                    # admission. Keep durable bytes without consuming an attempt.
+                    self.leases.pop(item["post_id"]).release()
+                    self.deferred[item["post_id"]] = time.monotonic() + 1
+                    self.stats.forget(item["post_id"])
+                    continue
                 if error.code in {"CANCELLED", "UPDATE_SPACE"}:
                     if not stopping:
                         raise
@@ -110,8 +128,29 @@ class Pipeline:
         finally:
             slot.release()
 
+    def collect_publication(self, *, wait=False):
+        completed = self.publisher.collect(wait=wait)
+        if completed is None:
+            return
+        kind, results = completed
+        if kind == "coverage":
+            self.coverage_written = True
+        else:
+            self.stats.published_results(results)
+            for result in results:
+                self.leases.pop(result["post_id"]).release()
+        self.deferred.clear()
+
+    def publish_results(self, results):
+        started = time.perf_counter()
+        try:
+            current = self.state.job(self.job["id"])
+            self.runner.publish_images(self.lib, current, results)
+        finally:
+            self.stats.add(publish_seconds_delta=time.perf_counter() - started)
+
     def publish(self, force=False):
-        if not self.ready:
+        if not self.ready or self.publisher.future is not None:
             return False
         config = self.resources.config
         due = (
@@ -121,32 +160,43 @@ class Pipeline:
             or time.monotonic() - self.first_ready >= config["publish_interval_seconds"]
             or len(self.leases) >= config["buffer_images"]
         )
-        if not due or not self.publication.acquire(blocking=False):
+        if not due:
             return False
-        try:
-            started = time.perf_counter()
-            results = self.ready
-            current = self.state.job(self.job["id"])
-            self.runner.publish_images(self.lib, current, results)
-            self.stats.add(publish_seconds_delta=time.perf_counter() - started)
-            self.stats.published_results(results)
-            self.ready, self.first_ready = [], None
-            for result in results:
-                self.leases.pop(result["post_id"]).release()
-            return True
-        finally:
-            self.publication.release()
+        count = len(self.ready) if force else min(len(self.ready), config["publish_items"])
+        results, self.ready = self.ready[:count], self.ready[count:]
+        if not self.ready:
+            self.first_ready = None
+        for result in results:
+            self.stats.add(result["post_id"], phase="publishing_media")
+        return self.publisher.submit("media", self.publish_results, results, results=results)
 
     def eligible(self, limit):
-        with self.state.db() as db:
-            return [
-                dict(r)
-                for r in db.execute(
-                    "SELECT * FROM items WHERE job_id=? AND state IN ('pending','failed','pending_metadata') "
-                    "AND retry_at<=? AND attempts<8 ORDER BY post_id LIMIT ?",
-                    (self.job["id"], time.time(), limit),
-                )
-            ]
+        return eligible(self.state, self.job["id"], limit)
+
+    def collect_scan(self):
+        if self.scan is None or not self.scan.done():
+            return
+        completed, self.scan = self.scan, None
+        try:
+            completed.result()
+        except UpdateError as error:
+            if error.code not in {"UPDATE_NETWORK", "UPDATE_REMOTE_ERROR"}:
+                raise
+            self.metadata_retry_at = time.time() + max(API_RETRY_SECONDS, error.retry_after)
+            self.metadata_error_code, self.metadata_error_message = error.code, str(error)
+            self.stats.add(metadata_retries_delta=1)
+        else:
+            self.metadata_retry_at = 0
+            self.metadata_error_code = self.metadata_error_message = None
+        self.flush(force=True)
+
+    def flush(self, **kwargs):
+        if not kwargs.get("force") and time.monotonic() - self.stats.last_flush < 0.5:
+            return
+        self.stats.flush(scanning=self.scan is not None, metadata_retry_at=self.metadata_retry_at,
+                         metadata_error_code=self.metadata_error_code,
+                         metadata_error_message=self.metadata_error_message,
+                         resources=self.resources.snapshot(), waiting_staging=len(self.deferred), **kwargs)
 
     def run(self):
         scanner = ThreadPoolExecutor(max_workers=1, thread_name_prefix="lake-metadata")
@@ -159,19 +209,16 @@ class Pipeline:
                 self.check()
                 self.runner.refresh_settings()
                 config = self.resources.config
-                if self.scan is not None and self.scan.done():
-                    self.scan.result()
-                    self.scan = None
+                self.collect_scan()
+                self.collect_publication()
                 self.collect(self.downloads, downloading=True)
                 self.collect(self.encodes, downloading=False)
                 self.publish()
                 current = self.state.job(self.job["id"])
                 cursor, spec = current["cursor"], current["definition"]
                 complete = bool(cursor.get("metadata_complete"))
-                if complete and not self.coverage_written and self.scan is None:
-                    with self.publication:
-                        self.runner.metadata_coverage(self.lib, current)
-                    self.coverage_written = True
+                if complete and not self.coverage_written and self.scan is None and self.publisher.future is None:
+                    self.publisher.submit("coverage", self.runner.metadata_coverage, self.lib, current)
                 if (
                     not complete
                     and self.scan is None
@@ -215,7 +262,7 @@ class Pipeline:
                     config["scan_mode"] == "metadata_first"
                     or current["counts"].get("pending", 0) < config["metadata_prefetch_records"]
                 )
-                if self.scan is None and (retry or can_scan):
+                if self.scan is None and time.time() >= self.metadata_retry_at and (retry or can_scan):
                     self.scan = scanner.submit(self.scan_page, retry)
 
                 space_blocked = False
@@ -225,6 +272,9 @@ class Pipeline:
                         if len(self.downloads) >= width or len(self.leases) >= config["buffer_images"]:
                             break
                         if item["state"] == "pending_metadata" or item["post_id"] in self.leases:
+                            continue
+                        if self.deferred.get(item["post_id"], 0) > time.monotonic():
+                            space_blocked = True
                             continue
                         slot = self.resources.try_download(self.site.name)
                         if slot is None:
@@ -252,7 +302,9 @@ class Pipeline:
                         if lease is None:
                             slot.release()
                             space_blocked = True
-                            break
+                            self.deferred[item["post_id"]] = time.monotonic() + 1
+                            continue
+                        self.deferred.pop(item["post_id"], None)
                         self.leases[item["post_id"]] = lease
                         self.download_slots[item["post_id"]] = slot
                         self.stats.add(item["post_id"], phase="queued", queue_state=item["state"])
@@ -264,14 +316,14 @@ class Pipeline:
                     # Publication releases staging leases. Recheck admission next turn
                     # before treating the previous allocation failure as disk pressure.
                     space_blocked = False
-                self.stats.flush(scanning=self.scan is not None)
-                if idle and not self.ready and self.scan is None:
+                self.flush()
+                if idle and not self.ready and self.scan is None and self.publisher.future is None:
                     if space_blocked:
                         if not self.resources.reservations:
                             raise UpdateError(
                                 "UPDATE_SPACE", "Waiting for SSD spool space; staged files remain resumable"
                             )
-                    elif complete and not items:
+                    elif complete and not items and self.coverage_written:
                         break
                 self.aborting.wait(0.03)
         except Exception as error:
@@ -286,13 +338,16 @@ class Pipeline:
                 # Completed stages have durable receipts even if a later stage could not publish.
                 self.collect(self.downloads, downloading=True, stopping=True)
                 self.collect(self.encodes, downloading=False, stopping=True)
+                self.collect_publication(wait=True)
                 if failure is None or isinstance(failure, UpdateError) and failure.code == "CANCELLED":
                     self.publish(force=True)
+                    self.collect_publication(wait=True)
             finally:
+                self.publisher.close()
                 for lease in self.leases.values():
                     lease.release()
                 for slot in self.download_slots.values():
                     slot.release()
                 self.sessions.close()
                 self.site.observer = None
-                self.stats.flush(stopping="paused" if self.base_cancelled() else "idle", force=True)
+                self.flush(stopping="paused" if self.base_cancelled() else "idle", force=True)

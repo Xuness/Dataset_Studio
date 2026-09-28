@@ -34,6 +34,7 @@ export const phases: Record<string, string> = {
   recovering: "恢复检查点",
   waiting_worker: "等待后台服务自动接续",
   metadata: "获取元数据",
+  metadata_retry: "元数据扫描等待重试",
   publishing_metadata: "发布元数据",
   downloading: "下载图片",
   encoding: "处理图片",

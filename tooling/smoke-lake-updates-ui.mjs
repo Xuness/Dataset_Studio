@@ -454,7 +454,7 @@ try {
     python,
     [
       "-c",
-      "import sys; sys.path.insert(0, sys.argv[1]); from studio_lake.updates.state import State; State(sys.argv[2]).progress(sys.argv[3], resumed_requests=2, transport_failures=1, recovery_count=1, last_recovery_at='2026-09-28T00:00:00+08:00', last_transfer_error={'post_id':11,'exception':'ReadTimeout','received_bytes':1048576,'resumable_bytes':1048576,'elapsed_seconds':45.0,'at':'2026-09-28T00:00:00+08:00'})",
+      "import sys; sys.path.insert(0, sys.argv[1]); from studio_lake.updates.state import State; State(sys.argv[2]).progress(sys.argv[3], resumed_requests=2, transport_failures=1, recovery_count=1, last_recovery_at='2026-09-28T00:00:00+08:00', staging_bytes=1048576, staging_reserved_bytes=2097152, staging_limit_bytes=8589934592, decode_reserved_bytes=0, decode_limit_bytes=2147483648, last_transfer_error={'post_id':11,'exception':'ReadTimeout','received_bytes':1048576,'resumable_bytes':1048576,'elapsed_seconds':45.0,'at':'2026-09-28T00:00:00+08:00'})",
       resolve(root, "services/lake-worker/src"),
       resolve(run, "controller"),
       recoveredId,
@@ -480,6 +480,43 @@ try {
   await page.screenshot({ path: resolve(run, "download-recovery.png") });
   checks.push(
     "persisted resume counters and bounded network diagnostics survive UI reload through the public API",
+  );
+  await page
+    .locator(".lake-details summary")
+    .filter({ hasText: "共享资源占用" })
+    .click();
+  await expect(page.locator(".lake-details")).toContainText("SSD 暂存实际占用");
+  await expect(page.locator(".lake-details")).toContainText(
+    "2.0 MiB / 8192.0 MiB",
+  );
+  await promisify(execFile)(
+    python,
+    [
+      "-c",
+      "import sys,time; sys.path.insert(0, sys.argv[1]); from studio_lake.updates.state import State; s=State(sys.argv[2]); s.update(sys.argv[3],state='waiting_retry',retry_at=time.time()+3600); s.progress(sys.argv[3],phase='pipeline',metadata_retries=1,metadata_retry_at=time.time()+60,metadata_error_code='UPDATE_NETWORK',publishing_images=2)",
+      resolve(root, "services/lake-worker/src"),
+      resolve(run, "controller"),
+      recoveredId,
+    ],
+    { windowsHide: true },
+  );
+  await page.reload();
+  await page.locator(".lake-table .lake-row-link").first().click();
+  await expect(page.locator(".lake-details")).toContainText(
+    "元数据扫描等待重试",
+  );
+  await expect(page.locator(".lake-details")).toContainText(
+    "已获取的图片继续处理",
+  );
+  await expect(
+    page
+      .locator(".lake-details dt")
+      .filter({ hasText: /^发布中$/ })
+      .locator("+ dd"),
+  ).toHaveText("2");
+  await page.screenshot({ path: resolve(run, "independent-stages.png") });
+  checks.push(
+    "stage retry, active publication and actual/reserved global budgets round-trip through the public API",
   );
   const waitingMessage =
     "Waiting for SSD spool space; staged files remain resumable";
@@ -517,6 +554,7 @@ try {
   // No reload, reselect or focus change after the backend leaves waiting_space.
   await expect(jobState).toHaveText("已完成", { timeout: 10000 });
   await expect(jobDetails).not.toContainText(waitingMessage);
+  await expect(jobDetails).not.toContainText("元数据扫描等待重试");
   await page.screenshot({ path: resolve(run, "spool-wait-completed.png") });
   checks.push(
     "selected waiting-space task refreshes to backend completion and clears its error without user interaction",

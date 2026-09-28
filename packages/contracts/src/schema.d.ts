@@ -4298,6 +4298,16 @@ export interface components {
              */
             current_total_bytes: number | null;
             /**
+             * Format: int64
+             * @default null
+             */
+            decode_limit_bytes: number | null;
+            /**
+             * Format: int64
+             * @default null
+             */
+            decode_reserved_bytes: number | null;
+            /**
              * Format: double
              * @default null
              */
@@ -4328,12 +4338,31 @@ export interface components {
              */
             metadata_bytes: number | null;
             /** @default null */
+            metadata_error_code: string | null;
+            /** @default null */
+            metadata_error_message: string | null;
+            /**
+             * Format: int64
+             * @default null
+             */
+            metadata_retries: number | null;
+            /**
+             * Format: double
+             * @default null
+             */
+            metadata_retry_at: number | null;
+            /** @default null */
             phase: string | null;
             /**
              * Format: double
              * @default null
              */
             publish_rate_images_per_second: number | null;
+            /**
+             * Format: int32
+             * @default null
+             */
+            publishing_images: number | null;
             /**
              * Format: double
              * @default null
@@ -4360,6 +4389,21 @@ export interface components {
              * Format: int64
              * @default null
              */
+            staging_bytes: number | null;
+            /**
+             * Format: int64
+             * @default null
+             */
+            staging_limit_bytes: number | null;
+            /**
+             * Format: int64
+             * @default null
+             */
+            staging_reserved_bytes: number | null;
+            /**
+             * Format: int64
+             * @default null
+             */
             throttled_requests: number | null;
             /** @default {} */
             timings_seconds: {
@@ -4380,6 +4424,11 @@ export interface components {
              * @default null
              */
             waiting_encode: number | null;
+            /**
+             * Format: int32
+             * @default null
+             */
+            waiting_staging: number | null;
         };
         LlmCatalog: {
             fetched_at: string;

@@ -11,6 +11,7 @@ import requests
 from ..util import atomic_json, digest, now, retry_after_seconds
 from . import rate
 from .sites import UpdateError
+from .staging import DOWNLOAD_CHUNK, INITIAL_DOWNLOAD
 
 CHUNK = 256 * 1024
 CHECKPOINT_BYTES = 4 * 1024**2
@@ -142,6 +143,7 @@ def fetch(directory, key, url, kind, observation, site, resources, cancelled, se
         and (partial.size == partial.total or md5 is not None and partial.md5.hexdigest() == md5)
     ):
         progress(phase="verifying", current_bytes=partial.size, current_total_bytes=partial.total)
+        resources.download_size(directory, key, partial.size)
         return partial.finish()
     started = time.perf_counter()
     try:
@@ -226,6 +228,11 @@ def fetch(directory, key, url, kind, observation, site, resources, cancelled, se
                 partial.etag, partial.encoded = etag or partial.etag, encoded
                 if partial.total is not None and partial.total > partial.limit:
                     raise UpdateError("UPDATE_RESOURCE_LIMIT", "Image exceeds configured byte limit")
+                # Validate headers before consuming bytes. Unknown-length bodies
+                # grow in bounded steps, preserving a checkpoint if admission fails.
+                capacity = partial.total if partial.total is not None else max(
+                    partial.size, min(partial.limit, INITIAL_DOWNLOAD))
+                resources.download_size(directory, key, capacity)
                 received, reported, sampled = 0, 0, time.perf_counter()
                 checkpoint_at, checkpoint_size = sampled, partial.size
                 transfer_started = sampled
@@ -245,6 +252,10 @@ def fetch(directory, key, url, kind, observation, site, resources, cancelled, se
                                     raise requests.exceptions.ChunkedEncodingError(
                                         "Image exceeded declared size"
                                     )
+                                if partial.size + len(chunk) > capacity:
+                                    capacity = min(partial.limit, ((partial.size + len(chunk) + DOWNLOAD_CHUNK - 1)
+                                                                  // DOWNLOAD_CHUNK) * DOWNLOAD_CHUNK)
+                                    resources.download_size(directory, key, capacity)
                                 resources.bandwidth(len(chunk), cancelled)
                                 output.write(chunk)
                                 partial.size += len(chunk)
@@ -278,6 +289,7 @@ def fetch(directory, key, url, kind, observation, site, resources, cancelled, se
                 progress(phase="verifying", current_bytes=partial.size)
                 result = partial.finish()
                 if result["state"] == "downloaded":
+                    resources.download_size(directory, key, partial.size)
                     progress(phase="waiting_encode")
                 return result
         return {"state": "failed", "reason": "image_range_invalid", "retry_at": time.time() + 60}

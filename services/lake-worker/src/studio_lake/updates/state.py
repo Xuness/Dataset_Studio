@@ -258,6 +258,8 @@ class State:
                                     publish_rate_images_per_second=0, current_post_id=None,
                                     current_bytes=None, current_total_bytes=None, files=[],
                                     active_downloads=0, active_encodes=0, waiting_encode=0, metadata_active=False)
+            out["telemetry"].update(publishing_images=0, waiting_staging=0,
+                                    staging_reserved_bytes=None, decode_reserved_bytes=None)
         out["definition"], out["cursor"], out["counts"] = (
             json.loads(out["definition"]),
             json.loads(out["cursor"]),
