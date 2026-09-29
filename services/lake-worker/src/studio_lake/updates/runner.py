@@ -241,7 +241,7 @@ class Runner:
             downloaded_bytes_delta=0,
             metadata_bytes_delta=0,
         )
-        # Recovery only scans small batch manifests; image verification is scoped to new batches.
+        # Recovery reads committed IDs; manifests and image verification are scoped to new batches.
         lib.recover()
         reconcile(self.state, lib, identity)
         job = self.state.job(identity)

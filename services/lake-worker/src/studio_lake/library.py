@@ -219,11 +219,16 @@ class Library:
 
     def recover(self, deep=False):
         with self.writer_lock():
-            committed = {r["batch_id"] for r in self.commits()}
+            # Shallow recovery needs identities, not every historical manifest.
+            # Large lakes can retain hundreds of MiB of metadata in this journal.
+            with self.journal() as db:
+                committed = {r[0] for r in db.execute("SELECT batch_id FROM commits")}
             output = []
             candidates = list((self.root / "segments").iterdir()) + list((self.root / "staging").iterdir())
             for p in sorted(candidates):
-                if not p.is_dir() or p.name in committed:
+                # Skip sealed names before stat: one HDD lookup per historical
+                # directory can exhaust the control request's recovery budget.
+                if p.name in committed or not p.is_dir():
                     continue
                 if not (p / "manifest.json").exists():
                     intent = read_json(p / "intent.json") if (p / "intent.json").exists() else {}
