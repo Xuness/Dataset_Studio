@@ -12632,6 +12632,36 @@
           }
         }
       },
+      "LakeUpdateCleanup": {
+        "type": "object",
+        "required": [
+          "phase",
+          "retry_at"
+        ],
+        "properties": {
+          "error_code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "phase": {
+            "$ref": "#/components/schemas/LakeUpdateCleanupPhase"
+          },
+          "retry_at": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "LakeUpdateCleanupPhase": {
+        "type": "string",
+        "enum": [
+          "pending",
+          "reconciled",
+          "complete"
+        ]
+      },
       "LakeUpdateCount": {
         "type": "object",
         "required": [
@@ -12836,6 +12866,16 @@
           "execution"
         ],
         "properties": {
+          "cleanup": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LakeUpdateCleanup"
+              }
+            ]
+          },
           "counts": {
             "type": "object",
             "additionalProperties": {

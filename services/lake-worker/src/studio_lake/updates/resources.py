@@ -167,6 +167,15 @@ class Resources:
                 "decode_limit_bytes": self.config["decode_memory_mib"] * MIB,
             }
 
+    def retire(self, directory):
+        """Caller holds the terminal job's execution lock; no workers can use these promises."""
+        with self.condition:
+            for key in list(self.reservations):
+                if key[0] == directory:
+                    self.reservations.pop(key, None)
+                    self.plans.pop(key, None)
+            self.condition.notify_all()
+
     def check_staged_size(self, directory, key, needed):
         with self.condition:
             available = self.reservations.get((directory, key), self.max_download_bytes * 4)

@@ -167,7 +167,7 @@ def test_schema3_handoff_requires_old_worker_to_stop_and_retains_jobs(tmp_path):
     assert upgraded.job(task["id"])["definition"] == task["definition"]
     assert upgraded.create(spec, "legacy")["id"] == task["id"]
     with upgraded.db() as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 4
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 5
 
 
 def test_worker_entrypoint_isolated_from_other_repository(tmp_path):

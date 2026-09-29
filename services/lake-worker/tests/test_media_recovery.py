@@ -134,6 +134,7 @@ def test_retry_unsupported_media_rechecks_locally_without_api_or_duplicate_check
 def test_retry_refreshes_exhausted_or_missing_metadata_but_not_local_processing_errors(tmp_path):
     lib, state = setup(tmp_path, "gelbooru")
     task = job(state, lib, {"kind": "ids", "ids": [11]}, "original")
+    state.update(task["id"], state="needs_review")
     cases = [
         (11, "needs_review", "image_http_404", 1, "obs", "pending"),
         (12, "failed", "image_http_404", 8, "obs", "pending_metadata"),

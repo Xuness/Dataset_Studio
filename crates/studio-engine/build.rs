@@ -23,26 +23,26 @@ fn collect(root: &Path, path: &Path, files: &mut Vec<String>) {
     }
 }
 fn main() {
-    let root = Path::new(&env::var("CARGO_MANIFEST_DIR").unwrap())
-        .join("../../services/lake-worker")
-        .canonicalize()
-        .unwrap();
-    println!("cargo:rerun-if-changed={}", root.join("src").display());
+    let root =
+        Path::new(&env::var("CARGO_MANIFEST_DIR").unwrap()).join("../../services/lake-worker");
+    // Build outputs can be reused after a checkout moves or shares a target directory.
+    // Absolute watched/include paths would keep that output pinned to the old checkout.
+    println!("cargo:rerun-if-changed=../../services/lake-worker/src");
     let mut files = vec!["worker.py".to_owned(), "pyproject.toml".to_owned()];
     collect(&root, &root.join("src"), &mut files);
     let mut hash = Sha256::new();
     let mut generated = String::from("pub const FILES: &[(&str, &[u8])] = &[\n");
     for relative in files {
         let path = root.join(&relative);
-        println!("cargo:rerun-if-changed={}", path.display());
+        println!("cargo:rerun-if-changed=../../services/lake-worker/{relative}");
         let content = fs::read(&path).unwrap();
         hash.update(relative.as_bytes());
         hash.update([0]);
         hash.update((content.len() as u64).to_le_bytes());
         hash.update(&content);
+        let include = format!("/../../services/lake-worker/{relative}");
         generated.push_str(&format!(
-            "({relative:?}, include_bytes!({:?})),\n",
-            path.to_str().unwrap()
+            "({relative:?}, include_bytes!(concat!(env!(\"CARGO_MANIFEST_DIR\"), {include:?}))),\n"
         ));
     }
     generated.push_str(&format!(

@@ -5,17 +5,18 @@ from datetime import datetime, timezone
 from pathlib import Path
 import hashlib
 import json
+import re
 import time
 import uuid
 
 from ..config import Config
 from ..library import Library
-from ..util import read_json, contained, now, atomic_json, FileLock
+from ..util import read_json, contained, now, atomic_json, FileLock, safe_managed_path
 from . import credentials
 from .protocol import definition, validate_site, timestamp, number
 from .sites import UpdateError
 from ..sqlite_control import Connection
-from . import read_model
+from . import read_model, cleanup
 
 DDL = """
 CREATE TABLE IF NOT EXISTS lakes(id TEXT PRIMARY KEY,site TEXT NOT NULL,media TEXT NOT NULL,
@@ -68,22 +69,22 @@ class State:
             application = db.execute("PRAGMA application_id").fetchone()[0]
             if (
                 application not in {0, 0x44535550}
-                or version not in {0, 1, 2, 3, 4}
-                or (version in {1, 2, 3, 4} and application != 0x44535550)
+                or version not in {0, 1, 2, 3, 4, 5}
+                or (version in {1, 2, 3, 4, 5} and application != 0x44535550)
             ):
                 raise UpdateError("UPDATE_PROTOCOL", "Unsupported update control database")
-            if version < 4:
+            if version < 5:
                 try:
                     upgrade.enter_context(FileLock(self.root / "runner.lock", timeout=0.1))
                     version = db.execute("PRAGMA user_version").fetchone()[0]
-                    if version == 4:
+                    if version == 5:
                         return
                     for path in (self.root / "executions").glob("*.lock"):
                         upgrade.enter_context(FileLock(path, timeout=0))
                 except RuntimeError:
                     # A new worker may already own runner.lock after completing
                     # the upgrade while this RPC waited for admission.
-                    if db.execute("PRAGMA user_version").fetchone()[0] == 4:
+                    if db.execute("PRAGMA user_version").fetchone()[0] == 5:
                         return
                     raise UpdateError("UPDATE_CONFLICT", "请先停止旧版更新运行器，再由 Studio 升级控制状态") from None
             if version == 0:
@@ -110,6 +111,9 @@ class State:
                 db.execute("PRAGMA user_version=3")
             if version < 4:
                 db.execute("PRAGMA user_version=4")
+            if version < 5:
+                db.executescript(cleanup.DDL)
+                db.execute("PRAGMA user_version=5")
 
     @contextmanager
     def db(self):
@@ -247,9 +251,11 @@ class State:
             row = db.execute("SELECT * FROM jobs WHERE id=?", (identity,)).fetchone()
             counts = dict(db.execute("SELECT state,n FROM counts WHERE job_id=? AND n>0", (identity,)))
             telemetry = db.execute("SELECT json FROM telemetry WHERE job_id=?", (identity,)).fetchone()
+            cleanup_row = db.execute("SELECT phase,retry_at,error_code FROM job_cleanup WHERE job_id=?", (identity,)).fetchone()
         if row is None:
             raise UpdateError("NOT_FOUND", "Update job not found")
         out = dict(row)
+        out["cleanup"] = dict(cleanup_row) if cleanup_row else None
         out["telemetry"] = json.loads(telemetry[0]) if telemetry else {}
         out["execution_active"] = self.execution_active(identity)
         if row["state"] == "running" and not out["execution_active"]:
@@ -282,7 +288,7 @@ class State:
             db.execute("INSERT OR REPLACE INTO telemetry VALUES(?,?)", (identity, json.dumps(current)))
 
     def execution_active(self, identity):
-        path = self.root / "executions" / (identity + ".lock")
+        path = self.execution_lock(identity).path
         if not path.exists():
             return False
         try:
@@ -290,6 +296,27 @@ class State:
                 return False
         except RuntimeError:
             return True
+
+    def execution_lock(self, identity):
+        if not isinstance(identity, str) or not re.fullmatch(r"[a-f0-9]{32}", identity):
+            raise UpdateError("INVALID_INPUT", "Invalid update job identity")
+        path = safe_managed_path(self.root, self.root / "executions" / (identity + ".lock"))
+        return FileLock(path, timeout=0)
+
+    def claim(self, identity):
+        """Caller owns execution and lake locks. Cancel/pause may still win this transaction."""
+        from .commands import read_job
+
+        with self.db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = read_job(db, identity)
+            if row["state"] not in {"queued", "running", "waiting_retry", "waiting_space"} or row["retry_at"] > time.time():
+                return None
+            db.execute(
+                "UPDATE jobs SET state='running',retry_at=0,error_code=NULL,error_message=NULL,updated_at=? "
+                "WHERE id=? AND state=? AND execution=?", (now(), identity, row["state"], row["execution"]),
+            )
+            return dict(row)
 
     def jobs(self, after="", limit=50, lake_id=None, status=None):
         return read_model.jobs(self, after, limit, lake_id, status)
@@ -324,7 +351,7 @@ class State:
         }
 
     def update(self, identity, **values):
-        if set(values) - {"state", "cursor", "error_code", "error_message", "retry_at", "execution"}:
+        if set(values) - {"state", "cursor", "error_code", "error_message", "retry_at"}:
             raise ValueError("Invalid state column")
         if "cursor" in values:
             values["cursor"] = json.dumps(values["cursor"], separators=(",", ":"))
@@ -337,46 +364,9 @@ class State:
             )
 
     def action(self, identity, action):
-        job = self.job(identity)
-        if action not in {"pause", "resume", "retry", "replay", "cancel"}:
-            raise UpdateError("INVALID_INPUT", "Unknown update action")
-        if job["state"] == "cancelled":
-            if action == "cancel":
-                return job
-            raise UpdateError("UPDATE_CONFLICT", "Cancelled task is closed; create a new task to repeat it")
-        if job["state"] == "running" and action in {"resume", "retry", "replay"}:
-            raise UpdateError("UPDATE_CONFLICT", "Pause a running task before restarting it")
-        if job["execution_active"] and action in {"resume", "retry", "replay"}:
-            raise UpdateError("UPDATE_CONFLICT", "The previous batch is still stopping; retry after it exits")
-        if job["state"] in TERMINAL and action not in {"retry"}:
-            raise UpdateError("UPDATE_CONFLICT", "Completed/cancelled job cannot be changed")
-        if action in {"resume", "retry", "replay"}:
-            with self.db() as db:
-                if action == "retry":
-                    db.execute(
-                        "UPDATE items SET state=CASE WHEN observation_id IS NOT NULL AND record_json<>'{}' "
-                        "AND coalesce(reason,'') NOT IN ('source_deleted','source_restricted','no_image_url',"
-                        "'not_returned_by_api','metadata_not_available') "
-                        "AND NOT (coalesce(reason,'')='image_http_404' AND attempts>=8) "
-                        "THEN 'pending' ELSE 'pending_metadata' END,reason=NULL,retry_at=0,attempts=0 "
-                        "WHERE job_id=? AND state IN ('failed','needs_review','unavailable')",
-                        (identity,),
-                    )
-                cursor = job["cursor"]
-                cursor["replay_saved_response"] = action == "replay"
-                cursor["slice_pages"], cursor["slice_items"] = 0, 0
-                db.execute(
-                    "UPDATE jobs SET state='queued',cursor=?,retry_at=0,error_code=NULL,error_message=NULL,"
-                    "execution=execution+1,updated_at=? WHERE id=?",
-                    (json.dumps(cursor), now(), identity),
-                )
-        else:
-            self.update(identity, state="paused" if action == "pause" else "cancelled")
-            if action == "cancel" and not job["execution_active"]:
-                from .runner import lease
+        from .commands import action as apply
 
-                lease(self.library(job["lake_id"]), identity)
-        return self.job(identity)
+        return apply(self, identity, action)
 
     def set_schedule(
         self, spec, every_seconds=None, first_run_at=None, enabled=False, identity=None, revision=None

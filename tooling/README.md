@@ -6,6 +6,8 @@
 
 三站更新工作台：`node tooling/smoke-lake-updates-ui.mjs`，使用本项目的 Python 环境与本机 Edge，端口 1453。脚本创建隔离真实在线湖、控制库和项目，验证范围冻结、跨项目/重启、三湖提交、计划、凭据及不同窗口尺寸；不会使用正式凭据或调用源站 API。
 
+更新生命周期回归：`services/lake-worker/tests/test_update_lifecycle.py` 已包含在 `pnpm test:lake`，覆盖原子命令、100/1000 项跨湖积压、取消阶段交错、真实子进程清理中断和 Windows junction 边界。`integration-lake-updates.mjs` 使用 `lake-lifecycle-fixture.py` 在停止的隔离控制库中准备取消/暂停任务，验证 HTTP/SDK 清理回执和重启回收。见 [R2 验收](../docs/verification/2026-09-29-astra-r2-update-lifecycle.md)。
+
 脚本使用自身位置定位仓库根目录，统一保留在 tooling 顶层。测试源码和夹具生成器随 Git 保存；运行产生的数据、截图和日志使用 `.local/`。
 
 在线湖验收：`node tooling/integration-online.mjs`，已包含在 `pnpm test:integration`。默认使用 `setup-lake-worker.ps1 -Dev` 安装的项目 Python（DuckDB、APSW、pytz），也可用 `PYTHON` 显式指定。它也验证查询视图并发创建、分页重试、发布后续页、重启和过期。`node tooling/smoke-online-ui.mjs <online-fixture-directory>` 检查分页视图和保存工作集；`node tooling/verify-online-lakes.mjs <lake-paths.json>` 对正式湖做有界只读抽样。路径 JSON 是含 site/index/media 的数组，不随仓库保存本机数据。协议与边界见 [P2/P3 验收](../docs/verification/2026-09-26-online-upgrade-p23.md)及 [R1 查询可靠性验收](../docs/verification/2026-09-29-astra-r1-query-reliability.md)。

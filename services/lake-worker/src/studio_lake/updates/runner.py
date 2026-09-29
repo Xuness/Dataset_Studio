@@ -17,6 +17,7 @@ from .protocol import timestamp
 from .sites import Site, UpdateError, Response
 from .state import State, TERMINAL
 from .references import categories
+from . import cleanup, dispatch
 
 
 def lease(lib, identity, sequence=None, expires_ms=None):
@@ -84,15 +85,18 @@ class Runner:
     def run(self, identity):
         self.state.job(identity)
         try:
-            with FileLock(self.state.root / "executions" / (identity + ".lock"), timeout=0):
+            with self.state.execution_lock(identity):
                 self._run_guarded(identity)
         except RuntimeError as error:
             if not str(error).startswith("另一个进程正在使用此工作区"):
                 raise
         job = self.state.job(identity)
-        if job["state"] == "cancelled" and not job["execution_active"]:
-            lease(self.state.library(job["lake_id"]), identity)
-        return job
+        if job["state"] == "cancelled":
+            self.cleanup(identity)
+        return self.state.job(identity)
+
+    def cleanup(self, identity):
+        cleanup.run(self.state, identity, self.resources)
 
     def _run_guarded(self, identity):
         job = self.state.job(identity)
@@ -176,8 +180,11 @@ class Runner:
         return self.state.job(identity)
 
     def _run(self, lib, identity):
+        previous = self.state.claim(identity)
+        if previous is None:
+            return self.state.job(identity)
         job = self.state.job(identity)
-        generation = job["execution"]
+        generation = previous["execution"]
         if job["cursor"].get("input_generation"):
             with online(lib) as (_, status):
                 if status["generation"] != job["cursor"]["input_generation"]:
@@ -211,11 +218,10 @@ class Runner:
                 raise UpdateError("CANCELLED", "Update paused at a safe boundary")
 
         check()
-        interrupted = job["state"] == "running" or job.get("error_code") == "UPDATE_INTERRUPTED"
-        self.state.update(identity, state="running", error_code=None, error_message=None, retry_at=0)
+        interrupted = previous["state"] == "running" or previous.get("error_code") == "UPDATE_INTERRUPTED"
         if interrupted:
             self.state.progress(identity, recovery_count_delta=1, last_recovery_at=now(),
-                                last_recovery_reason="worker_interrupted" if job["state"] == "running"
+                                last_recovery_reason="worker_interrupted" if previous["state"] == "running"
                                 else "service_restarted")
         self.state.progress(
             identity,
@@ -691,7 +697,8 @@ class Runner:
         try:
             with (
                 FileLock(self.state.root / "runner.lock", timeout=0.1),
-                ThreadPoolExecutor(max_workers=3) as pool,
+                # Three execution lanes plus one independent bounded cleanup lane.
+                ThreadPoolExecutor(max_workers=4) as pool,
             ):
                 try:
                     self.schedule(pool, background_io)
@@ -704,30 +711,42 @@ class Runner:
 
     def schedule(self, pool, background_io):
         active = {}
+        cleaning = None
         while not self.stop.is_set():
             self.refresh_settings()
             self.state.tick_schedules()
-            for lake, future in list(active.items()):
+            for lake, (future, identity, execution) in list(active.items()):
                 if future.done():
-                    future.result()
                     del active[lake]
-            with self.state.db() as db:
-                candidates = db.execute(
-                    "SELECT id,lake_id FROM jobs WHERE state IN ('queued','running','waiting_retry','waiting_space') "
-                    "AND retry_at<=? ORDER BY created_at,id LIMIT 100",
-                    (time.time(),),
-                ).fetchall()
-            for job in candidates:
-                if len(active) >= self.resources.config["active_lakes"]:
-                    break
-                if job["lake_id"] not in active:
-                    active[job["lake_id"]] = pool.submit(self.run, job["id"])
+                    try:
+                        future.result()
+                    except Exception:
+                        dispatch.failed(self.state, identity, execution)
+            if cleaning is not None and cleaning[0].done():
+                future, identity, _ = cleaning
+                cleaning = None
+                try:
+                    future.result()
+                except Exception:
+                    cleanup.record(self.state, identity, error_code="UPDATE_CLEANUP_INTERRUPTED", delay=30)
+            # Give a due cleanup its lake before admitting that lake's next task.
+            # Continuous update backlog must not starve terminal spool reclamation.
+            if cleaning is None and (pending := dispatch.next_cleanup(self.state, active)):
+                identity = pending["job_id"]
+                cleaning = (pool.submit(self.cleanup, identity), identity, pending["lake_id"])
+            excluded = {*active, *([cleaning[2]] if cleaning else [])}
+            for job in dispatch.candidates(
+                self.state, excluded, self.resources.config["active_lakes"] - len(active)
+            ):
+                dispatch.submitted(self.state, job["lake_id"])
+                active[job["lake_id"]] = (pool.submit(self.run, job["id"]), job["id"], job["execution"])
             atomic_json(
                 self.state.root / "heartbeat.json",
                 {
                     "protocol_version": 1,
                     "at": now(),
                     "active_lakes": list(active),
+                    "cleanup_job": cleaning[1] if cleaning else None,
                     "background_io": background_io,
                 },
             )

@@ -4013,6 +4013,14 @@ export interface components {
             site: components["schemas"]["LakeUpdateSite"];
             updated_range: boolean;
         };
+        LakeUpdateCleanup: {
+            error_code?: string | null;
+            phase: components["schemas"]["LakeUpdateCleanupPhase"];
+            /** Format: double */
+            retry_at: number;
+        };
+        /** @enum {string} */
+        LakeUpdateCleanupPhase: "pending" | "reconciled" | "complete";
         LakeUpdateCount: {
             lake_id: string;
             /** Format: int64 */
@@ -4062,6 +4070,7 @@ export interface components {
             next_cursor?: number | null;
         };
         LakeUpdateJob: {
+            cleanup?: null | components["schemas"]["LakeUpdateCleanup"];
             counts: {
                 [key: string]: number;
             };

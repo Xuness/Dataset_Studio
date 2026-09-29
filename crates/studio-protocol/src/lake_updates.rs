@@ -366,7 +366,24 @@ pub struct LakeUpdateJob {
     #[serde(default)]
     pub execution_active: bool,
     #[serde(default)]
+    pub cleanup: Option<LakeUpdateCleanup>,
+    #[serde(default)]
     pub telemetry: LakeUpdateTelemetry,
+}
+
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct LakeUpdateCleanup {
+    pub phase: LakeUpdateCleanupPhase,
+    pub retry_at: f64,
+    pub error_code: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LakeUpdateCleanupPhase {
+    Pending,
+    Reconciled,
+    Complete,
 }
 
 #[derive(Default, Serialize, Deserialize, ToSchema)]

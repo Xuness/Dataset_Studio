@@ -158,6 +158,39 @@ fn lease_write_wait_observes_request_deadline() {
 }
 
 #[test]
+fn lease_write_retries_wal_protocol_contention_but_not_corruption() {
+    let f = Fixture::new();
+    let cancelled = AtomicBool::new(false);
+    for (code, succeeds, expected_attempts) in [
+        (rusqlite::ffi::SQLITE_PROTOCOL, true, 2),
+        (rusqlite::ffi::SQLITE_CORRUPT, false, 1),
+    ] {
+        let mut attempts = 0;
+        let result = lease_write(
+            &f.path,
+            &cancelled,
+            Instant::now() + Duration::from_secs(1),
+            |db| {
+                attempts += 1;
+                if attempts == 1 {
+                    return Err(sql_error(rusqlite::Error::SqliteFailure(
+                        rusqlite::ffi::Error::new(code),
+                        None,
+                    )));
+                }
+                db.execute("DELETE FROM leases WHERE id='contention-probe'", [])
+                    .map_err(sql_error)
+            },
+        );
+        assert_eq!(result.is_ok(), succeeds);
+        assert_eq!(attempts, expected_attempts);
+        if let Err(error) = result {
+            assert_eq!(error.code, "SOURCE_FORMAT_ERROR");
+        }
+    }
+}
+
+#[test]
 fn lease_write_wait_observes_cancellation_and_release_uses_its_context() {
     let f = Fixture::new();
     let version = QueryReader::default()

@@ -310,6 +310,7 @@ def reconcile(state, lib, identity):
             source = manifest["source"]
             directory = lib.root / "segments" / row["batch_id"]
             with state.db() as db:
+                db.execute("BEGIN IMMEDIATE")
                 if db.execute(
                     "SELECT 1 FROM applied_batches WHERE batch_id=?", (row["batch_id"],)
                 ).fetchone():
@@ -370,16 +371,17 @@ def reconcile(state, lib, identity):
 
 
 def cleanup_media_receipts(lib, source):
+    from . import spool
+
     if source["update_role"] != "media":
         return
-    directory = contained(lib.cache / "updates", source["update_job_id"])
+    directory = spool.directory(lib, source["update_job_id"])
     # Derive paths from verified archive identities, never from an archived absolute path.
     for result in source["results"]:
         if result["state"] not in {"stored", "reused"}:
             continue
         key = stable_id(result["observation_id"], source["definition"]["media"])
-        for suffix in (".ready", ".json", ".downloaded", ".download.json", ".tmp",
-                       ".partial", ".partial.json"):
-            contained(directory, key + suffix).unlink(missing_ok=True)
+        for suffix in spool.SUFFIXES:
+            spool.file_path(lib, directory, key + suffix).unlink(missing_ok=True)
         for temporary in directory.glob(key + ".*.tmp"):
-            temporary.unlink(missing_ok=True)
+            spool.file_path(lib, directory, temporary.name).unlink(missing_ok=True)

@@ -19,6 +19,7 @@ from .resources import Resources as Resources
 from .resources import Reservation
 from .transfer import fetch
 from .staging import estimate as staging_plan, OVERHEAD
+from . import spool
 
 
 # The service applies its explicit configurable pixel and memory guards before load().
@@ -55,7 +56,7 @@ class ImageSessions:
 
 
 def paths(lib, job, item):
-    directory = lib.cache / "updates" / job["id"]
+    directory = spool.directory(lib, job["id"])
     key = stable_id(item["observation_id"], job["definition"]["media"])
     return directory, key
 

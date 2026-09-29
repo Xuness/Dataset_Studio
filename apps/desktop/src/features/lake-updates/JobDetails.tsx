@@ -91,6 +91,23 @@ export function JobDetails({
               ? " · 等待当前批次退出"
               : ""}
           </dd>
+          {job.cleanup && (
+            <>
+              <dt>取消后清理</dt>
+              <dd>
+                {job.cleanup.phase === "complete"
+                  ? "暂存已回收"
+                  : job.cleanup.error_code === "UPDATE_CLEANUP_UNSAFE"
+                    ? "目录归属或文件类型需要检查；文件已保留"
+                    : job.cleanup.error_code &&
+                        job.cleanup.error_code !== "UPDATE_BUSY"
+                      ? "清理暂未完成，稍后自动重试"
+                      : job.cleanup.phase === "reconciled"
+                        ? "归档已核对，正在回收暂存"
+                        : "等待执行退出并核对归档"}
+              </dd>
+            </>
+          )}
           <dt>阶段</dt>
           <dd>{phases[t.phase ?? ""] ?? t.phase ?? "—"}</dd>
           <dt>元数据范围</dt>

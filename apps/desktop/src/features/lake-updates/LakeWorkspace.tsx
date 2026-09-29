@@ -138,7 +138,11 @@ export default function LakeWorkspace({
     queryFn: ({ signal }) => client.lakeUpdates.job(v.jobId, signal),
     enabled: configured && !!v.jobId && v.view === "jobs",
     refetchInterval: (q) =>
-      q.state.data && active(q.state.data) ? 2500 : false,
+      q.state.data &&
+      (active(q.state.data) ||
+        (q.state.data.cleanup && q.state.data.cleanup.phase !== "complete"))
+        ? 2500
+        : false,
   });
   const schedules = useQuery({
     queryKey: [...key, "schedules"],

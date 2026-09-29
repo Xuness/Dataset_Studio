@@ -66,9 +66,11 @@ pub(crate) fn sql_error(value: rusqlite::Error) -> Error {
         Some(rusqlite::ErrorCode::OperationInterrupted) => {
             Error::new("SOURCE_TIMEOUT", "在线读取已取消或超过时间预算")
         }
-        Some(rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked) => {
-            Error::new("SOURCE_BUSY", "在线发布繁忙，请重试当前页面")
-        }
+        Some(
+            rusqlite::ErrorCode::DatabaseBusy
+            | rusqlite::ErrorCode::DatabaseLocked
+            | rusqlite::ErrorCode::FileLockingProtocolFailed,
+        ) => Error::new("SOURCE_BUSY", "在线发布繁忙，请重试当前页面"),
         _ => error(value),
     }
 }

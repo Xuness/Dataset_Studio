@@ -2,11 +2,12 @@ import { lakeWorkerPython } from "./lake-worker-runtime.mjs";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile, stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { EngineFixture, sleep } from "./engine-fixture.mjs";
 import { clientFixture } from "./client-fixture.mjs";
+import { verifyLakeWorkerBundle } from "./lake-worker-bundle.mjs";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const runDir = resolve(root, ".local/test-runs", "lake-updates-" + Date.now());
@@ -34,6 +35,14 @@ try {
       store_root: resolve(runDir, "missing-legacy-store-checkout"),
       state_root: resolve(runDir, "controller"),
     });
+    const bundle = await verifyLakeWorkerBundle(root, engine.dataDir);
+    await writeFile(
+      resolve(runDir, "worker-bundle.json"),
+      JSON.stringify(bundle, null, 2),
+    );
+    checks.push(
+      "running engine's worker revision and every bundled file match current source",
+    );
     assert.equal((await client.lakeUpdates.capabilities()).items.length, 3);
     checks.push(
       "embedded Studio worker runs when legacy Store checkout path does not exist",
@@ -144,8 +153,53 @@ try {
       (e) => e.code === "REVISION_CONFLICT",
     );
     await engine.stop();
+    await promisify(execFile)(
+      python,
+      [resolve(root, "tooling/lake-lifecycle-fixture.py"), runDir],
+      { windowsHide: true },
+    );
+    const lifecycle = JSON.parse(
+      await readFile(resolve(runDir, "lifecycle.json"), "utf8"),
+    );
     await engine.start();
     client = new StudioClient(engine.connection);
+    const cancelled = await client.lakeUpdates.action(
+      lifecycle[0].id,
+      "cancel",
+    );
+    assert.equal(cancelled.state, "cancelled");
+    assert.ok(cancelled.cleanup);
+    assert.equal(
+      (await client.lakeUpdates.action(lifecycle[0].id, "cancel")).state,
+      "cancelled",
+    );
+    for (const action of ["resume", "retry", "replay"])
+      await assert.rejects(
+        client.lakeUpdates.action(lifecycle[0].id, action),
+        (error) => error.code === "UPDATE_CONFLICT",
+      );
+    for (const task of lifecycle.slice(0, 2)) {
+      const cleaned = await engine.wait(
+        `/v1/lake-updates/jobs/${task.id}`,
+        (j) => j.cleanup?.phase === "complete",
+        60000,
+      );
+      assert.equal(cleaned.state, "cancelled");
+      assert.equal(cleaned.execution_active, false);
+      assert.equal(cleaned.cleanup.error_code, null);
+      await assert.rejects(
+        stat(task.directory),
+        (error) => error.code === "ENOENT",
+      );
+    }
+    assert.equal((await stat(lifecycle[2].partial)).size, 1024 * 1024);
+    assert.equal(
+      (await client.lakeUpdates.job(lifecycle[2].id)).state,
+      "paused",
+    );
+    checks.push(
+      "public cancellation is closed and idempotent; daemon cleans pending tasks after restart and preserves paused spool",
+    );
     assert.equal(
       (await client.lakeUpdates.pipeline()).value.sites.yandere
         .image_requests_per_second,
