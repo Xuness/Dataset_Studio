@@ -7,12 +7,18 @@ import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import { EngineFixture } from "./engine-fixture.mjs";
 import { clientFixture } from "./client-fixture.mjs";
+import { lakeWorkerPython } from "./lake-worker-runtime.mjs";
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
+const python = process.env.PYTHON ?? lakeWorkerPython(root);
+if (!python)
+  throw new Error(
+    "Run tooling/setup-lake-worker.ps1 -Dev for the online fixture",
+  );
 const run = resolve(root, ".local/test-runs", "online-" + Date.now());
 await mkdir(run, { recursive: true });
 const fixture = (action = "create") =>
   promisify(execFile)(
-    process.env.PYTHON ?? "python",
+    python,
     [resolve(root, "tooling/online-fixture.py"), run, action],
     { windowsHide: true },
   );
@@ -25,7 +31,7 @@ try {
   );
   await engine.start();
   const { StudioClient } = await clientFixture(root, resolve(run, "client"));
-  const client = new StudioClient(engine.connection);
+  let client = new StudioClient(engine.connection);
   const project = await engine.api("/v1/projects", "POST", {
     name: "Online three lakes",
   });
@@ -108,6 +114,53 @@ try {
   checks.push(
     "multi-lake keyset merge preserves all four orders and equal-post ties",
   );
+  const concurrent = await Promise.all(
+    Array.from({ length: 4 }, () => client.queries.browse(project.id, spec())),
+  );
+  const batches = await Promise.all(concurrent.map((view) => pages(view, 13)));
+  assert.ok(batches.every((items) => items.length === batches[0].length));
+  const saved = await engine.api(base + "/queries", "POST", {
+    name: "Concurrent retained builds",
+    spec: spec(),
+  });
+  const builds = await Promise.all(
+    Array.from({ length: 4 }, () =>
+      engine.api(base + "/queries/" + saved.id + "/results", "POST", {
+        expected_revision: saved.revision,
+      }),
+    ),
+  );
+  for (const build of builds) {
+    const done = await engine.wait(
+      base + "/query-results/" + build.id,
+      (result) => !["queued", "running"].includes(result.state),
+    );
+    assert.equal(done.state, "ready", JSON.stringify(done));
+  }
+  checks.push(
+    "four concurrent view creations, paginations and saved builds complete under default admissions",
+  );
+
+  // A stateless continuation must survive publication, retries and a real
+  // engine restart without relying on an in-memory merge buffer.
+  const resumable = await client.queries.browse(
+    project.id,
+    spec("post_id_desc"),
+  );
+  const initial = await client.queries.assets(project.id, resumable.id, {
+    limit: 7,
+  });
+  const resumeOptions = { limit: 7, cursor: initial.page.next_cursor };
+  assert.ok(resumeOptions.cursor);
+  const expectedResume = await client.queries.assets(
+    project.id,
+    resumable.id,
+    resumeOptions,
+  );
+  assert.deepEqual(
+    await client.queries.assets(project.id, resumable.id, resumeOptions),
+    expectedResume,
+  );
   const tag = refs.gelbooru.raw.extra.tags[1];
   const literal = await client.queries.browse(
     project.id,
@@ -156,6 +209,10 @@ try {
   const validity = await client.queries.validity(project.id, old.id);
   assert.equal(validity.current, true);
   assert.equal(validity.newer_available, true);
+  assert.deepEqual(
+    await client.queries.assets(project.id, resumable.id, resumeOptions),
+    expectedResume,
+  );
   const fresh = await client.queries.browse(project.id, old.spec);
   const freshAsset = (await pages(fresh))[0];
   assert.ok((await score(freshAsset.summary.version)).includes(9999));
@@ -284,8 +341,17 @@ try {
   checks.push(
     "ranking v1 and v2 capture retained SQLite facts without native lake DuckDB",
   );
+  const expiring = await client.queries.browse(project.id, spec());
   await engine.stop();
+  const expiryDb = new DatabaseSync(
+    resolve(project.directory, "project.sqlite"),
+  );
+  expiryDb
+    .prepare("UPDATE query_results SET view_expires_ms=1 WHERE id=?")
+    .run(expiring.id);
+  expiryDb.close();
   await engine.start();
+  client = new StudioClient(engine.connection);
   await engine.api("/v1/projects/open", "POST", {
     directory: project.directory,
   });
@@ -295,6 +361,17 @@ try {
     true,
   );
   checks.push("sealed results survive engine restart");
+  assert.deepEqual(
+    await client.queries.assets(project.id, resumable.id, resumeOptions),
+    expectedResume,
+  );
+  await assert.rejects(
+    client.queries.assets(project.id, expiring.id),
+    (error) => error.code === "VIEW_EXPIRED",
+  );
+  checks.push(
+    "view continuation survives retry, publication and engine restart; expired views fail explicitly",
+  );
   await writeFile(
     resolve(run, "result.json"),
     JSON.stringify({ checks, project, fixtures: refs }, null, 2),

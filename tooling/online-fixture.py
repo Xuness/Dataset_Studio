@@ -1,4 +1,4 @@
-"""Synthetic three-lake serving fixture. Requires DuckDB and APSW (SQLite >= 3.51.3)."""
+"""Synthetic serving fixture. Uses lake-worker[dev] (DuckDB, pytz and APSW)."""
 import datetime
 import hashlib
 import json

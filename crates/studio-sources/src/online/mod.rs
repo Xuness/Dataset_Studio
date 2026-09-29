@@ -133,6 +133,43 @@ fn number(db: &Connection, key: &str) -> Result<u64> {
     state(db, key)?.parse().map_err(error)
 }
 
+fn check_read(cancelled: &AtomicBool, deadline: Instant) -> Result<()> {
+    studio_application::read_cancelled(cancelled)?;
+    if Instant::now() >= deadline {
+        return Err(Error::new("SOURCE_TIMEOUT", "在线读取超过请求时间预算"));
+    }
+    Ok(())
+}
+
+// SQLite's busy handler has no request context. Use short waits around the
+// complete transaction so cancellation and deadlines also interrupt lease I/O.
+fn lease_write<T>(
+    path: &Path,
+    cancelled: &AtomicBool,
+    deadline: Instant,
+    mut write: impl FnMut(&mut Connection) -> Result<T>,
+) -> Result<T> {
+    check_read(cancelled, deadline)?;
+    let mut db =
+        Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE).map_err(sql_error)?;
+    db.busy_timeout(Duration::from_millis(20))
+        .map_err(sql_error)?;
+    let until = deadline.min(Instant::now() + Duration::from_secs(3));
+    loop {
+        check_read(cancelled, deadline)?;
+        match write(&mut db) {
+            Err(e) if e.code == "SOURCE_BUSY" => {
+                check_read(cancelled, deadline)?;
+                if Instant::now() >= until {
+                    return Err(e);
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            result => return result,
+        }
+    }
+}
+
 pub struct Snapshot {
     pub(crate) db: Connection,
     pub pointer: Pointer,
@@ -151,6 +188,8 @@ impl Snapshot {
         cancelled: Arc<AtomicBool>,
         deadline: Option<Instant>,
     ) -> Result<Self> {
+        let until = deadline.unwrap_or_else(|| Instant::now() + Duration::from_secs(8));
+        check_read(&cancelled, until)?;
         let (pointer, path) = pointer(source)?;
         let db = Connection::open_with_flags(
             &path,
@@ -185,8 +224,8 @@ impl Snapshot {
             "interactive",
             "read",
             false,
+            (&cancelled, until),
         )?;
-        let until = deadline.unwrap_or_else(|| Instant::now() + Duration::from_secs(8));
         let flag = cancelled.clone();
         db.progress_handler(
             1000,
@@ -223,11 +262,7 @@ impl Snapshot {
         })
     }
     fn check(&self) -> Result<()> {
-        studio_application::read_cancelled(&self.cancelled)?;
-        if Instant::now() >= self.deadline {
-            return Err(Error::new("SOURCE_TIMEOUT", "在线读取超过请求时间预算"));
-        }
-        Ok(())
+        check_read(&self.cancelled, self.deadline)
     }
     pub fn latest(source: &Source) -> Result<Self> {
         Self::open(source, None, Arc::new(AtomicBool::new(false)), None)
@@ -239,7 +274,10 @@ impl Snapshot {
         owner: &str,
         purpose: &str,
         permanent: bool,
+        control: (&AtomicBool, Instant),
     ) -> Result<()> {
+        let (cancelled, deadline) = control;
+        check_read(cancelled, deadline)?;
         let current = millis();
         let key = (path.to_path_buf(), id.to_owned(), seq, owner.to_owned());
         if !permanent
@@ -251,24 +289,24 @@ impl Snapshot {
         {
             return Ok(());
         }
-        let mut db = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE)
-            .map_err(sql_error)?;
-        db.busy_timeout(Duration::from_secs(3)).map_err(sql_error)?;
-        let tx = db
-            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
-            .map_err(sql_error)?;
-        if seq < number(&tx, "min_seq")? || seq > number(&tx, "served_seq")? {
-            return Err(Error::new(
-                "VIEW_EXPIRED",
-                "该浏览视图已经过期，请刷新以使用最新数据",
-            ));
-        }
-        let expires = (!permanent).then_some((current + VIEW_TTL_MS) as i64);
-        let written=tx.execute("INSERT INTO leases VALUES(?1,?2,?3,?4,?5) ON CONFLICT(id) DO UPDATE SET expires_ms=CASE WHEN leases.expires_ms IS NULL THEN NULL ELSE excluded.expires_ms END WHERE leases.seq=excluded.seq AND leases.owner=excluded.owner AND leases.purpose=excluded.purpose",params![id,seq as i64,expires,owner,purpose]).map_err(sql_error)?;
-        if written != 1 {
-            return Err(Error::new("LEASE_CONFLICT", "读取租约身份或版本不一致"));
-        }
-        tx.commit().map_err(sql_error)?;
+        lease_write(path, cancelled, deadline, |db| {
+            let tx = db
+                .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+                .map_err(sql_error)?;
+            if seq < number(&tx, "min_seq")? || seq > number(&tx, "served_seq")? {
+                return Err(Error::new(
+                    "VIEW_EXPIRED",
+                    "该浏览视图已经过期，请刷新以使用最新数据",
+                ));
+            }
+            let expires = (!permanent).then_some((current + VIEW_TTL_MS) as i64);
+            let written=tx.execute("INSERT INTO leases VALUES(?1,?2,?3,?4,?5) ON CONFLICT(id) DO UPDATE SET expires_ms=CASE WHEN leases.expires_ms IS NULL THEN NULL ELSE excluded.expires_ms END WHERE leases.seq=excluded.seq AND leases.owner=excluded.owner AND leases.purpose=excluded.purpose",params![id,seq as i64,expires,owner,purpose]).map_err(sql_error)?;
+            if written != 1 {
+                return Err(Error::new("LEASE_CONFLICT", "读取租约身份或版本不一致"));
+            }
+            tx.commit().map_err(sql_error)?;
+            Ok(())
+        })?;
         if !permanent {
             let mut recent = recent_leases().lock().map_err(error)?;
             if recent.len() >= 2048 {
@@ -282,15 +320,30 @@ impl Snapshot {
         Ok(())
     }
     pub fn retain(&self, id: &str, owner: &str, purpose: &str, permanent: bool) -> Result<()> {
-        Self::lease(&self.path, self.sequence, id, owner, purpose, permanent)
+        Self::lease(
+            &self.path,
+            self.sequence,
+            id,
+            owner,
+            purpose,
+            permanent,
+            (&self.cancelled, self.deadline),
+        )
     }
-    pub fn release(source: &Source, id: &str) -> Result<()> {
+    pub fn release(
+        source: &Source,
+        id: &str,
+        cancelled: &AtomicBool,
+        deadline: Option<Instant>,
+    ) -> Result<()> {
+        let deadline = deadline.unwrap_or_else(|| Instant::now() + Duration::from_secs(3));
+        check_read(cancelled, deadline)?;
         let (_, path) = pointer(source)?;
-        let db = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_WRITE)
-            .map_err(sql_error)?;
-        db.busy_timeout(Duration::from_secs(3)).map_err(sql_error)?;
-        db.execute("DELETE FROM leases WHERE id=?1", [id])
-            .map_err(sql_error)?;
+        lease_write(&path, cancelled, deadline, |db| {
+            db.execute("DELETE FROM leases WHERE id=?1", [id])
+                .map_err(sql_error)?;
+            Ok(())
+        })?;
         recent_leases()
             .lock()
             .map_err(error)?

@@ -9,7 +9,8 @@ impl SourceQueryFactory for QueryFactory {
     fn create(&self, options: &SourceQueryOptions) -> Box<dyn QueryAdapter> {
         let mut reader = QueryReader::with_query_directory(self.directory.clone())
             .with_query_memory(options.memory_bytes)
-            .with_deadline(options.deadline);
+            .with_deadline(options.deadline)
+            .with_cancellation(options.cancelled.clone());
         if options.use_candidates
             && let Some(cache) = &self.candidates
         {

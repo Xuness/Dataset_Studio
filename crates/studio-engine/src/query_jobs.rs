@@ -1,4 +1,7 @@
-use crate::{source_indexes::SourceIndexService, sources::SourceService};
+use crate::{
+    source_indexes::SourceIndexService,
+    sources::{SourceRead, SourceService},
+};
 use std::{
     cell::{Cell, RefCell},
     collections::HashMap,
@@ -80,7 +83,12 @@ impl QueryRunner {
             .map(|id| reader.query_version(&store.source(pid, id)?, &native))
             .collect()
     }
-    pub fn validate_result(&self, store: &SqliteStore, result: &QueryResult) -> Result<()> {
+    pub fn validate_result(
+        &self,
+        store: &SqliteStore,
+        result: &QueryResult,
+        read: &SourceRead,
+    ) -> Result<()> {
         if result.state != ResultState::Ready {
             return Err(Error::new(
                 match result.state {
@@ -97,7 +105,7 @@ impl QueryRunner {
         }
         store.validate_derived(&result.project_id, &result.spec)?;
         if !result.spec.uses_only_fixed_project_data() {
-            self.validate_versions(store, &result.project_id, &result.source_versions)?;
+            self.validate_versions(store, &result.project_id, &result.source_versions, read)?;
         }
         Ok(())
     }
@@ -106,8 +114,8 @@ impl QueryRunner {
         store: &SqliteStore,
         pid: &str,
         versions: &[QuerySourceVersion],
+        read: &SourceRead,
     ) -> Result<()> {
-        let read = self.sources.inspect()?;
         let reader = read.query(METADATA_MEMORY_BYTES, false);
         for version in versions {
             reader.validate_version(&store.source(pid, &version.source_id)?, version)?;
@@ -321,7 +329,7 @@ impl QueryRunner {
         // Retained providers validate availability of the captured version;
         // legacy providers still require their original latest-version fence.
         if !fixed {
-            self.validate_versions(store, &result.project_id, &result.source_versions)?;
+            self.validate_versions(store, &result.project_id, &result.source_versions, &read)?;
         }
         let stage = stage.into_inner();
         stage.seal()?;
@@ -341,7 +349,7 @@ impl QueryRunner {
             )?;
         }
         if !fixed {
-            self.validate_versions(store, &result.project_id, &result.source_versions)?;
+            self.validate_versions(store, &result.project_id, &result.source_versions, &read)?;
         }
         Ok(())
     }

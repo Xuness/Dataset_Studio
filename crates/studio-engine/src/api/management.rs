@@ -233,7 +233,7 @@ pub(super) async fn action(
                     let value=s.store.object_details(&pid,kind,&id)?;
                     if value.object.revision!=body.expected_revision{return Err(domain::Error::new("REVISION_CONFLICT","对象刚被修改，请刷新详情"));}
                     if let Some(reason)=value.remove_reason{return Err(domain::Error::new("OBJECT_IN_USE",reason));}
-                    if kind==domain::ObjectKind::Artifact {release_files(&s,&pid,&id)?;} else {let result=s.store.release_result(&pid,&id)?; query_views::release_versions(&s,&pid,&result)?;}
+                    if kind==domain::ObjectKind::Artifact {release_files(&s,&pid,&id)?;} else {let result=s.store.release_result(&pid,&id)?; let read=s.sources.inspect()?; query_views::release_versions(&s,&pid,&result,&read)?;}
                 } else {
                     s.store.remove_object(&pid,kind,&id,body.expected_revision)?;
                     if kind==domain::ObjectKind::Job {query_views::release_job(&s,&pid,&id)?;}

@@ -6,14 +6,18 @@ use std::{
     time::{Duration, Instant},
 };
 use studio_application::QueryAdapter;
+#[cfg(test)]
+mod tests;
 
 pub(super) fn release_versions(
     s: &AppState,
     pid: &str,
     result: &domain::QueryResult,
+    read: &SourceRead,
 ) -> domain::Result<()> {
-    let read = s.sources.inspect()?;
-    let query = read.query(domain::METADATA_MEMORY_BYTES, false);
+    // Releasing ownership must still work after the request was cancelled. This
+    // borrows the existing admission and only exposes bounded lease cleanup.
+    let query = read.lease_cleanup();
     for version in &result.source_versions {
         if version.consistency == "retained_online_snapshot" {
             query.release_version(
@@ -25,12 +29,16 @@ pub(super) fn release_versions(
     Ok(())
 }
 
-pub(super) fn retain_job(s: &AppState, pid: &str, job: &domain::Job) -> domain::Result<()> {
+pub(super) fn retain_job(
+    s: &AppState,
+    pid: &str,
+    job: &domain::Job,
+    read: &SourceRead,
+) -> domain::Result<()> {
     if let Some(id) = s.store.job_owned_result(pid, &job.id)? {
-        retain(s, pid, &s.store.query_result(pid, &id)?, true)?;
+        retain(s, pid, &s.store.query_result(pid, &id)?, true, read)?;
     }
     let frozen = s.store.job_run(pid, &job.id)?;
-    let read = s.sources.inspect()?;
     let query = read.query(domain::METADATA_MEMORY_BYTES, false);
     for version in frozen.source_versions {
         if version.consistency == "retained_online_snapshot" {
@@ -59,7 +67,7 @@ pub(super) fn release_job(s: &AppState, pid: &str, id: &str) -> domain::Result<(
     }
     if let Some(rid) = s.store.job_owned_result(pid, id)? {
         match s.store.release_result(pid, &rid) {
-            Ok(result) => release_versions(s, pid, &result)?,
+            Ok(result) => release_versions(s, pid, &result, &read)?,
             Err(error) if error.code == "RESULT_IN_USE" => {}
             Err(error) => return Err(error),
         }
@@ -72,8 +80,8 @@ pub(super) fn retain(
     pid: &str,
     result: &domain::QueryResult,
     permanent: bool,
+    read: &SourceRead,
 ) -> domain::Result<()> {
-    let read = s.sources.inspect()?;
     let query = read.query(domain::METADATA_MEMORY_BYTES, false);
     for version in &result.source_versions {
         let source = s.store.source(pid, &version.source_id)?;
@@ -95,9 +103,10 @@ pub(super) fn create_fixed(
     pid: &str,
     spec: domain::QuerySpec,
     versions: Vec<domain::QuerySourceVersion>,
+    read: &SourceRead,
 ) -> domain::Result<domain::QueryResult> {
     let result = s.store.create_snapshot_result(pid, spec, versions, false)?;
-    retain_created(s, pid, &result, true)?;
+    retain_created(s, pid, &result, true, read)?;
     s.queries.cache.recent(pid, &result.id);
     Ok(result)
 }
@@ -106,14 +115,15 @@ pub(super) fn retain_created(
     pid: &str,
     result: &domain::QueryResult,
     permanent: bool,
+    read: &SourceRead,
 ) -> domain::Result<()> {
-    if let Err(error) = retain(s, pid, result, permanent) {
+    if let Err(error) = retain(s, pid, result, permanent, read) {
         if result.cache.mode == "view" {
             s.store.release_result(pid, &result.id)?;
         } else {
             s.store.cancel_result(pid, &result.id)?;
         }
-        if let Err(cleanup) = release_versions(s, pid, result) {
+        if let Err(cleanup) = release_versions(s, pid, result, read) {
             tracing::warn!(result_id=%result.id,error=%cleanup,"failed to release partial view leases");
         }
         return Err(error);
@@ -165,7 +175,7 @@ pub(super) async fn create(
                 versions.push(query.read_version_at(&source, revision, spec.uses_metadata())?);
             }
             let result = s.store.create_snapshot_result(&pid, spec, versions, true)?;
-            retain_created(&s, &pid, &result, false)?;
+            retain_created(&s, &pid, &result, false, &read)?;
             s.queries.cache.recent(&pid, &result.id);
             Ok(result.into())
         })
@@ -214,86 +224,41 @@ fn compare(
     }
 }
 
-pub(super) fn assets(
-    s: &AppState,
-    pid: &str,
-    rid: &str,
-    params: QueryListParams,
-    context: &RequestReadContext,
-    read: &SourceRead,
-) -> domain::Result<ResultAssets> {
-    let result = s.store.touch_query_view(pid, rid)?;
-    retain(s, pid, &result, false)?;
-    let mut spec = result.spec.clone();
-    let order = params.order.map(Into::into).unwrap_or(spec.order);
-    spec.order = order;
-    let mut cursor = if let Some(raw) = params.cursor {
-        if raw.len() > 8192 {
-            return Err(domain::Error::invalid("视图游标过长"));
-        }
-        let cursor: Cursor = URL_SAFE_NO_PAD
-            .decode(raw)
-            .ok()
-            .and_then(|b| serde_json::from_slice(&b).ok())
-            .ok_or_else(|| domain::Error::invalid("视图游标无效"))?;
-        if cursor.project_id != pid
-            || cursor.result_id != rid
-            || cursor.order != order
-            || cursor
-                .afters
-                .keys()
-                .chain(cursor.exhausted.iter())
-                .chain(cursor.totals.keys())
-                .any(|id| !spec.source_ids.contains(id))
-        {
-            return Err(domain::Error::invalid("视图游标不属于该范围或排序"));
-        }
-        cursor
-    } else {
-        Cursor {
-            project_id: pid.into(),
-            result_id: rid.into(),
-            order,
-            afters: BTreeMap::new(),
-            exhausted: BTreeSet::new(),
-            totals: BTreeMap::new(),
-            scanned: 0,
-        }
-    };
-    let mut streams = result
-        .source_versions
-        .iter()
-        .map(|version| {
-            Ok(Stream {
-                source: s.store.source(pid, &version.source_id)?,
-                version: version.clone(),
-                after: cursor.afters.get(&version.source_id).cloned(),
-                buffer: VecDeque::new(),
-                next: None,
-                done: cursor.exhausted.contains(&version.source_id),
-                remaining_scan: 0,
-            })
-        })
-        .collect::<domain::Result<Vec<_>>>()?;
-    let query = read.query(domain::METADATA_MEMORY_BYTES, false);
-    let limit = params.limit.unwrap_or(48).clamp(1, 128);
+// The only persisted progress is consumed hits or completed empty scans. Buffers
+// may be reread on retry, but a budget yield never loses all useful work.
+fn merge_page(
+    cursor: &mut Cursor,
+    streams: &mut [Stream],
+    spec: &domain::QuerySpec,
+    limit: usize,
+    context: &studio_application::SourceReadContext,
+    query: &dyn QueryAdapter,
+) -> domain::Result<Vec<domain::AssetKey>> {
+    let order = spec.order;
     let started = Instant::now();
     let mut keys = Vec::new();
     let mut work = 0_u64;
     loop {
-        studio_application::read_cancelled(&context.cancelled)?;
+        context.check()?;
+        // A sweep must reach every missing head before yielding. Stopping in
+        // the middle can discard every fetched hit and repeat the same cursor
+        // forever. Each sweep either emits a hit or advances an empty scan;
+        // the soft budgets apply only at that resumable boundary. Source pages
+        // remain bounded (at most eight sources, 129 hits / 2048 scanned each).
+        let needs_read = streams.iter().any(|s| s.buffer.is_empty() && !s.done);
+        if needs_read
+            && (work >= 8192 || (work > 0 && started.elapsed() > Duration::from_millis(200)))
+        {
+            break;
+        }
         let mut incomplete = false;
-        for stream in &mut streams {
+        for stream in streams.iter_mut() {
             if !stream.buffer.is_empty() || stream.done {
                 continue;
             }
-            if work >= 8192 || (work > 0 && started.elapsed() > Duration::from_millis(200)) {
-                incomplete = true;
-                break;
-            }
             let page = query.query_page(
                 &stream.source,
-                &spec,
+                spec,
                 &stream.version,
                 stream.after.as_deref(),
                 limit + 1,
@@ -347,8 +312,7 @@ pub(super) fn assets(
             break;
         }
     }
-    let more = streams.iter().any(|s| !s.done || !s.buffer.is_empty());
-    for stream in &streams {
+    for stream in streams.iter() {
         if let Some(after) = &stream.after {
             cursor
                 .afters
@@ -358,6 +322,81 @@ pub(super) fn assets(
             cursor.exhausted.insert(stream.source.id.clone());
         }
     }
+    Ok(keys)
+}
+
+pub(super) fn assets(
+    s: &AppState,
+    pid: &str,
+    rid: &str,
+    params: QueryListParams,
+    context: &RequestReadContext,
+    read: &SourceRead,
+) -> domain::Result<ResultAssets> {
+    let result = s.store.touch_query_view(pid, rid)?;
+    retain(s, pid, &result, false, read)?;
+    let mut spec = result.spec.clone();
+    let order = params.order.map(Into::into).unwrap_or(spec.order);
+    spec.order = order;
+    let mut cursor = if let Some(raw) = params.cursor {
+        if raw.len() > 8192 {
+            return Err(domain::Error::invalid("视图游标过长"));
+        }
+        let cursor: Cursor = URL_SAFE_NO_PAD
+            .decode(raw)
+            .ok()
+            .and_then(|b| serde_json::from_slice(&b).ok())
+            .ok_or_else(|| domain::Error::invalid("视图游标无效"))?;
+        if cursor.project_id != pid
+            || cursor.result_id != rid
+            || cursor.order != order
+            || cursor
+                .afters
+                .keys()
+                .chain(cursor.exhausted.iter())
+                .chain(cursor.totals.keys())
+                .any(|id| !spec.source_ids.contains(id))
+        {
+            return Err(domain::Error::invalid("视图游标不属于该范围或排序"));
+        }
+        cursor
+    } else {
+        Cursor {
+            project_id: pid.into(),
+            result_id: rid.into(),
+            order,
+            afters: BTreeMap::new(),
+            exhausted: BTreeSet::new(),
+            totals: BTreeMap::new(),
+            scanned: 0,
+        }
+    };
+    let mut streams = result
+        .source_versions
+        .iter()
+        .map(|version| {
+            Ok(Stream {
+                source: s.store.source(pid, &version.source_id)?,
+                version: version.clone(),
+                after: cursor.afters.get(&version.source_id).cloned(),
+                buffer: VecDeque::new(),
+                next: None,
+                done: cursor.exhausted.contains(&version.source_id),
+                remaining_scan: 0,
+            })
+        })
+        .collect::<domain::Result<Vec<_>>>()?;
+    let query = read.query(domain::METADATA_MEMORY_BYTES, false);
+    let limit = params.limit.unwrap_or(48).clamp(1, 128);
+    let keys = merge_page(
+        &mut cursor,
+        &mut streams,
+        &spec,
+        limit,
+        &read.context,
+        &query,
+    )?;
+    let more = streams.iter().any(|s| !s.done || !s.buffer.is_empty());
     let mut resolved = std::collections::HashMap::new();
     for stream in &streams {
         let selected = keys

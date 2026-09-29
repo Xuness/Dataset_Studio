@@ -6,6 +6,8 @@
 
 ## 当前模块接入
 
+2026-09-29 项目审查：[Astra 审查本机复核](verification/2026-09-29-astra-review-validation.md)、[并发与生命周期修复阶段](plans/astra-review-remediation-2026-09-29.md)。R1 查询修复见[许可与分页决定](decisions/0045-query-admission-and-merge-progress.md)及[阶段验收](verification/2026-09-29-astra-r1-query-reliability.md)；其余阶段仍按计划推进。
+
 数据湖更新：[工作台](decisions/0039-lake-update-workbench.md)、[内置服务与图片配方](decisions/0040-owned-lake-worker-and-image-recipes.md)、[运行环境与保存策略](../services/lake-worker/README.md)。
 
 下载调度升级：[流水线与共享参数](decisions/0041-lake-download-pipeline.md)、[实施计划](plans/lake-download-pipeline-2026-09-27.md)、[2026-09-27 验收](verification/2026-09-27-lake-pipeline.md)。

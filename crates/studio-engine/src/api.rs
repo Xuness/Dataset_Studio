@@ -824,7 +824,7 @@ fn browse_sync(
                     start_cursor: None,
                 });
             }
-            s.queries.validate_result(store, &result)?;
+            s.queries.validate_result(store, &result, reader)?;
             cursor.sorted_result_id = Some(result.id.clone());
             let page = store.result_page_ordered(
                 id,
@@ -1260,7 +1260,7 @@ async fn create_collection(
             let _permit = read_permit(&s, domain::ReadClass::Index, &read_context)?;
             if let Some(scope) = body.scope {
                 let scope = scope.into();
-                query::validate_scope(&s, &id, &scope)?;
+                query::validate_scope(&s, &id, &scope, &_permit)?;
                 s.store.save_scope_collection(&id, &body.name, &scope)
             } else {
                 s.store.save_collection(&id, &body.name)
@@ -1301,9 +1301,9 @@ async fn submit_job(
                     )? {
                         return Ok(job);
                     }
-                    query::validate_scope(&s, &id, &scope)?;
+                    query::validate_scope(&s, &id, &scope, &_permit)?;
                     let capture = if query::requires_capture(&s, &id, &scope)? {
-                        Some(query::source_capture(&s, &id, &scope)?)
+                        Some(query::source_capture(&s, &id, &scope, &_permit)?)
                     } else {
                         None
                     };
@@ -1314,7 +1314,7 @@ async fn submit_job(
                         body.delay_ms,
                         capture,
                     )?;
-                    query_views::retain_job(&s, &id, &job)?;
+                    query_views::retain_job(&s, &id, &job, &_permit)?;
                     Ok(job)
                 }
                 (None, Some(revision)) => {

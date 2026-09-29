@@ -22,11 +22,16 @@ use studio_domain::*;
 #[derive(Default)]
 pub struct QueryReader {
     runtime: Runtime,
+    cancelled: Arc<AtomicBool>,
     rating_cache: Option<Arc<crate::RatingCache>>,
     candidate_rows: AtomicU64,
     candidate_ratings: Mutex<Vec<String>>,
 }
 impl QueryReader {
+    pub fn with_cancellation(mut self, cancelled: Arc<AtomicBool>) -> Self {
+        self.cancelled = cancelled;
+        self
+    }
     pub fn with_deadline(mut self, deadline: Option<Instant>) -> Self {
         self.runtime = self.runtime.with_deadline(deadline);
         self
@@ -216,7 +221,7 @@ impl QueryAdapter for QueryReader {
             return Ok(crate::online::Snapshot::open(
                 source,
                 revision,
-                Arc::new(AtomicBool::new(false)),
+                self.cancelled.clone(),
                 self.runtime.deadline(),
             )?
             .version(source));
@@ -232,8 +237,8 @@ impl QueryAdapter for QueryReader {
             let snapshot = crate::online::Snapshot::open(
                 source,
                 Some(&expected.catalog_revision),
-                Arc::new(AtomicBool::new(false)),
-                None,
+                self.cancelled.clone(),
+                self.runtime.deadline(),
             )?;
             return assert_version(&snapshot.version(source), expected);
         }
@@ -316,15 +321,15 @@ impl QueryAdapter for QueryReader {
         let snapshot = crate::online::Snapshot::open(
             source,
             Some(&expected.catalog_revision),
-            Arc::new(AtomicBool::new(false)),
-            None,
+            self.cancelled.clone(),
+            self.runtime.deadline(),
         )?;
         assert_version(&snapshot.version(source), expected)?;
         snapshot.retain(id, owner, "query_view", permanent)
     }
     fn release_version(&self, source: &Source, id: &str) -> Result<()> {
         if crate::online::available(source) {
-            crate::online::Snapshot::release(source, id)?;
+            crate::online::Snapshot::release(source, id, &self.cancelled, self.runtime.deadline())?;
         }
         Ok(())
     }
@@ -374,7 +379,13 @@ impl QueryAdapter for QueryReader {
     }
     fn read_version(&self, source: &Source, metadata: bool) -> Result<QuerySourceVersion> {
         if crate::online::available(source) {
-            return Ok(crate::online::Snapshot::latest(source)?.version(source));
+            return Ok(crate::online::Snapshot::open(
+                source,
+                None,
+                self.cancelled.clone(),
+                self.runtime.deadline(),
+            )?
+            .version(source));
         }
         if source.kind == "demo" {
             return Ok(QuerySourceVersion {

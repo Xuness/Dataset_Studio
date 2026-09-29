@@ -31,6 +31,7 @@ pub struct SourceQueryOptions {
     pub memory_bytes: u64,
     pub use_candidates: bool,
     pub deadline: Option<Instant>,
+    pub cancelled: ReadCancellation,
 }
 pub trait SourceQueryFactory: Send + Sync {
     fn create(&self, options: &SourceQueryOptions) -> Box<dyn QueryAdapter>;

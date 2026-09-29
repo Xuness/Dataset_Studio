@@ -121,10 +121,29 @@ impl SourceRead {
         self.registry.resolve(source)
     }
     pub fn query(&self, memory: u64, use_candidates: bool) -> SourceQuery<'_> {
+        self.query_context(memory, use_candidates, self.context.clone())
+    }
+    /// A cancellation-independent, three-second cleanup scope borrowing this
+    /// admission. It cannot start new reads or retain new versions.
+    pub fn lease_cleanup(&self) -> SourceLeaseCleanup<'_> {
+        let mut context =
+            SourceReadContext::new(Arc::new(AtomicBool::new(false)), self.context.priority);
+        context.deadline = Some(std::time::Instant::now() + std::time::Duration::from_secs(3));
+        SourceLeaseCleanup {
+            query: self.query_context(METADATA_MEMORY_BYTES, false, context),
+        }
+    }
+    fn query_context(
+        &self,
+        memory: u64,
+        use_candidates: bool,
+        context: SourceReadContext,
+    ) -> SourceQuery<'_> {
         let options = SourceQueryOptions {
             memory_bytes: memory.min(self.memory_bytes),
             use_candidates,
-            deadline: self.context.deadline,
+            deadline: context.deadline,
+            cancelled: context.cancelled.clone(),
         };
         let readers = self
             .registry
@@ -147,7 +166,8 @@ impl SourceRead {
             })
             .collect();
         SourceQuery {
-            read: self,
+            _read: self,
+            context,
             readers,
         }
     }
@@ -391,12 +411,21 @@ impl MetadataAdapter for SourceRead {
     }
 }
 pub struct SourceQuery<'a> {
-    read: &'a SourceRead,
+    _read: &'a SourceRead,
+    context: SourceReadContext,
     readers: BTreeMap<String, Box<dyn QueryAdapter>>,
+}
+pub struct SourceLeaseCleanup<'a> {
+    query: SourceQuery<'a>,
+}
+impl SourceLeaseCleanup<'_> {
+    pub fn release_version(&self, source: &Source, id: &str) -> Result<()> {
+        self.query.release_version(source, id)
+    }
 }
 impl SourceQuery<'_> {
     fn reader(&self, s: &Source) -> Result<&dyn QueryAdapter> {
-        self.read.context.check()?;
+        self.context.check()?;
         self.readers
             .get(&s.kind)
             .map(|v| v.as_ref())

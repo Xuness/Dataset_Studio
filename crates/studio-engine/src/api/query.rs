@@ -5,11 +5,12 @@ fn validate_input(
     pid: &str,
     spec: &domain::QuerySpec,
     versions: &[domain::QuerySourceVersion],
+    read: &SourceRead,
 ) -> domain::Result<()> {
     s.store.query_input_count(pid, spec)?;
     if let Some(scope) = &spec.input_scope {
         if !spec.uses_only_fixed_project_data() {
-            validate_scope(s, pid, scope)?;
+            validate_scope(s, pid, scope, read)?;
         }
         if let domain::ScopeTarget::Source {
             source_id,
@@ -32,6 +33,7 @@ fn validate_input(
 pub(super) async fn run(
     State(s): State<AppState>,
     Extension(session): Extension<ClientSession>,
+    Extension(context): Extension<RequestReadContext>,
     Path(pid): Path<String>,
     Body(body): Body<RunQuery>,
 ) -> ApiResult<QueryResult> {
@@ -39,12 +41,13 @@ pub(super) async fn run(
         blocking(move || {
             let spec = domain::QuerySpec::from(body.spec).normalize()?;
             let versions = s.queries.versions(&s.store, &pid, &spec)?;
-            validate_input(&s, &pid, &spec, &versions)?;
+            let read = read_permit(&s, domain::ReadClass::Index, &context)?;
+            validate_input(&s, &pid, &spec, &versions, &read)?;
             if versions
                 .iter()
                 .any(|v| v.consistency == "retained_online_snapshot")
             {
-                return query_views::create_fixed(&s, &pid, spec, versions).map(Into::into);
+                return query_views::create_fixed(&s, &pid, spec, versions, &read).map(Into::into);
             }
             let _cache_gate = s.queries.cache.lock()?;
             let result = s.store.create_result_with_cache(
@@ -187,7 +190,7 @@ pub(super) async fn build(
                 return Err(domain::Error::new("REVISION_CONFLICT", "查询定义已变化"));
             }
             let versions = s.queries.versions(&s.store, &pid, &query.spec)?;
-            validate_input(&s, &pid, &query.spec, &versions)?;
+            validate_input(&s, &pid, &query.spec, &versions, &_permit)?;
             if versions
                 .iter()
                 .any(|v| v.consistency == "retained_online_snapshot")
@@ -199,7 +202,7 @@ pub(super) async fn build(
                     versions,
                     false,
                 )?;
-                query_views::retain_created(&s, &pid, &result, true)?;
+                query_views::retain_created(&s, &pid, &result, true, &_permit)?;
                 return Ok(result.into());
             }
             let _cache_gate = s.queries.cache.lock()?;
@@ -277,7 +280,7 @@ pub(super) async fn validity(
             let result = session_result(&s, &pid, &rid, session.0.as_deref())?;
             let issue = s
                 .queries
-                .validate_result(&s.store, &result)
+                .validate_result(&s.store, &result, &_permit)
                 .err()
                 .map(|e| e.to_string());
             Ok(ResultValidity {
@@ -310,12 +313,14 @@ pub(super) async fn cancel(
 #[utoipa::path(post,path="/v1/projects/{project_id}/query-results/{result_id}/release",params(("project_id"=String,Path),("result_id"=String,Path)),responses((status=200,body=QueryResult)))]
 pub(super) async fn release(
     State(s): State<AppState>,
+    Extension(context): Extension<RequestReadContext>,
     Path((pid, rid)): Path<(String, String)>,
 ) -> ApiResult<QueryResult> {
     Ok(Json(
         blocking(move || {
+            let read = read_permit(&s, domain::ReadClass::Index, &context)?;
             let result = s.store.release_result(&pid, &rid)?;
-            query_views::release_versions(&s, &pid, &result)?;
+            query_views::release_versions(&s, &pid, &result, &read)?;
             Ok(result.into())
         })
         .await?,
@@ -325,6 +330,7 @@ pub(super) async fn release(
 pub(super) async fn lease_result(
     State(s): State<AppState>,
     Extension(session): Extension<ClientSession>,
+    Extension(context): Extension<RequestReadContext>,
     Path((pid, rid, lid)): Path<(String, String, String)>,
 ) -> ApiResult<OkResponse> {
     Ok(Json(
@@ -332,7 +338,8 @@ pub(super) async fn lease_result(
             if s.store.query_storage_kind(&pid, &rid)? == "view" {
                 domain::validate_id(&lid)?;
                 let result = s.store.touch_query_view(&pid, &rid)?;
-                query_views::retain(&s, &pid, &result, false)?;
+                let read = read_permit(&s, domain::ReadClass::Index, &context)?;
+                query_views::retain(&s, &pid, &result, false, &read)?;
                 return Ok(OkResponse { ok: true });
             }
             let _gate = s.queries.cache.lock()?;
@@ -400,7 +407,7 @@ pub(super) async fn result_assets(
                 }
                 result
             };
-            s.queries.validate_result(&s.store, &result)?;
+            s.queries.validate_result(&s.store, &result, &_permit)?;
             let order = q.order.map(Into::into).unwrap_or(result.spec.order);
             let after = q
                 .cursor
@@ -536,11 +543,12 @@ pub(super) fn validate_scope(
     s: &AppState,
     pid: &str,
     scope: &domain::ScopeRef,
+    read: &SourceRead,
 ) -> domain::Result<()> {
     scope.validate_project(pid)?;
     if let domain::ScopeTarget::QueryResult { result_id } = &scope.target {
         s.queries
-            .validate_result(&s.store, &s.store.query_result(pid, result_id)?)?;
+            .validate_result(&s.store, &s.store.query_result(pid, result_id)?, read)?;
     }
     Ok(())
 }
@@ -561,11 +569,12 @@ pub(super) fn source_capture(
     s: &AppState,
     pid: &str,
     scope: &domain::ScopeRef,
+    read: &SourceRead,
 ) -> domain::Result<(domain::QuerySpec, Vec<domain::QuerySourceVersion>)> {
     scope.validate_project(pid)?;
     if let domain::ScopeTarget::QueryResult { result_id } = &scope.target {
         let result = s.store.touch_query_view(pid, result_id)?;
-        s.queries.validate_result(&s.store, &result)?;
+        s.queries.validate_result(&s.store, &result, read)?;
         return Ok((result.spec, result.source_versions));
     }
     let domain::ScopeTarget::Source {
@@ -585,7 +594,6 @@ pub(super) fn source_capture(
         order: domain::QueryOrder::AssetKeyAsc,
         input_scope: None,
     };
-    let read = s.sources.inspect()?;
     let reader = read.query(domain::METADATA_MEMORY_BYTES, false);
     let versions =
         vec![reader.read_version_at(&s.store.source(pid, source_id)?, Some(revision), false)?];
@@ -595,16 +603,18 @@ pub(super) fn source_capture(
 pub(super) async fn capture(
     State(s): State<AppState>,
     Extension(session): Extension<ClientSession>,
+    Extension(context): Extension<RequestReadContext>,
     Path(pid): Path<String>,
     Body(body): Body<CaptureScope>,
 ) -> ApiResult<QueryResult> {
     Ok(Json(
         blocking(move || {
-            let (spec, versions) = source_capture(&s, &pid, &body.scope.into())?;
+            let read = read_permit(&s, domain::ReadClass::Index, &context)?;
+            let (spec, versions) = source_capture(&s, &pid, &body.scope.into(), &read)?;
             if versions.iter().any(|v| {
                 v.consistency == "retained_online_snapshot" || v.consistency == "immutable_demo"
             }) {
-                return query_views::create_fixed(&s, &pid, spec, versions).map(Into::into);
+                return query_views::create_fixed(&s, &pid, spec, versions, &read).map(Into::into);
             }
             let _cache_gate = s.queries.cache.lock()?;
             let result = s.store.create_result_with_cache(
@@ -632,7 +642,7 @@ pub(super) async fn select_scope(
         blocking(move || {
             let _permit = read_permit(&s, domain::ReadClass::Index, &read_context)?;
             let scope = body.scope.into();
-            validate_scope(&s, &pid, &scope)?;
+            validate_scope(&s, &pid, &scope, &_permit)?;
             s.store
                 .change_selection_scope(&pid, body.expected_revision, &scope, body.operation.into())
                 .map(Into::into)

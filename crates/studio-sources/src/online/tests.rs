@@ -132,6 +132,69 @@ fn read(f: &Fixture, spec: &QuerySpec, version: &QuerySourceVersion) -> SourceQu
 }
 
 #[test]
+fn lease_write_wait_observes_request_deadline() {
+    let f = Fixture::new();
+    let version = QueryReader::default()
+        .read_version(&f.source, true)
+        .unwrap();
+    let db = Connection::open(&f.path).unwrap();
+    db.execute_batch("BEGIN IMMEDIATE").unwrap();
+    let started = Instant::now();
+    let query = QueryReader::default().with_deadline(Some(started + Duration::from_millis(90)));
+    let error = query
+        .retain_version(&f.source, &version, "deadline-test", "test", false)
+        .unwrap_err();
+    assert_eq!(error.code, "SOURCE_TIMEOUT");
+    assert!(started.elapsed() < Duration::from_secs(1));
+    db.execute_batch("ROLLBACK").unwrap();
+    let count: i64 = db
+        .query_row(
+            "SELECT count(*) FROM leases WHERE id='deadline-test'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 0);
+}
+
+#[test]
+fn lease_write_wait_observes_cancellation_and_release_uses_its_context() {
+    let f = Fixture::new();
+    let version = QueryReader::default()
+        .read_version(&f.source, true)
+        .unwrap();
+    let db = Connection::open(&f.path).unwrap();
+    db.execute_batch("BEGIN IMMEDIATE").unwrap();
+    let flag = Arc::new(AtomicBool::new(false));
+    let started = Instant::now();
+    let thread = {
+        let flag = flag.clone();
+        let source = f.source.clone();
+        std::thread::spawn(move || {
+            QueryReader::default()
+                .with_cancellation(flag)
+                .retain_version(&source, &version, "cancel-test", "test", false)
+        })
+    };
+    std::thread::sleep(Duration::from_millis(60));
+    flag.store(true, Ordering::Release);
+    assert_eq!(thread.join().unwrap().unwrap_err().code, "CANCELLED");
+    assert!(started.elapsed() < Duration::from_secs(1));
+    assert_eq!(
+        QueryReader::default()
+            .with_cancellation(flag)
+            .release_version(&f.source, "cancel-test")
+            .unwrap_err()
+            .code,
+        "CANCELLED"
+    );
+    db.execute_batch("ROLLBACK").unwrap();
+    QueryReader::default()
+        .release_version(&f.source, "cancel-test")
+        .unwrap();
+}
+
+#[test]
 fn indexed_tags_keep_literal_and_same_observation_semantics() {
     let f = Fixture::new();
     let q = QueryReader::default();

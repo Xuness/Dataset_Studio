@@ -79,7 +79,10 @@ pub(super) async fn create(
             if label.chars().count() > 512 {
                 return Err(domain::Error::invalid("范围名称过长"));
             }
-            query::validate_scope(&s, &pid, &scope)?;
+            {
+                let read = s.sources.inspect()?;
+                query::validate_scope(&s, &pid, &scope, &read)?;
+            }
             let source_ids = s.store.scope_source_ids(&pid, &scope)?;
             let registered = s.lake_updates.execute(Op::Lakes, json!({}))?;
             for id in &source_ids {
@@ -98,7 +101,8 @@ pub(super) async fn create(
             }
             // Capture on submission so a later selection edit cannot change membership.
             let (spec, versions) = if query::requires_capture(&s, &pid, &scope)? {
-                query::source_capture(&s, &pid, &scope)?
+                let read = s.sources.inspect()?;
+                query::source_capture(&s, &pid, &scope, &read)?
             } else {
                 let spec = domain::QuerySpec {
                     version: 3,
@@ -144,12 +148,14 @@ pub(super) async fn create(
             let _capture = CaptureAttempt;
             capture_versions(&s, &row, true)?;
             let result = if query::requires_capture(&s, &pid, &row.scope)? {
-                query_views::create_fixed(&s, &pid, spec, versions)?
+                let read = s.sources.inspect()?;
+                query_views::create_fixed(&s, &pid, spec, versions, &read)?
             } else {
                 let result = s
                     .store
                     .capture_lake_members(&pid, &row.scope, spec, versions, &row.id, &cancelled)?;
-                query_views::retain_created(&s, &pid, &result, true)?;
+                let read = s.sources.inspect()?;
+                query_views::retain_created(&s, &pid, &result, true, &read)?;
                 result
             };
             s.store.lake_input_pin(&pid, &row.id, &result.id, true)?;
@@ -282,7 +288,10 @@ fn advance(s: &AppState, row: &mut LakeInputPreparation) -> domain::Result<()> {
         return Ok(());
     }
     let result = s.store.query_result(&row.project_id, &rid)?;
-    query_views::retain(s, &row.project_id, &result, true)?;
+    {
+        let read = s.sources.inspect()?;
+        query_views::retain(s, &row.project_id, &result, true, &read)?;
+    }
     capture_versions(s, row, false)?;
     if matches!(
         result.state,
@@ -357,7 +366,10 @@ fn finish_result(s: &AppState, row: &LakeInputPreparation, rid: &str) -> domain:
     s.store
         .lake_input_pin(&row.project_id, &row.id, rid, false)?;
     match s.store.release_result(&row.project_id, rid) {
-        Ok(result) => query_views::release_versions(s, &row.project_id, &result),
+        Ok(result) => {
+            let read = s.sources.inspect()?;
+            query_views::release_versions(s, &row.project_id, &result, &read)
+        }
         Err(e) if e.code == "RESULT_IN_USE" => Ok(()),
         Err(e) => Err(e),
     }

@@ -9,9 +9,10 @@ pub(super) async fn validate_scope(
     Ok(Json(
         blocking(move || {
             let scope = body.scope.into();
-            query::validate_scope(&s, &pid, &scope)?;
+            let read = s.sources.inspect()?;
+            query::validate_scope(&s, &pid, &scope, &read)?;
             if query::requires_capture(&s, &pid, &scope)? {
-                query::source_capture(&s, &pid, &scope)?;
+                query::source_capture(&s, &pid, &scope, &read)?;
             } else {
                 s.store.scope_source_ids(&pid, &scope)?;
             }
@@ -42,14 +43,16 @@ pub(super) async fn submit(
     Ok(Json(
         blocking(move || {
             let _lease = s.store.operation_lease(&pid)?;
-            let _permit = read_permit(&s, domain::ReadClass::Index, &read_context)?;
             let mut request: domain::ToolSubmission = body.into();
             request.scope.validate_project(&pid)?;
             request.run = studio_operators::registry()?.normalize(request.run)?;
             if let Some(old) = s.store.retry_registered_job(&pid, &request)? {
                 return Ok(old.into());
             }
-            query::validate_scope(&s, &pid, &request.scope)?;
+            {
+                let read = read_permit(&s, domain::ReadClass::Index, &read_context)?;
+                query::validate_scope(&s, &pid, &request.scope, &read)?;
+            }
             let frozen = crate::tool_inputs::capture(
                 &s.store,
                 &pid,
@@ -57,15 +60,16 @@ pub(super) async fn submit(
                 request.run.clone(),
                 &s.sources,
             )?;
+            let read = read_permit(&s, domain::ReadClass::Index, &read_context)?;
             let capture = if query::requires_capture(&s, &pid, &request.scope)? {
-                Some(query::source_capture(&s, &pid, &request.scope)?)
+                Some(query::source_capture(&s, &pid, &request.scope, &read)?)
             } else {
                 None
             };
             let job = s
                 .store
                 .submit_registered_job(&pid, &request, &frozen, capture)?;
-            query_views::retain_job(&s, &pid, &job)?;
+            query_views::retain_job(&s, &pid, &job, &read)?;
             if domain::is_ranking_operator(&job.operator) && job.stage.is_none() {
                 s.store.job_stage(
                     &pid,
