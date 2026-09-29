@@ -7,6 +7,33 @@ import time
 from ..util import FileLock, atomic_json, read_json
 from .sites import UpdateError
 
+NOT_FOUND_WINDOW = 60
+NOT_FOUND_THRESHOLD = 8
+NOT_FOUND_COOLDOWN = 60
+
+
+def image_not_found(root, site):
+    """A burst of missing images may be a CDN outage, not thousands of deleted posts.
+
+    Persist a bounded counter in the existing shared image lane. Already admitted
+    downloads may finish; metadata, encoders and publication remain independent.
+    """
+    root = Path(root)
+    marker = root / ("rate-image-" + site + ".json")
+    with FileLock(root / ("rate-image-" + site + ".lock")):
+        saved = read_json(marker) if marker.exists() else {}
+        stamp = time.time()
+        since = saved.get("not_found_since", 0)
+        count = saved.get("not_found_count", 0) if 0 <= stamp - since < NOT_FOUND_WINDOW else 0
+        if not count:
+            since = stamp
+        count += 1
+        saved.update(not_found_since=since, not_found_count=count)
+        if count >= NOT_FOUND_THRESHOLD:
+            saved.update(cooldown_until=max(saved.get("cooldown_until", 0), stamp + NOT_FOUND_COOLDOWN),
+                         not_found_count=0, not_found_since=stamp)
+        atomic_json(marker, saved)
+
 
 @contextmanager
 def admission(root, site, cancelled, delay=1.1):

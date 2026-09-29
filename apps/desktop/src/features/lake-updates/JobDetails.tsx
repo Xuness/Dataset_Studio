@@ -10,6 +10,7 @@ import {
   bytesLabel,
   dateLabel,
   itemStates,
+  itemReasonLabel,
   phases,
   policyLabel,
   rangeLabel,
@@ -284,6 +285,10 @@ export function JobDetails({
         </div>
         <details>
           <summary>诊断与恢复</summary>
+          <p className="lake-hint">
+            继续会接续尚未完成的队列。重试未获取项会重新排队失败项，优先复用已保存的元数据与下载断点；缺少有效图片地址或多次返回
+            404 时才重新获取元数据。
+          </p>
           <p>任务 {job.id}</p>
           <CopyButton text={job.id} />
           <p className="lake-hint">
@@ -391,8 +396,10 @@ export function JobDetails({
               <option value="problems">未获取或需检查</option>
               <option value="">全部记录</option>
               <option value="pending">待下载</option>
+              <option value="pending_metadata">待刷新元数据</option>
               <option value="stored">已保存</option>
               <option value="failed">失败</option>
+              <option value="needs_review">需要检查</option>
               <option value="unavailable">未获取</option>
             </select>
           </label>
@@ -419,7 +426,9 @@ export function JobDetails({
             <div key={i.post_id}>
               <strong>#{i.post_id}</strong>
               <span>{itemStates[i.state] ?? i.state}</span>
-              <small>{i.reason}</small>
+              <small title={i.reason ?? undefined}>
+                {itemReasonLabel(i.reason)}
+              </small>
             </div>
           ))}
         </div>

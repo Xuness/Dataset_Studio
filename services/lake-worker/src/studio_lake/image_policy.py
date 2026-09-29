@@ -103,7 +103,7 @@ def prepare_image(data, policy):
         return prepare_legacy_image(data, policy["profile"])
     recipe = policy["encoding"]
     details = {"download_sha256": digest(data), "download_bytes": len(data),
-               "storage_profile": profile_id(policy), "encoding": recipe, "processing_version": 3,
+               "storage_profile": profile_id(policy), "encoding": recipe, "processing_version": 4,
                "pillow_version": PILLOW_VERSION}
     with Image.open(io.BytesIO(data)) as source:
         frames = getattr(source, "n_frames", 1)
@@ -117,16 +117,26 @@ def prepare_image(data, policy):
         source.seek(0)
         im = ImageOps.exif_transpose(source)
         im.load()
-        alpha = "A" in im.getbands() or "transparency" in im.info
+        alpha = im.mode in {"RGBA", "RGBa", "LA", "La", "PA"} or "transparency" in im.info
         rgba = im.convert("RGBA") if alpha else None
         transparent = rgba is not None and rgba.getchannel("A").getextrema()[0] < 255
         if transparent and recipe["alpha"] == "reject":
             raise ImagePolicyError("transparent_image_rejected")
         icc = im.info.get("icc_profile")
         if icc and im.mode not in {"RGB", "RGBA", "P"}:
-            target = ImageCms.createProfile("sRGB")
-            im = ImageCms.profileToProfile(im, ImageCms.ImageCmsProfile(io.BytesIO(icc)), target, outputMode="RGB")
-            icc = ImageCms.ImageCmsProfile(target).tobytes()
+            profile = ImageCms.ImageCmsProfile(io.BytesIO(icc))
+            if profile.profile.xcolor_space.strip() == "RGB" and im.mode in {"1", "L", "LA"}:
+                # Some grayscale JPEG/PNG files embed an RGB profile. Expand the
+                # channels before using that profile; L -> RGB CMS is invalid.
+                im = rgba if rgba is not None else im.convert("RGB")
+                details["color_profile_action"] = "expanded_grayscale_to_rgb"
+            else:
+                target = ImageCms.createProfile("sRGB")
+                im = ImageCms.profileToProfile(im.convert("L") if im.mode == "LA" else im,
+                                              profile, target, outputMode="RGB")
+                if rgba is not None:
+                    im.putalpha(rgba.getchannel("A"))
+                icc = ImageCms.ImageCmsProfile(target).tobytes()
         elif rgba is not None:
             im = rgba
         else:

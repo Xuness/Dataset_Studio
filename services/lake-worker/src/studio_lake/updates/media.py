@@ -8,7 +8,7 @@ import threading
 import time
 from urllib.parse import urlsplit
 
-from PIL import Image
+from PIL import Image, ImageCms
 import requests
 
 from ..image_policy import prepare_image, profile_id, ImagePolicyError
@@ -270,6 +270,8 @@ def encode_download(lib, job, item, downloaded, resources, cancelled, progress=N
         return {**saved, "ready_path": str(ready)}
     except ImagePolicyError:
         return {"state": "needs_review", "reason": "image_policy_rejected"}
+    except ImageCms.PyCMSError:
+        return {"state": "needs_review", "reason": "image_color_profile_error"}
     except (OSError, ValueError, Image.DecompressionBombError) as error:
         if isinstance(error, OSError) and error.errno == errno.ENOSPC:
             raise UpdateError("UPDATE_SPACE", "Waiting for SSD space during encoding") from None

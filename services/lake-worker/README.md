@@ -123,4 +123,8 @@ pwsh -File tooling/setup-lake-worker.ps1 -Dev
 
 ## 验证
 
+图片 HTTP 404 进入有次数上限的重试，不直接认定帖子删除。同一站点图片通道在 60 秒内累计 8 次 404 后冷却至少 60 秒，仍遵守更长的既有冷却；已经开始的下载及元数据、编码、发布继续工作。重试最多 8 次，耗尽后保留缺口供检查。此保护不代表站点公布了限流规则，也不绕过访问限制。
+
+“继续”接续原队列；“重试未获取项”优先重用已发布元数据与原下载断点，仅缺少有效地址、来源删除/受限、元数据缺失或 404 已耗尽尝试时刷新 API。兼容带 RGB ICC 的灰度图片；无法处理的色彩配置只产生单张 `image_color_profile_error`，原件保留，其余图片照常处理。详见 [ADR 0044](../../docs/decisions/0044-lake-media-recovery.md)。
+
 `pnpm test:lake`、`node tooling/integration-lake-updates.mjs`、`pnpm test:lake-ui`。优先使用 `.local/runtime/lake-worker`，也可指定 `STUDIO_LAKE_TEST_PYTHON`，不再使用 `STUDIO_LAKE_TEST_STORE`。夹具和证据只写入 `.local/`；测试不访问真实站点，不创建正式计划。

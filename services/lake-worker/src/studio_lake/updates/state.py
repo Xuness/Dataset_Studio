@@ -354,7 +354,11 @@ class State:
             with self.db() as db:
                 if action == "retry":
                     db.execute(
-                        "UPDATE items SET state='pending_metadata',reason=NULL,retry_at=0,attempts=0 "
+                        "UPDATE items SET state=CASE WHEN observation_id IS NOT NULL AND record_json<>'{}' "
+                        "AND coalesce(reason,'') NOT IN ('source_deleted','source_restricted','no_image_url',"
+                        "'not_returned_by_api','metadata_not_available') "
+                        "AND NOT (coalesce(reason,'')='image_http_404' AND attempts>=8) "
+                        "THEN 'pending' ELSE 'pending_metadata' END,reason=NULL,retry_at=0,attempts=0 "
                         "WHERE job_id=? AND state IN ('failed','needs_review','unavailable')",
                         (identity,),
                     )

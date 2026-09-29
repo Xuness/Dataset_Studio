@@ -224,8 +224,9 @@ def resume_response(lib, path):
 
 def commit_media(state, lib, job, results, cursor):
     key = stable_id(
-        "update-media-v1",
+        "update-media-v2",
         job["id"],
+        job["execution"],
         *[
             f"{r['post_id']}:{r['observation_id']}:{r['state']}:{r.get('sha256')}:{r.get('attempt', 1)}"
             for r in results
@@ -249,6 +250,7 @@ def commit_media(state, lib, job, results, cursor):
                 "kind": "update_media",
                 "update_job_id": job["id"],
                 "update_role": "media",
+                "update_execution": job["execution"],
                 "definition": job["definition"],
                 "results": results,
                 "cursor": cursor,

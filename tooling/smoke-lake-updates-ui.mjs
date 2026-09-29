@@ -477,6 +477,11 @@ try {
   );
   await expect(page.locator(".lake-details")).toContainText("ReadTimeout");
   await expect(page.locator(".lake-details")).toContainText("可接续 1.0 MiB");
+  await expect(page.locator(".lake-details")).toContainText(
+    "优先复用已保存的元数据与下载断点",
+  );
+  await expect(page.getByLabel("记录范围")).toContainText("待刷新元数据");
+  await expect(page.getByLabel("记录范围")).toContainText("需要检查");
   await page.screenshot({ path: resolve(run, "download-recovery.png") });
   checks.push(
     "persisted resume counters and bounded network diagnostics survive UI reload through the public API",

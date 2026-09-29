@@ -64,6 +64,20 @@ export const itemStates: Record<string, string> = {
   excluded: "不在范围内",
   skipped: "已跳过",
 };
+const itemReasons: Record<string, string> = {
+  image_http_404: "图片地址暂未找到；可重试，不代表帖子已删除",
+  image_color_profile_error: "图片色彩配置无法转换；原始下载已保留",
+  image_decode_or_storage_error: "图片解码或暂存失败；检查格式与本地存储",
+  image_transport_failed: "图片传输中断；可从有效断点重试",
+  unsupported_media: "视频或压缩包等当前不支持的媒体",
+  source_deleted: "来源标记已删除",
+  source_restricted: "来源标记访问受限",
+  no_image_url: "元数据中没有可用的图片地址",
+  not_returned_by_api: "本次 API 请求未返回该帖子",
+  UPDATE_RESOURCE_LIMIT: "图片超过当前单文件、像素或内存预算",
+};
+export const itemReasonLabel = (reason: string | null | undefined) =>
+  reason ? (itemReasons[reason] ?? reason) : "";
 export const active = (job: UpdateJob) =>
   job.execution_active ||
   ["queued", "running", "waiting_retry", "waiting_space"].includes(job.state);

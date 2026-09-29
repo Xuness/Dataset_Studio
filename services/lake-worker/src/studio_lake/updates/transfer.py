@@ -177,6 +177,8 @@ def fetch(directory, key, url, kind, observation, site, resources, cancelled, se
                 progress(connect_seconds_delta=time.perf_counter() - connected)
             with response:
                 status = response.status_code
+                if status == 404 and site.rate_root is not None and sessions.injected is None:
+                    rate.image_not_found(site.rate_root, site.name)
                 if status == 416 and offset:
                     partial.discard()
                     continue
@@ -187,7 +189,7 @@ def fetch(directory, key, url, kind, observation, site, resources, cancelled, se
                         if site.rate_root is not None:
                             rate.cooldown(site.rate_root, site.name, delay, image=True)
                     return {
-                        "state": "failed" if status == 429 or status >= 500 else "needs_review",
+                        "state": "failed" if status in {404, 429} or status >= 500 else "needs_review",
                         "reason": f"image_http_{status}",
                         "retry_at": time.time() + delay,
                     }
