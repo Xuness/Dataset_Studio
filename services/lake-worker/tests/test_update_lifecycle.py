@@ -352,7 +352,7 @@ def test_v4_upgrade_enqueues_old_cancelled_tasks_and_retains_paused_files(tmp_pa
     assert not partial.exists() and (kept / ("c" * 64 + ".downloaded")).read_bytes() == b"resume me"
     assert reopened.job(paused["id"])["cleanup"] is None
     with reopened.db() as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 6
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 7
 
 
 def queue(tmp_path, backlog):

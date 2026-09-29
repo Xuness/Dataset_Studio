@@ -5,7 +5,7 @@ import { mkdir, readFile, writeFile, cp, rename } from "node:fs/promises";
 import { resolve, basename, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
-import { EngineFixture } from "./engine-fixture.mjs";
+import { EngineFixture, sleep } from "./engine-fixture.mjs";
 import { clientFixture } from "./client-fixture.mjs";
 import { lakeWorkerPython } from "./lake-worker-runtime.mjs";
 import { verifyLakeWorkerBundle } from "./lake-worker-bundle.mjs";
@@ -298,6 +298,62 @@ try {
   );
   checks.push(
     "saved broken runtime recovers after engine restart without losing state; completed relocations persist",
+  );
+  await engine.stop();
+  const legacy = new DatabaseSync(
+    resolve(runtime.state_root, "updates.sqlite"),
+  );
+  try {
+    legacy.exec(
+      "BEGIN IMMEDIATE; DROP TABLE lake_dispatch; PRAGMA user_version=6; COMMIT;",
+    );
+  } finally {
+    legacy.close();
+  }
+  const oldHeartbeat = await readFile(
+    resolve(runtime.state_root, "heartbeat.json"),
+    "utf8",
+  );
+  await engine.start();
+  client = new StudioClient(engine.connection);
+  await engine.wait(
+    "/v1/lake-updates/status",
+    (s) => s.runtime.state === "ready" && s.worker_recent,
+  );
+  // A successful handshake alone missed the original first-scheduler-tick crash.
+  await sleep(2200);
+  const repaired = await client.lakeUpdates.status();
+  assert.equal(repaired.runtime.state, "ready");
+  assert.equal(repaired.runtime.failures, 0);
+  assert.equal(repaired.worker_recent, true);
+  assert.notEqual(
+    await readFile(resolve(runtime.state_root, "heartbeat.json"), "utf8"),
+    oldHeartbeat,
+  );
+  assert.equal((await client.lakeUpdates.lakes()).items.length, 3);
+  assert.equal((await client.lakeUpdates.relocations()).items.length, 0);
+  assert.ok(repaired.credentials.some((c) => c.credential_set));
+  const upgraded = new DatabaseSync(
+    resolve(runtime.state_root, "updates.sqlite"),
+    { readOnly: true },
+  );
+  try {
+    assert.equal(upgraded.prepare("PRAGMA user_version").get().user_version, 7);
+    assert.equal(
+      upgraded.prepare("SELECT count(*) AS n FROM lake_dispatch").get().n,
+      0,
+    );
+    assert.equal(
+      upgraded
+        .prepare("SELECT count(*) AS n FROM inputs WHERE state='sealed'")
+        .get().n,
+      3,
+    );
+  } finally {
+    upgraded.close();
+  }
+  checks.push(
+    "legacy v6 without lake_dispatch upgrades at startup; worker advances heartbeats and retains credentials, lakes, fixed inputs and completed relocations",
   );
 } finally {
   await engine.stop();

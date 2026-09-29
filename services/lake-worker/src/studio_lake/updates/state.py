@@ -56,6 +56,7 @@ CREATE TRIGGER IF NOT EXISTS input_count AFTER INSERT ON input_ids BEGIN
  UPDATE inputs SET count=count+1 WHERE id=new.input_id; END;
 """
 TERMINAL = {"completed", "completed_with_exclusions", "cancelled"}
+SCHEMA_VERSION = 7
 
 
 class State:
@@ -69,22 +70,22 @@ class State:
             application = db.execute("PRAGMA application_id").fetchone()[0]
             if (
                 application not in {0, 0x44535550}
-                or version not in {0, 1, 2, 3, 4, 5, 6}
-                or (version in {1, 2, 3, 4, 5, 6} and application != 0x44535550)
+                or version not in range(SCHEMA_VERSION + 1)
+                or (version != 0 and application != 0x44535550)
             ):
                 raise UpdateError("UPDATE_PROTOCOL", "Unsupported update control database")
-            if version < 6:
+            if version < SCHEMA_VERSION:
                 try:
                     upgrade.enter_context(FileLock(self.root / "runner.lock", timeout=0.1))
                     version = db.execute("PRAGMA user_version").fetchone()[0]
-                    if version == 6:
+                    if version == SCHEMA_VERSION:
                         return
                     for path in (self.root / "executions").glob("*.lock"):
                         upgrade.enter_context(FileLock(path, timeout=0))
                 except RuntimeError:
                     # A new worker may already own runner.lock after completing
                     # the upgrade while this RPC waited for admission.
-                    if db.execute("PRAGMA user_version").fetchone()[0] == 6:
+                    if db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION:
                         return
                     raise UpdateError("UPDATE_CONFLICT", "请先停止旧版更新运行器，再由 Studio 升级控制状态") from None
             if version == 0:
@@ -117,6 +118,14 @@ class State:
             if version < 6:
                 db.executescript(locations.DDL)
                 db.execute("PRAGMA user_version=6")
+            if version < 7:
+                # Development hot reload could persist v5 before lake_dispatch was
+                # added to that migration. A later v6 upgrade did not revisit it.
+                # Repair in a new transactionally versioned step, preserving any
+                # existing service order and all task/credential/cursor records.
+                db.execute("CREATE TABLE IF NOT EXISTS lake_dispatch("
+                           "lake_id TEXT PRIMARY KEY REFERENCES lakes(id),sequence INTEGER NOT NULL)")
+                db.execute("PRAGMA user_version=7")
 
     @contextmanager
     def db(self):

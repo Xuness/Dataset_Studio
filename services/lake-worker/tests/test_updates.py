@@ -511,7 +511,7 @@ def test_control_v1_migrates_without_changing_jobs_or_credentials(tmp_path):
     assert reopened.job(task["id"])["telemetry"] == {}
     assert reopened.credentials("danbooru")["api_key"] == "not-a-real-key"
     with reopened.db() as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 6
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 7
 
 
 def test_ui_recent_filters_counts_and_sparse_problems(tmp_path):

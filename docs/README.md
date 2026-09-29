@@ -12,6 +12,8 @@
 
 更新任务生命周期：[原子命令、按湖调度与取消回收](decisions/0046-update-command-handoff-and-cancel-cleanup.md)、[R2 验收](verification/2026-09-29-astra-r2-update-lifecycle.md)。
 
+更新运行器启动修正：[开发期控制库缺失调度表的 v7 迁移与恢复](verification/2026-09-29-lake-dispatch-migration.md)。
+
 下载调度升级：[流水线与共享参数](decisions/0041-lake-download-pipeline.md)、[实施计划](plans/lake-download-pipeline-2026-09-27.md)、[2026-09-27 验收](verification/2026-09-27-lake-pipeline.md)。
 
 下载恢复：[图片断点与后台自动接续](decisions/0042-resumable-lake-transfers.md)、[2026-09-28 验收](verification/2026-09-28-lake-resume.md)。
