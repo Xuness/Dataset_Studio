@@ -19,6 +19,15 @@ from .read_model import activity
 def dispatch(state, command, args):
     if not isinstance(args, dict):
         raise UpdateError("INVALID_INPUT", "Command arguments must be an object")
+    if command.startswith("relocation_"):
+        from . import relocation
+
+        operations = {"relocation_list": relocation.list_all, "relocation_prepare": relocation.prepare,
+                      "relocation_apply": relocation.apply, "relocation_finish": relocation.finish,
+                      "relocation_cancel": relocation.cancel}
+        if command not in operations:
+            raise UpdateError("INVALID_INPUT", "Unknown relocation command")
+        return operations[command](state, **args)
     if command in {"pipeline_get", "pipeline_set"}:
         from . import settings
 
@@ -166,25 +175,34 @@ def dispatch(state, command, args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", required=True, type=Path)
-    parser.add_argument("--mode", choices=["rpc", "serve", "run", "import-credentials"], default="rpc")
+    parser.add_argument("--mode", choices=["check", "rpc", "serve", "run", "import-credentials"], default="rpc")
     parser.add_argument("--job")
     parser.add_argument("--file", type=Path)
     parser.add_argument("--watch-stdin", action="store_true")
+    parser.add_argument("--wait-activate", action="store_true")
     args = parser.parse_args()
     try:
+        if args.mode == "check":
+            print(json.dumps({"protocol_version": PROTOCOL_VERSION, "ok": True, "result": handshake()}), flush=True)
+            return
         state = State(args.root)
         if args.mode == "serve":
             runner = Runner(state)
             signal.signal(signal.SIGINT, lambda *_: runner.stop.set())
             signal.signal(signal.SIGTERM, lambda *_: runner.stop.set())
-            if args.watch_stdin:
+            def ready():
+                if args.wait_activate:
+                    print(json.dumps({"protocol_version": PROTOCOL_VERSION, "ok": True, "result": handshake()}), flush=True)
+                    if sys.stdin.buffer.read(1) != b"1":
+                        return False
+                if args.watch_stdin:
+                    def watch():
+                        sys.stdin.buffer.read(1)
+                        runner.stop.set()
+                    threading.Thread(target=watch, daemon=True).start()
+                return True
 
-                def watch():
-                    sys.stdin.buffer.read(1)
-                    runner.stop.set()
-
-                threading.Thread(target=watch, daemon=True).start()
-            runner.serve()
+            runner.serve(ready)
             return
         if args.mode == "import-credentials":
             if args.file is None or args.file.stat().st_size > 65536:
@@ -223,6 +241,22 @@ def main():
     print(json.dumps(reply, ensure_ascii=False, separators=(",", ":")))
     if not reply["ok"]:
         sys.exit(1)
+
+
+def handshake():
+    # Import all native/runtime dependencies without opening state or contacting a site.
+    import apsw
+    import duckdb
+    import pyarrow
+    import requests
+    from PIL import Image, features
+    from .. import __version__
+
+    if not (3, 11) <= sys.version_info[:2] < (3, 14) or not features.check("webp"):
+        raise UpdateError("UPDATE_UNAVAILABLE", "Python 3.11–3.13 and WebP support are required")
+    return {"worker_version": __version__, "runtime_check": 1, "sqlite": apsw.sqlitelibversion(),
+            "duckdb": duckdb.__version__, "pyarrow": pyarrow.__version__,
+            "requests": requests.__version__, "pillow": Image.__version__}
 
 
 if __name__ == "__main__":

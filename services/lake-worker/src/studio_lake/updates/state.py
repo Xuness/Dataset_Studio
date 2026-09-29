@@ -16,7 +16,7 @@ from . import credentials
 from .protocol import definition, validate_site, timestamp, number
 from .sites import UpdateError
 from ..sqlite_control import Connection
-from . import read_model, cleanup
+from . import read_model, cleanup, locations
 
 DDL = """
 CREATE TABLE IF NOT EXISTS lakes(id TEXT PRIMARY KEY,site TEXT NOT NULL,media TEXT NOT NULL,
@@ -69,22 +69,22 @@ class State:
             application = db.execute("PRAGMA application_id").fetchone()[0]
             if (
                 application not in {0, 0x44535550}
-                or version not in {0, 1, 2, 3, 4, 5}
-                or (version in {1, 2, 3, 4, 5} and application != 0x44535550)
+                or version not in {0, 1, 2, 3, 4, 5, 6}
+                or (version in {1, 2, 3, 4, 5, 6} and application != 0x44535550)
             ):
                 raise UpdateError("UPDATE_PROTOCOL", "Unsupported update control database")
-            if version < 5:
+            if version < 6:
                 try:
                     upgrade.enter_context(FileLock(self.root / "runner.lock", timeout=0.1))
                     version = db.execute("PRAGMA user_version").fetchone()[0]
-                    if version == 5:
+                    if version == 6:
                         return
                     for path in (self.root / "executions").glob("*.lock"):
                         upgrade.enter_context(FileLock(path, timeout=0))
                 except RuntimeError:
                     # A new worker may already own runner.lock after completing
                     # the upgrade while this RPC waited for admission.
-                    if db.execute("PRAGMA user_version").fetchone()[0] == 5:
+                    if db.execute("PRAGMA user_version").fetchone()[0] == 6:
                         return
                     raise UpdateError("UPDATE_CONFLICT", "请先停止旧版更新运行器，再由 Studio 升级控制状态") from None
             if version == 0:
@@ -114,6 +114,9 @@ class State:
             if version < 5:
                 db.executescript(cleanup.DDL)
                 db.execute("PRAGMA user_version=5")
+            if version < 6:
+                db.executescript(locations.DDL)
+                db.execute("PRAGMA user_version=6")
 
     @contextmanager
     def db(self):
@@ -145,6 +148,12 @@ class State:
             raise UpdateError("SOURCE_ID_MISMATCH", "Online lake identity/site mismatch")
         if not contained(index, pointer["file"]).is_file():
             raise UpdateError("SOURCE_UNAVAILABLE", "Online database is missing")
+        with self.db() as db:
+            old = db.execute("SELECT * FROM lakes WHERE id=?", (target["library_id"],)).fetchone()
+            if old and (old["site"], old["media"], old["index_root"]) != (target["site"], str(media), str(index)):
+                raise UpdateError("SOURCE_LOCATION_CONFLICT", "Use the coordinated lake relocation command")
+            if locations.pending(self, target["library_id"], db):
+                raise UpdateError("UPDATE_CONFLICT", "Lake relocation is pending")
         linked = read_json(media / "online-index.json")
         if Path(linked["index_root"]).resolve() != index:
             raise UpdateError("SOURCE_ID_MISMATCH", "Publisher uses a different online root")
@@ -310,6 +319,8 @@ class State:
         with self.db() as db:
             db.execute("BEGIN IMMEDIATE")
             row = read_job(db, identity)
+            if locations.pending(self, row["lake_id"], db):
+                return None
             if row["state"] not in {"queued", "running", "waiting_retry", "waiting_space"} or row["retry_at"] > time.time():
                 return None
             db.execute(
@@ -434,6 +445,7 @@ class State:
         value["provenance"] = json.loads(value["provenance"])
         return value
 
+    @locations.input_access()
     def create_input(self, library_id, source_version=None, provenance=None, identity=None):
         from .archive import online
         from .runner import lease
@@ -468,6 +480,7 @@ class State:
             )
         return self.input(identity)
 
+    @locations.input_access(by_input=True)
     def append_input(self, identity, post_ids=None, object_sha256s=None):
         from .archive import online
         from .runner import lease
@@ -511,6 +524,7 @@ class State:
                     )
         return self.input(identity)
 
+    @locations.input_access(by_input=True)
     def seal_input(self, identity):
         from .runner import lease
         from .archive import io_lock

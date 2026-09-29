@@ -6,6 +6,7 @@ import json
 from ..util import FileLock, now
 from .archive import reconcile
 from .sites import UpdateError
+from . import locations
 
 
 RESTART = {"resume", "retry", "replay"}
@@ -47,6 +48,7 @@ def action(state, identity, command):
     # Pause/cancel only use a short control transaction, even during slow I/O.
     with ExitStack() as locks:
         if command in RESTART:
+            locks.enter_context(locations.access(state, state.job(identity)["lake_id"]))
             try:
                 locks.enter_context(state.execution_lock(identity))
             except RuntimeError:

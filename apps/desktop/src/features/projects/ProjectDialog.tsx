@@ -305,6 +305,7 @@ export function ProjectDialog({
             <p className="dialog-hint">
               为「{relinkSource?.name}
               」选择同一个数据湖的新位置。此位置由当前应用登记的项目共享，调整会影响其中所有引用该数据湖的项目。
+              已登记更新服务的数据湖请使用设置中的“数据湖 API → 迁移数据湖位置”，并在搬动文件前准备迁移。
             </p>
           )}
           {kind === "collection" && (

@@ -1557,6 +1557,7 @@ async fn shutdown(State(s): State<AppState>) -> Json<OkResponse> {
         management::delete_preset,
         management::reveal,
         lake_updates::status, lake_updates::configure, lake_updates::capabilities, lake_updates::lakes,
+        lake_updates::relocations, lake_updates::prepare_relocation, lake_updates::apply_relocation, lake_updates::cancel_relocation,
         lake_updates::pipeline, lake_updates::save_pipeline,
         lake_updates::register, lake_updates::credentials, lake_updates::clear_credentials, lake_updates::probe,
         lake_updates::preview, lake_updates::jobs, lake_updates::create, lake_updates::job, lake_updates::action,

@@ -17,7 +17,8 @@ def candidates(state, active, limit, at=None):
             "SELECT id FROM jobs WHERE lake_id=l.id "
             "AND state IN ('queued','running','waiting_retry','waiting_space') "
             "AND retry_at<=? ORDER BY created_at,id LIMIT 1) "
-            "LEFT JOIN lake_dispatch d ON d.lake_id=l.id WHERE 1=1" + excluded +
+            "LEFT JOIN lake_dispatch d ON d.lake_id=l.id WHERE NOT EXISTS "
+            "(SELECT 1 FROM lake_relocations r WHERE r.lake_id=l.id AND r.phase NOT IN ('complete','cancelled'))" + excluded +
             " ORDER BY coalesce(d.sequence,0),j.created_at,j.id LIMIT ?", (at, *active, limit),
         ).fetchall()
 
@@ -36,7 +37,8 @@ def next_cleanup(state, active=(), at=None):
     with state.db() as db:
         return db.execute(
             "SELECT c.job_id,j.lake_id FROM job_cleanup c JOIN jobs j ON j.id=c.job_id "
-            "WHERE c.phase<>'complete' AND c.retry_at<=?" + excluded +
+            "WHERE c.phase<>'complete' AND c.retry_at<=? AND NOT EXISTS "
+            "(SELECT 1 FROM lake_relocations r WHERE r.lake_id=j.lake_id AND r.phase NOT IN ('complete','cancelled'))" + excluded +
             " ORDER BY c.retry_at,c.updated_at,c.job_id LIMIT 1", (time.time() if at is None else at, *active),
         ).fetchone()
 

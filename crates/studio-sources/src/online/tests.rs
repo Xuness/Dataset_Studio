@@ -158,6 +158,44 @@ fn lease_write_wait_observes_request_deadline() {
 }
 
 #[test]
+fn concurrent_snapshot_leases_release_all_handles_and_keep_frozen_reads() {
+    let f = Fixture::new();
+    let gate = Arc::new(std::sync::Barrier::new(4));
+    let workers = (0..4)
+        .map(|worker| {
+            let mut source = f.source.clone();
+            // Both equivalent forms occur in persisted roots and command-line callers.
+            if worker % 2 == 0 {
+                source.index_root = Some(source.index_root.unwrap().canonicalize().unwrap());
+            }
+            let gate = gate.clone();
+            std::thread::spawn(move || {
+                gate.wait();
+                for epoch in 0..40 {
+                    let flag = Arc::new(AtomicBool::new(false));
+                    let deadline = Some(Instant::now() + Duration::from_secs(2));
+                    let snapshot = Snapshot::open(&source, None, flag.clone(), deadline).unwrap();
+                    let id = format!("churn/{worker}/{epoch}");
+                    snapshot.retain(&id, "test", "query", false).unwrap();
+                    let count: i64 = snapshot
+                        .db
+                        .query_row("SELECT count(*) FROM visible_objects", [], |r| r.get(0))
+                        .unwrap();
+                    assert_eq!(count, 2);
+                    drop(snapshot);
+                    Snapshot::release(&source, &id, &flag, deadline).unwrap();
+                }
+            })
+        })
+        .collect::<Vec<_>>();
+    for worker in workers {
+        worker.join().unwrap();
+    }
+    // There is no hidden permanent writer pool preventing root migration on Windows.
+    fs::rename(&f.path, f.path.with_extension("moved")).unwrap();
+}
+
+#[test]
 fn lease_write_retries_wal_protocol_contention_but_not_corruption() {
     let f = Fixture::new();
     let cancelled = AtomicBool::new(false);

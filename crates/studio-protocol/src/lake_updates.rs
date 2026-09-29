@@ -237,6 +237,7 @@ pub struct LakeUpdateServiceStatus {
     pub configured: bool,
     pub protocol_version: u32,
     pub worker_recent: bool,
+    pub runtime: LakeUpdateRuntimeHealth,
     pub credentials: Vec<LakeCredentialStatus>,
     #[serde(default)]
     pub activity: LakeUpdateActivity,
@@ -246,6 +247,16 @@ pub struct LakeUpdateServiceStatus {
     pub preparation_attention_count: u64,
     #[serde(default)]
     pub preparations: Vec<LakeUpdatePreparation>,
+}
+#[derive(Default, Serialize, Deserialize, ToSchema)]
+pub struct LakeUpdateRuntimeHealth {
+    pub state: String,
+    pub python: Option<String>,
+    pub state_root: Option<String>,
+    pub error_code: Option<String>,
+    pub message: Option<String>,
+    pub failures: u32,
+    pub next_retry_ms: Option<u64>,
 }
 #[derive(Default, Serialize, Deserialize, ToSchema)]
 pub struct LakeUpdateActivity {
@@ -278,6 +289,32 @@ pub struct UpdateLake {
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct UpdateLakes {
     pub items: Vec<UpdateLake>,
+}
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct LakeRelocation {
+    pub id: String,
+    pub lake_id: String,
+    pub phase: String,
+    pub old_media: String,
+    pub old_index: String,
+    pub media_root: Option<String>,
+    pub index_root: Option<String>,
+    pub created_at: String,
+}
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct LakeRelocations {
+    pub items: Vec<LakeRelocation>,
+}
+#[derive(Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PrepareLakeRelocation {
+    pub library_id: String,
+}
+#[derive(Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ApplyLakeRelocation {
+    pub media_root: String,
+    pub index_root: String,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct LakeUpdateCapability {

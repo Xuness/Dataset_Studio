@@ -447,6 +447,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/lake-updates/relocations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["lake_relocations"];
+        put?: never;
+        post: operations["lake_relocation_prepare"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lake-updates/relocations/{id}/apply": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["lake_relocation_apply"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/lake-updates/relocations/{id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["lake_relocation_cancel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/lake-updates/runtime": {
         parameters: {
             query?: never;
@@ -3393,6 +3441,10 @@ export interface components {
             object_sha256s?: string[] | null;
             post_ids?: number[] | null;
         };
+        ApplyLakeRelocation: {
+            index_root: string;
+            media_root: string;
+        };
         Artifact: {
             /** Format: int64 */
             count?: number | null;
@@ -3965,6 +4017,19 @@ export interface components {
             revision: number;
             value: components["schemas"]["LakePipelineConfig"];
         };
+        LakeRelocation: {
+            created_at: string;
+            id: string;
+            index_root?: string | null;
+            lake_id: string;
+            media_root?: string | null;
+            old_index: string;
+            old_media: string;
+            phase: string;
+        };
+        LakeRelocations: {
+            items: components["schemas"]["LakeRelocation"][];
+        };
         LakeSitePipeline: {
             /** Format: double */
             api_requests_per_second: number;
@@ -4241,6 +4306,17 @@ export interface components {
             /** Format: int64 */
             start_id?: number | null;
         };
+        LakeUpdateRuntimeHealth: {
+            error_code?: string | null;
+            /** Format: int32 */
+            failures: number;
+            message?: string | null;
+            /** Format: int64 */
+            next_retry_ms?: number | null;
+            python?: string | null;
+            state: string;
+            state_root?: string | null;
+        };
         LakeUpdateSchedule: {
             definition: components["schemas"]["LakeUpdateDefinition"];
             enabled: boolean;
@@ -4271,6 +4347,7 @@ export interface components {
             preparations?: components["schemas"]["LakeUpdatePreparation"][];
             /** Format: int32 */
             protocol_version: number;
+            runtime: components["schemas"]["LakeUpdateRuntimeHealth"];
             worker_recent: boolean;
         };
         /** @enum {string} */
@@ -4885,6 +4962,16 @@ export interface components {
         OkResponse: {
             ok: boolean;
         };
+        OnlineSqliteStatus: {
+            /** Format: int64 */
+            busy_errors: number;
+            /** Format: int64 */
+            lease_retries: number;
+            /** Format: int64 */
+            max_lease_write_ms: number;
+            /** Format: int64 */
+            protocol_errors: number;
+        };
         OpenProject: {
             directory: string;
         };
@@ -4943,6 +5030,9 @@ export interface components {
             /** Format: int32 */
             schema_version: number;
             value: unknown;
+        };
+        PrepareLakeRelocation: {
+            library_id: string;
         };
         PrepareLakeUpdateInputs: {
             label?: string | null;
@@ -5635,6 +5725,7 @@ export interface components {
         };
         ReadServiceStatus: {
             cache: components["schemas"]["PreviewCacheStatus"];
+            online_sqlite: components["schemas"]["OnlineSqliteStatus"];
             previews: components["schemas"]["PreviewActivity"];
             process_memory?: null | components["schemas"]["ReadProcessMemory"];
             /** Format: int32 */
@@ -6712,6 +6803,94 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LakeApiProbe"];
+                };
+            };
+        };
+    };
+    lake_relocations: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LakeRelocations"];
+                };
+            };
+        };
+    };
+    lake_relocation_prepare: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PrepareLakeRelocation"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LakeRelocation"];
+                };
+            };
+        };
+    };
+    lake_relocation_apply: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ApplyLakeRelocation"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LakeRelocation"];
+                };
+            };
+        };
+    };
+    lake_relocation_cancel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LakeRelocation"];
                 };
             };
         };

@@ -115,6 +115,10 @@ Rust 测试位于 crates 内，`pnpm test` 同时执行 SDK 检查 [client-found
 
 ## 多站点数据湖
 
+- [integration-lake-recovery.mjs](integration-lake-recovery.mjs)：运行环境失败与替换、任务/凭据保留、读写位置交接、旧路径离线及重启补完；已加入完整集成。可设置 STUDIO_RELOCATION_TEST_ROOT 为另一卷中专用的 `.local/test-runs/r3-cross-volume-<唯一编号>`，外部夹具路径会写入本轮报告，须一并清理。
+- [smoke-lake-updates-ui.mjs](smoke-lake-updates-ui.mjs)：现包含设置页的解释器错误/成功验证和数据湖迁移错误/成功操作，使用真实本地引擎与内置 worker。
+- [lake-load-fixture.py](lake-load-fixture.py) 与 [verify-lake-combined-load.mjs](verify-lake-combined-load.mjs)：显式、非默认的大规模组合验收。先以 `<.local/test-runs/astra-load-唯一编号> prepare <来源清单.json>` 创建完整在线索引副本及选定媒体包，再把该目录传给 Node 验收入口。来源清单包含 kind、index_root、media_root；SQLite 源连接只读，更新和评审分别使用记录样本与 loopback mock。副本是负载镜像，缺少未选中的归档媒体，不能用于正式恢复。此测试可能占用上百 GB，结束后归档指标和日志，再清理专用目录。
+
 - [integration-multibooru.mjs](integration-multibooru.mjs)：三站点隔离 fixture、预检/登记、身份、标签、原始 schema、缓存和重启；已加入 `pnpm test:integration`。
 - [multibooru-fixture.py](multibooru-fixture.py)：用标准库和仓库 DuckDB 运行库构建小型三站点夹具，不依赖真实湖或网络。
 - [smoke-multibooru-ui.mjs](smoke-multibooru-ui.mjs)：参数为上述集成生成的 `multibooru-*` 目录，在独立应用与 Edge 无头浏览器中验收连续添加三个湖、多湖查询编辑/恢复/缓存、共同字段、精确标签、旧草稿迁移，以及无关来源离线时的工作集筛选；只对指定测试夹具临时模拟离线并恢复。

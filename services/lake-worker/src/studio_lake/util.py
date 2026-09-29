@@ -60,6 +60,14 @@ def read_json(path: Path):
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def same_directory(left, right):
+    """Compare real directory identity, including Windows extended-length aliases."""
+    try:
+        return Path(left).is_dir() and Path(left).samefile(Path(right))
+    except (OSError, TypeError, ValueError):
+        return False
+
+
 def sync_file(path: Path):
     with path.open("r+b") as f:
         f.flush()

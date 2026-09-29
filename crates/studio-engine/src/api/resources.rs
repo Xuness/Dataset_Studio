@@ -23,11 +23,23 @@ pub(super) async fn status(State(s): State<AppState>) -> ApiResult<ReadServiceSt
     let m = s.previews.metrics();
     let state = s.clone();
     let query_cache = blocking(move || query_cache_status(&state)).await?;
+    let [
+        busy_errors,
+        protocol_errors,
+        lease_retries,
+        max_lease_write_ms,
+    ] = studio_sources::online::contention_metrics();
     Ok(Json(ReadServiceStatus {
         protocol_version: 1,
         resources: s.resources.metrics().into_iter().map(Into::into).collect(),
         cache: cache_status(s.previews.cache.metrics()),
         process_memory: process_memory(),
+        online_sqlite: OnlineSqliteStatus {
+            busy_errors,
+            protocol_errors,
+            lease_retries,
+            max_lease_write_ms,
+        },
         query_limits: query_limits(&s)?,
         query_cache,
         previews: PreviewActivity {

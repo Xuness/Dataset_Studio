@@ -1058,6 +1058,124 @@
         }
       }
     },
+    "/v1/lake-updates/relocations": {
+      "get": {
+        "tags": [
+          "lake_updates"
+        ],
+        "operationId": "lake_relocations",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LakeRelocations"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "lake_updates"
+        ],
+        "operationId": "lake_relocation_prepare",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PrepareLakeRelocation"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LakeRelocation"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/lake-updates/relocations/{id}/apply": {
+      "post": {
+        "tags": [
+          "lake_updates"
+        ],
+        "operationId": "lake_relocation_apply",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApplyLakeRelocation"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LakeRelocation"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/lake-updates/relocations/{id}/cancel": {
+      "post": {
+        "tags": [
+          "lake_updates"
+        ],
+        "operationId": "lake_relocation_cancel",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LakeRelocation"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/lake-updates/runtime": {
       "put": {
         "tags": [
@@ -10137,6 +10255,22 @@
         },
         "additionalProperties": false
       },
+      "ApplyLakeRelocation": {
+        "type": "object",
+        "required": [
+          "media_root",
+          "index_root"
+        ],
+        "properties": {
+          "index_root": {
+            "type": "string"
+          },
+          "media_root": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
       "Artifact": {
         "type": "object",
         "required": [
@@ -12449,6 +12583,63 @@
           }
         }
       },
+      "LakeRelocation": {
+        "type": "object",
+        "required": [
+          "id",
+          "lake_id",
+          "phase",
+          "old_media",
+          "old_index",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "index_root": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lake_id": {
+            "type": "string"
+          },
+          "media_root": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "old_index": {
+            "type": "string"
+          },
+          "old_media": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string"
+          }
+        }
+      },
+      "LakeRelocations": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LakeRelocation"
+            }
+          }
+        }
+      },
       "LakeSitePipeline": {
         "type": "object",
         "required": [
@@ -13449,6 +13640,55 @@
           }
         ]
       },
+      "LakeUpdateRuntimeHealth": {
+        "type": "object",
+        "required": [
+          "state",
+          "failures"
+        ],
+        "properties": {
+          "error_code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "failures": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "next_retry_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "python": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": "string"
+          },
+          "state_root": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
       "LakeUpdateSchedule": {
         "type": "object",
         "required": [
@@ -13529,6 +13769,7 @@
           "configured",
           "protocol_version",
           "worker_recent",
+          "runtime",
           "credentials"
         ],
         "properties": {
@@ -13564,6 +13805,9 @@
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          },
+          "runtime": {
+            "$ref": "#/components/schemas/LakeUpdateRuntimeHealth"
           },
           "worker_recent": {
             "type": "boolean"
@@ -15792,6 +16036,37 @@
           }
         }
       },
+      "OnlineSqliteStatus": {
+        "type": "object",
+        "required": [
+          "busy_errors",
+          "protocol_errors",
+          "lease_retries",
+          "max_lease_write_ms"
+        ],
+        "properties": {
+          "busy_errors": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "lease_retries": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "max_lease_write_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "protocol_errors": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "OpenProject": {
         "type": "object",
         "required": [
@@ -16011,6 +16286,18 @@
           },
           "value": {}
         }
+      },
+      "PrepareLakeRelocation": {
+        "type": "object",
+        "required": [
+          "library_id"
+        ],
+        "properties": {
+          "library_id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
       },
       "PrepareLakeUpdateInputs": {
         "type": "object",
@@ -18725,12 +19012,16 @@
           "resources",
           "cache",
           "previews",
+          "online_sqlite",
           "query_limits",
           "query_cache"
         ],
         "properties": {
           "cache": {
             "$ref": "#/components/schemas/PreviewCacheStatus"
+          },
+          "online_sqlite": {
+            "$ref": "#/components/schemas/OnlineSqliteStatus"
           },
           "previews": {
             "$ref": "#/components/schemas/PreviewActivity"

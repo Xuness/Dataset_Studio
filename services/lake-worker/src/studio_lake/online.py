@@ -1,6 +1,7 @@
 """One ordered publisher per lake, replaying immutable archive commits in short transactions."""
 
 from pathlib import Path
+from contextlib import closing
 import hashlib
 import json
 import sqlite3
@@ -14,7 +15,7 @@ from .metadata import OBS_SCHEMA, ASSET_SCHEMA
 from .api_metadata import API_KINDS
 from .online_schema import VERSION, settings, set_state
 from .online_migrate import connect, scalar
-from .util import FileLock, IntegrityError, contained, digest, file_hash, logical_rows, now, read_json
+from .util import FileLock, IntegrityError, contained, digest, file_hash, logical_rows, now, read_json, same_directory
 
 
 def configured_root(media):
@@ -42,9 +43,17 @@ class Publisher:
             raise IntegrityError("在线库身份或格式无效")
         self.path = contained(self.index, self.pointer["file"])
 
+    def check_location(self):
+        if (self.index / "LAKE-RELOCATION.json").exists():
+            raise IntegrityError("数据湖位置迁移尚未完成，禁止发布")
+        owner = self.index / "cache_owner.json"
+        if owner.exists() and not same_directory(read_json(owner).get("root"), self.media):
+            raise IntegrityError("发布器指向旧媒体位置")
+
     def mark_analysis(self, sequence, generation):
         with FileLock(self.index / ".online.lock"):
-            with sqlite3.connect((self.media / "journal.sqlite").as_uri() + "?mode=ro", uri=True) as journal:
+            self.check_location()
+            with closing(sqlite3.connect((self.media / "journal.sqlite").as_uri() + "?mode=ro", uri=True)) as journal:
                 archive_head = journal.execute("SELECT coalesce(max(seq),0) FROM commits").fetchone()[0]
             db = connect(self.path)
             try:
@@ -71,14 +80,15 @@ class Publisher:
         if not 1 <= chunk_rows <= 4096:
             raise ValueError("在线发布批次需要 1–4096 行")
         with FileLock(self.index / ".online.lock"):
+            self.check_location()
             db = connect(self.path)
             try:
                 state = settings(db)
                 if state["generation"] != self.pointer["generation"]:
                     raise IntegrityError("在线发布代次不匹配")
-                with sqlite3.connect(
+                with closing(sqlite3.connect(
                     (self.media / "journal.sqlite").as_uri() + "?mode=ro", uri=True
-                ) as journal:
+                )) as journal:
                     journal.row_factory = sqlite3.Row
                     pending = [
                         dict(r)
@@ -397,6 +407,7 @@ class Publisher:
 
     def collect_versions(self, *, retain_recent=64):
         with FileLock(self.index / ".online.lock"):
+            self.check_location()
             db = connect(self.path)
             try:
                 with db:

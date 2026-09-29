@@ -35,6 +35,17 @@ pub struct LakeUpdateRuntime {
     pub state_root: PathBuf,
 }
 
+#[derive(Clone, Default, Serialize, Deserialize)]
+pub struct LakeUpdateHealth {
+    pub state: String,
+    pub python: Option<PathBuf>,
+    pub state_root: Option<PathBuf>,
+    pub error_code: Option<String>,
+    pub message: Option<String>,
+    pub failures: u32,
+    pub next_retry_ms: Option<u64>,
+}
+
 /// Commands are independent of HTTP and the worker transport. Frozen definitions
 /// are validated by the archive owner's versioned update service.
 #[derive(Clone, Copy)]
@@ -49,6 +60,11 @@ pub enum LakeUpdateOperation {
     PipelineGet,
     PipelineSet,
     Register,
+    RelocationList,
+    RelocationPrepare,
+    RelocationApply,
+    RelocationFinish,
+    RelocationCancel,
     Lakes,
     CredentialSet,
     CredentialDelete,
@@ -77,6 +93,11 @@ impl LakeUpdateOperation {
             Self::PipelineGet => "pipeline_get",
             Self::PipelineSet => "pipeline_set",
             Self::Register => "register",
+            Self::RelocationList => "relocation_list",
+            Self::RelocationPrepare => "relocation_prepare",
+            Self::RelocationApply => "relocation_apply",
+            Self::RelocationFinish => "relocation_finish",
+            Self::RelocationCancel => "relocation_cancel",
             Self::Lakes => "lakes",
             Self::CredentialSet => "credential_set",
             Self::CredentialDelete => "credential_delete",

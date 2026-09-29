@@ -58,6 +58,27 @@ impl SqliteStore {
         if current.kind != source.kind {
             return Err(Error::new("SOURCE_ID_MISMATCH", "重新关联不能更换来源类型"));
         }
+        self.relink_location(source)
+    }
+    pub fn relink_location_roots(&self, id: &str, media: PathBuf, index: PathBuf) -> Result<()> {
+        let saved: Option<String> = self
+            .registry
+            .lock()
+            .map_err(lock_error)?
+            .query_row("SELECT json FROM source_locations WHERE id=?1", [id], |r| {
+                r.get(0)
+            })
+            .optional()
+            .map_err(db_error)?;
+        if let Some(saved) = saved {
+            let mut source: Source = serde_json::from_str(&saved).map_err(Error::io)?;
+            source.media_root = Some(media);
+            source.index_root = Some(index);
+            self.relink_location(source)?;
+        }
+        Ok(())
+    }
+    fn relink_location(&self, source: Source) -> Result<()> {
         self.registry
             .lock()
             .map_err(lock_error)?

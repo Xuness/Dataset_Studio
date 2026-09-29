@@ -4,6 +4,7 @@ import type { SettingsPageProps } from "../settings/types.js";
 import { useLakeRefresh, useLakeStatus } from "./queries.js";
 import { sites, dateLabel } from "./model.js";
 import "./lake-updates.css";
+import { LakeRelocationSettings } from "./LakeRelocationSettings.js";
 
 export function LakeApiSettings({ client }: SettingsPageProps) {
   const status = useLakeStatus(client),
@@ -14,10 +15,12 @@ export function LakeApiSettings({ client }: SettingsPageProps) {
   const [pending, setPending] = useState(false),
     [error, setError] = useState<unknown>(null),
     [notice, setNotice] = useState("");
-  const [runtime, setRuntime] = useState({
-    python: "",
-    state_root: "",
-  });
+  const [python, setPython] = useState<string | null>(null);
+  const [stateRoot, setStateRoot] = useState("");
+  const runtime = {
+    python: python ?? status.data?.runtime.python ?? "",
+    state_root: status.data?.runtime.state_root ?? stateRoot,
+  };
   async function act(run: () => Promise<unknown>, notice: string) {
     setPending(true);
     setError(null);
@@ -28,6 +31,7 @@ export function LakeApiSettings({ client }: SettingsPageProps) {
       await refresh();
     } catch (e) {
       setError(e);
+      await refresh();
     } finally {
       setPending(false);
     }
@@ -37,9 +41,13 @@ export function LakeApiSettings({ client }: SettingsPageProps) {
       <h2>数据湖 API</h2>
       <p>凭据在本机加密保存。连接检测会发出少量 API 请求。</p>
       {status.error && <ErrorDetails error={status.error} />}
-      {!status.data?.configured ? (
+      <>
         <div className="lake-fields">
-          <h3>配置更新运行环境</h3>
+          <h3>
+            {status.data?.configured
+              ? "修复或更换更新运行环境"
+              : "配置更新运行环境"}
+          </h3>
           <p className="lake-hint">
             更新服务由 Studio 内置提供。Python 环境需要安装项目声明的运行依赖。
           </p>
@@ -47,18 +55,15 @@ export function LakeApiSettings({ client }: SettingsPageProps) {
             Python 可执行文件
             <input
               value={runtime.python}
-              onChange={(e) =>
-                setRuntime({ ...runtime, python: e.target.value })
-              }
+              onChange={(e) => setPython(e.target.value)}
             />
           </label>
           <label>
             共享更新状态目录
             <input
               value={runtime.state_root}
-              onChange={(e) =>
-                setRuntime({ ...runtime, state_root: e.target.value })
-              }
+              disabled={status.data?.configured}
+              onChange={(e) => setStateRoot(e.target.value)}
             />
           </label>
           <Button
@@ -66,14 +71,32 @@ export function LakeApiSettings({ client }: SettingsPageProps) {
             onClick={() =>
               void act(
                 () => client.lakeUpdates.configure(runtime),
-                "更新运行环境已配置",
+                "运行环境验证通过，已保留任务和凭据",
               )
             }
           >
-            保存运行环境
+            验证并保存运行环境
           </Button>
+          {status.data?.runtime.message && (
+            <p role="status">
+              {status.data.runtime.message}（{status.data.runtime.error_code}）
+            </p>
+          )}
+          {status.data?.runtime.next_retry_ms && (
+            <p className="lake-hint">
+              下次自动重试：
+              {dateLabel(
+                new Date(status.data.runtime.next_retry_ms).toISOString(),
+              )}
+              ；也可立即重新验证。
+            </p>
+          )}
+          {status.data?.configured && (
+            <p className="lake-hint">更换解释器保留原状态目录、任务和凭据。</p>
+          )}
         </div>
-      ) : (
+      </>
+      {status.data?.configured && (
         <>
           <dl className="wb-property-list">
             <dt>更新服务</dt>
@@ -194,6 +217,7 @@ export function LakeApiSettings({ client }: SettingsPageProps) {
         </>
       )}
       {error != null && <ErrorDetails error={error} />}
+      {status.data?.configured && <LakeRelocationSettings client={client} />}
       {notice && <p role="status">{notice}</p>}
     </section>
   );

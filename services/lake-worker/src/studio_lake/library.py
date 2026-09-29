@@ -28,6 +28,7 @@ from .util import (
     rows_fingerprint,
     sync_directory,
     sync_file,
+    same_directory,
 )
 
 JOURNAL_SQL = """
@@ -108,10 +109,21 @@ class Library:
                 raise IntegrityError("更新控制器身份不匹配")
             admission = device_lock(Path(owner["root"]), self.root)
         with admission, FileLock(self.root / ".writer.lock"):
+            self.check_location()
             yield
 
+    def check_location(self):
+        if (self.cache / "LAKE-RELOCATION.json").exists():
+            raise IntegrityError("数据湖位置迁移尚未完成，禁止写入旧位置")
+        owner = self.cache / "cache_owner.json"
+        if owner.exists() and not same_directory(read_json(owner).get("root"), self.root):
+            raise IntegrityError("数据湖媒体位置已迁移，禁止写入旧位置")
+
+    @contextmanager
     def cache_lock(self):
-        return FileLock(self.cache / ".index.lock")
+        with FileLock(self.cache / ".index.lock"):
+            self.check_location()
+            yield
 
     @contextmanager
     def journal(self):

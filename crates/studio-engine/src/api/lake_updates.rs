@@ -24,6 +24,8 @@ pub(super) async fn status(State(s): State<AppState>) -> ApiResult<LakeUpdateSer
             configured: false,
             protocol_version: 1,
             worker_recent: false,
+            runtime: serde_json::from_value(json!(s.lake_updates.health()))
+                .map_err(domain::Error::io)?,
             credentials: vec![],
             activity: LakeUpdateActivity::default(),
             preparation_count: 0,
@@ -31,24 +33,36 @@ pub(super) async fn status(State(s): State<AppState>) -> ApiResult<LakeUpdateSer
             preparations: vec![],
         }));
     }
-    let (value, pending, attention, preparations) = blocking(move || {
-        let value = s.lake_updates.execute(Op::Status, json!({}))?;
+    let (value, runtime, pending, attention, preparations) = blocking(move || {
+        // Health belongs to the Rust controller and remains readable when Python fails.
+        let value = s
+            .lake_updates
+            .execute(Op::Status, json!({}))
+            .unwrap_or_else(|_| json!({}));
+        let runtime =
+            serde_json::from_value(json!(s.lake_updates.health())).map_err(domain::Error::io)?;
         let (pending, attention, preparations) = s.store.lake_input_activity()?;
         let rows = preparations
             .into_iter()
             .map(|r| serde_json::from_value(json!(r)).map_err(domain::Error::io))
             .collect::<domain::Result<Vec<LakeUpdatePreparation>>>()?;
-        Ok((value, pending, attention, rows))
+        Ok((value, runtime, pending, attention, rows))
     })
     .await?;
     Ok(Json(LakeUpdateServiceStatus {
         configured: true,
         protocol_version: 1,
         worker_recent: value["worker_recent"].as_bool().unwrap_or(false),
-        credentials: serde_json::from_value(value["credentials"].clone())
+        runtime,
+        credentials: serde_json::from_value(value.get("credentials").cloned().unwrap_or(json!([])))
             .map_err(|_| Failure(domain::Error::new("UPDATE_PROTOCOL", "凭据状态格式不兼容")))?,
-        activity: serde_json::from_value(value["activity"].clone())
-            .map_err(|_| Failure(domain::Error::new("UPDATE_PROTOCOL", "更新活动格式不兼容")))?,
+        activity: serde_json::from_value(
+            value
+                .get("activity")
+                .cloned()
+                .unwrap_or(json!({"counts":[],"active":[],"attention":[]})),
+        )
+        .map_err(|_| Failure(domain::Error::new("UPDATE_PROTOCOL", "更新活动格式不兼容")))?,
         preparation_count: pending,
         preparation_attention_count: attention,
         preparations,
@@ -231,6 +245,9 @@ pub(super) async fn remove_schedule(
 }
 pub(super) fn routes() -> axum::Router<AppState> {
     axum::Router::new()
+        .route("/relocations", get(relocations).post(prepare_relocation))
+        .route("/relocations/{id}/apply", post(apply_relocation))
+        .route("/relocations/{id}/cancel", post(cancel_relocation))
         .route(
             "/preparations",
             get(super::lake_inputs::list).post(super::lake_inputs::create),
@@ -259,6 +276,45 @@ pub(super) fn routes() -> axum::Router<AppState> {
         .route("/jobs/{id}/coverage", get(coverage))
         .route("/schedules", get(schedules).post(schedule))
         .route("/schedules/{id}/remove", post(remove_schedule))
+}
+
+#[utoipa::path(get,path="/v1/lake-updates/relocations",responses((status=200,body=LakeRelocations)),operation_id="lake_relocations")]
+pub(super) async fn relocations(State(s): State<AppState>) -> ApiResult<LakeRelocations> {
+    invoke(s, Op::RelocationList, json!({})).await
+}
+#[utoipa::path(post,path="/v1/lake-updates/relocations",request_body=PrepareLakeRelocation,responses((status=200,body=LakeRelocation)),operation_id="lake_relocation_prepare")]
+pub(super) async fn prepare_relocation(
+    State(s): State<AppState>,
+    Body(body): Body<PrepareLakeRelocation>,
+) -> ApiResult<LakeRelocation> {
+    invoke(s, Op::RelocationPrepare, json!({"lake_id":body.library_id})).await
+}
+#[utoipa::path(post,path="/v1/lake-updates/relocations/{id}/apply",params(("id"=String,Path)),request_body=ApplyLakeRelocation,responses((status=200,body=LakeRelocation)),operation_id="lake_relocation_apply")]
+pub(super) async fn apply_relocation(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+    Body(body): Body<ApplyLakeRelocation>,
+) -> ApiResult<LakeRelocation> {
+    Ok(Json(
+        blocking(move || {
+            let value = crate::lake_locations::apply(
+                &s.store,
+                s.lake_updates.as_ref(),
+                &id,
+                &body.media_root,
+                &body.index_root,
+            )?;
+            serde_json::from_value(value).map_err(domain::Error::io)
+        })
+        .await?,
+    ))
+}
+#[utoipa::path(post,path="/v1/lake-updates/relocations/{id}/cancel",params(("id"=String,Path)),responses((status=200,body=LakeRelocation)),operation_id="lake_relocation_cancel")]
+pub(super) async fn cancel_relocation(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+) -> ApiResult<LakeRelocation> {
+    invoke(s, Op::RelocationCancel, json!({"identity":id})).await
 }
 
 #[utoipa::path(post,path="/v1/lake-updates/inputs",operation_id="lake_updates_create_input",request_body=CreateLakeUpdateInput,responses((status=200,body=LakeUpdateInput)))]

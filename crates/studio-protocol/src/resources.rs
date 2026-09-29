@@ -92,8 +92,16 @@ pub struct ReadServiceStatus {
     pub cache: PreviewCacheStatus,
     pub previews: PreviewActivity,
     pub process_memory: Option<ReadProcessMemory>,
+    pub online_sqlite: OnlineSqliteStatus,
     pub query_limits: QueryResourceLimits,
     pub query_cache: QueryCacheStatus,
+}
+#[derive(Serialize, ToSchema)]
+pub struct OnlineSqliteStatus {
+    pub busy_errors: u64,
+    pub protocol_errors: u64,
+    pub lease_retries: u64,
+    pub max_lease_write_ms: u64,
 }
 #[derive(Serialize, ToSchema)]
 pub struct QueryCacheStatus {

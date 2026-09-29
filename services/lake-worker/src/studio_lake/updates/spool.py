@@ -5,7 +5,7 @@ import os
 import re
 import stat
 
-from ..util import safe_managed_path, read_json, failpoint
+from ..util import safe_managed_path, read_json, failpoint, same_directory
 from .sites import UpdateError
 
 
@@ -39,7 +39,7 @@ def verify_owner(state, lib, identity):
         value = read_json(safe_managed_path(lib.cache, lib.cache / marker))
         if value.get("library_id") != lib.info["library_id"]:
             raise UpdateError("UPDATE_CLEANUP_UNSAFE", "Task spool lake ownership changed")
-        if marker == "UPDATE-CONTROLLER.json" and value.get("root") != str(state.root):
+        if marker == "UPDATE-CONTROLLER.json" and not same_directory(value.get("root"), state.root):
             raise UpdateError("UPDATE_CLEANUP_UNSAFE", "Task spool controller ownership changed")
     return path
 

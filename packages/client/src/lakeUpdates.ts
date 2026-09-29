@@ -61,6 +61,32 @@ export class LakeUpdateClient {
       body: JSON.stringify(runtime),
     });
   }
+  relocations(signal?: AbortSignal) {
+    return this.request<Schema["LakeRelocations"]>(`${base}/relocations`, {
+      signal: signal ?? null,
+    });
+  }
+  prepareRelocation(library_id: string) {
+    return this.request<Schema["LakeRelocation"]>(`${base}/relocations`, {
+      method: "POST",
+      body: JSON.stringify({ library_id }),
+    });
+  }
+  applyRelocation(id: string, value: Schema["ApplyLakeRelocation"]) {
+    return this.request<Schema["LakeRelocation"]>(
+      `${base}/relocations/${encodeURIComponent(id)}/apply`,
+      {
+        method: "POST",
+        body: JSON.stringify(value),
+      },
+    );
+  }
+  cancelRelocation(id: string) {
+    return this.request<Schema["LakeRelocation"]>(
+      `${base}/relocations/${encodeURIComponent(id)}/cancel`,
+      { method: "POST" },
+    );
+  }
   capabilities(signal?: AbortSignal) {
     return this.request<Schema["LakeUpdateCapabilities"]>(
       `${base}/capabilities`,

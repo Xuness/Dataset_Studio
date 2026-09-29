@@ -5,6 +5,7 @@ use studio_domain::{Result, lake_updates::*};
 pub trait LakeUpdateBackend: Send + Sync {
     fn configure(&self, runtime: LakeUpdateRuntime) -> Result<()>;
     fn configured(&self) -> bool;
+    fn health(&self) -> LakeUpdateHealth;
     fn execute(
         &self,
         operation: LakeUpdateOperation,

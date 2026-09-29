@@ -3,6 +3,7 @@ mod api;
 mod artifacts;
 mod cache_config;
 mod jobs;
+mod lake_locations;
 mod lake_updates;
 mod lake_worker_bundle;
 mod llm_invocations;
@@ -207,7 +208,7 @@ async fn serve(root: PathBuf, port: u16, cache_dir: Option<PathBuf>) -> Result<(
     let aesthetic_analysis = Arc::new(aesthetic::analysis::Runner::default());
     use studio_application::lake_updates::LakeUpdateBackend;
     let lake_updates = Arc::new(lake_updates::Backend::new(root.clone()));
-    let lake_update_supervisor = tokio::spawn(lake_updates.clone().supervise());
+    let lake_update_supervisor = tokio::spawn(lake_updates.clone().supervise(store.clone()));
     if lake_updates.configured()
         && let Err(error) = lake_updates.ensure_worker()
     {

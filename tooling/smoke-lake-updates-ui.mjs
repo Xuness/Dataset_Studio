@@ -3,7 +3,7 @@ import { lakeWorkerPython } from "./lake-worker-runtime.mjs";
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdir, open, readFile, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, writeFile, cp } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import ts from "typescript";
@@ -724,6 +724,72 @@ try {
   await expect(
     settings.getByRole("status").filter({ hasText: "凭据已清除" }),
   ).toBeVisible();
+  const badPython = resolve(run, "invalid.exe");
+  await writeFile(badPython, "not an executable");
+  await expect(settings.getByLabel("共享更新状态目录")).toBeDisabled();
+  await settings.getByLabel("Python 可执行文件").fill(badPython);
+  await settings
+    .getByRole("button", { name: "验证并保存运行环境", exact: true })
+    .click();
+  await expect(
+    settings
+      .getByText("无法启动 Python；请更换解释器或修复运行依赖", {
+        exact: false,
+      })
+      .first(),
+  ).toBeVisible();
+  await settings.getByLabel("Python 可执行文件").fill(python);
+  await settings
+    .getByRole("button", { name: "验证并保存运行环境", exact: true })
+    .click();
+  await expect(
+    settings.getByRole("status").filter({ hasText: "运行环境验证通过" }),
+  ).toBeVisible();
+  const moveTarget = targets[0];
+  await settings
+    .getByLabel("迁移数据湖", { exact: true })
+    .selectOption(moveTarget.library_id);
+  await settings
+    .getByRole("button", { name: "准备迁移并冻结写入", exact: true })
+    .click();
+  await expect(
+    settings.getByRole("status").filter({ hasText: "已准备，可以搬迁文件" }),
+  ).toBeVisible();
+  const movedMedia = resolve(run, "ui-moved-media");
+  const movedIndex = resolve(run, "ui-moved-index");
+  await settings
+    .getByLabel("迁移后的媒体目录", { exact: true })
+    .fill(movedMedia);
+  await settings
+    .getByLabel("迁移后的索引目录", { exact: true })
+    .fill(movedIndex);
+  await settings
+    .getByRole("button", { name: "验证并完成迁移", exact: true })
+    .click();
+  await expect(
+    settings
+      .getByText("Relocation requires existing absolute directories", {
+        exact: false,
+      })
+      .first(),
+  ).toBeVisible();
+  await cp(moveTarget.media_root, movedMedia, { recursive: true });
+  await cp(moveTarget.index_root, movedIndex, { recursive: true });
+  await settings
+    .getByRole("button", { name: "验证并完成迁移", exact: true })
+    .click();
+  await expect(
+    settings
+      .getByRole("status")
+      .filter({ hasText: "数据湖读写位置已同步，迁移完成" }),
+  ).toBeVisible();
+  await expect(
+    settings.getByRole("button", { name: "准备迁移并冻结写入", exact: true }),
+  ).toBeEnabled();
+  await page.screenshot({ path: resolve(run, "runtime-and-relocation.png") });
+  checks.push(
+    "runtime replacement and coordinated relocation: real settings UI rejects bad paths, retains saved state and completes both repairs",
+  );
   await settings
     .getByRole("button", { name: "关闭", exact: true })
     .last()

@@ -6,7 +6,7 @@ import time
 from ..util import FileLock, IntegrityError, failpoint, now
 from .archive import reconcile
 from .sites import UpdateError
-from . import spool
+from . import spool, locations
 
 
 DDL = """
@@ -40,6 +40,8 @@ def run(state, identity, resources=None):
     # Taking the actual lock, not observing execution_active, proves that all stage workers exited.
     try:
         with ExitStack() as locks:
+            initial = state.job(identity)
+            locks.enter_context(locations.access(state, initial["lake_id"]))
             try:
                 locks.enter_context(state.execution_lock(identity))
             except RuntimeError:

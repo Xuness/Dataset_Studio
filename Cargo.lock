@@ -4187,6 +4187,7 @@ name = "studio-sources"
 version = "0.9.1"
 dependencies = [
  "base64 0.22.1",
+ "dunce",
  "flate2",
  "hex",
  "image",

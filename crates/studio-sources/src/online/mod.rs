@@ -8,7 +8,7 @@ use std::{
     path::{Component, Path, PathBuf},
     sync::{
         Arc, Mutex, OnceLock,
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
@@ -22,6 +22,20 @@ mod tests;
 pub const SCHEMA_VERSION: u32 = 2;
 pub const VIEW_TTL_MS: u64 = 30 * 60 * 1000;
 pub const SCHEMA: &str = include_str!("schema.sql");
+static BUSY_ERRORS: AtomicU64 = AtomicU64::new(0);
+static PROTOCOL_ERRORS: AtomicU64 = AtomicU64::new(0);
+static LEASE_RETRIES: AtomicU64 = AtomicU64::new(0);
+static LEASE_MAX_MS: AtomicU64 = AtomicU64::new(0);
+/// Per-engine counters, including errors recovered by bounded lease retries.
+pub fn contention_metrics() -> [u64; 4] {
+    [
+        &BUSY_ERRORS,
+        &PROTOCOL_ERRORS,
+        &LEASE_RETRIES,
+        &LEASE_MAX_MS,
+    ]
+    .map(|v| v.load(Ordering::Relaxed))
+}
 type RecentLeases = HashMap<(PathBuf, String, u64, String), u64>;
 fn recent_leases() -> &'static Mutex<RecentLeases> {
     static RECENT: OnceLock<Mutex<RecentLeases>> = OnceLock::new();
@@ -62,6 +76,9 @@ fn error(value: impl std::fmt::Display) -> Error {
     Error::new("SOURCE_FORMAT_ERROR", value.to_string())
 }
 pub(crate) fn sql_error(value: rusqlite::Error) -> Error {
+    if value.sqlite_error_code() == Some(rusqlite::ErrorCode::FileLockingProtocolFailed) {
+        PROTOCOL_ERRORS.fetch_add(1, Ordering::Relaxed);
+    }
     match value.sqlite_error_code() {
         Some(rusqlite::ErrorCode::OperationInterrupted) => {
             Error::new("SOURCE_TIMEOUT", "在线读取已取消或超过时间预算")
@@ -70,7 +87,10 @@ pub(crate) fn sql_error(value: rusqlite::Error) -> Error {
             rusqlite::ErrorCode::DatabaseBusy
             | rusqlite::ErrorCode::DatabaseLocked
             | rusqlite::ErrorCode::FileLockingProtocolFailed,
-        ) => Error::new("SOURCE_BUSY", "在线发布繁忙，请重试当前页面"),
+        ) => {
+            BUSY_ERRORS.fetch_add(1, Ordering::Relaxed);
+            Error::new("SOURCE_BUSY", "在线发布繁忙，请重试当前页面")
+        }
         _ => error(value),
     }
 }
@@ -112,7 +132,11 @@ pub fn pointer(source: &Source) -> Result<(Pointer, PathBuf)> {
     if !file.starts_with(&root) {
         return Err(Error::invalid("在线数据库超出索引目录"));
     }
-    Ok((pointer, file))
+    // Keep canonical containment validation above. SQLite's Windows VFS treats
+    // every leading double backslash as UNC, including a local verbatim drive.
+    // Prefer the equivalent DOS path when it is safe (dunce preserves long,
+    // reserved-name and actual UNC paths).
+    Ok((pointer, dunce::simplified(&file).to_path_buf()))
 }
 pub(crate) fn parse_revision(pointer: &Pointer, value: &str) -> Result<u64> {
     let prefix = format!("online-v2:{}:", pointer.generation);
@@ -151,6 +175,13 @@ fn lease_write<T>(
     deadline: Instant,
     mut write: impl FnMut(&mut Connection) -> Result<T>,
 ) -> Result<T> {
+    struct LeaseTiming(Instant);
+    impl Drop for LeaseTiming {
+        fn drop(&mut self) {
+            LEASE_MAX_MS.fetch_max(self.0.elapsed().as_millis() as u64, Ordering::Relaxed);
+        }
+    }
+    let _timing = LeaseTiming(Instant::now());
     check_read(cancelled, deadline)?;
     let mut db =
         Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE).map_err(sql_error)?;
@@ -161,6 +192,7 @@ fn lease_write<T>(
         check_read(cancelled, deadline)?;
         match write(&mut db) {
             Err(e) if e.code == "SOURCE_BUSY" => {
+                LEASE_RETRIES.fetch_add(1, Ordering::Relaxed);
                 check_read(cancelled, deadline)?;
                 if Instant::now() >= until {
                     return Err(e);

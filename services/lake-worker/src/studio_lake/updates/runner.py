@@ -17,7 +17,7 @@ from .protocol import timestamp
 from .sites import Site, UpdateError, Response
 from .state import State, TERMINAL
 from .references import categories
-from . import cleanup, dispatch
+from . import cleanup, dispatch, locations
 
 
 def lease(lib, identity, sequence=None, expires_ms=None):
@@ -83,10 +83,13 @@ class Runner:
             return self.sites[name]
 
     def run(self, identity):
-        self.state.job(identity)
+        initial = self.state.job(identity)
         try:
-            with self.state.execution_lock(identity):
+            with locations.access(self.state, initial["lake_id"]), self.state.execution_lock(identity):
                 self._run_guarded(identity)
+        except UpdateError as error:
+            if error.code != "UPDATE_CONFLICT":
+                raise
         except RuntimeError as error:
             if not str(error).startswith("另一个进程正在使用此工作区"):
                 raise
@@ -682,7 +685,7 @@ class Runner:
             # Failed/review items may still own resumable files; remove only empty task directories.
             pass
 
-    def serve(self):
+    def serve(self, ready=None):
         background_io = False
         import os
 
@@ -701,6 +704,8 @@ class Runner:
                 ThreadPoolExecutor(max_workers=4) as pool,
             ):
                 try:
+                    if ready is not None and not ready():
+                        return
                     self.schedule(pool, background_io)
                 finally:
                     # Stop all work before ThreadPoolExecutor waits, including coordinator failures.
