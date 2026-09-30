@@ -2,19 +2,18 @@ import hashlib
 import io
 import json
 import os
-import struct
 import time
 import uuid
-import zlib
 
 import pyarrow as pa
 import requests
-from PIL import Image, ImageOps, UnidentifiedImageError, __version__ as PILLOW_VERSION
+from PIL import Image, ImageOps, __version__ as PILLOW_VERSION
 
 from . import __version__
 from .index import Index, original_record
 from .library import Batch
 from .metadata import asset, normalize, iso_time
+from .png_compat import open_image
 from .util import (
     IntegrityError,
     atomic_json,
@@ -363,87 +362,16 @@ def fetch_api(
     }
 
 
-PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
-
-
-def png_without_invalid_ancillary_chunks(data):
-    """Return a decode-only PNG after dropping bad-CRC ancillary chunks.
-
-    Recovery is intentionally narrow: the complete PNG structure, every critical
-    chunk (including all IDAT chunks), and the final IEND must remain intact.
-    """
-    if not data.startswith(PNG_SIGNATURE):
-        return None
-    output = bytearray(PNG_SIGNATURE)
-    removed = []
-    position = len(PNG_SIGNATURE)
-    seen_ihdr = seen_idat = seen_iend = False
-    while position < len(data):
-        if len(data) - position < 12:
-            raise IntegrityError("PNG 块头或 CRC 不完整")
-        length = struct.unpack(">I", data[position : position + 4])[0]
-        chunk_type = data[position + 4 : position + 8]
-        end = position + 12 + length
-        if end > len(data):
-            raise IntegrityError("PNG 块内容超出文件边界")
-        if any(value not in range(65, 91) and value not in range(97, 123) for value in chunk_type):
-            raise IntegrityError("PNG 块类型无效")
-        if chunk_type[2] & 0x20:
-            raise IntegrityError("PNG 块类型保留位无效")
-        payload = data[position + 8 : position + 8 + length]
-        expected_crc = struct.unpack(">I", data[position + 8 + length : end])[0]
-        actual_crc = zlib.crc32(chunk_type + payload) & 0xFFFFFFFF
-        critical = not (chunk_type[0] & 0x20)
-        if expected_crc != actual_crc:
-            if critical:
-                name = chunk_type.decode("ascii")
-                raise IntegrityError(f"PNG 关键块 {name} 的 CRC 不匹配")
-            removed.append({"type": chunk_type.decode("ascii"), "length": length})
-        else:
-            output.extend(data[position:end])
-        if chunk_type == b"IHDR":
-            if seen_ihdr or position != len(PNG_SIGNATURE) or length != 13:
-                raise IntegrityError("PNG IHDR 结构无效")
-            seen_ihdr = True
-        elif chunk_type == b"IDAT":
-            seen_idat = True
-        elif chunk_type == b"IEND":
-            if seen_iend or length != 0:
-                raise IntegrityError("PNG IEND 结构无效")
-            seen_iend = True
-            position = end
-            break
-        position = end
-    if not seen_ihdr or not seen_idat or not seen_iend or position != len(data):
-        raise IntegrityError("PNG 关键结构不完整或 IEND 后存在额外数据")
-    return (bytes(output), removed) if removed else None
-
-
 def prepare_image(data, profile):
     details = {
         "download_sha256": digest(data),
         "download_bytes": len(data),
         "storage_profile": profile,
-        "processing_version": 2,
+        "processing_version": 3,
         "pillow_version": PILLOW_VERSION,
     }
-    decode_data = data
-    decode_adjusted = False
-    try:
-        image = Image.open(io.BytesIO(decode_data))
-    except UnidentifiedImageError:
-        if profile == "original":
-            raise
-        recovered = png_without_invalid_ancillary_chunks(data)
-        if recovered is None:
-            raise
-        decode_data, removed = recovered
-        details.update(
-            source_decode_sha256=digest(decode_data),
-            source_png_ignored_ancillary_crc_chunks=removed,
-        )
-        decode_adjusted = True
-        image = Image.open(io.BytesIO(decode_data))
+    image, recovery = open_image(data)
+    details.update(recovery)
     with image as im:
         fmt = (im.format or "bin").lower()
         ext = {"jpeg": "jpg", "tiff": "tif"}.get(fmt, fmt)
@@ -454,8 +382,6 @@ def prepare_image(data, profile):
             source_format=fmt,
             source_image_info=typed_value(dict(im.info)),
         )
-        if decode_adjusted and getattr(im, "n_frames", 1) > 1:
-            raise IntegrityError("多帧 PNG 不能通过丢弃辅助块后按原字节保存")
         if profile == "original" or getattr(im, "n_frames", 1) > 1:
             details.update(
                 stored_width=im.width,
@@ -467,6 +393,7 @@ def prepare_image(data, profile):
             raise ValueError("未知图片保存策略")
         im = ImageOps.exif_transpose(im)
         im.load()
+        details["source_image_info"] = typed_value(dict(image.info))
         im = im.convert("RGBA" if "A" in im.getbands() or "transparency" in im.info else "RGB")
         im.thumbnail((2048, 2048), Image.Resampling.LANCZOS)
         out = io.BytesIO()

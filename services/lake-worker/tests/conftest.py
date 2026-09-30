@@ -14,9 +14,9 @@ from studio_lake.config import Config
 from studio_lake.library import Library
 
 
-def png(color):
+def png(color, *, size=(12, 9), compress_level=6):
     f = io.BytesIO()
-    Image.new("RGB", (12, 9), color).save(f, format="PNG")
+    Image.new("RGB", size, color).save(f, format="PNG", compress_level=compress_level)
     return f.getvalue()
 
 

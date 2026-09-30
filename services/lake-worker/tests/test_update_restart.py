@@ -73,8 +73,8 @@ def test_failed_lock_file_initialization_releases_os_ownership(tmp_path, monkeyp
 
 
 def test_killed_download_process_is_automatically_resumed_once_without_touching_paused_jobs(tmp_path):
-    # Valid PNG with trailing bytes keeps the transport large while avoiding an expensive image fixture.
-    data = png("red") + bytes(range(256)) * (24 * 1024)
+    # Uncompressed pixels produce a large, structurally valid PNG for range recovery.
+    data = png("red", size=(2048, 1024), compress_level=0)
     (tmp_path / "original.png").write_bytes(data)
     lib, state = setup(tmp_path, "yandere")
     configure(state, max_download_mib=8, spool_mib=64)

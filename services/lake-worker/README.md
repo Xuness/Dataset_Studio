@@ -133,4 +133,6 @@ pwsh -File tooling/setup-lake-worker.ps1 -Dev
 
 “继续”接续原队列；“重试未获取项”优先重用已发布元数据与原下载断点，仅缺少有效地址、来源删除/受限、元数据缺失或 404 已耗尽尝试时刷新 API。兼容带 RGB ICC 的灰度图片；无法处理的色彩配置只产生单张 `image_color_profile_error`，原件保留，其余图片照常处理。详见 [ADR 0044](../../docs/decisions/0044-lake-media-recovery.md)。
 
+PNG 元数据兼容解码与下载后的资源准入共用同一模块：仅对已知元数据块重算解码副本的 CRC，并保留完整原始块及异常记录；较大 ICC 单独有界解压（4 MiB）并回填图片。像素、透明度、动画块、文件结构仍严格检查，原始下载字节不改动，不使用全局宽松解码开关。完整限制与验收见 [ADR 0048](../../docs/decisions/0048-bounded-png-metadata-recovery.md)。
+
 `pnpm test:lake`、`node tooling/integration-lake-updates.mjs`、`pnpm test:lake-ui`。优先使用 `.local/runtime/lake-worker`，也可指定 `STUDIO_LAKE_TEST_PYTHON`，不再使用 `STUDIO_LAKE_TEST_STORE`。夹具和证据只写入 `.local/`；测试不访问真实站点，不创建正式计划。

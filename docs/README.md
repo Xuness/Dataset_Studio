@@ -26,6 +26,8 @@
 
 图片缺口恢复：[单图色彩异常隔离与 404 重试](decisions/0044-lake-media-recovery.md)、[2026-09-29 Gelbooru 验收](verification/2026-09-29-gelbooru-media-recovery.md)。
 
+PNG 兼容处理：[有界元数据恢复](decisions/0048-bounded-png-metadata-recovery.md)、[2026-09-30 真实图片验收](verification/2026-09-30-png-compatibility.md)。
+
 数据湖来源：[统一接口与调度](decisions/0035-source-registry-and-dispatch.md)、[Yandere/Gelbooru 验收](verification/2026-09-26-multibooru.md)、[多湖交互与查询缓存补齐](verification/2026-09-26-multibooru-followup.md)。
 
 在线架构升级：[阶段计划](plans/数据库架构审查升级-2026-09-26/README.md)、[发布与预览并发边界](decisions/0036-online-read-path-preparation.md)、[在线湖与固定成员协议](decisions/0037-versioned-online-lakes.md)、[P1 验收](verification/2026-09-26-online-upgrade-phase1.md)、[P2/P3 迁移验收](verification/2026-09-26-online-upgrade-p23.md)、[Danbooru 工作区归并](verification/2026-09-26-danbooru-workspace-relocation.md)。

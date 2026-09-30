@@ -8,6 +8,7 @@ import re
 from PIL import Image, ImageCms, ImageOps, __version__ as PILLOW_VERSION, features
 
 from .ingest import prepare_image as prepare_legacy_image
+from .png_compat import open_image
 from .util import digest, typed_value
 
 
@@ -103,9 +104,11 @@ def prepare_image(data, policy):
         return prepare_legacy_image(data, policy["profile"])
     recipe = policy["encoding"]
     details = {"download_sha256": digest(data), "download_bytes": len(data),
-               "storage_profile": profile_id(policy), "encoding": recipe, "processing_version": 4,
+               "storage_profile": profile_id(policy), "encoding": recipe, "processing_version": 5,
                "pillow_version": PILLOW_VERSION}
-    with Image.open(io.BytesIO(data)) as source:
+    source, recovery = open_image(data)
+    details.update(recovery)
+    with source:
         frames = getattr(source, "n_frames", 1)
         fmt = (source.format or "bin").lower()
         details.update(source_width=source.width, source_height=source.height, frames=frames,
@@ -117,6 +120,7 @@ def prepare_image(data, policy):
         source.seek(0)
         im = ImageOps.exif_transpose(source)
         im.load()
+        details["source_image_info"] = typed_value(dict(source.info))
         alpha = im.mode in {"RGBA", "RGBa", "LA", "La", "PA"} or "transparency" in im.info
         rgba = im.convert("RGBA") if alpha else None
         transparent = rgba is not None and rgba.getchannel("A").getextrema()[0] < 255

@@ -252,7 +252,7 @@ def test_header_space_wait_does_not_consume_attempts_or_stop_other_images(tmp_pa
 
     lib, state = setup(tmp_path, "danbooru")
     configure(state, publish_items=32, publish_interval_seconds=60)
-    large = png("red") + b"x" * (10 * settings.MIB)
+    large = png("red", size=(2048, 1707), compress_level=0)
     small = png("blue")
     records = [post("danbooru", 11, large), post("danbooru", 12, small)]
     bodies = {11: large, 12: small}

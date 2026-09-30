@@ -27,7 +27,7 @@ def test_grayscale_with_rgb_profile_retains_color_and_alpha(mode, fmt):
     selected = policy(fmt, max_edge=None, **({"lossless": True} if fmt == "webp" else {}))
     stored, _, details = prepare_image(original.getvalue(), selected)
     assert details["color_profile_action"] == "expanded_grayscale_to_rgb"
-    assert details["processing_version"] == 4
+    assert details["processing_version"] == 5
     with Image.open(io.BytesIO(stored)) as decoded:
         assert decoded.info["icc_profile"] == icc
         if fmt != "jpeg":

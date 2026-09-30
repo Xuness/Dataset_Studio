@@ -12,6 +12,7 @@ from PIL import Image, ImageCms
 import requests
 
 from ..image_policy import prepare_image, profile_id, ImagePolicyError
+from ..png_compat import inspect_path
 from ..util import atomic_json, digest, file_hash, stable_id
 from .archive import online, record_by_id
 from .sites import UpdateError
@@ -214,19 +215,24 @@ def encode_download(lib, job, item, downloaded, resources, cancelled, progress=N
         raise UpdateError("UPDATE_INTEGRITY", "Downloaded image escaped its task")
     try:
         progress(phase="waiting_encode", current_post_id=item["post_id"])
-        with Image.open(raw) as header:
-            pixels = header.width * header.height
-            if pixels > resources.config["max_image_pixels"]:
-                raise UpdateError("UPDATE_RESOURCE_LIMIT", "Image exceeds configured pixel budget")
-            policy = job["definition"]["media"]
-            if getattr(header, "n_frames", 1) > 1 and (policy.get("encoding") or {}).get("animation", "preserve") == "preserve":
-                policy = {"profile": "original"}
-            plan = staging_plan(policy, {"width": header.width, "height": header.height}, resources,
-                                source_bytes=raw.stat().st_size, may_preserve_original=False)
-            info_bytes = sum(len(v) for v in header.info.values() if isinstance(v, (bytes, str)))
+        png = inspect_path(raw)
+        if png is not None:
+            width, height, frames, info_bytes = png.width, png.height, png.frames, png.memory_bytes
+        else:
+            with Image.open(raw) as header:
+                width, height, frames = header.width, header.height, getattr(header, "n_frames", 1)
+                info_bytes = sum(len(v) for v in header.info.values() if isinstance(v, (bytes, str)))
+        pixels = width * height
+        if pixels > resources.config["max_image_pixels"]:
+            raise UpdateError("UPDATE_RESOURCE_LIMIT", "Image exceeds configured pixel budget")
+        policy = job["definition"]["media"]
+        if frames > 1 and (policy.get("encoding") or {}).get("animation", "preserve") == "preserve":
+            policy = {"profile": "original"}
+        plan = staging_plan(policy, {"width": width, "height": height}, resources,
+                            source_bytes=raw.stat().st_size, may_preserve_original=False)
         resources.stage_size(directory, key, plan.peak() + info_bytes * 4)
         # Source, conversion, alpha and output buffers; admission happens before reading full bytes.
-        estimate = pixels * 16 + raw.stat().st_size * 3
+        estimate = pixels * 16 + raw.stat().st_size * 3 + info_bytes * 4
         with resources.encoding(estimate, cancelled):
             if cancelled():
                 raise UpdateError("CANCELLED", "Update paused")
