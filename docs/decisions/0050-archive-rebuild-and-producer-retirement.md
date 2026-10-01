@@ -23,6 +23,16 @@
 
 准备库不能覆盖现有 `ONLINE.json`。普通构建不会启用结果；首次启用只允许没有其他在线位置的库，并可接续相同代次的指针写入。对已使用的湖，换代恢复仍需处理项目及租约引用，不能用重建命令绕过位置/版本协议。
 
+### 早期投影的兼容关联
+
+正式全量对照发现，Danbooru 有 266 条旧投影关联：当前 API 观察缺少 MD5，但现用库仍指向同帖已有的历史资产。观察、资产和 raw 本身完全一致，按现行严格关联规则重新推导会把这些历史关联变为空值。
+
+这类已存在的选择保存在归档的 `source_manifests/legacy-online-bindings-v1.json` 中，包含库身份、捕获水位、参考代次及明确的观察/资产标识。它是历史投影的兼容信息，不是新增来源事实；正常增量发布的匹配规则不变。恢复仅在帖子从捕获水位以后没有被新观察或资产触及时回放，否则使用现行规则。文件摘要属于重建身份和退役验证条件，并随既有 `source_manifests` 搬盘协议保留。
+
+`adopt-legacy-bindings --output ...` 只接受六项事实对照通过、仅当前帖子关联不同的已验证准备库。它逐条证明观察相同、MD5 缺失、现用资产来自同帖归档，并限制清单大小；其它差异拒绝交接。先核实完整验证的数据库摘要，再只修改私有准备库的帖子关联，完整重比全部帖子关系，记录变更前后摘要与原始验证凭据。未改动的 raw 和六项事实沿用已完成的全量验证，不重新声称解码过一遍。中断后的交接必须重新运行完整验证与对照才能恢复为已验证状态。
+
+schema 对照使用已逐条核对的 raw 中实际出现的 schema 标识，仍比较全部对应 schema 字节，并限制标识集合预算；不再为了得到相同的标识集合额外关联扫描整张观察表。
+
 ## 旧任务交接
 
 已结束 API 捕获但停在规划阶段的旧日任务，需要在 Studio 以相同帖子集合、保存 profile 和保留已有图片策略完成接续。只有所有帖子都有 stored/reused/unavailable 终态，才记录交接。
@@ -58,6 +68,8 @@ $preparedRoot = 'F:\Dataset\.local\rebuild-example\Danbooru'
 node tooling/lake-storage.mjs build --media $mediaRoot --output $preparedRoot --site danbooru --reference-index $indexRoot
 node tooling/lake-storage.mjs verify --output $preparedRoot
 node tooling/lake-storage.mjs compare --output $preparedRoot
+# 仅在完整对照证明是上述历史无 MD5 关联差异时：
+# node tooling/lake-storage.mjs adopt-legacy-bindings --output $preparedRoot
 node tooling/lake-storage.mjs retire --media $mediaRoot --index $indexRoot --proof $preparedRoot
 # 审核上述清单、旧任务交接及验证结果后，显式执行：
 node tooling/lake-storage.mjs retire --media $mediaRoot --index $indexRoot --proof $preparedRoot --apply

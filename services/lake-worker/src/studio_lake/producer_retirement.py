@@ -9,6 +9,7 @@ import sqlite3
 import pyarrow.parquet as pq
 
 from .archive_rebuild import journal_snapshot
+from .archive_bindings import load as load_bindings
 from .online_storage import connect
 from .online_schema import set_state
 from .util import (
@@ -230,8 +231,11 @@ def _check_rebuild(media, index, pointer, proof_root):
         or compared["sequence"] != build["sequence"]
         or proof["sequence"] != build["sequence"]
         or proof.get("raw_roundtrip_verified") is not True
+        or proof.get("legacy_bindings_sha256") != build.get("legacy_bindings_sha256")
     ):
         raise IntegrityError("缺少与当前湖匹配的独立归档恢复及在线对照证据")
+    if load_bindings(media, build["library_id"], build["site"])[1] != build.get("legacy_bindings_sha256"):
+        raise IntegrityError("历史关联归档在验证后发生变化")
     snapshot = journal_snapshot(media, build["sequence"])
     if any(snapshot[key] != build[key] for key in snapshot):
         raise IntegrityError("验证过的归档前缀发生变化")

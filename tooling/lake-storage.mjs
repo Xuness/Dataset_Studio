@@ -13,12 +13,18 @@ const [command, ...args] = process.argv.slice(2);
 const retirement = ["handoff", "retire"].includes(command);
 if (
   !retirement &&
-  !["build", "verify", "compare", "release", "activate", "cleanup"].includes(
-    command,
-  )
+  ![
+    "build",
+    "verify",
+    "compare",
+    "release",
+    "activate",
+    "cleanup",
+    "adopt-legacy-bindings",
+  ].includes(command)
 )
   throw new Error(
-    "命令：build、verify、compare、release、activate、cleanup、handoff、retire。",
+    "命令：build、verify、compare、release、activate、cleanup、adopt-legacy-bindings、handoff、retire。",
   );
 const module = `studio_lake.${retirement ? "producer_retirement" : "archive_rebuild"}`;
 const bootstrap =

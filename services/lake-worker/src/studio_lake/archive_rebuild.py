@@ -28,6 +28,7 @@ from .online_schema import (
 )
 from .online_storage import MODULUS, connect, row_digest, scalar
 from .raw_codec import encode as encode_raw, decode as decode_raw, source_record
+from .archive_bindings import load as load_bindings, apply_to_preparation
 from .util import (
     FileLock,
     IntegrityError,
@@ -434,6 +435,7 @@ def _finish(db, build):
                 (seq,),
             )
             db.execute("INSERT OR REPLACE INTO build_progress VALUES('archive:versions',0,0,'0',1)")
+    apply_to_preparation(db, Path(build["media_root"]), build)
     emit("archive_optimize", site=build["site"])
     db.execute("INSERT INTO tag_index(tag_index) VALUES('optimize'); ANALYZE")
     counts = {
@@ -498,6 +500,7 @@ def build_archive(media, output, site, *, through=None, chunk_rows=1024, stop=No
             "media_root": str(media),
             "normalization_version": NORMALIZATION_VERSION,
             **snapshot,
+            "legacy_bindings_sha256": load_bindings(media, library["library_id"], site)[1],
         }
         if prior:
             if any(prior.get(k) != value for k, value in identity.items()):
@@ -577,6 +580,8 @@ def verify_archive(output, *, maximum_raw_bytes=256 * 1024**2):
     snapshot = journal_snapshot(media, build["sequence"])
     if any(snapshot[k] != build[k] for k in snapshot):
         raise IntegrityError("重建归档前缀发生变化")
+    if load_bindings(media, build["library_id"], build["site"])[1] != build.get("legacy_bindings_sha256"):
+        raise IntegrityError("历史关联归档在重建后发生变化")
     with FileLock(output / ".archive-build.lock", timeout=1):
         db = connect(contained(output, build["file"]), building=True)
         try:
@@ -647,6 +652,7 @@ def verify_archive(output, *, maximum_raw_bytes=256 * 1024**2):
                 "relations": failures,
                 "raw_roundtrip_verified": True,
                 "image_payloads_rehashed": False,
+                "legacy_bindings_sha256": build.get("legacy_bindings_sha256"),
             }
             raw_statistics["sample_unique_payloads"] = len(sampled_payloads)
             result["raw_storage"] = raw_statistics
@@ -687,7 +693,9 @@ def compare_reference(output):
         "current_objects": ["sha256", "post_id"],
     }
 
-    def query(table):
+    schema_ids = [set(), set()]
+
+    def query(table, side):
         selected = _quote(columns[table])
         if table == "objects":
             return f"SELECT {selected} FROM objects WHERE first_seq<=?", (sequence,)
@@ -703,9 +711,8 @@ def compare_reference(output):
         if table == "source_schemas":
             return (
                 f"SELECT {selected} FROM source_schemas WHERE source_schema_id IN "
-                "(SELECT DISTINCT r.source_schema_id FROM raw_metadata r JOIN observations o "
-                "ON o.observation_id=r.observation_id WHERE o.commit_seq<=?)"
-            ), (sequence,)
+                "(SELECT value FROM json_each(?))"
+            ), (json.dumps(sorted(schema_ids[side])),)
         if table == "current_posts":
             return (
                 "SELECT p.post_id,o.observation_id,p.asset_id FROM post_versions p JOIN observations o "
@@ -727,11 +734,15 @@ def compare_reference(output):
             db.execute("PRAGMA cache_size=-131072")
         for table in columns:
             signatures = []
-            sql, args = query(table)
-            for db in (rebuilt, existing):
+            for side, db in enumerate((rebuilt, existing)):
+                sql, args = query(table, side)
                 count = hashed = 0
                 for row in db.execute(sql, args):
                     if table == "raw_metadata":
+                        if row[2] is not None:
+                            schema_ids[side].add(row[2])
+                            if len(schema_ids[side]) > 100000:
+                                raise IntegrityError("来源 schema 种类超过对照内存预算")
                         # The prepared copy has already passed a full round trip.
                         if db is existing:
                             decode_raw(row[-1], row[3], row[4], maximum_bytes=256 * 1024**2)
@@ -823,7 +834,14 @@ def cleanup_preparation(output, evidence):
             return receipt
         comparison_lease(build, release=True)
         evidence.mkdir(parents=True, exist_ok=True)
-        for name in ("ONLINE-BUILD.json", "ONLINE-VERIFY.json", "ONLINE-COMPARE.json"):
+        for name in (
+            "ONLINE-BUILD.json",
+            "ONLINE-VERIFY.json",
+            "ONLINE-COMPARE.json",
+            "ONLINE-VERIFY.before-bindings.json",
+            "ONLINE-COMPARE.before-bindings.json",
+            "LEGACY-BINDINGS-ADOPTION.json",
+        ):
             source = output / name
             if source.exists():
                 value = read_json(source)
@@ -864,7 +882,10 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("build", "verify", "compare", "release", "activate", "cleanup"))
+    parser.add_argument(
+        "command",
+        choices=("build", "verify", "compare", "release", "activate", "cleanup", "adopt-legacy-bindings"),
+    )
     parser.add_argument("--media", type=Path)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--site", choices=("danbooru", "gelbooru", "yandere"))
@@ -897,6 +918,10 @@ def main():
         if args.evidence is None:
             parser.error("cleanup 需要独立的 --evidence 目录")
         result = cleanup_preparation(args.output, args.evidence)
+    elif args.command == "adopt-legacy-bindings":
+        from .archive_bindings import adopt
+
+        result = adopt(args.output)
     else:
         result = activate_archive(args.media, args.output)
     emit("complete", result=result)
