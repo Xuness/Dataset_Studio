@@ -430,7 +430,7 @@ def test_disk_reservations_share_remaining_free_space(tmp_path, monkeypatch):
     third.release()
 
 
-def test_reuse_and_deleted_posts_do_not_require_download_spool(tmp_path):
+def test_reuse_and_posts_without_urls_do_not_require_download_spool(tmp_path):
     lib, state = setup(tmp_path, "danbooru")
     configure(state)
     data = png("red")
@@ -441,6 +441,7 @@ def test_reuse_and_deleted_posts_do_not_require_download_spool(tmp_path):
     assert runner.run(first["id"])["counts"] == {"stored": 1}
     configure(state, spool_mib=64, max_download_mib=16)
     records[1]["is_deleted"] = True
+    records[1].pop("file_url")
     second = state.create(
         {
             "library_id": lib.info["library_id"],

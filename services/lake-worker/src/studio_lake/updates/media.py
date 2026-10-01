@@ -141,10 +141,8 @@ def inspect_download(lib, job, item, site, allow_external=False):
     if old:
         return {"state": "reused", **old}
     record = json.loads(item["record_json"])
-    if observation.get("is_deleted"):
-        return {"state": "unavailable", "reason": "source_deleted"}
-    if observation.get("is_banned"):
-        return {"state": "unavailable", "reason": "source_restricted"}
+    # Source moderation flags remain in observations and raw metadata. They do
+    # not establish whether an API-provided original URL can still be fetched.
     if str(observation.get("file_ext") or "").lower() in {"mp4", "webm", "zip", "swf"}:
         return {"state": "unavailable", "reason": "unsupported_media"}
     candidates = [("original", record.get("file_url"))]

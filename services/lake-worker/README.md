@@ -39,6 +39,8 @@ pwsh -File tooling/setup-lake-worker.ps1 -Dev
 
 ## 保存策略
 
+更新下载按 API 返回的可用原图地址执行，`is_deleted` / `is_banned` 仅作为来源状态保留，不单独阻止下载。原始响应与结构化元数据中的标记均保留；无可用地址或实际下载失败会分别记录原因。旧任务可用“重试未获取项”重新检查被标记跳过的记录。见 [0049](../../docs/decisions/0049-source-status-and-media-availability.md)。
+
 `media.profile` 保留 `metadata_only`、`original`、`webp-2048-q95`，新增 `custom`。没有新增全局默认。自定义示例：
 
 ```json
