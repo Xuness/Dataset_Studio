@@ -30,7 +30,7 @@ PNG 兼容处理：[有界元数据恢复](decisions/0048-bounded-png-metadata-r
 
 来源 Delete/Ban 标记与原图下载：[可获取性判断](decisions/0049-source-status-and-media-availability.md)、[2026-10-01 验收](verification/2026-10-01-source-status-downloads.md)。
 
-三湖存储收敛：[归档直接重建、旧任务交接与生产者索引退役](decisions/0050-archive-rebuild-and-producer-retirement.md)。
+三湖存储收敛：[归档直接重建、旧任务交接与生产者索引退役](decisions/0050-archive-rebuild-and-producer-retirement.md)、[2026-10-02 验收](verification/2026-10-02-three-lake-storage-retirement.md)。
 
 数据湖来源：[统一接口与调度](decisions/0035-source-registry-and-dispatch.md)、[Yandere/Gelbooru 验收](verification/2026-09-26-multibooru.md)、[多湖交互与查询缓存补齐](verification/2026-09-26-multibooru-followup.md)。
 
