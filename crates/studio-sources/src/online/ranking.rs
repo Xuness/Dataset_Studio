@@ -134,7 +134,9 @@ fn capture(
             "SELECT asset_id,observation_id,details_json FROM visible_assets WHERE sha256 IN (SELECT value FROM json_each(?1))",
             vec![Value::Text(ids.clone())],
         )?;
-        let mut statement=view.db.prepare("SELECT DISTINCT r.observation_id,r.raw_bytes,r.raw_zlib FROM visible_assets a JOIN raw_metadata r ON r.observation_id=a.observation_id WHERE a.sha256 IN (SELECT value FROM json_each(?1))").map_err(sql_error)?;
+        // Valid stored dimensions already satisfy the downstream projection. Only
+        // missing/ambiguous dimensions need the complete compressed source record.
+        let mut statement=view.db.prepare("SELECT DISTINCT r.observation_id,r.raw_bytes,r.raw_zlib,r.raw_sha256 FROM visible_assets a JOIN raw_metadata r ON r.observation_id=a.observation_id WHERE a.sha256 IN (SELECT value FROM json_each(?1)) AND NOT coalesce(CASE WHEN json_valid(a.details_json) THEN json_type(a.details_json,'$.stored_width')='integer' AND json_type(a.details_json,'$.stored_height')='integer' AND json_extract(a.details_json,'$.stored_width') BETWEEN 1 AND 4294967295 AND json_extract(a.details_json,'$.stored_height') BETWEEN 1 AND 4294967295 ELSE 0 END,0)").map_err(sql_error)?;
         let mut rows = statement.query([ids]).map_err(sql_error)?;
         let mut raw = Vec::new();
         while let Some(row) = rows.next().map_err(sql_error)? {
@@ -149,15 +151,9 @@ fn capture(
                 ));
             }
             let compressed: Vec<u8> = row.get(2).map_err(sql_error)?;
-            let mut body = Vec::new();
-            flate2::read::ZlibDecoder::new(compressed.as_slice())
-                .take(size as u64 + 1)
-                .read_to_end(&mut body)
-                .map_err(Error::io)?;
-            if body.len() != size as usize {
-                return Err(error("排名原始元数据长度不匹配"));
-            }
-            let json: serde_json::Value = serde_json::from_slice(&body).map_err(error)?;
+            let hash: String = row.get(3).map_err(sql_error)?;
+            let body = super::raw::decode(&compressed, size as u64, &hash, 16 << 20)?;
+            let json: serde_json::Value = serde_json::from_str(&body).map_err(error)?;
             let projected = serde_json::json!({"raw_stored_width":json.get("raw_stored_width"),"raw_stored_height":json.get("raw_stored_height")});
             raw.push(vec![
                 Value::Text(row.get(0).map_err(sql_error)?),

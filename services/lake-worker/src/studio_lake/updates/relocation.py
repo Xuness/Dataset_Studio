@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import uuid
 
-from ..online_migrate import connect
+from ..online_storage import connect
 from ..util import FileLock, atomic_json, contained, failpoint, now, read_json, safe_managed_path, same_directory
 from . import locations
 from .relocation_inventory import checkpoint, write_inventory, verify_inventory
@@ -125,7 +125,7 @@ def apply(state, identity, media_root, index_root):
         locks(stack, media, index)
         expected = json.loads(value["checkpoint"])
         actual = checkpoint(media, index, value["lake_id"], expected["site"])
-        if any(actual[key] != expected[key] for key in ("generation", "archive_seq", "archive_digest")) or actual["served_seq"] < expected["served_seq"] or actual["min_seq"] > expected["min_seq"]:
+        if any(actual[key] != expected[key] for key in ("generation", "archive_seq", "archive_digest")) or actual["served_seq"] < expected["served_seq"] or actual["min_seq"] > expected["min_seq"] or actual.get("producer_retired", False) != expected.get("producer_retired", False) or actual.get("producer_marker_digest") != expected.get("producer_marker_digest"):
             raise UpdateError("SOURCE_CHANGED", "Relocation target is stale or no longer retains the frozen versions")
         for name in ("UPDATE-CONTROLLER.json", "cache_owner.json"):
             owner = read_json(index / name)

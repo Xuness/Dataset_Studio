@@ -28,6 +28,8 @@ class Index:
     VERSION = 1
 
     def __init__(self, library):
+        if (library.cache / "PRODUCER-RETIRED.json").exists():
+            raise IntegrityError("此湖的生产者索引已退役；请使用 Studio 在线库或从归档重建，禁止自动恢复旧索引")
         self.lib = library
         self._session = None
         self._revision = 0

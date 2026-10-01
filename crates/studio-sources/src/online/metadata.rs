@@ -1,7 +1,6 @@
 use super::*;
 use crate::duckdb::Session;
 use rusqlite::functions::FunctionFlags;
-use sha2::{Digest, Sha256};
 
 pub(crate) enum MetadataConnection {
     Native(Session),
@@ -65,8 +64,7 @@ impl MetadataConnection {
                 let mut statement=snapshot.db.prepare("SELECT source_metadata_format,source_schema_id,raw_bytes,raw_sha256,CASE WHEN raw_bytes BETWEEN 0 AND 131072 THEN raw_zlib ELSE NULL END FROM raw_metadata WHERE observation_id=?1").map_err(sql_error)?;
                 let row=statement.query_row([id],|r|Ok((r.get::<_,Option<String>>(0)?,r.get::<_,Option<String>>(1)?,r.get::<_,i64>(2)?,r.get::<_,String>(3)?,r.get::<_,Option<Vec<u8>>>(4)?))).optional().map_err(sql_error)?;
                 row.map(|(format,schema,length,hash,compressed)|{
-                    let raw=compressed.map(|bytes|inflate(&bytes,length as u64)).transpose()?;
-                    if raw.as_ref().is_some_and(|v|hex::encode(Sha256::digest(v.as_bytes()))!=hash){return Err(error("原始元数据摘要校验失败"));}
+                    let raw=compressed.map(|bytes|super::raw::decode(&bytes,length as u64,&hash,131072)).transpose()?;
                     Ok(vec![vec![format,schema,(length>=0).then(||length.to_string()),raw]])
                 }).transpose().map(|v|v.unwrap_or_default())
             }

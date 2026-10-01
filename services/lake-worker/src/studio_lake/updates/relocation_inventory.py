@@ -31,9 +31,22 @@ def checkpoint(media, index, identity, site):
             raise UpdateError("SOURCE_ID_MISMATCH", "Online database identity or site differs from its pointer")
         if state["generation"] != pointer["generation"] or int(state["served_seq"]) > head:
             raise UpdateError("SOURCE_CHANGED", "Online projection does not match its archive")
-        return {"library_id": identity, "site": site, "generation": state["generation"],
-                "archive_seq": head, "archive_digest": digest.hexdigest(),
-                "served_seq": int(state["served_seq"]), "min_seq": int(state["min_seq"])}
+        result = {"library_id": identity, "site": site, "generation": state["generation"],
+                  "archive_seq": head, "archive_digest": digest.hexdigest(),
+                  "served_seq": int(state["served_seq"]), "min_seq": int(state["min_seq"])}
+        retired = index / "PRODUCER-RETIRED.json"
+        if retired.exists() or state.get("producer_index_retired") == "1":
+            if not retired.is_file():
+                raise UpdateError("SOURCE_CHANGED", "Producer retirement marker is missing")
+            marker = read_json(retired)
+            current = read_json(index / "CURRENT.json")
+            if (marker.get("phase") != "complete" or marker.get("library_id") != identity
+                    or marker.get("online_generation") != state["generation"]
+                    or not current.get("retired") or current.get("index_version") != 0
+                    or current.get("library_id") != identity or state.get("producer_index_retired") != "1"):
+                raise UpdateError("SOURCE_CHANGED", "Producer retirement is incomplete or belongs to another lake")
+            result.update(producer_retired=True, producer_marker_digest=file_hash(retired))
+        return result
     finally:
         source.close()
 
@@ -43,7 +56,7 @@ def inventory_paths(media, index):
     # caches are rebuildable; online.sqlite is checked by identity/version separately.
     for area, root, names in (
         ("media", media, ("segments", "staging", "plans", "source_manifests")),
-        ("index", index, ("updates", "metadata_staging", "pack_staging")),
+        ("index", index, ("updates", "metadata_staging", "pack_staging", "retirement")),
     ):
         for name in names:
             directory = safe_managed_path(root, root / name)
@@ -64,6 +77,12 @@ def inventory_paths(media, index):
                         yield area, relative, path.stat().st_size, file_hash(path) if hashed else None
                     else:
                         raise UpdateError("SOURCE_CHANGED", "Relocation contains a non-regular file")
+    if (index / "PRODUCER-RETIRED.json").exists():
+        for name in ("PRODUCER-RETIRED.json", "CURRENT.json"):
+            path = safe_managed_path(index, index / name)
+            if not path.is_file():
+                raise UpdateError("SOURCE_CHANGED", "Producer retirement evidence is missing")
+            yield "index", name, path.stat().st_size, file_hash(path)
 
 
 def write_inventory(path, media, index):

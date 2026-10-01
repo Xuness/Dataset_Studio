@@ -132,6 +132,70 @@ fn read(f: &Fixture, spec: &QuerySpec, version: &QuerySourceVersion) -> SourceQu
 }
 
 #[test]
+fn ranking_uses_stored_dimensions_without_reading_unneeded_raw_and_checks_fallback_integrity() {
+    let f = Fixture::new();
+    let connection = Connection::open(&f.path).unwrap();
+    connection
+        .execute(
+            "UPDATE assets SET details_json=?1",
+            [r#"{"stored_width":128,"stored_height":128}"#],
+        )
+        .unwrap();
+    connection
+        .execute("UPDATE raw_metadata SET raw_zlib=X'626164'", [])
+        .unwrap();
+    let expected = QueryReader::default()
+        .read_version(&f.source, true)
+        .unwrap();
+    let parameters = RankingParameters {
+        minimum_stored_side: Some(64),
+        ..Default::default()
+    };
+    let runtime = crate::duckdb::Runtime::default()
+        .with_query_directory(f.root.path().join("ranking"))
+        .with_query_memory(256 << 20);
+    let object = sha(1);
+    let mut produce =
+        |append: &mut studio_application::RankingMemberAppend<'_>| append(0, &object, 0);
+    let db = runtime
+        .open_transient_population(Arc::new(AtomicBool::new(false)))
+        .unwrap();
+    super::ranking::prepare(
+        &db,
+        &f.source,
+        &expected,
+        &[],
+        &parameters,
+        Arc::new(AtomicBool::new(false)),
+        &mut produce,
+    )
+    .unwrap();
+    assert_eq!(
+        db.query("SELECT CAST(count(*) AS VARCHAR) FROM raw_metadata")
+            .unwrap()[0][0]
+            .as_deref(),
+        Some("0")
+    );
+    connection
+        .execute("UPDATE assets SET details_json=NULL", [])
+        .unwrap();
+    let second = runtime
+        .open_transient_population(Arc::new(AtomicBool::new(false)))
+        .unwrap();
+    let error = super::ranking::prepare(
+        &second,
+        &f.source,
+        &expected,
+        &[],
+        &parameters,
+        Arc::new(AtomicBool::new(false)),
+        &mut produce,
+    )
+    .unwrap_err();
+    assert_eq!(error.code, "SOURCE_FORMAT_ERROR");
+}
+
+#[test]
 fn lease_write_wait_observes_request_deadline() {
     let f = Fixture::new();
     let version = QueryReader::default()

@@ -6,15 +6,14 @@ import hashlib
 import json
 import sqlite3
 import time
-import zlib
 
 import pyarrow as pa
 import pyarrow.parquet as pq
 
 from .metadata import OBS_SCHEMA, ASSET_SCHEMA
-from .api_metadata import API_KINDS
 from .online_schema import VERSION, settings, set_state
-from .online_migrate import connect, scalar
+from .online_storage import connect, scalar
+from .raw_codec import encode as encode_raw, source_record
 from .util import FileLock, IntegrityError, contained, digest, file_hash, logical_rows, now, read_json, same_directory
 
 
@@ -260,23 +259,13 @@ class Publisher:
                     (offset, offset + len(records)),
                 ):
                     record = records[row - offset]
-                    raw, fmt = (
-                        (record["post_json"], "api-json-original-object/v1")
-                        if source_kind in API_KINDS
-                        else (
-                            json.dumps(record, ensure_ascii=False, allow_nan=False, separators=(",", ":")),
-                            "arrow-row-typed-json/v1",
-                        )
-                    )
-                    body = (raw or "").encode("utf-8")
+                    raw, fmt = source_record(record, source_kind)
                     raw_rows.append(
                         (
                             observation_id,
                             fmt,
                             schema_id,
-                            -1 if raw is None else len(body),
-                            hashlib.sha256(body).hexdigest(),
-                            zlib.compress(body, 1),
+                            *encode_raw(raw),
                         )
                     )
                 offset += len(records)

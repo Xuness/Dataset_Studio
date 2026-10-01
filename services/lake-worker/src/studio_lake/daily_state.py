@@ -48,7 +48,7 @@ def record_ingest_commit(db, manifest, seq):
         return
     checked_run_id(run_id)
     run = db.execute("SELECT * FROM daily_runs WHERE run_id=?", (run_id,)).fetchone()
-    if run is None or run["state"] in VERIFIED:
+    if run is None or run["state"] in VERIFIED or run["state"] == "handed_off":
         raise IntegrityError("批次所属日任务不存在或已经封闭")
     role = source.get("ingest_role", "images")
     stats, request = source.get("response_stats", {}), source.get("request", {})
@@ -172,7 +172,7 @@ class DailyStore:
     def runs(self, *, unfinished=False, limit=None):
         query = "SELECT * FROM daily_runs"
         if unfinished:
-            query += " WHERE state NOT IN ('verified','verified_with_exclusions')"
+            query += " WHERE state NOT IN ('verified','verified_with_exclusions','handed_off')"
         query += " ORDER BY created_at,run_id"
         args = ()
         if limit is not None:

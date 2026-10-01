@@ -6,7 +6,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { resolve, toNamespacedPath } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import { EngineFixture, sleep } from "./engine-fixture.mjs";
@@ -539,7 +539,7 @@ try {
   db.close();
   const backup = await client.aesthetic.backup(project.id);
   const ledger = new DatabaseSync(
-    resolve(project.directory, backup.relative_path),
+    toNamespacedPath(resolve(project.directory, backup.relative_path)),
     { readOnly: true },
   );
   assert.equal(ledger.prepare("PRAGMA user_version").get().user_version, 7);

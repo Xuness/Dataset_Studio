@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
     fs,
-    io::Read,
     path::{Component, Path, PathBuf},
     sync::{
         Arc, Mutex, OnceLock,
@@ -16,6 +15,7 @@ use studio_domain::*;
 pub(crate) mod metadata;
 pub(crate) mod query;
 pub(crate) mod ranking;
+pub(crate) mod raw;
 #[cfg(test)]
 mod tests;
 
@@ -448,18 +448,4 @@ impl Snapshot {
         }
         Ok(output)
     }
-}
-pub(crate) fn inflate(bytes: &[u8], expected: u64) -> Result<String> {
-    if expected > 131072 {
-        return Err(Error::new("READ_BUDGET_EXCEEDED", "原始元数据超过显示预算"));
-    }
-    let mut body = Vec::new();
-    flate2::read::ZlibDecoder::new(bytes)
-        .take(expected + 1)
-        .read_to_end(&mut body)
-        .map_err(Error::io)?;
-    if body.len() as u64 != expected {
-        return Err(error("原始元数据长度校验失败"));
-    }
-    String::from_utf8(body).map_err(error)
 }

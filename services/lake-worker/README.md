@@ -2,6 +2,8 @@
 
 本模块由 Dataset Studio 仓库维护，负责 Danbooru、Yandere、Gelbooru 的 API 抓取、原文保留、图片处理、持久任务、调度、归档及在线发布。Rust 引擎负责应用生命周期和 HTTP 接口，React 工作台只使用公开 SDK。
 
+归档重建、旧任务交接及生产者索引退役使用 `node tooling/lake-storage.mjs`。它直接使用本仓库服务源码和已配置测试/维护解释器；重建仅写独立准备目录，退役默认预览，`--apply` 才回收清单内文件。完整边界与操作顺序见 [0050](../../docs/decisions/0050-archive-rebuild-and-producer-retirement.md)。
+
 运行源码由引擎的 `build.rs` 编入二进制，启动时按源码摘要展开到应用数据目录的 `lake-worker/<revision>`。每次更新使用独立源码版本，不改写正在运行的版本。不需要外部 Danbooru-Store 仓库、editable install、工作目录或 PYTHONPATH。Python 解释器及第三方依赖仍是运行环境，不嵌入 Rust 可执行文件。
 
 ## 环境和启动

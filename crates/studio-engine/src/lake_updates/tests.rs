@@ -20,7 +20,7 @@ fn rejected_executable_does_not_install_configuration_or_owner() {
             state_root: state_root.clone(),
         })
         .unwrap_err();
-    assert_eq!(error.code, "UPDATE_UNAVAILABLE");
+    assert_eq!(error.code, "UPDATE_UNAVAILABLE", "{error:?}");
     assert!(!backend.configured());
     assert!(!backend.config_path.exists());
     assert!(!state_root.join("studio-owner.json").exists());
