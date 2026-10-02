@@ -3,7 +3,7 @@ import { lakeWorkerPython } from "./lake-worker-runtime.mjs";
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
-import { mkdir, open, readFile, writeFile, cp } from "node:fs/promises";
+import { mkdir, open, readFile, writeFile, rename } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import ts from "typescript";
@@ -749,23 +749,24 @@ try {
   await settings
     .getByLabel("迁移数据湖", { exact: true })
     .selectOption(moveTarget.library_id);
-  await settings
-    .getByRole("button", { name: "准备迁移并冻结写入", exact: true })
-    .click();
   await expect(
-    settings.getByRole("status").filter({ hasText: "已准备，可以搬迁文件" }),
-  ).toBeVisible();
+    settings.getByLabel("迁移后的媒体目录", { exact: true }),
+  ).toHaveValue(moveTarget.media_root);
+  await expect(
+    settings.getByLabel("迁移后的索引目录", { exact: true }),
+  ).toHaveValue(moveTarget.index_root);
   const movedMedia = resolve(run, "ui-moved-media");
   const movedIndex = resolve(run, "ui-moved-index");
+  // Files may already be moved before opening the reconnect form.
+  await rename(moveTarget.media_root, movedMedia);
+  await rename(moveTarget.index_root, movedIndex);
   await settings
     .getByLabel("迁移后的媒体目录", { exact: true })
-    .fill(movedMedia);
+    .fill(resolve(run, "missing-ui-media"));
   await settings
     .getByLabel("迁移后的索引目录", { exact: true })
     .fill(movedIndex);
-  await settings
-    .getByRole("button", { name: "验证并完成迁移", exact: true })
-    .click();
+  await settings.getByRole("button", { name: "重新关联", exact: true }).click();
   await expect(
     settings
       .getByText("Relocation requires existing absolute directories", {
@@ -773,22 +774,27 @@ try {
       })
       .first(),
   ).toBeVisible();
-  await cp(moveTarget.media_root, movedMedia, { recursive: true });
-  await cp(moveTarget.index_root, movedIndex, { recursive: true });
   await settings
-    .getByRole("button", { name: "验证并完成迁移", exact: true })
-    .click();
+    .getByLabel("迁移后的媒体目录", { exact: true })
+    .fill(movedMedia);
+  await settings.getByRole("button", { name: "重新关联", exact: true }).click();
   await expect(
     settings
       .getByRole("status")
       .filter({ hasText: "数据湖读写位置已同步，迁移完成" }),
   ).toBeVisible();
   await expect(
-    settings.getByRole("button", { name: "准备迁移并冻结写入", exact: true }),
+    settings.getByRole("button", { name: "重新关联", exact: true }),
   ).toBeEnabled();
+  await expect(
+    settings.getByLabel("迁移后的媒体目录", { exact: true }),
+  ).toHaveValue(movedMedia);
+  await expect(
+    settings.getByLabel("迁移后的索引目录", { exact: true }),
+  ).toHaveValue(movedIndex);
   await page.screenshot({ path: resolve(run, "runtime-and-relocation.png") });
   checks.push(
-    "runtime replacement and coordinated relocation: real settings UI rejects bad paths, retains saved state and completes both repairs",
+    "runtime replacement and lightweight reconnect: settings reject bad paths, retain edits for retry and reconnect already-moved directories in one action",
   );
   await settings
     .getByRole("button", { name: "关闭", exact: true })

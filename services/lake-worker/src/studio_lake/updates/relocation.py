@@ -1,4 +1,4 @@
-"""Prepare -> verify -> writer switched -> reader acknowledged. Every step is repeatable."""
+"""Lightweight path relinking with recoverable writer/reader handoff."""
 
 from contextlib import ExitStack
 import json
@@ -8,7 +8,7 @@ import uuid
 from ..online_storage import connect
 from ..util import FileLock, atomic_json, contained, failpoint, now, read_json, safe_managed_path, same_directory
 from . import locations
-from .relocation_inventory import checkpoint, write_inventory, verify_inventory
+from .relocation_checkpoint import checkpoint, verify_checkpoint
 from .sites import UpdateError
 
 
@@ -26,22 +26,42 @@ def list_all(state):
         return {"items": [dict(value) for value in rows]}
 
 
-def evidence_path(state, identity):
-    if not isinstance(identity, str) or len(identity) != 32 or any(c not in "0123456789abcdef" for c in identity):
-        raise UpdateError("INVALID_INPUT", "Invalid relocation identity")
-    return safe_managed_path(state.root, state.root / "relocations" / (identity + ".sqlite"))
-
-
-def locks(stack, media, index):
+def locks(stack, media, index, *, existing_only=False):
     for root, name in ((index, ".daily-run.lock"), (media, ".writer.lock"),
                        (index, ".index.lock"), (index, ".online.lock")):
+        if existing_only and not root.exists():
+            continue
+        safe_managed_path(root.parent, root)
         stack.enter_context(FileLock(root / name, timeout=0))
 
 
-def marker(index, value):
+def verify_owner(state, index, lake_id):
+    for name in ("UPDATE-CONTROLLER.json", "cache_owner.json"):
+        owner = read_json(index / name)
+        if owner.get("library_id") != lake_id or (name == "UPDATE-CONTROLLER.json" and not same_directory(owner.get("root"), state.root)):
+            raise UpdateError("UPDATE_CONFLICT", "Relocation target belongs to another controller or lake")
+
+
+def check_marker(state, index, value):
     path = index / "LAKE-RELOCATION.json"
-    if path.exists() and read_json(path).get("id") != value["id"]:
+    if not path.exists():
+        return
+    owner = read_json(path)
+    if owner.get("library_id") != value["lake_id"]:
         raise UpdateError("UPDATE_CONFLICT", "Another relocation owns this location")
+    if owner.get("id") == value["id"]:
+        return
+    # A pre-move marker can travel with the index before the user cancels.
+    # Only this controller's cancelled handoff for this lake may be superseded.
+    with state.db() as db:
+        previous = db.execute("SELECT lake_id,phase FROM lake_relocations WHERE id=?", (owner.get("id"),)).fetchone()
+    if previous is None or previous["lake_id"] != value["lake_id"] or previous["phase"] != "cancelled":
+        raise UpdateError("UPDATE_CONFLICT", "Another relocation owns this location")
+
+
+def marker(state, index, value):
+    check_marker(state, index, value)
+    path = index / "LAKE-RELOCATION.json"
     atomic_json(path, {"id": value["id"], "library_id": value["lake_id"]})
 
 
@@ -63,20 +83,13 @@ def prepare(state, lake_id):
             if value["phase"] != "draining":
                 return value
             media, index = Path(value["old_media"]), Path(value["old_index"])
-            # Offline roots without prior evidence cannot establish a freshness floor.
-            if not (media / "journal.sqlite").is_file() or not (index / "ONLINE.json").is_file():
-                raise UpdateError("SOURCE_CHANGED", "Restore the old lake to prepare a verified relocation checkpoint")
-            lib = state.library(lake_id)
-            stack.enter_context(FileLock(index / ".daily-run.lock", timeout=0))
-            if not (index / "LAKE-RELOCATION.json").exists():
-                lib.recover()
-            for root, name in ((media, ".writer.lock"), (index, ".index.lock"), (index, ".online.lock")):
-                stack.enter_context(FileLock(root / name, timeout=0))
-            stamp = checkpoint(media, index, lake_id, lake["site"])
-            path = evidence_path(state, identity)
-            path.parent.mkdir(parents=True, exist_ok=True)
-            write_inventory(path, media, index)
-            marker(index, value)
+            # Already-moved roots are allowed. Never recreate the old directories,
+            # recover the archive, enumerate payloads or hash historical manifests.
+            locks(stack, media, index, existing_only=True)
+            stamp = checkpoint(media, index, lake_id, lake["site"], allow_missing=True)
+            if index.is_dir():
+                verify_owner(state, index, lake_id)
+                marker(state, index, value)
             failpoint("relocation_prepared_files")
             with state.db() as db:
                 db.execute("UPDATE lake_relocations SET phase='prepared',checkpoint=? WHERE id=? AND phase='draining'",
@@ -125,20 +138,13 @@ def apply(state, identity, media_root, index_root):
         locks(stack, media, index)
         expected = json.loads(value["checkpoint"])
         actual = checkpoint(media, index, value["lake_id"], expected["site"])
-        if any(actual[key] != expected[key] for key in ("generation", "archive_seq", "archive_digest")) or actual["served_seq"] < expected["served_seq"] or actual["min_seq"] > expected["min_seq"] or actual.get("producer_retired", False) != expected.get("producer_retired", False) or actual.get("producer_marker_digest") != expected.get("producer_marker_digest"):
-            raise UpdateError("SOURCE_CHANGED", "Relocation target is stale or no longer retains the frozen versions")
-        for name in ("UPDATE-CONTROLLER.json", "cache_owner.json"):
-            owner = read_json(index / name)
-            if owner.get("library_id") != value["lake_id"] or (name == "UPDATE-CONTROLLER.json" and not same_directory(owner.get("root"), state.root)):
-                raise UpdateError("UPDATE_CONFLICT", "Relocation target belongs to another controller or lake")
-        verify_inventory(evidence_path(state, identity), media, index)
-        existing_marker = index / "LAKE-RELOCATION.json"
-        if existing_marker.exists() and read_json(existing_marker).get("id") != identity:
-            raise UpdateError("UPDATE_CONFLICT", "Another relocation owns this location")
+        verify_checkpoint(expected, actual)
+        verify_owner(state, index, value["lake_id"])
+        check_marker(state, index, value)
         with state.db() as db:
             db.execute("UPDATE lake_relocations SET phase='verified',media_root=?,index_root=? WHERE id=?",
                        (str(media), str(index), identity))
-        marker(index, value)
+        marker(state, index, value)
         failpoint("relocation_verified")
         # Preserve all versions admitted before/during the move, including offline
         # old roots. This persistent floor requires an explicit retention decision.
@@ -147,7 +153,7 @@ def apply(state, identity, media_root, index_root):
         try:
             with source:
                 source.execute("INSERT OR REPLACE INTO leases VALUES(?,?,NULL,?,'relocation')",
-                               ("relocation:" + identity, expected["min_seq"], identity))
+                               ("relocation:" + identity, expected.get("min_seq", actual["min_seq"]), identity))
         finally:
             source.close()
         atomic_json(media / "online-index.json", {"schema_version": 2, "library_id": value["lake_id"], "index_root": str(index)})
@@ -198,11 +204,8 @@ def cancel(state, identity):
             return value
         if value["phase"] not in {"draining", "prepared"}:
             raise UpdateError("UPDATE_CONFLICT", "A switched relocation must be completed, not cancelled")
-        if value["checkpoint"]:
-            expected = json.loads(value["checkpoint"])
-            actual = checkpoint(Path(value["old_media"]), Path(value["old_index"]), value["lake_id"], expected["site"])
-            if actual != expected:
-                raise UpdateError("SOURCE_CHANGED", "Restore the frozen old roots before cancelling")
+        # Cancelling only releases this handoff; it never changes registered paths
+        # or restores files, even when the caller has already moved the old roots.
         path = Path(value["old_index"]) / "LAKE-RELOCATION.json"
         if path.exists():
             if read_json(path).get("id") != identity:

@@ -1,7 +1,9 @@
 """Physical root migration, frozen versions and deterministic interruption recovery."""
 
 from pathlib import Path
+import json
 import shutil
+import sqlite3
 import threading
 import os
 import subprocess
@@ -124,7 +126,7 @@ def test_prepare_freezes_new_admission_and_waits_for_actual_holders(tmp_path):
 
 
 @pytest.mark.parametrize("damage", ["stale", "identity", "database_identity", "database_site",
-                                  "generation", "retention", "spool", "input", "owner"])
+                                  "generation", "retention", "publication", "archive_head", "owner"])
 def test_bad_copy_cannot_switch_writer(tmp_path, damage):
     lib, state = populated(tmp_path)
     identity = lib.info["library_id"]
@@ -149,10 +151,17 @@ def test_bad_copy_cannot_switch_writer(tmp_path, damage):
         value = read_json(media / "library.json")
         value["library_id"] = "other"
         atomic_json(media / "library.json", value)
-    elif damage == "spool":
-        (index / "updates" / ("a" * 32) / ("b" * 64 + ".partial")).write_bytes(b"wrong!")
-    elif damage == "input":
-        (media / "plans/updates" / (frozen["id"] + ".ids")).unlink()
+    elif damage == "publication":
+        from studio_lake.online_migrate import connect
+        db = connect(index / read_json(index / "ONLINE.json")["file"])
+        with db:
+            db.execute("UPDATE publications SET batch_id='wrong' WHERE seq=(SELECT max(seq) FROM publications)")
+        db.close()
+    elif damage == "archive_head":
+        db = sqlite3.connect(media / "journal.sqlite")
+        with db:
+            db.execute("UPDATE commits SET batch_id='wrong' WHERE seq=(SELECT max(seq) FROM commits)")
+        db.close()
     else:
         atomic_json(index / "UPDATE-CONTROLLER.json", {"library_id": identity, "root": str(tmp_path / "another-controller")})
     with pytest.raises(UpdateError):
@@ -161,11 +170,116 @@ def test_bad_copy_cannot_switch_writer(tmp_path, damage):
     assert locations.pending(state, identity)
 
 
-def test_offline_without_prepared_checkpoint_is_not_trusted(tmp_path):
-    lib, state = setup(tmp_path, "yandere")
-    lib.root.rename(tmp_path / "offline")
-    with pytest.raises(UpdateError, match="old lake"):
-        relocation.prepare(state, lib.info["library_id"])
+@pytest.mark.parametrize("mode", ["media", "index", "both"])
+def test_already_moved_directories_can_reconnect_without_restoring_old_paths(tmp_path, mode):
+    lib, state = populated(tmp_path)
+    media, index = lib.root, lib.cache
+    if mode in {"media", "both"}:
+        media = lib.root.rename(tmp_path / "moved-media")
+    if mode in {"index", "both"}:
+        index = lib.cache.rename(tmp_path / "moved-index")
+    move = relocation.prepare(state, lib.info["library_id"])
+    assert move["phase"] == "prepared"
+    assert lib.root.exists() == (mode == "index")
+    assert lib.cache.exists() == (mode == "media")
+    relocation.apply(state, move["id"], str(media), str(index))
+    assert relocation.finish(state, move["id"])["phase"] == "complete"
+    current = state.library(lib.info["library_id"])
+    assert (current.root, current.cache) == (media, index)
+    Publisher(media, index).sync()
+
+
+def test_relocation_never_enumerates_payloads_reads_historical_manifests_or_recovers(tmp_path, monkeypatch):
+    from studio_lake.library import Library
+
+    lib, state = populated(tmp_path)
+    media, index = copy_roots(tmp_path, lib)
+    roots = (lib.root, lib.cache, media, index)
+    original_iterdir, original_connect = Path.iterdir, sqlite3.connect
+
+    def bounded_iterdir(path):
+        assert not any(path == root or root in path.parents for root in roots), path
+        return original_iterdir(path)
+
+    def bounded_connect(*args, **kwargs):
+        db = original_connect(*args, **kwargs)
+        db.set_authorizer(lambda action, table, column, *_:
+                          sqlite3.SQLITE_DENY if action == sqlite3.SQLITE_READ
+                          and table == "commits" and column == "manifest_json" else sqlite3.SQLITE_OK)
+        return db
+
+    def no_recovery(*args, **kwargs):
+        pytest.fail("Location changes must not run archive recovery")
+
+    monkeypatch.setattr(Path, "iterdir", bounded_iterdir)
+    monkeypatch.setattr(sqlite3, "connect", bounded_connect)
+    monkeypatch.setattr(Library, "recover", no_recovery)
+    move = relocation.prepare(state, lib.info["library_id"])
+    relocation.apply(state, move["id"], str(media), str(index))
+    assert relocation.finish(state, move["id"])["phase"] == "complete"
+    assert not (state.root / "relocations").exists()
+
+
+@pytest.mark.parametrize("phase", ["draining", "prepared", "verified"])
+def test_old_interrupted_relocations_resume_without_inventory_scan(tmp_path, phase):
+    lib, state = populated(tmp_path)
+    move = relocation.prepare(state, lib.info["library_id"])
+    media, index = copy_roots(tmp_path, lib)
+    old = json.loads(relocation.row(state, move["id"])["checkpoint"])
+    old.pop("version")
+    old.pop("archive_batch")
+    old["archive_digest"] = "legacy-full-journal-digest"
+    with state.db() as db:
+        db.execute("UPDATE lake_relocations SET phase=?,checkpoint=?,media_root=?,index_root=? WHERE id=?",
+                   (phase, None if phase == "draining" else json.dumps(old),
+                    str(media) if phase == "verified" else None,
+                    str(index) if phase == "verified" else None, move["id"]))
+    # Neither require nor open an old, possibly interrupted inventory database.
+    evidence = state.root / "relocations" / (move["id"] + ".sqlite")
+    evidence.parent.mkdir()
+    evidence.write_bytes(b"interrupted old inventory")
+    if phase == "draining":
+        assert relocation.prepare(state, lib.info["library_id"])["phase"] == "prepared"
+    relocation.apply(state, move["id"], str(media), str(index))
+    assert relocation.finish(state, move["id"])["phase"] == "complete"
+    assert evidence.read_bytes() == b"interrupted old inventory"
+
+
+def test_cancel_after_files_moved_only_releases_pending_handoff(tmp_path):
+    lib, state = populated(tmp_path)
+    before = state.lake(lib.info["library_id"])
+    lib.root.rename(tmp_path / "moved-media")
+    lib.cache.rename(tmp_path / "moved-index")
+    move = relocation.prepare(state, lib.info["library_id"])
+    assert relocation.cancel(state, move["id"])["phase"] == "cancelled"
+    assert state.lake(lib.info["library_id"]) == before
+    assert not lib.root.exists() and not lib.cache.exists()
+
+
+def test_cancel_after_preparing_and_moving_index_can_reconnect_again(tmp_path):
+    lib, state = populated(tmp_path)
+    identity = lib.info["library_id"]
+    first = relocation.prepare(state, identity)
+    index = lib.cache.rename(tmp_path / "moved-index")
+    assert relocation.cancel(state, first["id"])["phase"] == "cancelled"
+    assert read_json(index / "LAKE-RELOCATION.json")["id"] == first["id"]
+    second = relocation.prepare(state, identity)
+    assert second["id"] != first["id"]
+    relocation.apply(state, second["id"], str(lib.root), str(index))
+    assert relocation.finish(state, second["id"])["phase"] == "complete"
+    assert not (index / "LAKE-RELOCATION.json").exists()
+
+
+def test_unknown_relocation_marker_cannot_be_replaced(tmp_path):
+    lib, state = populated(tmp_path)
+    identity = lib.info["library_id"]
+    index = lib.cache.rename(tmp_path / "moved-index")
+    owner = {"id": "f" * 32, "library_id": identity}
+    atomic_json(index / "LAKE-RELOCATION.json", owner)
+    move = relocation.prepare(state, identity)
+    with pytest.raises(UpdateError, match="Another relocation"):
+        relocation.apply(state, move["id"], str(lib.root), str(index))
+    assert read_json(index / "LAKE-RELOCATION.json") == owner
 
 
 def test_old_copy_stays_write_blocked_after_index_move(tmp_path):

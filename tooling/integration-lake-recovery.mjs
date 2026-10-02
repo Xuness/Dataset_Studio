@@ -192,8 +192,11 @@ try {
     const target = targets[i];
     const mode = ["media", "index", "both"][i];
     const destination = mode === "both" && crossVolume ? crossVolume : run;
-    const move = await client.lakeUpdates.prepareRelocation(target.library_id);
-    assert.equal(move.phase, "prepared");
+    // Index-only reconnect also works when its old directory is already offline.
+    let move =
+      mode === "index"
+        ? null
+        : await client.lakeUpdates.prepareRelocation(target.library_id);
     const media_root =
       mode === "index"
         ? target.media_root
@@ -210,6 +213,8 @@ try {
       await cp(target.index_root, index_root, { recursive: true });
       await rename(target.index_root, target.index_root + "-offline");
     }
+    move ??= await client.lakeUpdates.prepareRelocation(target.library_id);
+    assert.equal(move.phase, "prepared");
     if (mode === "both") {
       // Simulate the process ending after Python commits but before Rust updates readers.
       await engine.stop();
