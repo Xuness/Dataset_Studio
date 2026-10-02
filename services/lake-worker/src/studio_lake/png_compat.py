@@ -1,8 +1,8 @@
 """Bounded PNG metadata recovery without changing Pillow's process-wide guards.
 
-Only known metadata checksums may be repaired in a decoder copy. Original chunk
-bytes and checksum mismatches remain in provenance; pixel/animation chunks are
-always strict. Large ICC profiles are decoded separately and restored to info.
+Known metadata recoveries apply only to a decoder copy. Original chunks and
+bytes after IEND remain in provenance; pixel/animation chunks are always strict.
+Large or recovered complete ICC profiles are restored to the individual image.
 """
 
 from dataclasses import dataclass, field
@@ -11,7 +11,7 @@ from pathlib import Path
 import struct
 import zlib
 
-from PIL import Image, PngImagePlugin
+from PIL import Image, ImageCms, PngImagePlugin
 
 from .util import digest, typed_value
 
@@ -52,7 +52,26 @@ def read_exact(source, count):
     return data
 
 
-def icc_profile(payload):
+def complete_icc(profile):
+    """Require a complete declared profile before tolerating an unfinished wrapper."""
+    if (len(profile) < 132 or struct.unpack(">I", profile[:4])[0] != len(profile)
+            or profile[36:40] != b"acsp"):
+        raise PngCompatibilityError("PNG incomplete ICC stream has an incomplete profile")
+    count = struct.unpack(">I", profile[128:132])[0]
+    table_end = 132 + count * 12
+    if not count or table_end > len(profile):
+        raise PngCompatibilityError("PNG incomplete ICC stream has an invalid tag table")
+    for i in range(count):
+        offset, size = struct.unpack(">II", profile[136 + i * 12:144 + i * 12])
+        if offset < table_end or offset % 4 or size < 8 or offset + size > len(profile):
+            raise PngCompatibilityError("PNG incomplete ICC stream has an incomplete tag")
+    try:
+        ImageCms.ImageCmsProfile(io.BytesIO(profile))
+    except (OSError, ValueError, ImageCms.PyCMSError):
+        raise PngCompatibilityError("PNG incomplete ICC stream has an unreadable profile") from None
+
+
+def icc_profile(payload, checksum_valid):
     name, separator, compressed = payload.partition(b"\0")
     if not separator or not 1 <= len(name) <= 79 or not compressed or compressed[0] != 0:
         raise PngCompatibilityError("PNG ICC header is invalid")
@@ -63,9 +82,23 @@ def icc_profile(payload):
         raise PngCompatibilityError("PNG ICC compression is invalid") from None
     if len(profile) > MAX_ICC_BYTES or decoder.unconsumed_tail:
         raise PngCompatibilityError("PNG ICC exceeds the 4 MiB decompression budget")
-    if not decoder.eof or decoder.unused_data:
-        raise PngCompatibilityError("PNG ICC compressed stream is incomplete or has trailing data")
-    return profile
+    if decoder.unused_data:
+        raise PngCompatibilityError("PNG ICC compressed stream has trailing data")
+    incomplete = not decoder.eof
+    if incomplete:
+        # A complete profile may precede a missing compression end marker. Do not
+        # combine this recovery with a damaged enclosing chunk checksum.
+        if not checksum_valid:
+            raise PngCompatibilityError("PNG incomplete ICC stream has an invalid chunk checksum")
+        complete_icc(profile)
+    return profile, incomplete
+
+
+def edit(result, start, end, replacement, evidence):
+    if len(result.changes) >= MAX_RECOVERY_CHUNKS:
+        raise PngCompatibilityError("PNG exceeds the metadata recovery budget")
+    result.edits.append((start, end, replacement))
+    result.changes.append({"offset": start, **evidence})
 
 
 def scan(source, size):
@@ -133,25 +166,34 @@ def scan(source, size):
             if seen_icc:
                 raise PngCompatibilityError("PNG has duplicate ICC profiles")
             seen_icc = True
-            profile = icc_profile(payload)
-            if len(profile) > PngImagePlugin.MAX_TEXT_CHUNK:
+            profile, incomplete = icc_profile(payload, expected == actual)
+            if incomplete:
+                actions.append("incomplete_icc_stream_complete_profile_retained")
+            if incomplete or len(profile) > PngImagePlugin.MAX_TEXT_CHUNK:
                 result.icc = profile
                 actions.append("icc_decoded_separately")
                 replacement = b""
         elif kind == b"IEND":
-            if length or end != size:
-                raise PngCompatibilityError("PNG IEND is malformed or has trailing data")
+            if length:
+                raise PngCompatibilityError("PNG IEND is malformed")
             seen_iend = True
         if replacement is not None:
-            if len(result.changes) >= MAX_RECOVERY_CHUNKS:
-                raise PngCompatibilityError("PNG exceeds the metadata recovery budget")
-            result.edits.append((offset, end, replacement))
-            result.changes.append({"offset": offset, "type": kind.decode("ascii"),
-                                   "actions": actions, "original_crc": expected, "computed_crc": actual,
-                                   "original_chunk": typed_value(header + payload + original_crc)})
+            edit(result, offset, end, replacement, {"type": kind.decode("ascii"),
+                 "actions": actions, "original_crc": expected, "computed_crc": actual,
+                 "original_chunk": typed_value(header + payload + original_crc)})
         offset = end
+        if seen_iend:
+            break
     if not seen_idat or not seen_iend:
         raise PngCompatibilityError("PNG pixel data or end marker is missing")
+    if offset < size:
+        result.metadata_bytes += size - offset
+        if result.metadata_bytes > MAX_METADATA_BYTES:
+            raise PngCompatibilityError("PNG metadata exceeds the 16 MiB budget")
+        trailing = read_exact(source, size - offset)
+        edit(result, offset, size, b"", {"type": "trailing_data",
+             "actions": ["trailing_data_retained_outside_decode"], "bytes": len(trailing),
+             "sha256": digest(trailing), "original_bytes": typed_value(trailing)})
     return result
 
 
@@ -174,7 +216,7 @@ def open_image(data):
         parts.append(view[offset:])
         decode_data = b"".join(parts)
         recovery = {"source_decode_sha256": digest(decode_data), "source_png_compatibility": {
-            "version": 1, "original_bytes_changed": False, "changes": inspected.changes,
+            "version": 2, "original_bytes_changed": False, "changes": inspected.changes,
             "icc_limit_bytes": MAX_ICC_BYTES, "metadata_limit_bytes": MAX_METADATA_BYTES}}
     image = Image.open(io.BytesIO(decode_data))
     if inspected is not None and inspected.icc is not None:

@@ -139,4 +139,6 @@ pwsh -File tooling/setup-lake-worker.ps1 -Dev
 
 PNG 元数据兼容解码与下载后的资源准入共用同一模块：仅对已知元数据块重算解码副本的 CRC，并保留完整原始块及异常记录；较大 ICC 单独有界解压（4 MiB）并回填图片。像素、透明度、动画块、文件结构仍严格检查，原始下载字节不改动，不使用全局宽松解码开关。完整限制与验收见 [ADR 0048](../../docs/decisions/0048-bounded-png-metadata-recovery.md)。
 
+IEND 后附加数据在 16 MiB 累积预算内完整保留为处理详情，解码只使用 PNG 主体。未结束的 ICC 压缩流只有在块 CRC 正确、完整配置大小及标签范围通过检查且 LittleCMS 可读取时才兼容处理；原块与动作保留，原图/动画输出不裁剪。详见 [ADR 0051](../../docs/decisions/0051-png-trailing-data-and-complete-icc.md)。
+
 `pnpm test:lake`、`node tooling/integration-lake-updates.mjs`、`pnpm test:lake-ui`。优先使用 `.local/runtime/lake-worker`，也可指定 `STUDIO_LAKE_TEST_PYTHON`，不再使用 `STUDIO_LAKE_TEST_STORE`。夹具和证据只写入 `.local/`；测试不访问真实站点，不创建正式计划。
