@@ -1,10 +1,10 @@
 // Canonical tags use literal U+0020. Quoted JSON strings express embedded
 // whitespace and separators without relying on a single-line input's normalization.
-export function validSourceTag(value: string) {
+export function validSourceTag(value: string, literal = false) {
   return (
     !!value &&
     new TextEncoder().encode(value).length <= 256 &&
-    !value.includes(" ") &&
+    (literal || !value.includes(" ")) &&
     ![...value].some((c) => {
       const n = c.codePointAt(0)!;
       return (

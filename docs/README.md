@@ -34,7 +34,7 @@ PNG 尾部数据与完整 ICC：[兼容边界](decisions/0051-png-trailing-data-
 
 三湖存储收敛：[归档直接重建、旧任务交接与生产者索引退役](decisions/0050-archive-rebuild-and-producer-retirement.md)、[2026-10-02 验收](verification/2026-10-02-three-lake-storage-retirement.md)。
 
-Pixiv 阶段 1–3：[多媒体湖与采集决定](decisions/0052-pixiv-collections-and-canonical-media.md)、[后端与独立命令接入](architecture/source-collections.md)、[公开样本及离线验收](verification/2026-10-03-pixiv-stages-1-3.md)。前端页面暂缓。
+Pixiv：[多媒体湖与采集](decisions/0052-pixiv-collections-and-canonical-media.md)、[公开运行、增量复查与工作台接入](decisions/0053-pixiv-public-operation-and-incremental-refresh.md)、[界面、API 与独立命令](architecture/source-collections.md)、[公开生产验收](verification/2026-10-03-pixiv-public-production.md)、[早期阶段 1–3 验收](verification/2026-10-03-pixiv-stages-1-3.md)。Pixiv 使用现有浏览、任务和设置页面。
 
 数据湖来源：[统一接口与调度](decisions/0035-source-registry-and-dispatch.md)、[Yandere/Gelbooru 验收](verification/2026-09-26-multibooru.md)、[多湖交互与查询缓存补齐](verification/2026-09-26-multibooru-followup.md)。
 

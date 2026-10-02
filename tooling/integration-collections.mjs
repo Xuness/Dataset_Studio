@@ -36,7 +36,7 @@ try {
   await verifyLakeWorkerBundle(root, engine.dataDir);
   assert.equal(
     (await client.sourceCollections.capabilities()).contract_version,
-    1,
+    2,
   );
   assert.equal((await client.lakeUpdates.lakes()).items.length, 0);
   assert.equal(
@@ -194,6 +194,30 @@ try {
   checks.push(
     "literal-space tags, stored dimensions and all predicates stay on one work/media origin",
   );
+  assert.equal(
+    (
+      await query([
+        {
+          field: "work.type",
+          operator: "eq",
+          value: { type: "text", value: "illustration" },
+        },
+      ])
+    ).length,
+    1,
+  );
+  assert.equal(
+    (
+      await query([
+        {
+          field: "author.id",
+          operator: "eq",
+          value: { type: "text", value: "10109777" },
+        },
+      ])
+    ).length,
+    1,
+  );
   const accountId = crypto.randomUUID();
   const secret = "fixture-cookie-not-a-real-session";
   const account = await client.sourceCollections.saveAccount({
@@ -230,6 +254,50 @@ try {
   const requestKey = crypto.randomUUID();
   const created = await client.sourceCollections.create(definition, requestKey);
   assert.equal(created.job.state, "waiting_credentials");
+  const coalesced = await client.sourceCollections.create(definition);
+  assert.equal(coalesced.job.id, created.job.id);
+  assert.equal(coalesced.coalesced, true);
+  const workspaceFirst = await client.sourceCollections.workspaceJobs({
+    limit: 1,
+  });
+  const workspaceSecond = await client.sourceCollections.workspaceJobs({
+    limit: 1,
+    cursor: workspaceFirst.next_cursor,
+  });
+  assert.notEqual(
+    workspaceFirst.items[0].job.id,
+    workspaceSecond.items[0].job.id,
+  );
+  assert.equal(
+    (await client.sourceCollections.workspaceLakes()).items[0].site,
+    "pixiv",
+  );
+  const scheduleRequest = {
+    id: crypto.randomUUID(),
+    request_key: crypto.randomUUID(),
+    expected_revision: 0,
+    definition,
+    every_seconds: 86400,
+    first_run_at: "2099-01-01T00:00:00Z",
+    enabled: false,
+  };
+  const schedule = await client.sourceCollections.saveSchedule(scheduleRequest);
+  assert.equal(
+    (await client.sourceCollections.saveSchedule(scheduleRequest)).revision,
+    schedule.revision,
+  );
+  assert.equal(
+    (await client.sourceCollections.workspaceSchedules()).items[0].family,
+    "collection",
+  );
+  await client.sourceCollections.removeSchedule(schedule.id, {
+    request_key: crypto.randomUUID(),
+    expected_revision: schedule.revision,
+  });
+  assert.equal((await client.sourceCollections.schedules()).items.length, 0);
+  checks.push(
+    "unified workspace pagination, same-intent coalescing and revisioned recurring-snapshot CRUD use public SDK contracts",
+  );
   assert.equal(
     (await client.sourceCollections.create(definition, requestKey)).replayed,
     true,

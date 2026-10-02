@@ -238,7 +238,14 @@ export function QueryPanel({
       const tag: unknown = JSON.parse(invocation.args.exactTag);
       if (
         typeof tag !== "string" ||
-        !validSourceTag(tag) ||
+        !validSourceTag(
+          tag,
+          sources.some(
+            (s) =>
+              s.id === invocation.args.sourceId &&
+              sourceSupports(s, "literal_tags"),
+          ),
+        ) ||
         !sources.some(
           (s) =>
             s.id === invocation.args.sourceId && sourceSupports(s, "query"),
@@ -264,6 +271,43 @@ export function QueryPanel({
     } catch {
       /* Only structured literal tags can populate this draft. */
     }
+  }, [draft.editable, draft.controller, invocation, sources]);
+  useEffect(() => {
+    if (
+      !draft.editable ||
+      !invocation ||
+      appliedInvocation.current === invocation.sequence
+    )
+      return;
+    const { exactField, exactValue, sourceId } = invocation.args;
+    if (
+      !exactField ||
+      !["author.id", "work.id"].includes(exactField) ||
+      !exactValue ||
+      !/^[1-9][0-9]{0,19}$/.test(exactValue) ||
+      !sourceId ||
+      !sources.some(
+        (s) => s.id === sourceId && sourceSupports(s, "work_members"),
+      )
+    )
+      return;
+    draft.controller.set((old) => ({
+      ...old,
+      definition: null,
+      sourceIds: [sourceId],
+      name: `${exactField === "author.id" ? "作者" : "作品"} · ${exactValue}`,
+      conditions: [
+        {
+          field: exactField,
+          operator: "eq",
+          value: { type: "text", value: exactValue },
+        },
+      ],
+      rule: "current_post",
+      order: "asset_key_asc",
+      inputScope: null,
+    }));
+    appliedInvocation.current = invocation.sequence;
   }, [draft.editable, draft.controller, invocation, sources]);
   const [showReleased, setShowReleased] = useState(false);
   const [lastRun, setLastRun] = useState<string | null>(null);
@@ -294,7 +338,21 @@ export function QueryPanel({
     browserScope,
   ]);
   const directory = useQueryFields(client, projectId, sources, sourceIds);
+  const workRecords =
+    sourceIds.length > 0 &&
+    sourceIds.every((id) =>
+      sources.some((s) => s.id === id && sourceSupports(s, "work_members")),
+    );
   const fields = directory.fields;
+  useEffect(() => {
+    if (
+      draft.editable &&
+      !definition &&
+      directory.orders.length &&
+      !directory.orders.includes(order)
+    )
+      draft.controller.set((old) => ({ ...old, order: directory.orders[0]! }));
+  }, [draft.editable, draft.controller, definition, directory.orders, order]);
   const invalid =
     !directory.orders.includes(order) ||
     !directory.observation_rules.includes(rule) ||
@@ -675,7 +733,7 @@ export function QueryPanel({
                     !directory.observation_rules.includes("current_post")
                   }
                 >
-                  当前帖子记录
+                  {workRecords ? "当前作品记录" : "当前帖子记录"}
                 </option>
                 <option
                   value="any_observation"
@@ -753,7 +811,9 @@ export function QueryPanel({
             </div>
             <p className="query-rule-hint">
               {rule === "current_post"
-                ? "按当前帖子记录筛选。"
+                ? workRecords
+                  ? "按当前作品与对应媒体记录筛选。"
+                  : "按当前帖子记录筛选。"
                 : "同一条历史记录必须满足全部条件。"}
               分级和标签均按来源原值匹配；查询不会自动覆盖保存的条件。
             </p>

@@ -88,6 +88,12 @@ pub struct CollectionRunBudget {
 }
 #[derive(Clone, Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
+pub struct CollectionRefresh {
+    pub mode: String,
+    pub max_age_hours: u32,
+}
+#[derive(Clone, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CollectionJobDefinition {
     pub version: u32,
     pub collector: String,
@@ -98,6 +104,8 @@ pub struct CollectionJobDefinition {
     pub discovery: CollectionDiscovery,
     pub media: CollectionMediaPlan,
     pub run_budget: CollectionRunBudget,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refresh: Option<CollectionRefresh>,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
@@ -204,6 +212,8 @@ pub struct CollectionWorkProgress {
     pub planned: Option<u64>,
     pub details: u64,
     pub gaps: u64,
+    pub retained: u64,
+    pub excluded: u64,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct CollectionMediaProgress {
@@ -214,6 +224,7 @@ pub struct CollectionMediaProgress {
     pub archived: u64,
     pub published: u64,
     pub gaps: u64,
+    pub retained: u64,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct CollectionObjectProgress {
@@ -242,6 +253,21 @@ pub struct CollectionProgress {
     pub download_bytes: u64,
     pub publication: CollectionPublicationProgress,
     pub closure: CollectionClosure,
+    pub access_mode: String,
+    pub directory_delta: CollectionDirectoryDelta,
+    pub task_gaps: u64,
+    pub budget: CollectionBudgetProgress,
+}
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct CollectionDirectoryDelta {
+    pub added: u64,
+    pub no_longer_listed: u64,
+    pub unchanged: u64,
+}
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct CollectionBudgetProgress {
+    pub limits: CollectionRunBudget,
+    pub used: BTreeMap<String, f64>,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct CollectionJob {
@@ -263,6 +289,8 @@ pub struct CollectionJob {
 pub struct CollectionJobResult {
     pub job: CollectionJob,
     pub replayed: bool,
+    #[serde(default)]
+    pub coalesced: bool,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct CollectionTask {
@@ -274,6 +302,7 @@ pub struct CollectionTask {
     pub attempts: u64,
     pub reason: Option<String>,
     pub retry_at_ms: u64,
+    pub summary: Value,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
@@ -324,6 +353,8 @@ pub struct CollectionCapabilities {
     pub online_formats: Vec<u32>,
     pub limits: BTreeMap<String, u64>,
     pub authentication_modes: Vec<String>,
+    pub refresh_modes: Vec<String>,
+    pub periodic_snapshots: bool,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct CollectionServiceStatus {
@@ -347,6 +378,68 @@ page!(CollectionLakes, CollectionLake);
 page!(CollectionAccounts, CollectionAccount);
 page!(CollectionJobs, CollectionJob);
 page!(CollectionTasks, CollectionTask);
+
+#[derive(Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SaveCollectionSchedule {
+    pub request_key: String,
+    pub id: String,
+    pub expected_revision: u64,
+    pub definition: CollectionJobDefinition,
+    pub every_seconds: u64,
+    pub first_run_at: String,
+    pub enabled: bool,
+}
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct CollectionSchedule {
+    pub id: String,
+    pub definition: CollectionJobDefinition,
+    pub every_seconds: u64,
+    pub next_run_at: String,
+    pub enabled: bool,
+    pub revision: u64,
+    pub last_job: Option<String>,
+}
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct CollectionScheduleRemoved {
+    pub removed: bool,
+}
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct LakeWorkspaceLake {
+    pub id: String,
+    pub site: String,
+    pub media: String,
+    pub index_root: String,
+    pub registered_at: String,
+}
+#[derive(Serialize, Deserialize, ToSchema)]
+#[serde(tag = "family", rename_all = "snake_case")]
+pub enum LakeWorkspaceJob {
+    Update { job: Box<crate::LakeUpdateJob> },
+    Collection { job: Box<CollectionJob> },
+}
+#[derive(Serialize, Deserialize, ToSchema)]
+#[serde(tag = "family", rename_all = "snake_case")]
+pub enum LakeWorkspaceSchedule {
+    Update { schedule: crate::LakeUpdateSchedule },
+    Collection { schedule: CollectionSchedule },
+}
+page!(CollectionSchedules, CollectionSchedule);
+page!(LakeWorkspaceLakes, LakeWorkspaceLake);
+page!(LakeWorkspaceJobs, LakeWorkspaceJob);
+page!(LakeWorkspaceSchedules, LakeWorkspaceSchedule);
+
+#[derive(Serialize, Deserialize, ToSchema, IntoParams)]
+#[serde(deny_unknown_fields)]
+#[into_params(parameter_in=Query)]
+pub struct CollectionSchedulesQuery {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub library_id: Option<String>,
+}
 
 #[derive(Serialize, Deserialize, ToSchema, IntoParams)]
 #[serde(deny_unknown_fields)]

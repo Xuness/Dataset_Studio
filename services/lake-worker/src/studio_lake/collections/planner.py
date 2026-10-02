@@ -102,7 +102,7 @@ def apply(db, job, records, outcomes):
         allowed = scope_allows(detail, spec)
         db.execute("UPDATE collection_entities SET state=? WHERE job_id=? AND kind='work' AND source_id=?", ("processed" if allowed else "excluded", job["id"], work_id))
         if allowed:
-            task(db, job["id"], "media_manifest", work_id, dict(detail=detail), parent=parent("work_detail", work_id))
+            task(db, job["id"], "media_manifest", work_id, dict(detail=detail), priority=5, parent=parent("work_detail", work_id))
     for manifest in records.get("media_manifests", []):
         if not manifest["complete"]:
             continue

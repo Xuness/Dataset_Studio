@@ -2,6 +2,7 @@
 
 
 def remove_collection_schema(db):
+    db.execute("DROP INDEX IF EXISTS update_job_created")
     names = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'collection_%'")}
     for (name,) in db.execute("SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE 'collection_%'").fetchall():
         db.execute('DROP TRIGGER "' + name + '"')

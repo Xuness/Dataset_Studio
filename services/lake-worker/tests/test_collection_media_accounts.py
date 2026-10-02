@@ -142,7 +142,7 @@ def test_ugoira_preserves_zip_frames_and_browsable_poster(tmp_path):
     runner.client_factory = AnimationClient
     runner.image_http = Session(output.getvalue(), headers={"Content-Length": str(len(output.getvalue()))})
     result = runner.run(job["id"], time_slice=60)
-    assert result["state"] == "completed_with_gaps", result
+    assert result["state"] == "completed", result
     assert result["progress"]["media"]["downloaded"] == 1
     with Reader(tmp_path / "archive", tmp_path / "online") as reader:
         assert len(reader.objects()["items"]) == 1
@@ -154,7 +154,7 @@ def test_ugoira_preserves_zip_frames_and_browsable_poster(tmp_path):
 
 def test_historical_reuse_is_recorded_without_network_or_new_objects(tmp_path):
     service, runner, job, request = setup(tmp_path)
-    assert runner.run(job["id"], time_slice=60)["state"] == "completed_with_gaps"
+    assert runner.run(job["id"], time_slice=60)["state"] == "completed"
     request["request_key"] = key()
     request["definition"]["media"]["reuse"] = dict(mode="historical_if_same_locator", max_age_hours=8760)
     next_job = service.create_job(request)["job"]
@@ -214,7 +214,7 @@ def test_pixiv_relocation_preserves_snapshot_and_resumes_collection(tmp_path):
     request["request_key"] = key()
     next_job = service.create_job(request)["job"]
     next_runner = Runner(service.state, resources=Resources(reserve_bytes=0), client_factory=Client, image_http=HTTP())
-    assert next_runner.run(next_job["id"], time_slice=60)["state"] == "completed_with_gaps"
+    assert next_runner.run(next_job["id"], time_slice=60)["state"] == "completed"
 
 
 def test_changed_source_retains_diagnostic_then_cancel_reclaims_scratch(tmp_path):

@@ -2,6 +2,8 @@
 
 日期：2026-10-03。状态：阶段 1–3 已实现，前端页面暂缓。接口和使用入口见[接入说明](../architecture/source-collections.md)，实测边界见[验收记录](../verification/2026-10-03-pixiv-stages-1-3.md)。
 
+后续：[0053](0053-pixiv-public-operation-and-incremental-refresh.md) 已接入现有界面、公开完成状态、增量复查和周期计划，并将控制库推进到 v10。下文保留阶段 1–3 的实现基线。
+
 ## 关系与兼容性
 
 Pixiv 使用独立湖实例、归档格式 2、在线格式 3。旧 Danbooru、Yandere、Gelbooru 继续使用归档 1 / 在线 2，项目图片身份仍为 `source_id + stored SHA-256`，不重写已有湖和工作集。

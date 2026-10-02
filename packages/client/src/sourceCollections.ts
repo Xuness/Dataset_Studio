@@ -2,7 +2,11 @@ import type { Schema } from "@studio/contracts";
 type Request = <T>(path: string, init?: RequestInit) => Promise<T>;
 const base = "/v1/source-collections";
 const job = (id: string) => `${base}/jobs/${encodeURIComponent(id)}`;
-type PageOptions = { cursor?: string; limit?: number; signal?: AbortSignal };
+type PageOptions = {
+  cursor?: string | undefined;
+  limit?: number | undefined;
+  signal?: AbortSignal | undefined;
+};
 function query(values: Record<string, string | number | undefined>) {
   const result = new URLSearchParams();
   for (const [key, value] of Object.entries(values))
@@ -31,6 +35,12 @@ export class SourceCollectionClient {
   }
   createLake(value: Schema["CreateCollectionLake"]) {
     return this.request<Schema["CollectionLake"]>(`${base}/lakes`, {
+      method: "POST",
+      body: JSON.stringify(value),
+    });
+  }
+  registerLake(value: Schema["CreateCollectionLake"]) {
+    return this.request<Schema["CollectionLake"]>(`${base}/lakes/register`, {
       method: "POST",
       body: JSON.stringify(value),
     });
@@ -68,14 +78,19 @@ export class SourceCollectionClient {
   }
   create(
     definition: Schema["CollectionJobDefinition"],
-    requestKey = crypto.randomUUID(),
+    requestKey: string = crypto.randomUUID(),
   ) {
     return this.request<Schema["CollectionJobResult"]>(`${base}/jobs`, {
       method: "POST",
       body: JSON.stringify({ request_key: requestKey, definition }),
     });
   }
-  jobs(options: PageOptions & { library_id?: string; state?: string } = {}) {
+  jobs(
+    options: PageOptions & {
+      library_id?: string | undefined;
+      state?: string | undefined;
+    } = {},
+  ) {
     const { signal, ...values } = options;
     return this.request<Schema["CollectionJobs"]>(
       `${base}/jobs?${query(values)}`,
@@ -90,9 +105,9 @@ export class SourceCollectionClient {
   tasks(
     id: string,
     options: PageOptions & {
-      kind?: string;
-      state?: string;
-      reason?: string;
+      kind?: string | undefined;
+      state?: string | undefined;
+      reason?: string | undefined;
     } = {},
   ) {
     const { signal, ...values } = options;
@@ -122,6 +137,53 @@ export class SourceCollectionClient {
     return this.request<Schema["CollectionPipelineSettings"]>(
       `${base}/pipeline`,
       { method: "PUT", body: JSON.stringify(value) },
+    );
+  }
+  workspaceLakes(options: PageOptions = {}) {
+    const { signal, ...values } = options;
+    return this.request<Schema["LakeWorkspaceLakes"]>(
+      `${base}/workspace/lakes?${query(values)}`,
+      { signal: signal ?? null },
+    );
+  }
+  workspaceJobs(
+    options: PageOptions & {
+      library_id?: string | undefined;
+      state?: string | undefined;
+    } = {},
+  ) {
+    const { signal, ...values } = options;
+    return this.request<Schema["LakeWorkspaceJobs"]>(
+      `${base}/workspace/jobs?${query(values)}`,
+      { signal: signal ?? null },
+    );
+  }
+  workspaceSchedules(
+    options: PageOptions & { library_id?: string | undefined } = {},
+  ) {
+    const { signal, ...values } = options;
+    return this.request<Schema["LakeWorkspaceSchedules"]>(
+      `${base}/workspace/schedules?${query(values)}`,
+      { signal: signal ?? null },
+    );
+  }
+  schedules(options: PageOptions & { library_id?: string | undefined } = {}) {
+    const { signal, ...values } = options;
+    return this.request<Schema["CollectionSchedules"]>(
+      `${base}/schedules?${query(values)}`,
+      { signal: signal ?? null },
+    );
+  }
+  saveSchedule(value: Schema["SaveCollectionSchedule"]) {
+    return this.request<Schema["CollectionSchedule"]>(
+      `${base}/schedules/${encodeURIComponent(value.id)}`,
+      { method: "PUT", body: JSON.stringify(value) },
+    );
+  }
+  removeSchedule(id: string, value: Schema["CollectionRevisionCommand"]) {
+    return this.request<Schema["CollectionScheduleRemoved"]>(
+      `${base}/schedules/${encodeURIComponent(id)}/remove`,
+      { method: "POST", body: JSON.stringify(value) },
     );
   }
 }

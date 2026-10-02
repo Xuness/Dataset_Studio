@@ -307,3 +307,27 @@
     width: 70vw;
   }
 }
+.collection-source-picker {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+.collection-source-picker select {
+  flex: 1;
+}
+.collection-task {
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+.collection-task small {
+  display: block;
+  opacity: 0.7;
+}
+.collection-task p {
+  margin: 4px 0;
+}
+.collection-api-settings {
+  margin: 18px 0;
+}

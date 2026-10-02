@@ -22,7 +22,7 @@ def staging(service, job, claim):
     return path
 
 
-def prepared(service, job, task, records, *, files=(), acquired_at=None, download_bytes=0, reused=False,
+def prepared(service, job, task, records, *, files=(), acquired_at=None, download_bytes=0, reused=False, summary=None,
              checkpoints=(), state="done", reason=None, intent=False, directory=None, receipt_id=None):
     receipt_id = receipt_id or str(uuid.uuid4())
     claim = task["claim_token"] if task else str(uuid.uuid4())
@@ -34,7 +34,7 @@ def prepared(service, job, task, records, *, files=(), acquired_at=None, downloa
                  execution_epoch=task["claimed_epoch"] if task else job["execution_epoch"], claim_token=claim,
                  definition_sha256=job["definition_sha256"], input_fingerprint=digest(task["payload_json"].encode()) if task else job["definition_sha256"],
                  records=payload, files=list(files), acquired_at=acquired_at or utc(), download_bytes=download_bytes, reused=reused,
-                 checkpoints=list(checkpoints), outcome_state=state, reason=reason, intent=intent)
+                 checkpoints=list(checkpoints), outcome_state=state, reason=reason, intent=intent, summary=summary or {})
     path = directory / "result.json"
     atomic_json(path, value)
     key = (stable_id("collection-intent-v1", job["lake_id"], job["id"], job["definition_sha256"]) if intent
@@ -120,7 +120,7 @@ def accept(service, lib, outbox):
                 batch.add("assets", assets)
             if value["task_id"]:
                 record_ids = [r[field] for name, field in (("author_observations", "observation_id"), ("work_observations", "observation_id"), ("media_manifests", "manifest_id")) for r in records.get(name, [])] + [a["asset_id"] for a in assets]
-                batch.replay["task_outcomes"] = [dict(task_id=value["task_id"], execution_epoch=value["execution_epoch"], claim_token=value["claim_token"], state=value["outcome_state"], reason=value["reason"], record_ids=record_ids)]
+                batch.replay["task_outcomes"] = [dict(task_id=value["task_id"], execution_epoch=value["execution_epoch"], claim_token=value["claim_token"], state=value["outcome_state"], reason=value["reason"], record_ids=record_ids, summary=value.get("summary", {}))]
             batch.replay["checkpoint_advances"] = value["checkpoints"]
             batch.replay["discovery_snapshot_ids"] = [r["snapshot_id"] for r in records.get("discovery_snapshots", [])]
             seq = batch.commit(fence=lambda _: fence(service, value))
@@ -168,7 +168,11 @@ def reconcile(service, lib):
                 row = db.execute("SELECT * FROM collection_tasks WHERE id=? AND job_id=?", (outcome["task_id"], job["id"])).fetchone()
                 if row is None:
                     raise IntegrityError("Archived task cannot be resolved from its earlier plan")
-                db.execute("UPDATE collection_tasks SET state=?,reason=?,updated_at=? WHERE id=?", (outcome["state"], outcome["reason"], utc(), outcome["task_id"]))
+                summary = outcome.get("summary", {})
+                db.execute("UPDATE collection_tasks SET state=?,reason=?,summary_json=?,updated_at=? WHERE id=?", (outcome["state"], outcome["reason"], canonical(summary), utc(), outcome["task_id"]))
+                from .incremental import apply_summary
+
+                apply_summary(db, job, row, summary, counters)
                 if row["kind"] == "media_download" and outcome["state"] == "done":
                     counters["archived_media"] += 1
                     if outbox and outbox[0]:
@@ -184,6 +188,9 @@ def reconcile(service, lib):
                 db.execute("INSERT INTO collection_checkpoints VALUES(?,?,?,?,?,?) ON CONFLICT(job_id,stream_key) DO UPDATE SET revision=excluded.revision,cursor_json=excluded.cursor_json,archive_seq=excluded.archive_seq,batch_id=excluded.batch_id",
                            (job["id"], point["stream_key"], point["next_revision"], canonical(dict(cursor=point["next_cursor"], exhausted=point["exhausted"], capture_id=point["capture_id"])), commit["seq"], commit["batch_id"]))
             planner.apply(db, job, records, replay["task_outcomes"])
+            from .incremental import apply_directory_reuse
+
+            apply_directory_reuse(db, job, records, replay["task_outcomes"], counters)
             db.execute("UPDATE collection_jobs SET counters_json=?,revision=revision+1,updated_at=? WHERE id=?", (canonical(counters), utc(), job["id"]))
             db.execute("INSERT INTO collection_applied_batches VALUES(?,?,?,?,?,?)", (lib.info["library_id"], commit["seq"], commit["batch_id"], job["id"], hashed, utc()))
             db.execute("UPDATE collection_outbox SET control_applied=1,archive_seq=?,batch_id=?,state='archive_committed',updated_at=? WHERE dedupe_key=?",

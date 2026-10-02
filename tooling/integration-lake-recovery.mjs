@@ -325,7 +325,9 @@ try {
     }
     legacy.exec("PRAGMA foreign_keys=OFF; BEGIN IMMEDIATE;");
     for (const { name } of additions) legacy.exec(`DROP TABLE "${name}";`);
-    legacy.exec("DROP TABLE lake_dispatch; PRAGMA user_version=6; COMMIT;");
+    legacy.exec(
+      "DROP INDEX IF EXISTS update_job_created; DROP TABLE lake_dispatch; PRAGMA user_version=6; COMMIT;",
+    );
   } finally {
     legacy.close();
   }
@@ -357,7 +359,10 @@ try {
     { readOnly: true },
   );
   try {
-    assert.equal(upgraded.prepare("PRAGMA user_version").get().user_version, 8);
+    assert.equal(
+      upgraded.prepare("PRAGMA user_version").get().user_version,
+      10,
+    );
     assert.equal(
       upgraded.prepare("SELECT count(*) AS n FROM lake_dispatch").get().n,
       0,

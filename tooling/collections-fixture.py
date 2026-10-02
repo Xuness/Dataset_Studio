@@ -40,7 +40,7 @@ def main():
     service, runner, job, _ = setup(root)
     runner.client_factory = MultiClient
     result = runner.run(job["id"], time_slice=60)
-    assert result["state"] == "completed_with_gaps", result
+    assert result["state"] == "completed", result
     lake = service.lake(job["library_id"])
     with Reader(lake["media_root"], lake["index_root"]) as reader:
         first_version = reader.version
@@ -48,7 +48,7 @@ def main():
     spec = sample_definition(job["library_id"], job["account_id"], ["12345"], kind="works", metadata_only=True)
     next_job = service.create_job(dict(request_key=str(uuid.uuid4()), definition=spec))["job"]
     runner.client_factory = NextClient
-    assert runner.run(next_job["id"], time_slice=60)["state"] == "completed_with_gaps"
+    assert runner.run(next_job["id"], time_slice=60)["state"] == "completed"
     with Reader(lake["media_root"], lake["index_root"]) as reader:
         latest_version = reader.version
     atomic_json(root / "collections.json", dict(lake=lake, job=service.job(job["id"]),

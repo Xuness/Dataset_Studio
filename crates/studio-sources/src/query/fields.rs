@@ -61,6 +61,13 @@ pub(crate) fn directory(source: &Source) -> Result<FieldDirectory> {
         for (id, name, kind, basis) in [
             ("work.id", "作品 ID", Text, "work_observations.work_id"),
             ("author.id", "作者 ID", Text, "work_observations.author_id"),
+            (
+                "work.type",
+                "作品类型（illustration / manga / ugoira）",
+                Text,
+                "work_observations.work_type",
+            ),
+            ("work.title", "作品标题", Text, "work_observations.title"),
             ("source.width", "当前页宽度", Integer, "media_entries.width"),
             (
                 "source.height",

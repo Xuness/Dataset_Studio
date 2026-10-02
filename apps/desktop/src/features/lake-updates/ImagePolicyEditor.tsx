@@ -18,10 +18,12 @@ export function ImagePolicyEditor({
   client,
   value: d,
   onChange,
+  collection = false,
 }: {
   client: StudioClient;
   value: ImageFields;
   onChange: (patch: Partial<ImageFields>) => void;
+  collection?: boolean;
 }) {
   const presets = useLakePreference(
     client,
@@ -264,7 +266,7 @@ export function ImagePolicyEditor({
             )}
           </>
         )}
-        {d.profile && d.profile !== "metadata_only" && (
+        {!collection && d.profile && d.profile !== "metadata_only" && (
           <>
             <label>
               已有图片

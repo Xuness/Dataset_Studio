@@ -86,6 +86,7 @@ import { LakeActivity } from "../features/lake-updates/LakeActivity.js";
 import {
   useLakePreference,
   useLakeStatus,
+  useCollectionStatus,
 } from "../features/lake-updates/queries.js";
 import type { LakeInvocation } from "../features/lake-updates/LakeWorkspace.js";
 const LakeWorkspace = lazy(
@@ -202,6 +203,10 @@ function Studio({
   );
   const lakesActive = application.value.active;
   const lakeStatus = useLakeStatus(client, lakesActive);
+  const collectionStatus = useCollectionStatus(
+    client,
+    !!lakeStatus.data?.configured,
+  );
   const [lakeInvocation, setLakeInvocation] = useState<LakeInvocation | null>(
     null,
   );
@@ -209,6 +214,7 @@ function Studio({
     jobId?: string,
     lakeId?: string,
     view?: "jobs" | "preparations",
+    family?: "update" | "collection",
   ) {
     if (!application.editable) return;
     application.controller.set({ open: true, active: true });
@@ -218,6 +224,7 @@ function Studio({
         ...(jobId ? { jobId } : {}),
         ...(lakeId ? { lakeId } : {}),
         ...(view ? { view } : {}),
+        ...(family ? { family } : {}),
       }));
     else setLakeInvocation(null);
   }
@@ -1350,6 +1357,18 @@ function Studio({
                   },
                 }));
               }}
+              onFilterOrigin={(field, value) => {
+                setQueryVisible(true);
+                setInvocation((old) => ({
+                  projectId: currentId,
+                  sequence: (old?.sequence ?? 0) + 1,
+                  args: {
+                    sourceId: view.focus!.key.source_id,
+                    exactField: field,
+                    exactValue: value,
+                  },
+                }));
+              }}
             />
           )}
           <div className="property-section">
@@ -1781,8 +1800,9 @@ function Studio({
         <LakeActivity
           onPreparations={() => openLakes(undefined, undefined, "preparations")}
           status={lakeStatus.data}
+          collections={collectionStatus.data}
           disconnected={lakeStatus.isError}
-          onOpen={(id) => openLakes(id)}
+          onOpen={(id, family) => openLakes(id, undefined, "jobs", family)}
           onProjectTasks={project ? () => setTasksVisible(true) : undefined}
         />
         {project && (

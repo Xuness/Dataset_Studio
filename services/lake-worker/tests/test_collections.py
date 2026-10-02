@@ -86,7 +86,7 @@ def setup(root, *, metadata_only=False):
 def test_author_collection_full_offline_roundtrip(tmp_path):
     service, runner, job, request = setup(tmp_path)
     result = runner.run(job["id"], time_slice=60)
-    assert result["state"] == "completed_with_gaps", result
+    assert result["state"] == "completed", result
     assert result["progress"]["closure"] == dict(discovery_exhausted=True, directories_complete=True, manifests_complete=True, visibility_verified=False)
     assert result["progress"]["authors"]["scanned"] == 1
     assert result["progress"]["works"]["details"] == 1
@@ -107,7 +107,7 @@ def test_author_collection_full_offline_roundtrip(tmp_path):
 def test_metadata_only_does_not_claim_downloads(tmp_path):
     service, runner, job, _ = setup(tmp_path, metadata_only=True)
     result = runner.run(job["id"], time_slice=60)
-    assert result["state"] == "completed_with_gaps", result
+    assert result["state"] == "completed", result
     assert result["progress"]["media"]["downloaded"] == 0
     assert result["progress"]["objects"]["stored"] == 0
     with Reader(tmp_path / "archive", tmp_path / "online") as reader:
@@ -140,7 +140,7 @@ def test_budget_resume_keeps_frozen_plan(tmp_path):
     assert first["progress"]["authors"]["scanned"] == 1
     service.action(job["id"], dict(request_key=key(), expected_revision=first["revision"], action="resume"))
     second = runner.run(job["id"], time_slice=60)
-    assert second["state"] == "completed_with_gaps", second
+    assert second["state"] == "completed", second
     assert second["progress"]["works"]["details"] == 1
 
 

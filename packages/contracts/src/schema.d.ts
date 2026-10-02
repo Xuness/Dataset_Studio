@@ -3023,6 +3023,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/source-collections/lakes/register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["collections_register_lake"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/source-collections/pipeline": {
         parameters: {
             query?: never;
@@ -3039,6 +3055,54 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/source-collections/schedules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["collections_schedules"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-collections/schedules/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["collections_save_schedule"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-collections/schedules/{id}/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["collections_remove_schedule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/source-collections/status": {
         parameters: {
             query?: never;
@@ -3047,6 +3111,54 @@ export interface paths {
             cookie?: never;
         };
         get: operations["collections_status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-collections/workspace/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["lake_workspace_jobs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-collections/workspace/lakes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["lake_workspace_lakes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-collections/workspace/schedules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["lake_workspace_schedules"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4057,6 +4169,12 @@ export interface components {
             /** Format: int64 */
             scanned: number;
         };
+        CollectionBudgetProgress: {
+            limits: components["schemas"]["CollectionRunBudget"];
+            used: {
+                [key: string]: number;
+            };
+        };
         CollectionCapabilities: {
             archive_formats: number[];
             authentication_modes: string[];
@@ -4068,6 +4186,8 @@ export interface components {
                 [key: string]: number;
             };
             online_formats: number[];
+            periodic_snapshots: boolean;
+            refresh_modes: string[];
             work_types: string[];
         };
         CollectionClosure: {
@@ -4093,6 +4213,14 @@ export interface components {
             scope: components["schemas"]["CollectionScope"];
             state: string;
             statement: string;
+        };
+        CollectionDirectoryDelta: {
+            /** Format: int64 */
+            added: number;
+            /** Format: int64 */
+            no_longer_listed: number;
+            /** Format: int64 */
+            unchanged: number;
         };
         CollectionDiscovery: {
             entrypoints: string[];
@@ -4136,6 +4264,7 @@ export interface components {
             discovery: components["schemas"]["CollectionDiscovery"];
             library_id: string;
             media: components["schemas"]["CollectionMediaPlan"];
+            refresh?: null | components["schemas"]["CollectionRefresh"];
             run_budget: components["schemas"]["CollectionRunBudget"];
             scope: components["schemas"]["CollectionScope"];
             seeds: components["schemas"]["CollectionSeeds"];
@@ -4143,6 +4272,7 @@ export interface components {
             version: number;
         };
         CollectionJobResult: {
+            coalesced?: boolean;
             job: components["schemas"]["CollectionJob"];
             replayed: boolean;
         };
@@ -4189,6 +4319,8 @@ export interface components {
             planned?: number | null;
             /** Format: int64 */
             published: number;
+            /** Format: int64 */
+            retained: number;
         };
         CollectionObjectProgress: {
             /** Format: int64 */
@@ -4224,13 +4356,18 @@ export interface components {
             known_work_count?: number | null;
         };
         CollectionProgress: {
+            access_mode: string;
             authors: components["schemas"]["CollectionAuthorProgress"];
+            budget: components["schemas"]["CollectionBudgetProgress"];
             closure: components["schemas"]["CollectionClosure"];
+            directory_delta: components["schemas"]["CollectionDirectoryDelta"];
             /** Format: int64 */
             download_bytes: number;
             media: components["schemas"]["CollectionMediaProgress"];
             objects: components["schemas"]["CollectionObjectProgress"];
             publication: components["schemas"]["CollectionPublicationProgress"];
+            /** Format: int64 */
+            task_gaps: number;
             works: components["schemas"]["CollectionWorkProgress"];
         };
         CollectionPublicationProgress: {
@@ -4240,6 +4377,11 @@ export interface components {
             pending_batches: number;
             /** Format: int64 */
             served_seq: number;
+        };
+        CollectionRefresh: {
+            /** Format: int32 */
+            max_age_hours: number;
+            mode: string;
         };
         CollectionReuse: {
             /** Format: int32 */
@@ -4260,6 +4402,24 @@ export interface components {
             download_bytes: number;
             /** Format: int64 */
             wall_seconds: number;
+        };
+        CollectionSchedule: {
+            definition: components["schemas"]["CollectionJobDefinition"];
+            enabled: boolean;
+            /** Format: int64 */
+            every_seconds: number;
+            id: string;
+            last_job?: string | null;
+            next_run_at: string;
+            /** Format: int64 */
+            revision: number;
+        };
+        CollectionScheduleRemoved: {
+            removed: boolean;
+        };
+        CollectionSchedules: {
+            items: components["schemas"]["CollectionSchedule"][];
+            next_cursor?: string | null;
         };
         CollectionScope: {
             include_ai: boolean;
@@ -4296,6 +4456,7 @@ export interface components {
             retry_at_ms: number;
             state: string;
             subject_key: string;
+            summary: unknown;
         };
         CollectionTasks: {
             items: components["schemas"]["CollectionTask"][];
@@ -4314,9 +4475,13 @@ export interface components {
             /** Format: int64 */
             details: number;
             /** Format: int64 */
+            excluded: number;
+            /** Format: int64 */
             gaps: number;
             /** Format: int64 */
             planned?: number | null;
+            /** Format: int64 */
+            retained: number;
         };
         Collections: {
             items: components["schemas"]["Collection"][];
@@ -5113,6 +5278,43 @@ export interface components {
              * @default null
              */
             waiting_staging: number | null;
+        };
+        LakeWorkspaceJob: {
+            /** @enum {string} */
+            family: "update";
+            job: components["schemas"]["LakeUpdateJob"];
+        } | {
+            /** @enum {string} */
+            family: "collection";
+            job: components["schemas"]["CollectionJob"];
+        };
+        LakeWorkspaceJobs: {
+            items: components["schemas"]["LakeWorkspaceJob"][];
+            next_cursor?: string | null;
+        };
+        LakeWorkspaceLake: {
+            id: string;
+            index_root: string;
+            media: string;
+            registered_at: string;
+            site: string;
+        };
+        LakeWorkspaceLakes: {
+            items: components["schemas"]["LakeWorkspaceLake"][];
+            next_cursor?: string | null;
+        };
+        LakeWorkspaceSchedule: {
+            /** @enum {string} */
+            family: "update";
+            schedule: components["schemas"]["LakeUpdateSchedule"];
+        } | {
+            /** @enum {string} */
+            family: "collection";
+            schedule: components["schemas"]["CollectionSchedule"];
+        };
+        LakeWorkspaceSchedules: {
+            items: components["schemas"]["LakeWorkspaceSchedule"][];
+            next_cursor?: string | null;
         };
         LlmCatalog: {
             fetched_at: string;
@@ -6433,6 +6635,17 @@ export interface components {
             /** Format: int64 */
             expected_revision: number;
             value: components["schemas"]["CollectionPipelineValue"];
+        };
+        SaveCollectionSchedule: {
+            definition: components["schemas"]["CollectionJobDefinition"];
+            enabled: boolean;
+            /** Format: int64 */
+            every_seconds: number;
+            /** Format: int64 */
+            expected_revision: number;
+            first_run_at: string;
+            id: string;
+            request_key: string;
         };
         SaveDraft: {
             /** Format: int64 */
@@ -11904,6 +12117,29 @@ export interface operations {
             };
         };
     };
+    collections_register_lake: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateCollectionLake"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionLake"];
+                };
+            };
+        };
+    };
     collections_pipeline: {
         parameters: {
             query?: never;
@@ -11946,6 +12182,79 @@ export interface operations {
             };
         };
     };
+    collections_schedules: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+                library_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionSchedules"];
+                };
+            };
+        };
+    };
+    collections_save_schedule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveCollectionSchedule"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionSchedule"];
+                };
+            };
+        };
+    };
+    collections_remove_schedule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CollectionRevisionCommand"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionScheduleRemoved"];
+                };
+            };
+        };
+    };
     collections_status: {
         parameters: {
             query?: never;
@@ -11961,6 +12270,75 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CollectionServiceStatus"];
+                };
+            };
+        };
+    };
+    lake_workspace_jobs: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+                library_id?: string;
+                state?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LakeWorkspaceJobs"];
+                };
+            };
+        };
+    };
+    lake_workspace_lakes: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LakeWorkspaceLakes"];
+                };
+            };
+        };
+    };
+    lake_workspace_schedules: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+                library_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LakeWorkspaceSchedules"];
                 };
             };
         };

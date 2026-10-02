@@ -16,7 +16,7 @@ from test_updates import FakeSite, post, setup, job
 from test_pipeline import configure
 from studio_lake.updates.archive import online
 from studio_lake.updates.runner import Runner
-from studio_lake.updates.state import State
+from studio_lake.updates.state import State, SCHEMA_VERSION
 from studio_lake.util import FileLock
 
 
@@ -42,7 +42,7 @@ def test_concurrent_daemon_and_rpc_initialization_is_safe(tmp_path):
             return version, state.credential_status()
 
         with ThreadPoolExecutor(max_workers=4) as pool:
-            assert list(pool.map(initialize, range(4))) == [(8, [])] * 4
+            assert list(pool.map(initialize, range(4))) == [(SCHEMA_VERSION, [])] * 4
 
 
 def test_failed_lock_file_initialization_releases_os_ownership(tmp_path, monkeypatch):

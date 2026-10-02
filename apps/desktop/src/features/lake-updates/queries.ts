@@ -25,6 +25,15 @@ export function useLakeRefresh(client: StudioClient) {
   const cache = useQueryClient();
   return () => cache.invalidateQueries({ queryKey: lakeKey(client) });
 }
+export function useCollectionStatus(client: StudioClient, enabled: boolean) {
+  return useQuery({
+    queryKey: [...lakeKey(client), "collection-status"],
+    queryFn: ({ signal }) => client.sourceCollections.status(signal),
+    enabled,
+    retry: false,
+    refetchInterval: 5000,
+  });
+}
 export function useLakePreference<T>(
   client: StudioClient,
   key: string,

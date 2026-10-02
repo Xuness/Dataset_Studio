@@ -39,7 +39,7 @@ def test_author_graph_paginates_and_stops_at_frozen_depth(tmp_path):
 
     runner.client_factory = Graph
     result = runner.run(job["id"], time_slice=60)
-    assert result["state"] == "completed_with_gaps", result
+    assert result["state"] == "completed", result
     assert result["progress"]["authors"]["scanned"] == 3
     assert result["progress"]["works"]["details"] == 3
     relationships = [p for k, p in calls if k == "relationship_page"]

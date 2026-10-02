@@ -7,8 +7,9 @@ import { lakeKey, useLakeRefresh } from "./queries.js";
 export function LakeRelocationSettings({ client }: { client: StudioClient }) {
   const refresh = useLakeRefresh(client);
   const lakes = useQuery({
-    queryKey: [...lakeKey(client), "lakes"],
-    queryFn: ({ signal }) => client.lakeUpdates.lakes(signal),
+    queryKey: [...lakeKey(client), "workspace-lakes"],
+    queryFn: ({ signal }) =>
+      client.sourceCollections.workspaceLakes({ signal, limit: 200 }),
     retry: false,
   });
   const moves = useQuery({

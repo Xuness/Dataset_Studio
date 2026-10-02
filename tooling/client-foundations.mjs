@@ -541,6 +541,22 @@ assert.deepEqual(combinedFields.orders, ["asset_key_asc"]);
 assert.deepEqual(combinedFields.observation_rules, ["current_post"]);
 assert.equal(combinedFields.max_conditions, 4);
 assert.deepEqual(commonQueryFields([]).fields, []);
+const literalTags = {
+  ...fieldContract("tags", "tags", ["has_tag"]),
+  basis: "work_tags.literal_tag",
+};
+const booruTags = { ...literalTags, basis: "observations.tag_string" };
+for (const fields of [
+  [literalTags, booruTags],
+  [booruTags, literalTags],
+]) {
+  const mixed = commonQueryFields(
+    fields.map((field) =>
+      directoryContract([field], ["asset_key_asc"], ["current_post"], 12),
+    ),
+  );
+  assert.equal(mixed.fields[0].basis, booruTags.basis);
+}
 checks.push(
   "multi-source field contracts preserve only compatible types, units, operators, orders and observation rules",
 );

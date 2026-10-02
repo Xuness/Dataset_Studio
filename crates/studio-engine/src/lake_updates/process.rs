@@ -63,7 +63,7 @@ pub(super) fn handshake(bytes: &[u8]) -> Result<()> {
     })?;
     if value["worker_version"] != "0.2.0"
         || value["runtime_check"] != 1
-        || value["features"]["collections"] != 1
+        || value["features"]["collections"] != 2
         || !value["archive_versions"]
             .as_array()
             .is_some_and(|v| v.contains(&json!(2)))

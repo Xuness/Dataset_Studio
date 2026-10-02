@@ -40,7 +40,7 @@ pub(super) async fn status(State(s): State<AppState>) -> ApiResult<CollectionSer
     Ok(Json(CollectionServiceStatus {
         configured,
         protocol_version: 1,
-        collection_contract_version: 1,
+        collection_contract_version: 2,
         runtime,
         counts: serde_json::from_value(value.get("counts").cloned().unwrap_or(json!({})))
             .map_err(domain::Error::io)?,
@@ -72,6 +72,13 @@ pub(super) async fn accounts(
     Query(q): Query<CollectionPageQuery>,
 ) -> ApiResult<CollectionAccounts> {
     invoke(s, Op::Accounts, json!(q)).await
+}
+#[utoipa::path(post,path="/v1/source-collections/lakes/register",request_body=CreateCollectionLake,responses((status=200,body=CollectionLake)),operation_id="collections_register_lake")]
+pub(super) async fn register_lake(
+    State(s): State<AppState>,
+    Body(body): Body<CreateCollectionLake>,
+) -> ApiResult<CollectionLake> {
+    invoke(s, Op::LakeRegister, json!(body)).await
 }
 #[utoipa::path(put,path="/v1/source-collections/accounts/{id}",params(("id"=String,Path)),request_body=SaveCollectionAccount,responses((status=200,body=CollectionAccount)),operation_id="collections_save_account")]
 pub(super) async fn save_account(
@@ -167,6 +174,54 @@ pub(super) async fn save_pipeline(
     invoke(s, Op::PipelineSet, json!(body)).await
 }
 
+#[utoipa::path(get,path="/v1/source-collections/schedules",params(CollectionSchedulesQuery),responses((status=200,body=CollectionSchedules)),operation_id="collections_schedules")]
+pub(super) async fn schedules(
+    State(s): State<AppState>,
+    Query(q): Query<CollectionSchedulesQuery>,
+) -> ApiResult<CollectionSchedules> {
+    invoke(s, Op::Schedules, json!(q)).await
+}
+#[utoipa::path(put,path="/v1/source-collections/schedules/{id}",params(("id"=String,Path)),request_body=SaveCollectionSchedule,responses((status=200,body=CollectionSchedule)),operation_id="collections_save_schedule")]
+pub(super) async fn save_schedule(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+    Body(body): Body<SaveCollectionSchedule>,
+) -> ApiResult<CollectionSchedule> {
+    if id != body.id {
+        return Err(domain::Error::invalid("计划路径与请求身份不一致").into());
+    }
+    invoke(s, Op::ScheduleSave, json!(body)).await
+}
+#[utoipa::path(post,path="/v1/source-collections/schedules/{id}/remove",params(("id"=String,Path)),request_body=CollectionRevisionCommand,responses((status=200,body=CollectionScheduleRemoved)),operation_id="collections_remove_schedule")]
+pub(super) async fn remove_schedule(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+    Body(body): Body<CollectionRevisionCommand>,
+) -> ApiResult<CollectionScheduleRemoved> {
+    invoke(s, Op::ScheduleRemove, args_with_id(id, body)?).await
+}
+#[utoipa::path(get,path="/v1/source-collections/workspace/lakes",params(CollectionPageQuery),responses((status=200,body=LakeWorkspaceLakes)),operation_id="lake_workspace_lakes")]
+pub(super) async fn workspace_lakes(
+    State(s): State<AppState>,
+    Query(q): Query<CollectionPageQuery>,
+) -> ApiResult<LakeWorkspaceLakes> {
+    invoke(s, Op::WorkspaceLakes, json!(q)).await
+}
+#[utoipa::path(get,path="/v1/source-collections/workspace/jobs",params(CollectionJobsQuery),responses((status=200,body=LakeWorkspaceJobs)),operation_id="lake_workspace_jobs")]
+pub(super) async fn workspace_jobs(
+    State(s): State<AppState>,
+    Query(q): Query<CollectionJobsQuery>,
+) -> ApiResult<LakeWorkspaceJobs> {
+    invoke(s, Op::WorkspaceJobs, json!(q)).await
+}
+#[utoipa::path(get,path="/v1/source-collections/workspace/schedules",params(CollectionSchedulesQuery),responses((status=200,body=LakeWorkspaceSchedules)),operation_id="lake_workspace_schedules")]
+pub(super) async fn workspace_schedules(
+    State(s): State<AppState>,
+    Query(q): Query<CollectionSchedulesQuery>,
+) -> ApiResult<LakeWorkspaceSchedules> {
+    invoke(s, Op::WorkspaceSchedules, json!(q)).await
+}
+
 async fn relation<T: DeserializeOwned + Send + 'static>(
     s: AppState,
     read: RequestReadContext,
@@ -238,6 +293,7 @@ pub(super) fn routes() -> axum::Router<AppState> {
         .route("/status", get(status))
         .route("/capabilities", get(capabilities))
         .route("/lakes", get(lakes).post(create_lake))
+        .route("/lakes/register", post(register_lake))
         .route("/accounts", get(accounts))
         .route("/accounts/{id}", axum::routing::put(save_account))
         .route("/accounts/{id}/probe", post(probe_account))
@@ -249,6 +305,12 @@ pub(super) fn routes() -> axum::Router<AppState> {
         .route("/jobs/{id}/coverage", get(coverage))
         .route("/jobs/{id}/actions", post(action))
         .route("/pipeline", get(pipeline).put(save_pipeline))
+        .route("/schedules", get(schedules))
+        .route("/schedules/{id}", axum::routing::put(save_schedule))
+        .route("/schedules/{id}/remove", post(remove_schedule))
+        .route("/workspace/lakes", get(workspace_lakes))
+        .route("/workspace/jobs", get(workspace_jobs))
+        .route("/workspace/schedules", get(workspace_schedules))
 }
 pub(super) fn source_routes() -> axum::Router<AppState> {
     axum::Router::new()

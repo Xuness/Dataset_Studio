@@ -8651,6 +8651,36 @@
         }
       }
     },
+    "/v1/source-collections/lakes/register": {
+      "post": {
+        "tags": [
+          "source_collections"
+        ],
+        "operationId": "collections_register_lake",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCollectionLake"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionLake"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/source-collections/pipeline": {
       "get": {
         "tags": [
@@ -8699,6 +8729,134 @@
         }
       }
     },
+    "/v1/source-collections/schedules": {
+      "get": {
+        "tags": [
+          "source_collections"
+        ],
+        "operationId": "collections_schedules",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "library_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionSchedules"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/source-collections/schedules/{id}": {
+      "put": {
+        "tags": [
+          "source_collections"
+        ],
+        "operationId": "collections_save_schedule",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveCollectionSchedule"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionSchedule"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/source-collections/schedules/{id}/remove": {
+      "post": {
+        "tags": [
+          "source_collections"
+        ],
+        "operationId": "collections_remove_schedule",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CollectionRevisionCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionScheduleRemoved"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/source-collections/status": {
       "get": {
         "tags": [
@@ -8712,6 +8870,150 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/CollectionServiceStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/source-collections/workspace/jobs": {
+      "get": {
+        "tags": [
+          "source_collections"
+        ],
+        "operationId": "lake_workspace_jobs",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "library_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LakeWorkspaceJobs"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/source-collections/workspace/lakes": {
+      "get": {
+        "tags": [
+          "source_collections"
+        ],
+        "operationId": "lake_workspace_lakes",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LakeWorkspaceLakes"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/source-collections/workspace/schedules": {
+      "get": {
+        "tags": [
+          "source_collections"
+        ],
+        "operationId": "lake_workspace_schedules",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "library_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LakeWorkspaceSchedules"
                 }
               }
             }
@@ -12593,6 +12895,28 @@
           }
         }
       },
+      "CollectionBudgetProgress": {
+        "type": "object",
+        "required": [
+          "limits",
+          "used"
+        ],
+        "properties": {
+          "limits": {
+            "$ref": "#/components/schemas/CollectionRunBudget"
+          },
+          "used": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "number",
+              "format": "double"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          }
+        }
+      },
       "CollectionCapabilities": {
         "type": "object",
         "required": [
@@ -12603,7 +12927,9 @@
           "archive_formats",
           "online_formats",
           "limits",
-          "authentication_modes"
+          "authentication_modes",
+          "refresh_modes",
+          "periodic_snapshots"
         ],
         "properties": {
           "archive_formats": {
@@ -12651,6 +12977,15 @@
               "type": "integer",
               "format": "int32",
               "minimum": 0
+            }
+          },
+          "periodic_snapshots": {
+            "type": "boolean"
+          },
+          "refresh_modes": {
+            "type": "array",
+            "items": {
+              "type": "string"
             }
           },
           "work_types": {
@@ -12752,6 +13087,31 @@
           },
           "statement": {
             "type": "string"
+          }
+        }
+      },
+      "CollectionDirectoryDelta": {
+        "type": "object",
+        "required": [
+          "added",
+          "no_longer_listed",
+          "unchanged"
+        ],
+        "properties": {
+          "added": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "no_longer_listed": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "unchanged": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           }
         }
       },
@@ -12926,6 +13286,16 @@
           "media": {
             "$ref": "#/components/schemas/CollectionMediaPlan"
           },
+          "refresh": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CollectionRefresh"
+              }
+            ]
+          },
           "run_budget": {
             "$ref": "#/components/schemas/CollectionRunBudget"
           },
@@ -12950,6 +13320,9 @@
           "replayed"
         ],
         "properties": {
+          "coalesced": {
+            "type": "boolean"
+          },
           "job": {
             "$ref": "#/components/schemas/CollectionJob"
           },
@@ -13092,7 +13465,8 @@
           "http_validated",
           "archived",
           "published",
-          "gaps"
+          "gaps",
+          "retained"
         ],
         "properties": {
           "archived": {
@@ -13129,6 +13503,11 @@
             "minimum": 0
           },
           "published": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "retained": {
             "type": "integer",
             "format": "int64",
             "minimum": 0
@@ -13260,14 +13639,27 @@
           "objects",
           "download_bytes",
           "publication",
-          "closure"
+          "closure",
+          "access_mode",
+          "directory_delta",
+          "task_gaps",
+          "budget"
         ],
         "properties": {
+          "access_mode": {
+            "type": "string"
+          },
           "authors": {
             "$ref": "#/components/schemas/CollectionAuthorProgress"
           },
+          "budget": {
+            "$ref": "#/components/schemas/CollectionBudgetProgress"
+          },
           "closure": {
             "$ref": "#/components/schemas/CollectionClosure"
+          },
+          "directory_delta": {
+            "$ref": "#/components/schemas/CollectionDirectoryDelta"
           },
           "download_bytes": {
             "type": "integer",
@@ -13282,6 +13674,11 @@
           },
           "publication": {
             "$ref": "#/components/schemas/CollectionPublicationProgress"
+          },
+          "task_gaps": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           },
           "works": {
             "$ref": "#/components/schemas/CollectionWorkProgress"
@@ -13312,6 +13709,24 @@
             "minimum": 0
           }
         }
+      },
+      "CollectionRefresh": {
+        "type": "object",
+        "required": [
+          "mode",
+          "max_age_hours"
+        ],
+        "properties": {
+          "max_age_hours": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "mode": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
       },
       "CollectionReuse": {
         "type": "object",
@@ -13380,6 +13795,78 @@
           }
         },
         "additionalProperties": false
+      },
+      "CollectionSchedule": {
+        "type": "object",
+        "required": [
+          "id",
+          "definition",
+          "every_seconds",
+          "next_run_at",
+          "enabled",
+          "revision"
+        ],
+        "properties": {
+          "definition": {
+            "$ref": "#/components/schemas/CollectionJobDefinition"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "every_seconds": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "id": {
+            "type": "string"
+          },
+          "last_job": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "next_run_at": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "CollectionScheduleRemoved": {
+        "type": "object",
+        "required": [
+          "removed"
+        ],
+        "properties": {
+          "removed": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CollectionSchedules": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CollectionSchedule"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
       },
       "CollectionScope": {
         "type": "object",
@@ -13492,7 +13979,8 @@
           "subject_key",
           "state",
           "attempts",
-          "retry_at_ms"
+          "retry_at_ms",
+          "summary"
         ],
         "properties": {
           "attempts": {
@@ -13525,7 +14013,8 @@
           },
           "subject_key": {
             "type": "string"
-          }
+          },
+          "summary": {}
         }
       },
       "CollectionTasks": {
@@ -13587,10 +14076,17 @@
         "type": "object",
         "required": [
           "details",
-          "gaps"
+          "gaps",
+          "retained",
+          "excluded"
         ],
         "properties": {
           "details": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "excluded": {
             "type": "integer",
             "format": "int64",
             "minimum": 0
@@ -13605,6 +14101,11 @@
               "integer",
               "null"
             ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "retained": {
+            "type": "integer",
             "format": "int64",
             "minimum": 0
           }
@@ -16321,6 +16822,173 @@
             "format": "int32",
             "default": null,
             "minimum": 0
+          }
+        }
+      },
+      "LakeWorkspaceJob": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "job",
+              "family"
+            ],
+            "properties": {
+              "family": {
+                "type": "string",
+                "enum": [
+                  "update"
+                ]
+              },
+              "job": {
+                "$ref": "#/components/schemas/LakeUpdateJob"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "job",
+              "family"
+            ],
+            "properties": {
+              "family": {
+                "type": "string",
+                "enum": [
+                  "collection"
+                ]
+              },
+              "job": {
+                "$ref": "#/components/schemas/CollectionJob"
+              }
+            }
+          }
+        ]
+      },
+      "LakeWorkspaceJobs": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LakeWorkspaceJob"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "LakeWorkspaceLake": {
+        "type": "object",
+        "required": [
+          "id",
+          "site",
+          "media",
+          "index_root",
+          "registered_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "index_root": {
+            "type": "string"
+          },
+          "media": {
+            "type": "string"
+          },
+          "registered_at": {
+            "type": "string"
+          },
+          "site": {
+            "type": "string"
+          }
+        }
+      },
+      "LakeWorkspaceLakes": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LakeWorkspaceLake"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "LakeWorkspaceSchedule": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "schedule",
+              "family"
+            ],
+            "properties": {
+              "family": {
+                "type": "string",
+                "enum": [
+                  "update"
+                ]
+              },
+              "schedule": {
+                "$ref": "#/components/schemas/LakeUpdateSchedule"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "schedule",
+              "family"
+            ],
+            "properties": {
+              "family": {
+                "type": "string",
+                "enum": [
+                  "collection"
+                ]
+              },
+              "schedule": {
+                "$ref": "#/components/schemas/CollectionSchedule"
+              }
+            }
+          }
+        ]
+      },
+      "LakeWorkspaceSchedules": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LakeWorkspaceSchedule"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },
@@ -21617,6 +22285,46 @@
           },
           "value": {
             "$ref": "#/components/schemas/CollectionPipelineValue"
+          }
+        },
+        "additionalProperties": false
+      },
+      "SaveCollectionSchedule": {
+        "type": "object",
+        "required": [
+          "request_key",
+          "id",
+          "expected_revision",
+          "definition",
+          "every_seconds",
+          "first_run_at",
+          "enabled"
+        ],
+        "properties": {
+          "definition": {
+            "$ref": "#/components/schemas/CollectionJobDefinition"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "every_seconds": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "expected_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "first_run_at": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "request_key": {
+            "type": "string"
           }
         },
         "additionalProperties": false

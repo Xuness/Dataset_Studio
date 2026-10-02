@@ -59,7 +59,7 @@ def choices(value, allowed, *, empty=False):
 
 
 def definition(value):
-    value = copy.deepcopy(fields(value, ("version", "collector", "library_id", "account_id", "seeds", "scope", "discovery", "media", "run_budget")))
+    value = copy.deepcopy(fields(value, ("version", "collector", "library_id", "account_id", "seeds", "scope", "discovery", "media", "run_budget"), ("refresh",)))
     integer(value["version"], 1, 1)
     choice(value["collector"], ("pixiv_web_v1",))
     identity(value["library_id"])
@@ -101,6 +101,10 @@ def definition(value):
     reuse = fields(media["reuse"], ("mode", "max_age_hours"))
     choice(reuse["mode"], ("revalidate", "historical_if_same_locator"))
     integer(reuse["max_age_hours"], 0, 8760)
+    if "refresh" in value:
+        refresh = fields(value["refresh"], ("mode", "max_age_hours"))
+        choice(refresh["mode"], ("all", "missing_or_stale"))
+        integer(refresh["max_age_hours"], 1, 8760)
     budget = fields(value["run_budget"], ("api_requests", "admitted_authors", "download_bytes", "wall_seconds"))
     for key, lo, hi in (("api_requests", 1, 1_000_000), ("admitted_authors", 1, 1_000_000),
                         ("download_bytes", 1048576, 109951162777600), ("wall_seconds", 60, 604800)):

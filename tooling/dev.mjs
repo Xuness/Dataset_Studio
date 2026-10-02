@@ -294,7 +294,7 @@ try {
     await sleep(150);
   }
   function changed(_event, name) {
-    if (!name || !/\.(rs|toml|py)$/.test(String(name))) return;
+    if (!name || !/\.(rs|toml|py|sql)$/.test(String(name))) return;
     clearTimeout(debounce);
     debounce = setTimeout(
       () =>
@@ -310,7 +310,7 @@ try {
       resolve(root, "services/lake-worker/src"),
       { recursive: true },
       (event, name) => {
-        if (name?.endsWith(".py")) changed(event, name);
+        if (name && /\.(py|sql)$/.test(String(name))) changed(event, name);
       },
     ),
     watch(resolve(root, "services/lake-worker"), (event, name) => {

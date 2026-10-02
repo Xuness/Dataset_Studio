@@ -30,7 +30,7 @@ import {
   useWorkbenchPanels,
 } from "@studio/ui";
 import type { ModuleContext, BrowseScope, BrowseViewProps } from "@studio/ui";
-import { assetIdentity } from "@studio/client";
+import { assetIdentity, sourceSupports } from "@studio/client";
 import type { StudioClient } from "@studio/client";
 import type {
   Asset,
@@ -48,6 +48,7 @@ import {
 import type { RankingBrowseState } from "./rankingBrowse.js";
 export type Scope = BrowseScope;
 export interface BrowserProps extends BrowseViewProps {
+  postOrderAllowed?: boolean;
   client: StudioClient;
   projectId: string;
   filters?: ReactNode;
@@ -60,6 +61,13 @@ export default function BrowserModule(context: ModuleContext) {
       client={context.client}
       projectId={context.projectId}
       {...context.browser}
+      postOrderAllowed={context.sources
+        .filter(
+          (s) =>
+            context.browser.scope.kind !== "source" ||
+            s.id === context.browser.scope.id,
+        )
+        .every((s) => sourceSupports(s, "post_order"))}
       onOpenQuery={() => context.openPanel("core.query")}
       onRefreshed={(previousId, result) =>
         adoptRefreshedFilter(
@@ -74,6 +82,13 @@ export default function BrowserModule(context: ModuleContext) {
   );
 }
 export function Browser(props: BrowserProps) {
+  const order =
+    props.postOrderAllowed === false && props.order.startsWith("post_id_")
+      ? "asset_key_asc"
+      : props.order;
+  useEffect(() => {
+    if (order !== props.order) props.onOrder(order);
+  }, [order, props.order, props.onOrder]);
   const ranked = useRankingBrowse(
     props.client,
     props.projectId,
@@ -103,7 +118,7 @@ export function Browser(props: BrowserProps) {
   const identity = JSON.stringify([
     props.projectId,
     browseScopeIdentity(props.scope),
-    props.order,
+    order,
     ranked.key,
     ranked.info?.artifact_id,
     props.scope.kind === "selection" ? props.selectionRevision : null,
@@ -118,6 +133,7 @@ export function Browser(props: BrowserProps) {
     <BrowserContent
       key={identity}
       {...props}
+      order={order}
       position={position}
       ranked={ranked}
     />
@@ -148,6 +164,7 @@ function BrowserContent({
   onOpenQuery,
   onRefreshed,
   ranked,
+  postOrderAllowed = true,
 }: BrowserProps & { ranked: RankingBrowseState }) {
   const [pageSize, setPageSize] = useState(position?.pageSize ?? 48);
   const queryCache = useQueryClient();
@@ -957,8 +974,12 @@ function BrowserContent({
                 <option value="ranking:input">排名输入顺序</option>
               </optgroup>
             )}
-            <option value="post_id_desc">帖子 ID 降序</option>
-            <option value="post_id_asc">帖子 ID 升序</option>
+            {postOrderAllowed && (
+              <option value="post_id_desc">帖子 ID 降序</option>
+            )}
+            {postOrderAllowed && (
+              <option value="post_id_asc">帖子 ID 升序</option>
+            )}
             <option value="asset_key_asc">图像身份升序</option>
             <option value="asset_key_desc">图像身份降序</option>
           </select>

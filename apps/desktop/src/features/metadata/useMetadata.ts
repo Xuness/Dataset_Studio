@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { StudioError, assetIdentity } from "@studio/client";
 import type { StudioClient } from "@studio/client";
-import type { AssetKey, RankingInput } from "@studio/contracts";
+import type { AssetKey, AssetRecord, RankingInput } from "@studio/contracts";
 
 const queryPolicy = {
   retry: (attempt: number, error: Error) =>
@@ -49,12 +49,12 @@ export function useMetadata(
       }),
   });
   const data = overview.isError ? undefined : overview.data;
-  const preferredRecord =
+  const preferredRecord: AssetRecord | undefined =
     followScore && preferred?.record_id
       ? {
           record_id: preferred.record_id,
-          origin_observation_id: preferred.observation_id,
-          post_id: preferred.post_id,
+          origin_observation_id: preferred.observation_id ?? null,
+          post_id: preferred.post_id ?? null,
           source_md5: null,
           storage_profile: null,
         }

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { ReactNode } from "react";
 import { ImagePolicyEditor } from "./ImagePolicyEditor.js";
 import type { StudioClient } from "@studio/client";
 import type { Schema } from "@studio/contracts";
@@ -20,12 +21,14 @@ export function UpdateComposer({
   capabilities,
   onClose,
   onCreated,
+  sourceHeader,
 }: {
   client: StudioClient;
   lakes: Lake[];
   capabilities: Schema["LakeUpdateCapability"][];
   onClose: () => void;
   onCreated: (id: string, kind: "job" | "schedule") => void;
+  sourceHeader?: ReactNode;
 }) {
   const draft = useLakePreference(
     client,
@@ -144,6 +147,7 @@ export function UpdateComposer({
   return (
     <WorkbenchDialog title="新建数据湖更新" onClose={onClose}>
       <div className="lake-composer">
+        {sourceHeader}
         <DraftStatus controller={draft.controller} quiet />
         <fieldset disabled={!draft.editable || pending || frozen}>
           <details open>

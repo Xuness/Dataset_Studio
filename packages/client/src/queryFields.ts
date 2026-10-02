@@ -21,7 +21,20 @@ export function commonQueryFields(directories: Directory[]) {
         peers.every((f) => f!.operators.includes(op)),
       );
       return operators.length
-        ? [{ ...field, operators, sortable: peers.every((f) => f!.sortable) }]
+        ? [
+            {
+              ...field,
+              operators,
+              sortable: peers.every((f) => f!.sortable),
+              // A mixed Pixiv/Booru query must use the syntax accepted by every
+              // source, independently of the user's source-selection order.
+              basis:
+                field.field_type === "tags"
+                  ? (peers.find((f) => f!.basis !== "work_tags.literal_tag")
+                      ?.basis ?? field.basis)
+                  : field.basis,
+            },
+          ]
         : [];
     }),
     orders: (first?.orders ?? []).filter((order) =>

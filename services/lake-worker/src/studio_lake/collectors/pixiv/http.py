@@ -112,9 +112,13 @@ class Client:
             except (ValueError, UnicodeError):
                 raise UpdateError("COLLECTION_CREDENTIAL_REQUIRED", "Pixiv returned an interactive page instead of JSON") from None
             if not isinstance(payload, dict) or not isinstance(payload.get("error"), bool) or "body" not in payload:
-                raise UpdateError("COLLECTION_RESPONSE_INVALID", "Pixiv response envelope changed")
+                error = UpdateError("COLLECTION_RESPONSE_INVALID", "Pixiv response envelope changed")
+                error.response = result
+                raise error
             if payload["error"]:
-                raise UpdateError("COLLECTION_NOT_ACCESSIBLE", "Pixiv returned an unavailable or restricted target")
+                error = UpdateError("COLLECTION_NOT_ACCESSIBLE", "Pixiv returned an unavailable or restricted target")
+                error.response = result
+                raise error
         return result
 
     def request(self, kind, payload):

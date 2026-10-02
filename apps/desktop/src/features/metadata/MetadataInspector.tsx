@@ -7,6 +7,7 @@ import type { Asset, MetadataField, MetadataValue } from "@studio/contracts";
 import { useMetadata } from "./useMetadata.js";
 import { useQuery } from "@tanstack/react-query";
 import { RankingInputEvidence } from "../ranking/RankingInputEvidence.js";
+import { PixivOrigin } from "./PixivOrigin.js";
 
 const labels: Record<string, string> = {
   normalization_issues: "规范化说明",
@@ -35,12 +36,22 @@ const labels: Record<string, string> = {
   "danbooru.is_pending": "待审核",
   "danbooru.is_flagged": "已标记",
   "demo.sample_number": "生成样本编号",
+  title: "作品标题",
+  caption_html: "作品说明原文",
+  author_id: "作者 ID",
+  source_variant: "来源版本",
+  "pixiv.x_restrict": "Pixiv 分级标记",
+  "pixiv.ai_type": "Pixiv AI 标记",
+  "pixiv.bookmark_count": "收藏数",
+  "pixiv.view_count": "浏览数",
+  "pixiv.like_count": "点赞数",
 };
 const quality: Record<string, string> = {
   date_only: "仅日期",
   exact: "精确时间",
   unknown: "精度未知",
   not_observed: "生成示例，无观察时间",
+  captured_at: "采集时间",
 };
 function Failure({ error, refresh }: { error: Error; refresh: () => void }) {
   const code = error instanceof StudioError ? error.code : "ERROR";
@@ -141,11 +152,13 @@ export function MetadataInspector({
   projectId,
   asset,
   onFilterTag,
+  onFilterOrigin,
 }: {
   client: StudioClient;
   projectId: string;
   asset: Asset;
   onFilterTag?: (tag: string) => void;
+  onFilterOrigin?: (field: "work.id" | "author.id", value: string) => void;
 }) {
   const ranking = asset.ranking;
   const snapshot = useQuery({
@@ -211,6 +224,19 @@ export function MetadataInspector({
       )}
       {data && (
         <>
+          {record?.work_id && (
+            <PixivOrigin
+              client={client}
+              projectId={projectId}
+              sourceId={asset.key.source_id}
+              version={data.version.token}
+              workId={record.work_id}
+              ordinal={record.ordinal}
+              kind={record.kind}
+              representation={record.representation}
+              onFilter={onFilterOrigin}
+            />
+          )}
           {observation && (
             <div className="metadata-primary">
               <p className="metadata-basis">
@@ -282,8 +308,12 @@ export function MetadataInspector({
                       )}
                     {data.records.map((r) => (
                       <option key={r.record_id} value={r.record_id}>
-                        {r.post_id ? `条目 #${r.post_id}` : "无条目编号"} ·{" "}
-                        {r.record_id.slice(0, 10)}
+                        {r.work_id
+                          ? `作品 ${r.work_id} · 第 ${(r.ordinal ?? 0) + 1} 页`
+                          : r.post_id
+                            ? `条目 #${r.post_id}`
+                            : "无条目编号"}{" "}
+                        · {r.record_id.slice(0, 10)}
                       </option>
                     ))}
                   </select>
@@ -342,7 +372,9 @@ export function MetadataInspector({
                                 {o.observed_at?.slice(0, 10) ?? "时间未知"} ·{" "}
                                 {o.relation === "asset_origin"
                                   ? "直接关联"
-                                  : "同条目历史"}{" "}
+                                  : o.relation === "same_work"
+                                    ? "同作品历史"
+                                    : "同条目历史"}{" "}
                                 · 行 {o.row_id}
                               </option>
                             ))}

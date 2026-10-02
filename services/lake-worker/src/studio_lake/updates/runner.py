@@ -737,6 +737,9 @@ class Runner:
         while not self.stop.is_set():
             self.refresh_settings()
             self.state.tick_schedules()
+            from ..collections.schedules import Schedules
+
+            Schedules(self.collections.service).tick()
             for lake, (future, identity, execution, family) in list(active.items()):
                 if future.done():
                     del active[lake]

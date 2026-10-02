@@ -8,7 +8,7 @@ import threading
 import time
 import uuid
 
-from . import TERMINAL, TASK_TERMINAL, media, planner, receipts
+from . import TERMINAL, TASK_TERMINAL, incremental, media, planner, receipts
 from .service import Service
 from ..collectors.pixiv import normalize
 from ..collectors.pixiv.http import Client, MediaSessions, MAX_RESPONSE
@@ -229,29 +229,53 @@ class Runner:
         if state == "waiting_credentials":
             raise error
 
-    def metadata(self, job, task, context, client):
+    def metadata(self, job, task, context, client, lib=None):
         payload, kind = json.loads(task["payload_json"]), task["kind"]
+        if kind == "work_detail" and lib is not None:
+            retained = incremental.reusable_work(lib, payload["work_id"], json.loads(job["definition_json"]), context)
+            if retained:
+                return receipts.prepared(self.service, job, task, {}, reason="fresh_existing_snapshot",
+                                         summary=dict(retained_work=retained), directory=task["directory"])
         if kind == "relationship_page":
             with self.state.db() as db:
                 depth = db.execute("SELECT min_depth FROM collection_entities WHERE job_id=? AND kind=? AND source_id=?", (job["id"], payload["root_kind"], payload["root_id"])).fetchone()[0]
             if depth >= json.loads(job["definition_json"])["discovery"]["max_depth"]:
                 return receipts.prepared(self.service, job, task, {}, state="excluded", reason="depth_limit", directory=task["directory"])
         self.consume(job["id"], api_requests=1)
-        response = client.request(kind, payload)
+        source_error = None
+        try:
+            response = client.request(kind, payload)
+        except UpdateError as error:
+            response = getattr(error, "response", None)
+            if response is None:
+                raise
+            source_error = error.code
         subject_kind = {"author_profile": "author", "author_directory": "directory", "work_detail": "work", "media_manifest": "media", "relationship_page": "relation"}[kind]
         receipt_id = str(uuid.uuid4())
         captured = normalize.capture(job["lake_id"], context, receipt_id, response.endpoint, subject_kind, task["subject_key"], response.body,
-                                     observed_at=response.observed_at, request=dict(parameters=response.parameters, content_encoding=response.content_encoding))
-        if kind == "author_profile":
-            normalized = normalize.author(captured)
-        elif kind == "author_directory":
-            normalized = normalize.directory(captured, job["id"])
-        elif kind == "work_detail":
-            normalized = normalize.work(captured)
-        elif kind == "media_manifest":
-            normalized = normalize.manifest(captured, payload["detail"])
-        else:
-            normalized = self.relationship(captured, job, payload)
+                                     observed_at=response.observed_at, http_status=response.status, source_error=source_error,
+                                     request=dict(parameters=response.parameters, content_encoding=response.content_encoding))
+        raw_records = {"visibility_contexts": [context], "captures": [captured]}
+        if source_error:
+            return receipts.prepared(self.service, job, task, raw_records,
+                                     state="unavailable" if source_error == "COLLECTION_NOT_ACCESSIBLE" else "needs_review", reason=source_error,
+                                     summary=dict(capture_id=captured["capture_id"]), directory=task["directory"], receipt_id=receipt_id)
+        try:
+            if kind == "author_profile":
+                normalized = normalize.author(captured)
+            elif kind == "author_directory":
+                normalized = normalize.directory(captured, job["id"])
+            elif kind == "work_detail":
+                normalized = normalize.work(captured)
+            elif kind == "media_manifest":
+                normalized = normalize.manifest(captured, payload["detail"])
+            else:
+                normalized = self.relationship(captured, job, payload)
+        except (IntegrityError, ValueError, TypeError, KeyError, AttributeError) as error:
+            # Retain the bounded source bytes even when a new source shape cannot
+            # yet become normalized facts. Login HTML and Cookie headers never enter here.
+            return receipts.prepared(self.service, job, task, raw_records, state="needs_review", reason="COLLECTION_NORMALIZATION_FAILED",
+                                     summary=dict(capture_id=captured["capture_id"], parser_error=type(error).__name__), directory=task["directory"], receipt_id=receipt_id)
         records = {"visibility_contexts": [context], "captures": [captured], **normalized}
         checkpoints = []
         for snapshot in normalized.get("discovery_snapshots", []):
@@ -266,7 +290,11 @@ class Runner:
             state, reason = "excluded", "scope_filter"
         if kind == "media_manifest" and not normalized["media_manifests"][0]["complete"]:
             state, reason = "needs_review", normalized["media_manifests"][0]["reason"]
-        return receipts.prepared(self.service, job, task, records, checkpoints=checkpoints, state=state, reason=reason,
+        summary = dict(directory_delta=incremental.directory_delta(lib, normalized, context)) if lib is not None and kind == "author_directory" else {}
+        if lib is not None and kind == "author_directory":
+            summary["retained_works"] = incremental.directory_reuse(lib, normalized, json.loads(job["definition_json"]), context, lambda: self.cancelled(job["id"]))
+        summary["capture_id"] = captured["capture_id"]
+        return receipts.prepared(self.service, job, task, records, checkpoints=checkpoints, state=state, reason=reason, summary=summary,
                                  directory=task["directory"], receipt_id=receipt_id)
 
     @staticmethod
@@ -407,7 +435,7 @@ class Runner:
                                 self.failure(current, task, UpdateError("UPDATE_SPACE", "Shared metadata staging is full"))
                                 continue
                             try:
-                                self.metadata(current, task, context, client)
+                                self.metadata(current, task, context, client, lib)
                                 reservations[task["claim_token"]] = reservation
                             except Exception as error:
                                 reservation.release()
@@ -477,4 +505,6 @@ class Runner:
         else:
             gaps = states.get("unavailable", 0) + states.get("needs_review", 0)
             receipts.prune_finished(self.service, identity, self.resources)
-            self.update_state(identity, "completed_with_gaps" if gaps or not all(progress["closure"].values()) else "completed")
+            closure = progress["closure"]
+            complete = all(closure[k] for k in ("discovery_exhausted", "directories_complete", "manifests_complete"))
+            self.update_state(identity, "completed_with_gaps" if gaps or not complete else "completed")

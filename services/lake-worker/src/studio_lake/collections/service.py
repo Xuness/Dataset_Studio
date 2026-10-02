@@ -84,6 +84,38 @@ class Service:
         saved = json.loads(row[0]) if row else dict(revision=0, value=copy.deepcopy(model.PIPELINE_DEFAULTS))
         return {**saved, "shared_limits": settings.read(self.state)["value"]}
 
+    def register_lake(self, args):
+        model.fields(args, ("request_key", "site", "media_root", "index_root"))
+        model.choice(args["site"], ("pixiv",))
+        for name in ("media_root", "index_root"):
+            if not isinstance(args[name], str) or not Path(args[name]).is_absolute():
+                model.invalid("Lake directories must be absolute paths")
+        lib = MediaLibrary(Config(Path(args["media_root"]), Path(args["index_root"])))
+        identity = lib.info["library_id"]
+        with locations.access(self.state, identity), FileLock(lib.cache / ".update-registration.lock"), self.state.db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            request, _ = ledger.begin(db, "lake_register", args["request_key"], args, identity)
+            if request["state"] != "succeeded":
+                old = db.execute("SELECT media,index_root FROM lakes WHERE id=?", (identity,)).fetchone()
+                if old and (Path(old[0]).resolve(), Path(old[1]).resolve()) != (lib.root.resolve(), lib.cache.resolve()):
+                    raise UpdateError("SOURCE_LOCATION_CONFLICT", "Use coordinated lake relocation to change registered paths")
+                marker = lib.cache / "UPDATE-CONTROLLER.json"
+                if marker.exists():
+                    owner = read_json(marker)
+                    if owner.get("library_id") != identity or Path(owner.get("root", "")).resolve() != self.state.root:
+                        raise UpdateError("UPDATE_CONFLICT", "Lake already belongs to another controller")
+                # Existing archive task receipts need their original control records.
+                # Do not claim a foreign archive and later fail midway through replay.
+                with lib.journal() as journal:
+                    for (job_id,) in journal.execute("SELECT job_id FROM collection_runs"):
+                        if not db.execute("SELECT 1 FROM collection_jobs WHERE id=?", (job_id,)).fetchone():
+                            raise UpdateError("UPDATE_CONFLICT", "Restore the original collection controller with this archive")
+                atomic_json(marker, dict(library_id=identity, root=str(self.state.root)))
+                db.execute("INSERT INTO lakes VALUES(?,'pixiv',?,?,?) ON CONFLICT(id) DO NOTHING", (identity, str(lib.root), str(lib.cache), utc()))
+                db.execute("INSERT INTO collection_lakes VALUES(?,2,3,'pixiv_web_v1') ON CONFLICT(lake_id) DO NOTHING", (identity,))
+                ledger.succeed(db, args["request_key"], identity)
+        return self.lake(identity)
+
     def save_pipeline(self, args):
         model.fields(args, ("expected_revision", "value"))
         revision = model.integer(args["expected_revision"])
@@ -102,7 +134,7 @@ class Service:
         account = self.accounts.public(spec["account_id"])
         issues = []
         if account["mode"] == "anonymous":
-            issues.append(dict(code="PUBLIC_VISIBILITY_UNVERIFIED", message="公开会话仅采集当时可见内容，不能确认完整作者覆盖", severity="warning"))
+            issues.append(dict(code="PUBLIC_VISIBILITY_UNVERIFIED", message="公开访问按本次可见目录采集，登录显示条件单独记录为未知", severity="info"))
         elif account["state"] != "valid":
             issues.append(dict(code="CREDENTIALS_REQUIRED", message="采集前需要导入并验证 Pixiv 会话", severity="warning"))
         return dict(definition=spec, known_seed_count=len(spec["seeds"]["ids"]),
@@ -114,22 +146,34 @@ class Service:
         spec = self.preview(args["definition"])["definition"]
         with locations.access(self.state, spec["library_id"]), self.state.db() as db:
             db.execute("BEGIN IMMEDIATE")
-            request, replayed = ledger.begin(db, "job_create", args["request_key"], dict(definition=spec), str(uuid.uuid4()))
-            identity = request["subject_id"]
-            if request["state"] != "succeeded":
+            identity, replayed, coalesced = self.create_job_db(db, spec, args["request_key"])
+        return dict(job=self.job(identity), replayed=replayed, coalesced=coalesced)
+
+    def create_job_db(self, db, spec, request_key):
+        """One transaction for manual admission, schedule occurrence and request replay."""
+        request, replayed = ledger.begin(db, "job_create", request_key, dict(definition=spec), str(uuid.uuid4()))
+        identity = request["subject_id"]
+        coalesced = bool(json.loads(request["result_json"] or "{}").get("coalesced"))
+        if request["state"] != "succeeded":
+            fingerprint = digest(canonical(spec).encode())
+            existing = db.execute("""SELECT id FROM collection_jobs WHERE lake_id=? AND definition_sha256=?
+                AND desired_state='run' AND state NOT IN ('completed','completed_with_gaps','cancelled','needs_review') ORDER BY job_row LIMIT 1""",
+                                  (spec["library_id"], fingerprint)).fetchone()
+            if existing:
+                identity, coalesced = existing[0], True
+            else:
                 account = self.accounts.row(spec["account_id"], db)
                 at = utc()
                 state = "queued" if account["state"] == "valid" else "waiting_credentials"
                 db.execute("""INSERT INTO collection_jobs(id,request_key,lake_id,account_id,definition_json,definition_sha256,desired_state,state,
                     revision,counters_json,created_at,updated_at) VALUES(?,?,?,?,?,?,'run',?,1,?,?,?)""",
-                           (identity, args["request_key"], spec["library_id"], spec["account_id"], canonical(spec), digest(canonical(spec).encode()), state, canonical(initial_counters()), at, at))
-                # Seeds are intent, not collected facts. The runner archives intent before planning requests.
+                           (identity, request_key, spec["library_id"], spec["account_id"], canonical(spec), fingerprint, state, canonical(initial_counters()), at, at))
                 from .planner import entity
 
                 for seed in spec["seeds"]["ids"]:
                     entity(db, identity, "author" if spec["seeds"]["kind"] == "authors" else "work", seed, 0)
-                ledger.succeed(db, args["request_key"], identity)
-        return dict(job=self.job(identity), replayed=replayed)
+            ledger.succeed(db, request_key, identity, dict(coalesced=coalesced))
+        return identity, replayed, coalesced
 
     def row(self, identity, db=None):
         model.identity(identity)
@@ -157,14 +201,19 @@ class Service:
         manifests_done = n("media_manifest") == n("media_manifest", {"done"})
         visibility = json.loads(row["visibility_json"]) if row["visibility_json"] else {}
         publication = counters.get("publication", dict(archive_seq=0, served_seq=0, pending_batches=0))
+        retained_media = counters.get("retained_media", 0)
+        mode = json.loads(visibility.get("policy_json", "{}" )).get("login", "anonymous")
         return dict(authors=dict(discovered=authors[0], admitted=authors[1], scanned=n("author_directory", {"done"})),
                     works=dict(planned=n("work_detail") if discovery_done and directories_done else None,
-                               details=n("work_detail", {"done", "excluded"}), gaps=n("work_detail", gaps)),
-                    media=dict(planned=n("media_download") if discovery_done and directories_done and details_done and manifests_done else None,
+                               details=n("work_detail", {"done", "excluded"}), gaps=n("work_detail", gaps), retained=counters.get("retained_works", 0), excluded=n("work_detail", {"excluded"})),
+                    media=dict(planned=n("media_download") + retained_media if discovery_done and directories_done and details_done and manifests_done else None,
                                downloaded=counters["media_downloaded"] + staged.count("downloaded"), historical_reused=counters["media_reused"] + staged.count("reused"), http_validated=0,
-                               archived=counters["archived_media"], published=counters["published_media"], gaps=n("media_download", gaps)),
+                               archived=counters["archived_media"], published=counters["published_media"], gaps=n("media_download", gaps), retained=retained_media),
                     objects=dict(stored=counters["objects"], browsable_images=counters["browsable_images"]),
-                    download_bytes=counters["download_bytes"], publication=publication,
+                    download_bytes=counters["download_bytes"], publication=publication, access_mode=mode,
+                    directory_delta=counters.get("directory_delta", dict(added=0, no_longer_listed=0, unchanged=0)),
+                    task_gaps=sum(v for (k, s), v in counts.items() if s in gaps),
+                    budget=dict(limits=json.loads(row["definition_json"])["run_budget"], used=counters["round"]),
                     closure=dict(discovery_exhausted=discovery_done, directories_complete=directories_done,
                                  manifests_complete=manifests_done and details_done, visibility_verified=visibility.get("verified") is True))
 
@@ -182,7 +231,7 @@ class Service:
         return base64.urlsafe_b64encode(canonical(dict(filters=filters, after=after)).encode()).decode()
 
     @staticmethod
-    def position(value, filters):
+    def position(value, filters, *, composite=False):
         if value is None:
             return 0
         try:
@@ -191,7 +240,7 @@ class Service:
             cursor = json.loads(base64.urlsafe_b64decode(value))
             if cursor["filters"] != filters:
                 raise ValueError()
-            return model.integer(cursor["after"])
+            return cursor["after"] if composite else model.integer(cursor["after"])
         except (ValueError, TypeError, KeyError, UnicodeError):
             model.invalid("Collection page cursor does not match its filters")
 
@@ -229,12 +278,15 @@ class Service:
         clauses, values = ["job_id=?", "task_row>?"], [identity, self.position(args.get("cursor"), filters)]
         for key in ("kind", "state", "reason"):
             if args.get(key):
+                if key == "state" and args[key] == "gaps":
+                    clauses.append("state IN ('unavailable','needs_review')")
+                    continue
                 clauses.append(key + "=?")
                 values.append(args[key])
         with self.state.db() as db:
             rows = [dict(r) for r in db.execute("SELECT * FROM collection_tasks WHERE " + " AND ".join(clauses) + " ORDER BY task_row LIMIT ?", (*values, limit + 1))]
         keys = ("id", "job_id", "kind", "subject_key", "state", "attempts", "reason", "retry_at_ms")
-        return dict(items=[{k: r[k] for k in keys} for r in rows[:limit]], next_cursor=self.cursor(filters, rows[limit - 1]["task_row"]) if len(rows) > limit else None)
+        return dict(items=[{**{k: r[k] for k in keys}, "summary": json.loads(r["summary_json"] or "{}")} for r in rows[:limit]], next_cursor=self.cursor(filters, rows[limit - 1]["task_row"]) if len(rows) > limit else None)
 
     def action(self, identity, args):
         model.fields(args, ("request_key", "expected_revision", "action"), ("task_ids",))
@@ -293,10 +345,19 @@ class Service:
                     progress=job["progress"], statement="本次会话的已观察范围；目录结束不等于全站或历史完整覆盖")
 
     def dispatch(self, command, args):
+        if command in {"schedules", "schedule_save", "schedule_remove"}:
+            from .schedules import Schedules
+
+            return getattr(Schedules(self), command.removeprefix("schedule_") if command != "schedules" else "list")(args)
+        if command in {"workspace_lakes", "workspace_jobs", "workspace_schedules"}:
+            from .workspace import Workspace
+
+            return getattr(Workspace(self), command.removeprefix("workspace_"))(args)
         if command == "capabilities":
             return dict(collector="pixiv_web_v1", contract_version=CONTRACT_VERSION, work_types=["illustration", "manga", "ugoira"],
                         discovery_entrypoints=["bookmarks", "following", "recommendations"], archive_formats=[2], online_formats=[3],
-                        limits=dict(max_seeds=1000, max_depth=4, page_size=200, max_control_bytes=2 * 1024**2), authentication_modes=["anonymous", "session"])
+                        limits=dict(max_seeds=1000, max_depth=4, page_size=200, max_control_bytes=2 * 1024**2), authentication_modes=["anonymous", "session"],
+                        refresh_modes=["all", "missing_or_stale"], periodic_snapshots=True)
         if command == "status":
             with self.state.db() as db:
                 counts = dict(db.execute("SELECT state,count(*) FROM collection_jobs GROUP BY state"))
@@ -306,6 +367,8 @@ class Service:
             return self.registry("lakes", args)
         if command == "lake_create":
             return self.create_lake(args)
+        if command == "lake_register":
+            return self.register_lake(args)
         if command == "accounts":
             return self.registry("accounts", args)
         if command == "account_save":

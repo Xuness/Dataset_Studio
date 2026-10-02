@@ -12,6 +12,8 @@ fn field(field: &str, version: u32) -> Result<&'static str> {
             "stored.height" => "o.stored_height",
             "work.id" => "p.work_id",
             "author.id" => "p.author_id",
+            "work.type" => "p.work_type",
+            "work.title" => "p.title",
             "source.width" => "m.width",
             "source.height" => "m.height",
             "tags" => "p.observation_id",

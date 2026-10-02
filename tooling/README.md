@@ -119,6 +119,9 @@ Rust 测试位于 crates 内，`pnpm test` 同时执行 SDK 检查 [client-found
 
 ## 多站点数据湖
 
+- [smoke-pixiv-ui.mjs](smoke-pixiv-ui.mjs)：Pixiv 合成湖的真实界面验收，复用资料浏览、查询、数据湖任务／计划和 API 设置；不访问远端，不使用真实凭据。
+- [validate-pixiv-production.mjs](validate-pixiv-production.mjs)：显式指定正在运行的引擎连接文件、正式两根目录、项目、作者及报告目录，执行公开目录采集、暂停续跑和增量复查。真实网络与归档写入不属于自动测试；同一报告目录禁止并发运行。命令示例见[来源采集](../docs/architecture/source-collections.md)。
+
 - [integration-lake-recovery.mjs](integration-lake-recovery.mjs)：运行环境失败与替换、任务/凭据保留、读写位置交接、旧路径离线及重启补完；已加入完整集成。可设置 STUDIO_RELOCATION_TEST_ROOT 为另一卷中专用的 `.local/test-runs/r3-cross-volume-<唯一编号>`，外部夹具路径会写入本轮报告，须一并清理。
 - [smoke-lake-updates-ui.mjs](smoke-lake-updates-ui.mjs)：现包含设置页的解释器错误/成功验证和数据湖迁移错误/成功操作，使用真实本地引擎与内置 worker。
 - [lake-load-fixture.py](lake-load-fixture.py) 与 [verify-lake-combined-load.mjs](verify-lake-combined-load.mjs)：显式、非默认的大规模组合验收。先以 `<.local/test-runs/astra-load-唯一编号> prepare <来源清单.json>` 创建完整在线索引副本及选定媒体包，再把该目录传给 Node 验收入口。来源清单包含 kind、index_root、media_root；SQLite 源连接只读，更新和评审分别使用记录样本与 loopback mock。副本是负载镜像，缺少未选中的归档媒体，不能用于正式恢复。此测试可能占用上百 GB，结束后归档指标和日志，再清理专用目录。

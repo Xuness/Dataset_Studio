@@ -5,6 +5,7 @@ import { useLakeRefresh, useLakeStatus } from "./queries.js";
 import { sites, dateLabel } from "./model.js";
 import "./lake-updates.css";
 import { LakeRelocationSettings } from "./LakeRelocationSettings.js";
+import { CollectionApiSettings } from "./CollectionApiSettings.js";
 
 export function LakeApiSettings({ client }: SettingsPageProps) {
   const status = useLakeStatus(client),
@@ -216,6 +217,7 @@ export function LakeApiSettings({ client }: SettingsPageProps) {
           </p>
         </>
       )}
+      {status.data?.configured && <CollectionApiSettings client={client} />}
       {error != null && <ErrorDetails error={error} />}
       {status.data?.configured && <LakeRelocationSettings client={client} />}
       {notice && <p role="status">{notice}</p>}

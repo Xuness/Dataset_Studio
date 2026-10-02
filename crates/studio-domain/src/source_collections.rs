@@ -5,6 +5,7 @@ pub enum CollectionOperation {
     Capabilities,
     Lakes,
     LakeCreate,
+    LakeRegister,
     Accounts,
     AccountSave,
     AccountProbe,
@@ -18,6 +19,12 @@ pub enum CollectionOperation {
     Action,
     PipelineGet,
     PipelineSet,
+    Schedules,
+    ScheduleSave,
+    ScheduleRemove,
+    WorkspaceLakes,
+    WorkspaceJobs,
+    WorkspaceSchedules,
 }
 impl CollectionOperation {
     pub fn name(self) -> &'static str {
@@ -26,6 +33,7 @@ impl CollectionOperation {
             Self::Capabilities => "collection_capabilities",
             Self::Lakes => "collection_lakes",
             Self::LakeCreate => "collection_lake_create",
+            Self::LakeRegister => "collection_lake_register",
             Self::Accounts => "collection_accounts",
             Self::AccountSave => "collection_account_save",
             Self::AccountProbe => "collection_account_probe",
@@ -39,6 +47,12 @@ impl CollectionOperation {
             Self::Action => "collection_action",
             Self::PipelineGet => "collection_pipeline_get",
             Self::PipelineSet => "collection_pipeline_set",
+            Self::Schedules => "collection_schedules",
+            Self::ScheduleSave => "collection_schedule_save",
+            Self::ScheduleRemove => "collection_schedule_remove",
+            Self::WorkspaceLakes => "collection_workspace_lakes",
+            Self::WorkspaceJobs => "collection_workspace_jobs",
+            Self::WorkspaceSchedules => "collection_workspace_schedules",
         }
     }
 }

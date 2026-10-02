@@ -41,7 +41,7 @@ def test_each_durable_boundary_recovers_without_repeating_capture(tmp_path, monk
         count_before = db.execute("SELECT count(*) FROM collection_outbox WHERE job_id=?", (job["id"],)).fetchone()[0]
     restarted = Runner(State(service.state.root), resources=Resources(reserve_bytes=0), client_factory=Client, image_http=HTTP())
     result = restarted.run(job["id"], time_slice=60)
-    assert result["state"] == "completed_with_gaps", result
+    assert result["state"] == "completed", result
     assert result["progress"]["media"]["downloaded"] == 2
     assert result["progress"]["media"]["archived"] == 2
     assert result["progress"]["media"]["published"] == 2

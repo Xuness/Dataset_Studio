@@ -59,7 +59,9 @@ export function conditionIssue(
     if (value.value.length > 64) return "每组最多 64 个值。";
     if (
       value.value.some((v) =>
-        field.field_type === "tags" ? !validSourceTag(v) : v.length > 256,
+        field.field_type === "tags"
+          ? !validSourceTag(v, field.basis === "work_tags.literal_tag")
+          : v.length > 256,
       )
     )
       return "标签必须完整，单个不超过 256 个字符。";
@@ -74,7 +76,8 @@ export function conditionIssue(
     }
   } else if (
     condition.operator === "has_tag" &&
-    (value?.type !== "text" || !validSourceTag(value.value))
+    (value?.type !== "text" ||
+      !validSourceTag(value.value, field.basis === "work_tags.literal_tag"))
   )
     return "此操作只接受一个标签；多个标签请选全部或任一。";
   return "";
@@ -83,33 +86,59 @@ function TagValues({
   values,
   onChange,
   label,
+  literal = false,
 }: {
   values: string[];
   onChange: (values: string[]) => void;
   label: string;
+  literal?: boolean;
 }) {
-  const [text, setText] = useState(formatTagList(values));
+  const format = (items: string[]) =>
+    literal
+      ? items.map((v) => JSON.stringify(v)).join("\n")
+      : formatTagList(items);
+  const [text, setText] = useState(format(values));
   const focused = useRef(false);
   useEffect(() => {
-    if (!focused.current) setText(formatTagList(values));
+    if (!focused.current) setText(format(values));
   }, [values]);
   return (
     <textarea
-      rows={1}
+      rows={literal ? 3 : 1}
       aria-label={label}
       value={text}
       maxLength={16384}
-      placeholder="普通空格分隔；双引号内可写 \t、\n 等 JSON 转义"
+      placeholder={
+        literal
+          ? "每行一个完整标签，标签内的空格会保留；也可使用 JSON 双引号"
+          : "普通空格分隔；双引号内可写 JSON 转义"
+      }
       onFocus={() => {
         focused.current = true;
       }}
       onBlur={() => {
         focused.current = false;
-        setText(formatTagList(values));
+        setText(format(values));
       }}
       onChange={(e) => {
         setText(e.target.value);
-        onChange(tagList(e.target.value));
+        if (!literal) onChange(tagList(e.target.value));
+        else {
+          try {
+            onChange(
+              e.target.value
+                .split(/\r?\n/)
+                .filter((v) => v.trim())
+                .map((v) =>
+                  v.trim().startsWith('"')
+                    ? (JSON.parse(v.trim()) as string)
+                    : v.trim(),
+                ),
+            );
+          } catch {
+            onChange([]);
+          }
+        }
       }}
     />
   );
@@ -178,7 +207,9 @@ export function QueryConditions({
                             : old?.type === "text"
                               ? condition.field === "rating"
                                 ? [old.value].filter(Boolean)
-                                : tagList(old.value)
+                                : field?.basis === "work_tags.literal_tag"
+                                  ? [old.value]
+                                  : tagList(old.value)
                               : [],
                       }
                     : old?.type === "text_list"
@@ -245,9 +276,57 @@ export function QueryConditions({
                       )}
                   </select>
                 )
+              ) : condition.field === "work.type" ? (
+                <select
+                  aria-label={"条件值 " + (index + 1)}
+                  value={
+                    condition.value?.type === "text"
+                      ? condition.value.value
+                      : ""
+                  }
+                  onChange={(e) =>
+                    update(index, {
+                      ...condition,
+                      value: { type: "text", value: e.target.value },
+                    })
+                  }
+                >
+                  <option value="">请选择作品类型</option>
+                  <option value="illustration">插画</option>
+                  <option value="manga">漫画／多页</option>
+                  <option value="ugoira">Ugoira 动画</option>
+                  <option value="unknown">未知类型</option>
+                </select>
+              ) : ["pixiv.x_restrict", "pixiv.ai_type"].includes(
+                  condition.field,
+                ) ? (
+                <select
+                  aria-label={"条件值 " + (index + 1)}
+                  value={
+                    condition.value?.type === "integer"
+                      ? condition.value.value
+                      : "0"
+                  }
+                  onChange={(e) =>
+                    update(index, {
+                      ...condition,
+                      value: { type: "integer", value: e.target.value },
+                    })
+                  }
+                >
+                  {(condition.field === "pixiv.x_restrict"
+                    ? ["全年龄", "R-18", "R-18G"]
+                    : ["未知／未指定", "非 AI 标记", "AI 生成"]
+                  ).map((label, i) => (
+                    <option key={i} value={String(i)}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
               ) : listOperators.has(condition.operator) ? (
                 <TagValues
                   key={condition.field + condition.operator}
+                  literal={field?.basis === "work_tags.literal_tag"}
                   label={"条件值 " + (index + 1)}
                   values={
                     condition.value?.type === "text_list"
@@ -263,6 +342,7 @@ export function QueryConditions({
                 />
               ) : field?.field_type === "tags" ? (
                 <TagValues
+                  literal={field?.basis === "work_tags.literal_tag"}
                   label={"条件值 " + (index + 1)}
                   values={
                     condition.value?.type === "text" && condition.value.value
