@@ -29,6 +29,8 @@ mod management;
 pub use management::*;
 mod lake_updates;
 pub use lake_updates::*;
+mod source_collections;
+pub use source_collections::*;
 use utoipa::ToSchema;
 pub const API_VERSION: u32 = 1;
 

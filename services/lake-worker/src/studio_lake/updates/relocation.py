@@ -156,7 +156,7 @@ def apply(state, identity, media_root, index_root):
                                ("relocation:" + identity, expected.get("min_seq", actual["min_seq"]), identity))
         finally:
             source.close()
-        atomic_json(media / "online-index.json", {"schema_version": 2, "library_id": value["lake_id"], "index_root": str(index)})
+        atomic_json(media / "online-index.json", {"schema_version": pointer["schema_version"], "library_id": value["lake_id"], "index_root": str(index)})
         failpoint("relocation_publisher")
         atomic_json(index / "cache_owner.json", {"library_id": value["lake_id"], "root": str(media)})
         atomic_json(index / "UPDATE-CONTROLLER.json", {"library_id": value["lake_id"], "root": str(state.root)})

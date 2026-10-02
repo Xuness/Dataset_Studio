@@ -68,6 +68,12 @@ pub struct AssetRecord {
     pub post_id: Option<String>,
     pub source_md5: Option<String>,
     pub storage_profile: Option<String>,
+    pub work_id: Option<String>,
+    pub media_id: Option<String>,
+    pub manifest_id: Option<String>,
+    pub ordinal: Option<u32>,
+    pub kind: Option<String>,
+    pub representation: Option<String>,
 }
 impl From<domain::AssetRecord> for AssetRecord {
     fn from(v: domain::AssetRecord) -> Self {
@@ -77,6 +83,12 @@ impl From<domain::AssetRecord> for AssetRecord {
             post_id: v.post_id,
             source_md5: v.source_md5,
             storage_profile: v.storage_profile,
+            work_id: v.media_origin.as_ref().map(|m| m.work_id.clone()),
+            media_id: v.media_origin.as_ref().map(|m| m.media_id.clone()),
+            manifest_id: v.media_origin.as_ref().map(|m| m.manifest_id.clone()),
+            ordinal: v.media_origin.as_ref().map(|m| m.ordinal),
+            kind: v.media_origin.as_ref().map(|m| m.kind.clone()),
+            representation: v.media_origin.map(|m| m.representation),
         }
     }
 }

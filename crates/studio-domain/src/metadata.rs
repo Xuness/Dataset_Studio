@@ -17,6 +17,17 @@ pub struct AssetRecord {
     pub post_id: Option<String>,
     pub source_md5: Option<String>,
     pub storage_profile: Option<String>,
+    pub media_origin: Option<MediaOrigin>,
+}
+
+#[derive(Debug, Clone)]
+pub struct MediaOrigin {
+    pub work_id: String,
+    pub media_id: String,
+    pub manifest_id: String,
+    pub ordinal: u32,
+    pub kind: String,
+    pub representation: String,
 }
 
 /// A bounded identity summary for one listed stored object.
@@ -101,4 +112,23 @@ pub struct MetadataRequest {
     pub cursor: Option<String>,
     pub limit: Option<usize>,
     pub version: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum SourceRelationKind {
+    Work,
+    WorkMedia,
+    Author,
+    AuthorWorks,
+}
+
+#[derive(Debug, Clone)]
+pub struct SourceRelationRequest {
+    pub kind: SourceRelationKind,
+    pub id: String,
+    pub version: Option<String>,
+    pub cursor: Option<String>,
+    pub limit: Option<usize>,
+    pub manifest_id: Option<String>,
+    pub recipe_id: Option<String>,
 }

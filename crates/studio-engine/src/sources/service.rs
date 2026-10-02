@@ -106,6 +106,18 @@ impl SourceService {
     }
 }
 impl SourceRead {
+    pub fn source_relation(
+        &self,
+        source: &Source,
+        request: SourceRelationRequest,
+    ) -> Result<serde_json::Value> {
+        self.require_class(ReadClass::NativeQuery)?;
+        self.provider(source)?
+            .metadata
+            .as_ref()
+            .ok_or_else(unsupported)?
+            .source_relation(source, request, &self.context)
+    }
     fn require_class(&self, class: ReadClass) -> Result<()> {
         self.context.check()?;
         if self.class != class {

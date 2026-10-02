@@ -378,3 +378,31 @@ impl Drop for Backend {
         self.shutdown();
     }
 }
+
+impl studio_application::source_collections::CollectionBackend for Backend {
+    fn execute_collection(
+        &self,
+        operation: studio_domain::source_collections::CollectionOperation,
+        arguments: Value,
+    ) -> Result<Value> {
+        let _gate = self.gate.read().map_err(lock_error)?;
+        self.ensure_locked()?;
+        let request = serde_json::to_vec(
+            &json!({"protocol_version":1,"command":operation.name(),"arguments":arguments}),
+        )
+        .map_err(Error::io)?;
+        if request.len() > 2 * 1024 * 1024 {
+            return Err(Error::new("COLLECTION_LIMIT", "采集控制请求超过 2 MiB"));
+        }
+        let value = process::reply(&process::request(
+            self.command(&self.configuration()?, "rpc")?,
+            &request,
+            &self.stopped,
+            Duration::from_secs(90),
+        )?)?;
+        if serde_json::to_vec(&value).map_err(Error::io)?.len() > 2 * 1024 * 1024 {
+            return Err(Error::new("COLLECTION_LIMIT", "采集响应超过 2 MiB"));
+        }
+        Ok(value)
+    }
+}

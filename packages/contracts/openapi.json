@@ -7221,6 +7221,180 @@
         }
       }
     },
+    "/v1/projects/{project_id}/sources/{source_id}/authors/{id}": {
+      "get": {
+        "tags": [
+          "source_collections"
+        ],
+        "operationId": "source_author",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "source_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "manifest_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "recipe_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceAuthorDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/sources/{source_id}/authors/{id}/works": {
+      "get": {
+        "tags": [
+          "source_collections"
+        ],
+        "operationId": "source_author_works",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "source_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "manifest_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "recipe_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceAuthorWorks"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/projects/{project_id}/sources/{source_id}/fields": {
       "get": {
         "tags": [
@@ -7338,6 +7512,180 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SourceRelinked"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/sources/{source_id}/works/{id}": {
+      "get": {
+        "tags": [
+          "source_collections"
+        ],
+        "operationId": "source_work",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "source_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "manifest_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "recipe_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceWorkDetail"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/sources/{source_id}/works/{id}/media": {
+      "get": {
+        "tags": [
+          "source_collections"
+        ],
+        "operationId": "source_work_media",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "source_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "manifest_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "recipe_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkMediaPage"
                 }
               }
             }
@@ -7762,6 +8110,608 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/SourceRegistrations"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/source-collections/accounts": {
+      "get": {
+        "tags": [
+          "source_collections"
+        ],
+        "operationId": "collections_accounts",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionAccounts"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/source-collections/accounts/{id}": {
+      "put": {
+        "tags": [
+          "source_collections"
+        ],
+        "operationId": "collections_save_account",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveCollectionAccount"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionAccount"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/source-collections/accounts/{id}/clear": {
+      "post": {
+        "tags": [
+          "source_collections"
+        ],
+        "operationId": "collections_clear_account",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CollectionRevisionCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionAccount"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/source-collections/accounts/{id}/probe": {
+      "post": {
+        "tags": [
+          "source_collections"
+        ],
+        "operationId": "collections_probe_account",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CollectionRevisionCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionAccountProbe"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/source-collections/capabilities": {
+      "get": {
+        "tags": [
+          "source_collections"
+        ],
+        "operationId": "collections_capabilities",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionCapabilities"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/source-collections/jobs": {
+      "get": {
+        "tags": [
+          "source_collections"
+        ],
+        "operationId": "collections_jobs",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "library_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionJobs"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "source_collections"
+        ],
+        "operationId": "collections_create_job",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCollectionJob"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionJobResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/source-collections/jobs/preview": {
+      "post": {
+        "tags": [
+          "source_collections"
+        ],
+        "operationId": "collections_preview",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CollectionJobDefinition"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionPreview"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/source-collections/jobs/{id}": {
+      "get": {
+        "tags": [
+          "source_collections"
+        ],
+        "operationId": "collections_job",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionJob"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/source-collections/jobs/{id}/actions": {
+      "post": {
+        "tags": [
+          "source_collections"
+        ],
+        "operationId": "collections_action",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CollectionJobAction"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionJobResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/source-collections/jobs/{id}/coverage": {
+      "get": {
+        "tags": [
+          "source_collections"
+        ],
+        "operationId": "collections_coverage",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionCoverage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/source-collections/jobs/{id}/tasks": {
+      "get": {
+        "tags": [
+          "source_collections"
+        ],
+        "operationId": "collections_tasks",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "reason",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionTasks"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/source-collections/lakes": {
+      "get": {
+        "tags": [
+          "source_collections"
+        ],
+        "operationId": "collections_lakes",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionLakes"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "source_collections"
+        ],
+        "operationId": "collections_create_lake",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCollectionLake"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionLake"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/source-collections/pipeline": {
+      "get": {
+        "tags": [
+          "source_collections"
+        ],
+        "operationId": "collections_pipeline",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionPipelineSettings"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "source_collections"
+        ],
+        "operationId": "collections_save_pipeline",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveCollectionPipeline"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionPipelineSettings"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/source-collections/status": {
+      "get": {
+        "tags": [
+          "source_collections"
+        ],
+        "operationId": "collections_status",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionServiceStatus"
                 }
               }
             }
@@ -10732,6 +11682,32 @@
           "record_id"
         ],
         "properties": {
+          "kind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "manifest_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "media_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ordinal": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
           "origin_observation_id": {
             "type": [
               "string",
@@ -10747,6 +11723,12 @@
           "record_id": {
             "type": "string"
           },
+          "representation": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "source_md5": {
             "type": [
               "string",
@@ -10754,6 +11736,12 @@
             ]
           },
           "storage_profile": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "work_id": {
             "type": [
               "string",
               "null"
@@ -11479,6 +12467,1149 @@
           }
         }
       },
+      "CollectionAccount": {
+        "type": "object",
+        "required": [
+          "id",
+          "site",
+          "label",
+          "mode",
+          "revision",
+          "state",
+          "credential_set"
+        ],
+        "properties": {
+          "bound_user_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "credential_set": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "last_probe_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "mode": {
+            "$ref": "#/components/schemas/CollectionAccountMode"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "site": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        }
+      },
+      "CollectionAccountMode": {
+        "type": "string",
+        "enum": [
+          "anonymous",
+          "session"
+        ]
+      },
+      "CollectionAccountProbe": {
+        "type": "object",
+        "required": [
+          "account",
+          "visibility"
+        ],
+        "properties": {
+          "account": {
+            "$ref": "#/components/schemas/CollectionAccount"
+          },
+          "visibility": {
+            "$ref": "#/components/schemas/CollectionVisibility"
+          }
+        }
+      },
+      "CollectionAccounts": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CollectionAccount"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CollectionAction": {
+        "type": "string",
+        "enum": [
+          "pause",
+          "resume",
+          "retry_failed",
+          "cancel",
+          "replay_publication"
+        ]
+      },
+      "CollectionAuthorProgress": {
+        "type": "object",
+        "required": [
+          "discovered",
+          "admitted",
+          "scanned"
+        ],
+        "properties": {
+          "admitted": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "discovered": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "scanned": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "CollectionCapabilities": {
+        "type": "object",
+        "required": [
+          "collector",
+          "contract_version",
+          "work_types",
+          "discovery_entrypoints",
+          "archive_formats",
+          "online_formats",
+          "limits",
+          "authentication_modes"
+        ],
+        "properties": {
+          "archive_formats": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          "authentication_modes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "collector": {
+            "type": "string"
+          },
+          "contract_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "discovery_entrypoints": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "limits": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "online_formats": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          "work_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "CollectionClosure": {
+        "type": "object",
+        "required": [
+          "discovery_exhausted",
+          "directories_complete",
+          "manifests_complete",
+          "visibility_verified"
+        ],
+        "properties": {
+          "directories_complete": {
+            "type": "boolean"
+          },
+          "discovery_exhausted": {
+            "type": "boolean"
+          },
+          "manifests_complete": {
+            "type": "boolean"
+          },
+          "visibility_verified": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CollectionCookie": {
+        "type": "object",
+        "required": [
+          "name",
+          "value",
+          "domain",
+          "path",
+          "secure",
+          "http_only"
+        ],
+        "properties": {
+          "domain": {
+            "type": "string"
+          },
+          "expires_unix": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "http_only": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "secure": {
+            "type": "boolean"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CollectionCoverage": {
+        "type": "object",
+        "required": [
+          "job_id",
+          "state",
+          "scope",
+          "closure",
+          "progress",
+          "statement"
+        ],
+        "properties": {
+          "closure": {
+            "$ref": "#/components/schemas/CollectionClosure"
+          },
+          "job_id": {
+            "type": "string"
+          },
+          "progress": {
+            "$ref": "#/components/schemas/CollectionProgress"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/CollectionScope"
+          },
+          "state": {
+            "type": "string"
+          },
+          "statement": {
+            "type": "string"
+          }
+        }
+      },
+      "CollectionDiscovery": {
+        "type": "object",
+        "required": [
+          "entrypoints",
+          "max_depth",
+          "recommendation_seeds_per_author"
+        ],
+        "properties": {
+          "entrypoints": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "max_depth": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "recommendation_seeds_per_author": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "CollectionIssue": {
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "severity"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string"
+          }
+        }
+      },
+      "CollectionJob": {
+        "type": "object",
+        "required": [
+          "id",
+          "library_id",
+          "account_id",
+          "definition",
+          "state",
+          "desired_state",
+          "revision",
+          "execution_epoch",
+          "execution_active",
+          "progress",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "definition": {
+            "$ref": "#/components/schemas/CollectionJobDefinition"
+          },
+          "desired_state": {
+            "type": "string"
+          },
+          "execution_active": {
+            "type": "boolean"
+          },
+          "execution_epoch": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "id": {
+            "type": "string"
+          },
+          "library_id": {
+            "type": "string"
+          },
+          "progress": {
+            "$ref": "#/components/schemas/CollectionProgress"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "state": {
+            "$ref": "#/components/schemas/CollectionJobState"
+          },
+          "updated_at": {
+            "type": "string"
+          },
+          "wait_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CollectionJobAction": {
+        "type": "object",
+        "required": [
+          "request_key",
+          "expected_revision",
+          "action"
+        ],
+        "properties": {
+          "action": {
+            "$ref": "#/components/schemas/CollectionAction"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "request_key": {
+            "type": "string"
+          },
+          "task_ids": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "CollectionJobDefinition": {
+        "type": "object",
+        "required": [
+          "version",
+          "collector",
+          "library_id",
+          "account_id",
+          "seeds",
+          "scope",
+          "discovery",
+          "media",
+          "run_budget"
+        ],
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "collector": {
+            "type": "string"
+          },
+          "discovery": {
+            "$ref": "#/components/schemas/CollectionDiscovery"
+          },
+          "library_id": {
+            "type": "string"
+          },
+          "media": {
+            "$ref": "#/components/schemas/CollectionMediaPlan"
+          },
+          "run_budget": {
+            "$ref": "#/components/schemas/CollectionRunBudget"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/CollectionScope"
+          },
+          "seeds": {
+            "$ref": "#/components/schemas/CollectionSeeds"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "CollectionJobResult": {
+        "type": "object",
+        "required": [
+          "job",
+          "replayed"
+        ],
+        "properties": {
+          "job": {
+            "$ref": "#/components/schemas/CollectionJob"
+          },
+          "replayed": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CollectionJobState": {
+        "type": "string",
+        "enum": [
+          "queued",
+          "running",
+          "pausing",
+          "paused",
+          "waiting_credentials",
+          "waiting_retry",
+          "waiting_resources",
+          "waiting_budget",
+          "publishing",
+          "needs_review",
+          "cancelling",
+          "cancelled",
+          "completed",
+          "completed_with_gaps"
+        ]
+      },
+      "CollectionJobs": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CollectionJob"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CollectionLake": {
+        "type": "object",
+        "required": [
+          "library_id",
+          "site",
+          "media_root",
+          "index_root",
+          "archive_format",
+          "online_format",
+          "collector",
+          "state"
+        ],
+        "properties": {
+          "archive_format": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "collector": {
+            "type": "string"
+          },
+          "index_root": {
+            "type": "string"
+          },
+          "library_id": {
+            "type": "string"
+          },
+          "media_root": {
+            "type": "string"
+          },
+          "online_format": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "site": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        }
+      },
+      "CollectionLakes": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CollectionLake"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CollectionMediaPlan": {
+        "type": "object",
+        "required": [
+          "image_policy",
+          "retain_original",
+          "ugoira",
+          "reuse"
+        ],
+        "properties": {
+          "image_policy": {
+            "$ref": "#/components/schemas/LakeImagePolicy"
+          },
+          "retain_original": {
+            "type": "boolean"
+          },
+          "reuse": {
+            "$ref": "#/components/schemas/CollectionReuse"
+          },
+          "ugoira": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CollectionMediaProgress": {
+        "type": "object",
+        "required": [
+          "downloaded",
+          "historical_reused",
+          "http_validated",
+          "archived",
+          "published",
+          "gaps"
+        ],
+        "properties": {
+          "archived": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "downloaded": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "gaps": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "historical_reused": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "http_validated": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "planned": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "published": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "CollectionObjectProgress": {
+        "type": "object",
+        "required": [
+          "stored",
+          "browsable_images"
+        ],
+        "properties": {
+          "browsable_images": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "stored": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "CollectionPipelineSettings": {
+        "type": "object",
+        "required": [
+          "revision",
+          "value",
+          "shared_limits"
+        ],
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "shared_limits": {
+            "$ref": "#/components/schemas/LakePipelineConfig"
+          },
+          "value": {
+            "$ref": "#/components/schemas/CollectionPipelineValue"
+          }
+        }
+      },
+      "CollectionPipelineValue": {
+        "type": "object",
+        "required": [
+          "pixiv",
+          "metadata_concurrency",
+          "pending_media_limit",
+          "publication_backlog_mib",
+          "time_slice_seconds"
+        ],
+        "properties": {
+          "metadata_concurrency": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "pending_media_limit": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "pixiv": {
+            "$ref": "#/components/schemas/LakeSitePipeline"
+          },
+          "publication_backlog_mib": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "time_slice_seconds": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "CollectionPreview": {
+        "type": "object",
+        "required": [
+          "definition",
+          "known_seed_count",
+          "issues"
+        ],
+        "properties": {
+          "definition": {
+            "$ref": "#/components/schemas/CollectionJobDefinition"
+          },
+          "issues": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CollectionIssue"
+            }
+          },
+          "known_media_count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "known_seed_count": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "known_work_count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "CollectionProgress": {
+        "type": "object",
+        "required": [
+          "authors",
+          "works",
+          "media",
+          "objects",
+          "download_bytes",
+          "publication",
+          "closure"
+        ],
+        "properties": {
+          "authors": {
+            "$ref": "#/components/schemas/CollectionAuthorProgress"
+          },
+          "closure": {
+            "$ref": "#/components/schemas/CollectionClosure"
+          },
+          "download_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "media": {
+            "$ref": "#/components/schemas/CollectionMediaProgress"
+          },
+          "objects": {
+            "$ref": "#/components/schemas/CollectionObjectProgress"
+          },
+          "publication": {
+            "$ref": "#/components/schemas/CollectionPublicationProgress"
+          },
+          "works": {
+            "$ref": "#/components/schemas/CollectionWorkProgress"
+          }
+        }
+      },
+      "CollectionPublicationProgress": {
+        "type": "object",
+        "required": [
+          "archive_seq",
+          "served_seq",
+          "pending_batches"
+        ],
+        "properties": {
+          "archive_seq": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "pending_batches": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "served_seq": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "CollectionReuse": {
+        "type": "object",
+        "required": [
+          "mode",
+          "max_age_hours"
+        ],
+        "properties": {
+          "max_age_hours": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "mode": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CollectionRevisionCommand": {
+        "type": "object",
+        "required": [
+          "request_key",
+          "expected_revision"
+        ],
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "request_key": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CollectionRunBudget": {
+        "type": "object",
+        "required": [
+          "api_requests",
+          "admitted_authors",
+          "download_bytes",
+          "wall_seconds"
+        ],
+        "properties": {
+          "admitted_authors": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "api_requests": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "download_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "wall_seconds": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "CollectionScope": {
+        "type": "object",
+        "required": [
+          "work_types",
+          "ratings",
+          "include_ai",
+          "include_unknown_markers"
+        ],
+        "properties": {
+          "include_ai": {
+            "type": "boolean"
+          },
+          "include_unknown_markers": {
+            "type": "boolean"
+          },
+          "ratings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "work_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "CollectionSeedKind": {
+        "type": "string",
+        "enum": [
+          "authors",
+          "works"
+        ]
+      },
+      "CollectionSeeds": {
+        "type": "object",
+        "required": [
+          "kind",
+          "ids"
+        ],
+        "properties": {
+          "ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "kind": {
+            "$ref": "#/components/schemas/CollectionSeedKind"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CollectionServiceStatus": {
+        "type": "object",
+        "required": [
+          "configured",
+          "protocol_version",
+          "collection_contract_version",
+          "runtime",
+          "counts",
+          "active"
+        ],
+        "properties": {
+          "active": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CollectionJob"
+            }
+          },
+          "collection_contract_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "configured": {
+            "type": "boolean"
+          },
+          "counts": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "protocol_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "runtime": {
+            "$ref": "#/components/schemas/LakeUpdateRuntimeHealth"
+          }
+        }
+      },
+      "CollectionTask": {
+        "type": "object",
+        "required": [
+          "id",
+          "job_id",
+          "kind",
+          "subject_key",
+          "state",
+          "attempts",
+          "retry_at_ms"
+        ],
+        "properties": {
+          "attempts": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "id": {
+            "type": "string"
+          },
+          "job_id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "retry_at_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "state": {
+            "type": "string"
+          },
+          "subject_key": {
+            "type": "string"
+          }
+        }
+      },
+      "CollectionTasks": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CollectionTask"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "CollectionVisibility": {
+        "type": "object",
+        "required": [
+          "context_id",
+          "observed_at",
+          "login",
+          "r18",
+          "r18g",
+          "ai_display",
+          "coverage_verified"
+        ],
+        "properties": {
+          "ai_display": {
+            "type": "string"
+          },
+          "context_id": {
+            "type": "string"
+          },
+          "coverage_verified": {
+            "type": "boolean"
+          },
+          "login": {
+            "type": "string"
+          },
+          "observed_at": {
+            "type": "string"
+          },
+          "r18": {
+            "type": "string"
+          },
+          "r18g": {
+            "type": "string"
+          }
+        }
+      },
+      "CollectionWorkProgress": {
+        "type": "object",
+        "required": [
+          "details",
+          "gaps"
+        ],
+        "properties": {
+          "details": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "gaps": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "planned": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "Collections": {
         "type": "object",
         "required": [
@@ -11554,6 +13685,46 @@
                 "$ref": "#/components/schemas/ScopeRef"
               }
             ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "CreateCollectionJob": {
+        "type": "object",
+        "required": [
+          "request_key",
+          "definition"
+        ],
+        "properties": {
+          "definition": {
+            "$ref": "#/components/schemas/CollectionJobDefinition"
+          },
+          "request_key": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CreateCollectionLake": {
+        "type": "object",
+        "required": [
+          "request_key",
+          "site",
+          "media_root",
+          "index_root"
+        ],
+        "properties": {
+          "index_root": {
+            "type": "string"
+          },
+          "media_root": {
+            "type": "string"
+          },
+          "request_key": {
+            "type": "string"
+          },
+          "site": {
+            "type": "string"
           }
         },
         "additionalProperties": false
@@ -15452,6 +17623,43 @@
                 "$ref": "#/components/schemas/Preference"
               }
             ]
+          }
+        }
+      },
+      "MediaBinding": {
+        "type": "object",
+        "required": [
+          "record_id",
+          "object_sha256",
+          "representation",
+          "recipe_id",
+          "evidence",
+          "browsable_image"
+        ],
+        "properties": {
+          "browsable_image": {
+            "type": "boolean"
+          },
+          "evidence": {
+            "type": "string"
+          },
+          "last_verified_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "object_sha256": {
+            "type": "string"
+          },
+          "recipe_id": {
+            "type": "string"
+          },
+          "record_id": {
+            "type": "string"
+          },
+          "representation": {
+            "type": "string"
           }
         }
       },
@@ -19354,6 +21562,65 @@
         },
         "additionalProperties": false
       },
+      "SaveCollectionAccount": {
+        "type": "object",
+        "required": [
+          "request_key",
+          "account_id",
+          "label",
+          "mode"
+        ],
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "cookies": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/CollectionCookie"
+            }
+          },
+          "expected_revision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "label": {
+            "type": "string"
+          },
+          "mode": {
+            "$ref": "#/components/schemas/CollectionAccountMode"
+          },
+          "request_key": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "SaveCollectionPipeline": {
+        "type": "object",
+        "required": [
+          "expected_revision",
+          "value"
+        ],
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "value": {
+            "$ref": "#/components/schemas/CollectionPipelineValue"
+          }
+        },
+        "additionalProperties": false
+      },
       "SaveDraft": {
         "type": "object",
         "required": [
@@ -20088,6 +22355,79 @@
           }
         }
       },
+      "SourceAuthorDetail": {
+        "type": "object",
+        "required": [
+          "author_id",
+          "observation",
+          "version"
+        ],
+        "properties": {
+          "author_id": {
+            "type": "string"
+          },
+          "observation": {},
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "SourceAuthorWork": {
+        "type": "object",
+        "required": [
+          "work_id"
+        ],
+        "properties": {
+          "current": {},
+          "work_id": {
+            "type": "string"
+          }
+        }
+      },
+      "SourceAuthorWorks": {
+        "type": "object",
+        "required": [
+          "author_id",
+          "snapshot_id",
+          "observed_at",
+          "context_id",
+          "traversal_exhausted",
+          "items",
+          "version"
+        ],
+        "properties": {
+          "author_id": {
+            "type": "string"
+          },
+          "context_id": {
+            "type": "string"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SourceAuthorWork"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "observed_at": {
+            "type": "string"
+          },
+          "snapshot_id": {
+            "type": "string"
+          },
+          "traversal_exhausted": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
       "SourceCapabilities": {
         "type": "object",
         "required": [
@@ -20099,13 +22439,22 @@
           "relink",
           "raw_metadata",
           "incremental",
-          "stored_dimensions"
+          "stored_dimensions",
+          "work_members",
+          "author_metadata",
+          "literal_tags"
         ],
         "properties": {
+          "author_metadata": {
+            "type": "boolean"
+          },
           "browse": {
             "type": "boolean"
           },
           "incremental": {
+            "type": "boolean"
+          },
+          "literal_tags": {
             "type": "boolean"
           },
           "media": {
@@ -20127,6 +22476,9 @@
             "type": "boolean"
           },
           "stored_dimensions": {
+            "type": "boolean"
+          },
+          "work_members": {
             "type": "boolean"
           }
         }
@@ -20326,6 +22678,27 @@
           }
         }
       },
+      "SourceWorkDetail": {
+        "type": "object",
+        "required": [
+          "work_id",
+          "manifest_state",
+          "version"
+        ],
+        "properties": {
+          "manifest": {},
+          "manifest_state": {
+            "type": "string"
+          },
+          "observation": {},
+          "version": {
+            "type": "string"
+          },
+          "work_id": {
+            "type": "string"
+          }
+        }
+      },
       "Sources": {
         "type": "object",
         "required": [
@@ -20475,6 +22848,116 @@
             "items": {
               "$ref": "#/components/schemas/UpdateLake"
             }
+          }
+        }
+      },
+      "WorkMediaItem": {
+        "type": "object",
+        "required": [
+          "media_id",
+          "work_id",
+          "slot_key",
+          "ordinal",
+          "kind",
+          "source_variant",
+          "availability",
+          "bindings"
+        ],
+        "properties": {
+          "availability": {
+            "type": "string"
+          },
+          "bindings": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MediaBinding"
+            }
+          },
+          "height": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "kind": {
+            "type": "string"
+          },
+          "media_id": {
+            "type": "string"
+          },
+          "ordinal": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "slot_key": {
+            "type": "string"
+          },
+          "source_variant": {
+            "type": "string"
+          },
+          "width": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "work_id": {
+            "type": "string"
+          }
+        }
+      },
+      "WorkMediaPage": {
+        "type": "object",
+        "required": [
+          "work_id",
+          "manifest_state",
+          "items",
+          "version"
+        ],
+        "properties": {
+          "context_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WorkMediaItem"
+            }
+          },
+          "manifest_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "manifest_state": {
+            "type": "string"
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "observed_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "version": {
+            "type": "string"
+          },
+          "work_id": {
+            "type": "string"
           }
         }
       }

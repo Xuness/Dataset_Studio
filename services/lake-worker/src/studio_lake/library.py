@@ -48,6 +48,16 @@ CREATE TABLE IF NOT EXISTS releases (
 
 
 class Library:
+    def __new__(cls, config):
+        # The old implementation remains the owner of format 1. Construct the
+        # format-specific subtype before __init__, including maintenance callers.
+        if cls is Library and (config.root / "library.json").exists():
+            if read_json(config.root / "library.json").get("format_version") == 2:
+                from .media_lake.library import MediaLibrary
+
+                return object.__new__(MediaLibrary)
+        return object.__new__(cls)
+
     def __init__(self, config):
         self.config, self.root, self.cache = config, config.root, config.cache
         marker = self.root / "library.json"

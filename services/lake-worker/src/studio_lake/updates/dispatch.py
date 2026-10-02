@@ -13,13 +13,19 @@ def candidates(state, active, limit, at=None):
     excluded = " AND l.id NOT IN (" + ",".join("?" for _ in active) + ")" if active else ""
     with state.db() as db:
         return db.execute(
-            "SELECT j.id,j.lake_id,j.execution FROM lakes l JOIN jobs j ON j.id=("
+            "SELECT * FROM (SELECT j.id,j.lake_id,j.execution,'update' AS family,j.created_at,coalesce(d.sequence,0) AS service_order FROM lakes l JOIN jobs j ON j.id=("
             "SELECT id FROM jobs WHERE lake_id=l.id "
             "AND state IN ('queued','running','waiting_retry','waiting_space') "
             "AND retry_at<=? ORDER BY created_at,id LIMIT 1) "
             "LEFT JOIN lake_dispatch d ON d.lake_id=l.id WHERE NOT EXISTS "
             "(SELECT 1 FROM lake_relocations r WHERE r.lake_id=l.id AND r.phase NOT IN ('complete','cancelled'))" + excluded +
-            " ORDER BY coalesce(d.sequence,0),j.created_at,j.id LIMIT ?", (at, *active, limit),
+            " UNION ALL SELECT j.id,j.lake_id,j.execution_epoch,'collection',j.created_at,coalesce(d.sequence,0) "
+            "FROM lakes l JOIN collection_jobs j ON j.id=(SELECT id FROM collection_jobs WHERE lake_id=l.id "
+            "AND (state IN ('queued','running','waiting_retry','waiting_resources','publishing','pausing','cancelling') "
+            "OR (state='cancelled' AND json_extract(counters_json,'$.cleanup')='pending')) "
+            "AND retry_at_ms<=? ORDER BY updated_at,job_row LIMIT 1) LEFT JOIN lake_dispatch d ON d.lake_id=l.id "
+            "WHERE NOT EXISTS (SELECT 1 FROM lake_relocations r WHERE r.lake_id=l.id AND r.phase NOT IN ('complete','cancelled'))" + excluded +
+            ") ORDER BY service_order,created_at,id LIMIT ?", (at, *active, int(at * 1000), *active, limit),
         ).fetchall()
 
 

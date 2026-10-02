@@ -56,7 +56,7 @@ CREATE TRIGGER IF NOT EXISTS input_count AFTER INSERT ON input_ids BEGIN
  UPDATE inputs SET count=count+1 WHERE id=new.input_id; END;
 """
 TERMINAL = {"completed", "completed_with_exclusions", "cancelled"}
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
 
 
 class State:
@@ -126,6 +126,9 @@ class State:
                 db.execute("CREATE TABLE IF NOT EXISTS lake_dispatch("
                            "lake_id TEXT PRIMARY KEY REFERENCES lakes(id),sequence INTEGER NOT NULL)")
                 db.execute("PRAGMA user_version=7")
+            if version < 8:
+                db.executescript((Path(__file__).parents[1] / "collections" / "schema.sql").read_text(encoding="utf-8"))
+                db.execute("PRAGMA user_version=8")
 
     @contextmanager
     def db(self):

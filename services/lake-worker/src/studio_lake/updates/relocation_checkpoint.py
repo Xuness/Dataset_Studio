@@ -30,7 +30,7 @@ def checkpoint(media, index, identity, site, *, allow_missing=False):
                 raise UpdateError("SOURCE_CHANGED", "Relocation index directory is unavailable")
             return result
         pointer = read_json(index / "ONLINE.json")
-        if (pointer.get("schema_version") != 2 or pointer.get("library_id") != identity
+        if (pointer.get("schema_version") != (3 if site == "pixiv" else 2) or pointer.get("library_id") != identity
                 or pointer.get("site") != site):
             raise UpdateError("SOURCE_ID_MISMATCH", "Relocation lake identity or site differs")
         source = stack.enter_context(closing(apsw.Connection(
@@ -42,7 +42,7 @@ def checkpoint(media, index, identity, site, *, allow_missing=False):
         served, minimum = int(state["served_seq"]), int(state["min_seq"])
         if state["generation"] != pointer["generation"] or not 0 <= minimum <= served:
             raise UpdateError("SOURCE_CHANGED", "Online projection version or retention range is invalid")
-        publication = source.execute("SELECT seq,batch_id FROM publications ORDER BY seq DESC LIMIT 1").fetchone()
+        publication = source.execute("SELECT seq,batch_id FROM publications WHERE seq<=? ORDER BY seq DESC LIMIT 1", (served,)).fetchone()
         if (publication[0] if publication else 0) != served:
             raise UpdateError("SOURCE_CHANGED", "Online publication does not match its serving version")
         if journal is not None:
@@ -50,7 +50,7 @@ def checkpoint(media, index, identity, site, *, allow_missing=False):
             if served > result["archive_seq"] or (served and (batch is None or batch[0] != publication[1])):
                 raise UpdateError("SOURCE_CHANGED", "Online projection does not match its archive")
         result.update(generation=state["generation"], served_seq=served, min_seq=minimum,
-                      producer_retired=False, producer_marker_digest=None)
+                      producer_retired=False, producer_marker_digest=None, schema_version=pointer["schema_version"])
         retired = index / "PRODUCER-RETIRED.json"
         if retired.exists() or state.get("producer_index_retired") == "1":
             if not retired.is_file():
@@ -69,7 +69,7 @@ def checkpoint(media, index, identity, site, *, allow_missing=False):
 def verify_checkpoint(expected, actual):
     # Old prepared/verified records have archive_digest and an inventory database.
     # Keep their saved version floors, but do not restart their unbounded scans.
-    for key in ("library_id", "site", "generation", "archive_seq", "archive_batch",
+    for key in ("library_id", "site", "generation", "archive_seq", "archive_batch", "schema_version",
                 "producer_retired", "producer_marker_digest"):
         if key in expected and actual.get(key) != expected[key]:
             raise UpdateError("SOURCE_CHANGED", "Relocation target differs from the saved lake version")

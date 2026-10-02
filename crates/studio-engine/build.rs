@@ -10,7 +10,7 @@ fn collect(root: &Path, path: &Path, files: &mut Vec<String>) {
     for entry in entries {
         if entry.is_dir() && entry.file_name().unwrap() != "__pycache__" {
             collect(root, &entry, files);
-        } else if entry.extension().is_some_and(|e| e == "py") {
+        } else if entry.extension().is_some_and(|e| e == "py" || e == "sql") {
             files.push(
                 entry
                     .strip_prefix(root)

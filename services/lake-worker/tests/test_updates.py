@@ -1,3 +1,4 @@
+from update_fixtures import remove_collection_schema
 import hashlib
 import json
 import re
@@ -505,13 +506,14 @@ def test_control_v1_migrates_without_changing_jobs_or_credentials(tmp_path):
     state.set_credentials("danbooru", {"login": "fixture", "api_key": "not-a-real-key"})
     with state.db() as db:
         db.execute("DROP TABLE telemetry")
+        remove_collection_schema(db)
         db.execute("PRAGMA user_version=1")
     reopened = State(state.root)
     assert reopened.job(task["id"])["definition"] == task["definition"]
     assert reopened.job(task["id"])["telemetry"] == {}
     assert reopened.credentials("danbooru")["api_key"] == "not-a-real-key"
     with reopened.db() as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 7
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 8
 
 
 def test_ui_recent_filters_counts_and_sparse_problems(tmp_path):

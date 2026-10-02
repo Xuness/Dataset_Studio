@@ -1,3 +1,4 @@
+from update_fixtures import remove_collection_schema
 import copy
 import io
 import json
@@ -159,6 +160,7 @@ def test_schema3_handoff_requires_old_worker_to_stop_and_retains_jobs(tmp_path):
     spec = {"library_id": lib.info["library_id"], "range": {"kind": "ids", "ids": [11]}, "media": {"profile": "original"}}
     task = state.create(spec, "legacy")
     with state.db() as db:
+        remove_collection_schema(db)
         db.execute("PRAGMA user_version=3")
     with FileLock(state.root / "runner.lock"):
         with pytest.raises(UpdateError, match="旧版"):
@@ -167,7 +169,7 @@ def test_schema3_handoff_requires_old_worker_to_stop_and_retains_jobs(tmp_path):
     assert upgraded.job(task["id"])["definition"] == task["definition"]
     assert upgraded.create(spec, "legacy")["id"] == task["id"]
     with upgraded.db() as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 7
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 8
 
 
 def test_worker_entrypoint_isolated_from_other_repository(tmp_path):

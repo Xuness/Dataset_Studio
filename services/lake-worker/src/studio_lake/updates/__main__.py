@@ -19,6 +19,10 @@ from .read_model import activity
 def dispatch(state, command, args):
     if not isinstance(args, dict):
         raise UpdateError("INVALID_INPUT", "Command arguments must be an object")
+    if command.startswith("collection_"):
+        from ..collections.service import Service
+
+        return Service(state).dispatch(command.removeprefix("collection_"), args)
     if command.startswith("relocation_"):
         from . import relocation
 
@@ -68,7 +72,7 @@ def dispatch(state, command, args):
         return state.seal_input(args["id"])
     if command == "lakes":
         with state.db() as db:
-            return {"items": [dict(r) for r in db.execute("SELECT * FROM lakes ORDER BY id LIMIT 1000")]}
+            return {"items": [dict(r) for r in db.execute("SELECT * FROM lakes WHERE site IN ('danbooru','yandere','gelbooru') ORDER BY id LIMIT 1000")]}
     if command == "credential_set":
         return state.set_credentials(args["site"], args["value"])
     if command == "credential_delete":
@@ -175,7 +179,7 @@ def dispatch(state, command, args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", required=True, type=Path)
-    parser.add_argument("--mode", choices=["check", "rpc", "serve", "run", "import-credentials"], default="rpc")
+    parser.add_argument("--mode", choices=["check", "rpc", "serve", "run", "collection-run", "import-credentials"], default="rpc")
     parser.add_argument("--job")
     parser.add_argument("--file", type=Path)
     parser.add_argument("--watch-stdin", action="store_true")
@@ -215,6 +219,12 @@ def main():
                     if value.get("api_key")
                 ]
             }
+        elif args.mode == "collection-run":
+            from ..collections.runner import Runner as CollectionRunner
+            from ..util import FileLock
+
+            with FileLock(state.root / "runner.lock", timeout=0):
+                result = CollectionRunner(state).run(args.job, time_slice=30)
         elif args.mode == "run":
             result = Runner(state).run(args.job)
         else:
@@ -256,7 +266,8 @@ def handshake():
         raise UpdateError("UPDATE_UNAVAILABLE", "Python 3.11–3.13 and WebP support are required")
     return {"worker_version": __version__, "runtime_check": 1, "sqlite": apsw.sqlitelibversion(),
             "duckdb": duckdb.__version__, "pyarrow": pyarrow.__version__,
-            "requests": requests.__version__, "pillow": Image.__version__}
+            "requests": requests.__version__, "pillow": Image.__version__,
+            "features": {"collections": 1}, "archive_versions": [1, 2], "online_versions": [2, 3]}
 
 
 if __name__ == "__main__":

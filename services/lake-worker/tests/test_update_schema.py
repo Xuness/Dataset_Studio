@@ -10,11 +10,13 @@ from studio_lake.updates import dispatch
 from studio_lake.updates.sites import UpdateError
 from studio_lake.updates.state import State
 from studio_lake.util import FileLock
+from update_fixtures import remove_collection_schema
 
 
 def legacy_control(tmp_path, version, missing=True):
     state = State(tmp_path / "control")
     with state.db() as db:
+        remove_collection_schema(db)
         for lake in ("A", "B"):
             db.execute("INSERT INTO lakes VALUES(?,'yandere',?,?,'fixture')",
                        (lake, str(tmp_path / lake), str(tmp_path / (lake + "-index"))))
@@ -40,12 +42,11 @@ def legacy_control(tmp_path, version, missing=True):
 def rows(state):
     with state.db() as db:
         tables = db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").fetchall()
-        return {name: [tuple(r) for r in db.execute(f'SELECT * FROM "{name}" ORDER BY rowid')]
+        return {name: sorted([tuple(r) for r in db.execute(f'SELECT * FROM "{name}"')], key=repr)
                 for (name,) in tables}
 
 
-@pytest.mark.parametrize("version", [5, 6])
-@pytest.mark.parametrize("missing", [True, False])
+@pytest.mark.parametrize("version,missing", [(5, True), (5, False), (6, True), (6, False), (7, False)])
 def test_dispatch_upgrade_retains_control_data_and_existing_service_order(tmp_path, version, missing):
     state = legacy_control(tmp_path, version, missing)
     before = rows(state)
@@ -57,31 +58,34 @@ def test_dispatch_upgrade_retains_control_data_and_existing_service_order(tmp_pa
     dispatch.submitted(reopened, "A")
     assert [r["lake_id"] for r in dispatch.candidates(reopened, (), 3)] == ["B", "A"]
     with reopened.db() as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 7
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 8
     durable = rows(reopened)
     assert rows(State(state.root)) == durable
 
 
 @pytest.mark.parametrize("owner", ["runner", "execution"])
-def test_dispatch_upgrade_waits_for_actual_old_owners(tmp_path, owner):
-    state = legacy_control(tmp_path, 6)
+@pytest.mark.parametrize("version", [6, 7])
+def test_dispatch_upgrade_waits_for_actual_old_owners(tmp_path, owner, version):
+    state = legacy_control(tmp_path, version, missing=version == 6)
     lock = FileLock(state.root / "runner.lock", timeout=0) if owner == "runner" else state.execution_lock("a" * 32)
     with lock:
         with pytest.raises(UpdateError, match="旧版"):
             State(state.root)
         with state.db() as db:
-            assert db.execute("PRAGMA user_version").fetchone()[0] == 6
-            assert not db.execute("PRAGMA table_info(lake_dispatch)").fetchall()
+            assert db.execute("PRAGMA user_version").fetchone()[0] == version
+            assert bool(db.execute("PRAGMA table_info(lake_dispatch)").fetchall()) == (version == 7)
+            assert not db.execute("PRAGMA table_info(collection_jobs)").fetchall()
     assert len(dispatch.candidates(State(state.root), (), 3)) == 2
 
 
-def test_dispatch_upgrade_rolls_back_schema_and_version_together(tmp_path, monkeypatch):
-    state = legacy_control(tmp_path, 6)
+@pytest.mark.parametrize("version", [6, 7])
+def test_dispatch_upgrade_rolls_back_schema_and_version_together(tmp_path, monkeypatch, version):
+    state = legacy_control(tmp_path, version, missing=version == 6)
     before = rows(state)
     execute = Connection.execute
 
     def interrupted(self, sql, args=()):
-        if sql == "PRAGMA user_version=7":
+        if sql == f"PRAGMA user_version={version + 1}":
             raise OSError("fixture stopped before migration commit")
         return execute(self, sql, args)
 
@@ -91,7 +95,7 @@ def test_dispatch_upgrade_rolls_back_schema_and_version_together(tmp_path, monke
             State(state.root)
     assert rows(state) == before
     with state.db() as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 6
+        assert db.execute("PRAGMA user_version").fetchone()[0] == version
     assert len(dispatch.candidates(State(state.root), (), 3)) == 2
 
 

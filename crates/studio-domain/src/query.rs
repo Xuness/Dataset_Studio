@@ -258,7 +258,7 @@ impl FieldDirectory {
                             | QueryOperator::HasNoTags
                     ) && !values.is_empty()
                         && values.len() <= 64
-                        && values.iter().all(|value| crate::valid_source_tag(value))
+                        && values.iter().all(|value| valid_field_tag(field, value))
                 }
                 (FieldType::Text | FieldType::Tags, Some(QueryValue::Text(value))) => {
                     !matches!(
@@ -269,7 +269,7 @@ impl FieldDirectory {
                             | QueryOperator::HasNoTags
                     ) && value.len() <= 256
                         && (if field.field_type == FieldType::Tags {
-                            crate::valid_source_tag(value)
+                            valid_field_tag(field, value)
                         } else {
                             !value.chars().any(char::is_control)
                         })
@@ -288,6 +288,14 @@ impl FieldDirectory {
             }
         }
         Ok(())
+    }
+}
+
+fn valid_field_tag(field: &FieldDefinition, value: &str) -> bool {
+    if field.basis == "work_tags.literal_tag" {
+        !value.is_empty() && value.len() <= 256 && !value.chars().any(char::is_control)
+    } else {
+        crate::valid_source_tag(value)
     }
 }
 

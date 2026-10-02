@@ -113,8 +113,10 @@ pub fn pointer(source: &Source) -> Result<(Pointer, PathBuf)> {
     }
     let pointer: Pointer =
         serde_json::from_slice(&fs::read(path).map_err(Error::io)?).map_err(error)?;
-    if pointer.schema_version != SCHEMA_VERSION
-        || (!source.id.is_empty() && source.id != pointer.library_id)
+    if !matches!(
+        (pointer.schema_version, pointer.site.as_str()),
+        (2, "danbooru" | "yandere" | "gelbooru") | (3, "pixiv")
+    ) || (!source.id.is_empty() && source.id != pointer.library_id)
         || source.kind != pointer.site
     {
         return Err(Error::new(
@@ -139,8 +141,11 @@ pub fn pointer(source: &Source) -> Result<(Pointer, PathBuf)> {
     Ok((pointer, dunce::simplified(&file).to_path_buf()))
 }
 pub(crate) fn parse_revision(pointer: &Pointer, value: &str) -> Result<u64> {
-    let prefix = format!("online-v2:{}:", pointer.generation);
-    let metadata_prefix = format!("metadata-v2:{}:{}:", pointer.library_id, pointer.generation);
+    let prefix = format!("online-v{}:{}:", pointer.schema_version, pointer.generation);
+    let metadata_prefix = format!(
+        "metadata-v{}:{}:{}:",
+        pointer.schema_version, pointer.library_id, pointer.generation
+    );
     let sequence = value
         .strip_prefix(&prefix)
         .or_else(|| value.strip_prefix(&metadata_prefix))
@@ -237,7 +242,7 @@ impl Snapshot {
         let version: u32 = db
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .map_err(sql_error)?;
-        if version != SCHEMA_VERSION
+        if version != pointer.schema_version
             || state(&db, "library_id")? != pointer.library_id
             || state(&db, "generation")? != pointer.generation
         {
@@ -267,22 +272,37 @@ impl Snapshot {
         )
         .map_err(sql_error)?;
         db.execute_batch("BEGIN").map_err(sql_error)?;
-        let count: i64 = db
-            .query_row(
-                "SELECT objects_count FROM publications WHERE seq=?1",
-                [sequence as i64],
-                |r| r.get(0),
-            )
-            .optional()
-            .map_err(sql_error)?
-            .ok_or_else(|| Error::new("VIEW_EXPIRED", "该版本未完整发布或已回收"))?;
+        let count_sql = if version == 3 {
+            "SELECT CAST(json_extract(counts_json,'$.objects') AS INTEGER) FROM publications WHERE seq=?1 AND state='published'"
+        } else {
+            "SELECT objects_count FROM publications WHERE seq=?1"
+        };
+        let count: i64 = if sequence == 0 && version == 3 {
+            0
+        } else {
+            db.query_row(count_sql, [sequence as i64], |r| r.get(0))
+                .optional()
+                .map_err(sql_error)?
+                .ok_or_else(|| Error::new("VIEW_EXPIRED", "该版本未完整发布或已回收"))?
+        };
         // Read-only main plus request-local views: all metadata relations resolve
         // at one retained version, while each request holds only a short WAL read.
-        db.execute_batch(&format!("CREATE TEMP VIEW visible_objects AS SELECT * FROM main.objects WHERE first_seq<={sequence};
+        if version == 3 {
+            db.execute_batch(&format!("CREATE TEMP VIEW visible_objects AS SELECT * FROM main.objects WHERE first_seq<={sequence} AND media_category='image';
+                CREATE TEMP VIEW visible_assets AS SELECT * FROM main.assets WHERE commit_seq<={sequence};
+                CREATE TEMP VIEW visible_works AS SELECT * FROM main.work_observations WHERE commit_seq<={sequence};
+                CREATE TEMP VIEW visible_manifests AS SELECT * FROM main.media_manifests WHERE commit_seq<={sequence};
+                CREATE TEMP VIEW visible_media AS SELECT * FROM main.media_entries WHERE commit_seq<={sequence};
+                CREATE TEMP VIEW current_works AS SELECT * FROM main.work_versions WHERE valid_from<={sequence} AND (valid_until IS NULL OR valid_until>{sequence});
+                CREATE TEMP VIEW current_media_assets AS SELECT * FROM main.media_asset_versions WHERE valid_from<={sequence} AND (valid_until IS NULL OR valid_until>{sequence});
+                CREATE TEMP VIEW object_order AS SELECT sha256,NULL AS post_id FROM visible_objects;")).map_err(sql_error)?;
+        } else {
+            db.execute_batch(&format!("CREATE TEMP VIEW visible_objects AS SELECT * FROM main.objects WHERE first_seq<={sequence};
             CREATE TEMP VIEW visible_assets AS SELECT * FROM main.assets WHERE commit_seq<={sequence};
             CREATE TEMP VIEW visible_observations AS SELECT * FROM main.observations WHERE commit_seq<={sequence};
             CREATE TEMP VIEW current_posts AS SELECT post_id,row_id,asset_id FROM main.post_versions WHERE valid_from<={sequence} AND (valid_until IS NULL OR valid_until>{sequence});
             CREATE TEMP VIEW object_order AS SELECT sha256,post_id FROM main.object_versions WHERE valid_from<={sequence} AND (valid_until IS NULL OR valid_until>{sequence});")).map_err(sql_error)?;
+        }
         Ok(Self {
             db,
             pointer: pointer.clone(),
@@ -290,7 +310,7 @@ impl Snapshot {
             sequence,
             latest_sequence,
             count: count as u64,
-            revision: format!("online-v2:{}:{sequence}", pointer.generation),
+            revision: format!("online-v{version}:{}:{sequence}", pointer.generation),
             cancelled,
             deadline: until,
         })
@@ -391,10 +411,11 @@ impl Snapshot {
             analysis_sequence: Some(self.sequence.to_string()),
             consistency: "retained_online_snapshot".into(),
             semantics_version: Some(format!(
-                "{}:online-v2",
+                "{}:online-v{}",
                 crate::profiles::descriptor(&source.kind)
                     .map(|s| s.semantics_version)
-                    .unwrap_or_default()
+                    .unwrap_or_default(),
+                self.pointer.schema_version
             )),
         }
     }

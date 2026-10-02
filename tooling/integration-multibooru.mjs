@@ -84,6 +84,7 @@ try {
     "danbooru",
     "demo",
     "gelbooru",
+    "pixiv",
     "yandere",
   ]);
   project = await engine.api("/v1/projects", "POST", {

@@ -1,0 +1,672 @@
+{
+  "notice": "Fictional design fixtures. Hashes, counts and IDs are placeholders; these are not real captures or an ingestible archive.",
+  "cases": [
+    {
+      "name": "create-lake",
+      "definition": "CreateLake",
+      "valid": true,
+      "value": {
+        "request_key": "44444444-4444-4444-8444-444444444444",
+        "site": "pixiv",
+        "media_root": "F:\\Dataset\\Tools\\Dataset_Studio\\.local\\test-runs\\pixiv-contract-v1\\archive",
+        "index_root": "F:\\Dataset\\Tools\\Dataset_Studio\\.local\\test-runs\\pixiv-contract-v1\\online"
+      }
+    },
+    {
+      "name": "create-author-job",
+      "definition": "CreateJob",
+      "valid": true,
+      "value": {
+        "request_key": "44444444-4444-4444-8444-444444444444",
+        "definition": {
+          "version": 1,
+          "collector": "pixiv_web_v1",
+          "library_id": "11111111-1111-4111-8111-111111111111",
+          "account_id": "22222222-2222-4222-8222-222222222222",
+          "seeds": {
+            "kind": "authors",
+            "ids": ["12345"]
+          },
+          "scope": {
+            "work_types": ["illustration", "manga", "ugoira"],
+            "ratings": ["all_ages", "r18", "r18g"],
+            "include_ai": true,
+            "include_unknown_markers": true
+          },
+          "discovery": {
+            "entrypoints": [],
+            "max_depth": 0,
+            "recommendation_seeds_per_author": 0
+          },
+          "media": {
+            "image_policy": {
+              "profile": "original",
+              "allow_sample": false,
+              "existing": "match_profile"
+            },
+            "retain_original": true,
+            "ugoira": "archive_with_poster",
+            "reuse": {
+              "mode": "revalidate",
+              "max_age_hours": 0
+            }
+          },
+          "run_budget": {
+            "api_requests": 500,
+            "admitted_authors": 10,
+            "download_bytes": 1073741824,
+            "wall_seconds": 3600
+          }
+        }
+      }
+    },
+    {
+      "name": "account-status",
+      "definition": "Account",
+      "valid": true,
+      "value": {
+        "id": "22222222-2222-4222-8222-222222222222",
+        "site": "pixiv",
+        "label": "示例账号",
+        "revision": 1,
+        "state": "unverified",
+        "credential_set": true,
+        "bound_user_id": null,
+        "last_probe_at": null
+      }
+    },
+    {
+      "name": "running-job",
+      "definition": "JobResult",
+      "valid": true,
+      "value": {
+        "job": {
+          "id": "33333333-3333-4333-8333-333333333333",
+          "library_id": "11111111-1111-4111-8111-111111111111",
+          "account_id": "22222222-2222-4222-8222-222222222222",
+          "definition": {
+            "version": 1,
+            "collector": "pixiv_web_v1",
+            "library_id": "11111111-1111-4111-8111-111111111111",
+            "account_id": "22222222-2222-4222-8222-222222222222",
+            "seeds": {
+              "kind": "authors",
+              "ids": ["12345"]
+            },
+            "scope": {
+              "work_types": ["illustration", "manga", "ugoira"],
+              "ratings": ["all_ages", "r18", "r18g"],
+              "include_ai": true,
+              "include_unknown_markers": true
+            },
+            "discovery": {
+              "entrypoints": [],
+              "max_depth": 0,
+              "recommendation_seeds_per_author": 0
+            },
+            "media": {
+              "image_policy": {
+                "profile": "original",
+                "allow_sample": false,
+                "existing": "match_profile"
+              },
+              "retain_original": true,
+              "ugoira": "archive_with_poster",
+              "reuse": {
+                "mode": "revalidate",
+                "max_age_hours": 0
+              }
+            },
+            "run_budget": {
+              "api_requests": 500,
+              "admitted_authors": 10,
+              "download_bytes": 1073741824,
+              "wall_seconds": 3600
+            }
+          },
+          "state": "running",
+          "desired_state": "run",
+          "revision": 2,
+          "execution_epoch": 1,
+          "execution_active": true,
+          "wait_reason": null,
+          "progress": {
+            "authors": {
+              "discovered": 1,
+              "admitted": 1,
+              "scanned": 1
+            },
+            "works": {
+              "planned": 1,
+              "details": 1,
+              "gaps": 0
+            },
+            "media": {
+              "planned": 3,
+              "downloaded": 2,
+              "historical_reused": 0,
+              "http_validated": 0,
+              "archived": 2,
+              "published": 0,
+              "gaps": 0
+            },
+            "objects": {
+              "stored": 1,
+              "browsable_images": 1
+            },
+            "download_bytes": 2048,
+            "publication": {
+              "archive_seq": 2,
+              "served_seq": 1,
+              "pending_batches": 1
+            },
+            "closure": {
+              "discovery_exhausted": true,
+              "directories_complete": true,
+              "manifests_complete": true,
+              "visibility_verified": true
+            }
+          },
+          "created_at": "2026-10-02T00:00:00.000000Z",
+          "updated_at": "2026-10-02T00:01:00.000000Z"
+        },
+        "request_key": "44444444-4444-4444-8444-444444444444",
+        "replayed": false
+      }
+    },
+    {
+      "name": "pause-request",
+      "definition": "JobAction",
+      "valid": true,
+      "value": {
+        "request_key": "55555555-5555-4555-8555-555555555555",
+        "expected_revision": 2,
+        "action": "pause"
+      }
+    },
+    {
+      "name": "work-media",
+      "definition": "WorkMediaPage",
+      "valid": true,
+      "value": {
+        "work_id": "123456",
+        "manifest_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "manifest_state": "ready",
+        "context_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "observed_at": "2026-10-02T00:00:00.000000Z",
+        "items": [
+          {
+            "media_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+            "work_id": "123456",
+            "slot_key": "page:0",
+            "ordinal": 0,
+            "kind": "image",
+            "width": 800,
+            "height": 1200,
+            "source_variant": "web_original",
+            "availability": "available",
+            "bindings": [
+              {
+                "record_id": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+                "object_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+                "representation": "original",
+                "recipe_id": "original",
+                "evidence": "downloaded",
+                "last_verified_at": "2026-10-02T00:00:00.000000Z",
+                "browsable_image": true
+              }
+            ]
+          }
+        ],
+        "next_cursor": null,
+        "version": "online-v3:example-generation:2"
+      }
+    },
+    {
+      "name": "revision-error",
+      "definition": "ApiError",
+      "valid": true,
+      "value": {
+        "code": "REVISION_CONFLICT",
+        "message": "任务修订已变化，请重新读取。",
+        "request_id": "55555555-5555-4555-8555-555555555555"
+      }
+    },
+    {
+      "name": "reject-numeric-source-id",
+      "definition": "CreateJob",
+      "valid": false,
+      "value": {
+        "request_key": "44444444-4444-4444-8444-444444444444",
+        "definition": {
+          "version": 1,
+          "collector": "pixiv_web_v1",
+          "library_id": "11111111-1111-4111-8111-111111111111",
+          "account_id": "22222222-2222-4222-8222-222222222222",
+          "seeds": {
+            "kind": "authors",
+            "ids": [12345]
+          },
+          "scope": {
+            "work_types": ["illustration", "manga", "ugoira"],
+            "ratings": ["all_ages", "r18", "r18g"],
+            "include_ai": true,
+            "include_unknown_markers": true
+          },
+          "discovery": {
+            "entrypoints": [],
+            "max_depth": 0,
+            "recommendation_seeds_per_author": 0
+          },
+          "media": {
+            "image_policy": {
+              "profile": "original",
+              "allow_sample": false,
+              "existing": "match_profile"
+            },
+            "retain_original": true,
+            "ugoira": "archive_with_poster",
+            "reuse": {
+              "mode": "revalidate",
+              "max_age_hours": 0
+            }
+          },
+          "run_budget": {
+            "api_requests": 500,
+            "admitted_authors": 10,
+            "download_bytes": 1073741824,
+            "wall_seconds": 3600
+          }
+        }
+      }
+    },
+    {
+      "name": "reject-credential-in-job",
+      "definition": "CreateJob",
+      "valid": false,
+      "value": {
+        "request_key": "44444444-4444-4444-8444-444444444444",
+        "definition": {
+          "version": 1,
+          "collector": "pixiv_web_v1",
+          "library_id": "11111111-1111-4111-8111-111111111111",
+          "account_id": "22222222-2222-4222-8222-222222222222",
+          "seeds": {
+            "kind": "authors",
+            "ids": ["12345"]
+          },
+          "scope": {
+            "work_types": ["illustration", "manga", "ugoira"],
+            "ratings": ["all_ages", "r18", "r18g"],
+            "include_ai": true,
+            "include_unknown_markers": true
+          },
+          "discovery": {
+            "entrypoints": [],
+            "max_depth": 0,
+            "recommendation_seeds_per_author": 0
+          },
+          "media": {
+            "image_policy": {
+              "profile": "original",
+              "allow_sample": false,
+              "existing": "match_profile"
+            },
+            "retain_original": true,
+            "ugoira": "archive_with_poster",
+            "reuse": {
+              "mode": "revalidate",
+              "max_age_hours": 0
+            }
+          },
+          "run_budget": {
+            "api_requests": 500,
+            "admitted_authors": 10,
+            "download_bytes": 1073741824,
+            "wall_seconds": 3600
+          },
+          "cookie": "example-secret-field"
+        }
+      }
+    },
+    {
+      "name": "reject-custom-without-encoding",
+      "definition": "CreateJob",
+      "valid": false,
+      "value": {
+        "request_key": "44444444-4444-4444-8444-444444444444",
+        "definition": {
+          "version": 1,
+          "collector": "pixiv_web_v1",
+          "library_id": "11111111-1111-4111-8111-111111111111",
+          "account_id": "22222222-2222-4222-8222-222222222222",
+          "seeds": {
+            "kind": "authors",
+            "ids": ["12345"]
+          },
+          "scope": {
+            "work_types": ["illustration", "manga", "ugoira"],
+            "ratings": ["all_ages", "r18", "r18g"],
+            "include_ai": true,
+            "include_unknown_markers": true
+          },
+          "discovery": {
+            "entrypoints": [],
+            "max_depth": 0,
+            "recommendation_seeds_per_author": 0
+          },
+          "media": {
+            "image_policy": {
+              "profile": "custom",
+              "allow_sample": false,
+              "existing": "match_profile"
+            },
+            "retain_original": true,
+            "ugoira": "archive_with_poster",
+            "reuse": {
+              "mode": "revalidate",
+              "max_age_hours": 0
+            }
+          },
+          "run_budget": {
+            "api_requests": 500,
+            "admitted_authors": 10,
+            "download_bytes": 1073741824,
+            "wall_seconds": 3600
+          }
+        }
+      }
+    },
+    {
+      "name": "reject-work-seed-expansion",
+      "definition": "CreateJob",
+      "valid": false,
+      "value": {
+        "request_key": "44444444-4444-4444-8444-444444444444",
+        "definition": {
+          "version": 1,
+          "collector": "pixiv_web_v1",
+          "library_id": "11111111-1111-4111-8111-111111111111",
+          "account_id": "22222222-2222-4222-8222-222222222222",
+          "seeds": {
+            "kind": "works",
+            "ids": ["12345"]
+          },
+          "scope": {
+            "work_types": ["illustration", "manga", "ugoira"],
+            "ratings": ["all_ages", "r18", "r18g"],
+            "include_ai": true,
+            "include_unknown_markers": true
+          },
+          "discovery": {
+            "entrypoints": ["following"],
+            "max_depth": 1,
+            "recommendation_seeds_per_author": 0
+          },
+          "media": {
+            "image_policy": {
+              "profile": "original",
+              "allow_sample": false,
+              "existing": "match_profile"
+            },
+            "retain_original": true,
+            "ugoira": "archive_with_poster",
+            "reuse": {
+              "mode": "revalidate",
+              "max_age_hours": 0
+            }
+          },
+          "run_budget": {
+            "api_requests": 500,
+            "admitted_authors": 10,
+            "download_bytes": 1073741824,
+            "wall_seconds": 3600
+          }
+        }
+      }
+    },
+    {
+      "name": "reject-original-without-retention",
+      "definition": "CreateJob",
+      "valid": false,
+      "value": {
+        "request_key": "44444444-4444-4444-8444-444444444444",
+        "definition": {
+          "version": 1,
+          "collector": "pixiv_web_v1",
+          "library_id": "11111111-1111-4111-8111-111111111111",
+          "account_id": "22222222-2222-4222-8222-222222222222",
+          "seeds": {
+            "kind": "authors",
+            "ids": ["12345"]
+          },
+          "scope": {
+            "work_types": ["illustration", "manga", "ugoira"],
+            "ratings": ["all_ages", "r18", "r18g"],
+            "include_ai": true,
+            "include_unknown_markers": true
+          },
+          "discovery": {
+            "entrypoints": [],
+            "max_depth": 0,
+            "recommendation_seeds_per_author": 0
+          },
+          "media": {
+            "image_policy": {
+              "profile": "original",
+              "allow_sample": false,
+              "existing": "match_profile"
+            },
+            "retain_original": false,
+            "ugoira": "archive_with_poster",
+            "reuse": {
+              "mode": "revalidate",
+              "max_age_hours": 0
+            }
+          },
+          "run_budget": {
+            "api_requests": 500,
+            "admitted_authors": 10,
+            "download_bytes": 1073741824,
+            "wall_seconds": 3600
+          }
+        }
+      }
+    },
+    {
+      "name": "reject-unbounded-depth",
+      "definition": "CreateJob",
+      "valid": false,
+      "value": {
+        "request_key": "44444444-4444-4444-8444-444444444444",
+        "definition": {
+          "version": 1,
+          "collector": "pixiv_web_v1",
+          "library_id": "11111111-1111-4111-8111-111111111111",
+          "account_id": "22222222-2222-4222-8222-222222222222",
+          "seeds": {
+            "kind": "authors",
+            "ids": ["12345"]
+          },
+          "scope": {
+            "work_types": ["illustration", "manga", "ugoira"],
+            "ratings": ["all_ages", "r18", "r18g"],
+            "include_ai": true,
+            "include_unknown_markers": true
+          },
+          "discovery": {
+            "entrypoints": [],
+            "max_depth": 5,
+            "recommendation_seeds_per_author": 0
+          },
+          "media": {
+            "image_policy": {
+              "profile": "original",
+              "allow_sample": false,
+              "existing": "match_profile"
+            },
+            "retain_original": true,
+            "ugoira": "archive_with_poster",
+            "reuse": {
+              "mode": "revalidate",
+              "max_age_hours": 0
+            }
+          },
+          "run_budget": {
+            "api_requests": 500,
+            "admitted_authors": 10,
+            "download_bytes": 1073741824,
+            "wall_seconds": 3600
+          }
+        }
+      }
+    },
+    {
+      "name": "reject-incompatible-error-envelope",
+      "definition": "ApiError",
+      "valid": false,
+      "value": {
+        "code": "REVISION_CONFLICT",
+        "message": "任务修订已变化，请重新读取。"
+      }
+    },
+    {
+      "name": "archive-manifest-shape",
+      "definition": "BatchManifest",
+      "valid": true,
+      "value": {
+        "format_version": 2,
+        "schema_set": "canonical-media-v2",
+        "library_id": "11111111-1111-4111-8111-111111111111",
+        "batch_id": "66666666-6666-4666-8666-666666666666",
+        "dedupe_key": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "created_at": "2026-10-02T00:00:00.000000Z",
+        "writer_version": "design-fixture-v1",
+        "required_features": [
+          "captures-v1",
+          "work-media-v1",
+          "collection-replay-v1"
+        ],
+        "source": {
+          "site": "pixiv",
+          "collector": "pixiv_web_v1",
+          "job_id": "33333333-3333-4333-8333-333333333333",
+          "semantics_version": "pixiv-web-v1",
+          "definition_sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+          "intent_batch_id": "99999999-9999-4999-8999-999999999999"
+        },
+        "files": {
+          "captures.parquet": {
+            "role": "captures",
+            "bytes": 1024,
+            "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+            "rows": 1,
+            "schema": "captures-v1"
+          },
+          "work_observations.parquet": {
+            "role": "work_observations",
+            "bytes": 1024,
+            "sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+            "rows": 1,
+            "schema": "work-observations-v1"
+          },
+          "collection_replay.json": {
+            "role": "collection_replay",
+            "bytes": 512,
+            "sha256": "3333333333333333333333333333333333333333333333333333333333333333"
+          }
+        }
+      }
+    },
+    {
+      "name": "replay-receipt-shape",
+      "definition": "ReplayReceipt",
+      "valid": true,
+      "value": {
+        "version": 1,
+        "library_id": "11111111-1111-4111-8111-111111111111",
+        "job_id": "33333333-3333-4333-8333-333333333333",
+        "batch_id": "66666666-6666-4666-8666-666666666666",
+        "definition_sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+        "receipt_ids": ["77777777-7777-4777-8777-777777777777"],
+        "task_outcomes": [
+          {
+            "task_id": "5555555555555555555555555555555555555555555555555555555555555555",
+            "execution_epoch": 1,
+            "claim_token": "88888888-8888-4888-8888-888888888888",
+            "state": "done",
+            "reason": null,
+            "record_ids": [
+              "6666666666666666666666666666666666666666666666666666666666666666"
+            ]
+          }
+        ],
+        "checkpoint_advances": [
+          {
+            "stream_key": "author:12345:directory",
+            "expected_revision": 0,
+            "next_revision": 1,
+            "next_cursor": {
+              "exhausted": true
+            },
+            "exhausted": true,
+            "capture_id": "7777777777777777777777777777777777777777777777777777777777777777"
+          }
+        ],
+        "discovery_snapshot_ids": []
+      }
+    },
+    {
+      "name": "job-intent",
+      "definition": "JobIntent",
+      "valid": true,
+      "value": {
+        "version": 1,
+        "job_id": "33333333-3333-4333-8333-333333333333",
+        "definition": {
+          "version": 1,
+          "collector": "pixiv_web_v1",
+          "library_id": "11111111-1111-4111-8111-111111111111",
+          "account_id": "22222222-2222-4222-8222-222222222222",
+          "seeds": {
+            "kind": "authors",
+            "ids": ["12345"]
+          },
+          "scope": {
+            "work_types": ["illustration", "manga", "ugoira"],
+            "ratings": ["all_ages", "r18", "r18g"],
+            "include_ai": true,
+            "include_unknown_markers": true
+          },
+          "discovery": {
+            "entrypoints": [],
+            "max_depth": 0,
+            "recommendation_seeds_per_author": 0
+          },
+          "media": {
+            "image_policy": {
+              "profile": "original",
+              "allow_sample": false,
+              "existing": "match_profile"
+            },
+            "retain_original": true,
+            "ugoira": "archive_with_poster",
+            "reuse": {
+              "mode": "revalidate",
+              "max_age_hours": 0
+            }
+          },
+          "run_budget": {
+            "api_requests": 500,
+            "admitted_authors": 10,
+            "download_bytes": 1073741824,
+            "wall_seconds": 3600
+          }
+        },
+        "definition_sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+        "planner_version": "pixiv-plan-v1",
+        "created_at": "2026-10-02T00:00:00.000000Z"
+      }
+    }
+  ]
+}

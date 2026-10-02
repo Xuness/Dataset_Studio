@@ -13,6 +13,9 @@ pub struct SourceCapabilities {
     pub raw_metadata: bool,
     pub incremental: bool,
     pub stored_dimensions: bool,
+    pub work_members: bool,
+    pub author_metadata: bool,
+    pub literal_tags: bool,
 }
 #[derive(Serialize, ToSchema)]
 pub struct SourceDescriptor {
@@ -44,6 +47,9 @@ impl From<domain::SourceDescriptor> for SourceDescriptor {
                 raw_metadata: c.raw_metadata,
                 incremental: c.incremental,
                 stored_dimensions: c.stored_dimensions,
+                work_members: c.work_members,
+                author_metadata: c.author_metadata,
+                literal_tags: c.literal_tags,
             },
         }
     }

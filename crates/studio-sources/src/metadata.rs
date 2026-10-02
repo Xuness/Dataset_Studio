@@ -309,6 +309,7 @@ fn record(row: &[Option<String>]) -> Result<AssetRecord> {
         post_id: row[2].clone(),
         source_md5: row[3].clone(),
         storage_profile: row[4].clone(),
+        media_origin: None,
     })
 }
 #[derive(Serialize, Deserialize)]
@@ -413,6 +414,27 @@ fn observation_predicate(record: &AssetRecord) -> String {
     }
 }
 impl MetadataAdapter for MetadataReader {
+    fn source_relation(
+        &self,
+        source: &Source,
+        request: SourceRelationRequest,
+        context: &studio_application::SourceReadContext,
+    ) -> Result<serde_json::Value> {
+        context.check()?;
+        if source.kind != "pixiv" {
+            return Err(Error::new(
+                "METADATA_UNSUPPORTED",
+                "来源不支持作品或作者关联读取",
+            ));
+        }
+        crate::media_metadata::Read::open(
+            source,
+            request.version.as_deref(),
+            context.cancelled.clone(),
+            context.deadline,
+        )?
+        .relation(request)
+    }
     fn metadata_context(
         &self,
         source: &Source,
@@ -481,6 +503,15 @@ impl MetadataAdapter for MetadataReader {
         cancelled: studio_application::ReadCancellation,
     ) -> Result<Vec<AssetSummary>> {
         read_cancelled(&cancelled)?;
+        if source.kind == "pixiv" {
+            return crate::media_metadata::Read::open(
+                source,
+                revision,
+                cancelled,
+                self.runtime.deadline(),
+            )?
+            .summaries(asset_ids);
+        }
         if crate::profiles::is_canonical(source)
             && revision.is_none()
             && !crate::online::available(source)
@@ -586,6 +617,15 @@ impl MetadataAdapter for MetadataReader {
         cancelled: ReadCancellation,
     ) -> Result<MetadataOverview> {
         read_cancelled(&cancelled)?;
+        if source.kind == "pixiv" {
+            return crate::media_metadata::Read::open(
+                source,
+                request.version.as_deref(),
+                cancelled,
+                self.runtime.deadline(),
+            )?
+            .metadata(asset, request);
+        }
         if source.kind == "demo" {
             let n = demo_number(asset)?;
             let version = demo_version(source, &request)?;
@@ -603,6 +643,7 @@ impl MetadataAdapter for MetadataReader {
                     post_id: None,
                     source_md5: None,
                     storage_profile: Some("generated-demo".into()),
+                    media_origin: None,
                 }],
                 next_cursor: None,
                 version,
@@ -722,6 +763,15 @@ impl MetadataAdapter for MetadataReader {
         cancelled: ReadCancellation,
     ) -> Result<ObservationPage> {
         read_cancelled(&cancelled)?;
+        if source.kind == "pixiv" {
+            return crate::media_metadata::Read::open(
+                source,
+                request.version.as_deref(),
+                cancelled,
+                self.runtime.deadline(),
+            )?
+            .observations(asset, record_id, request);
+        }
         if source.kind == "demo" {
             let n = demo_number(asset)?;
             let version = demo_version(source, &request)?;
@@ -884,6 +934,15 @@ impl MetadataAdapter for MetadataReader {
         cancelled: ReadCancellation,
     ) -> Result<RawMetadata> {
         read_cancelled(&cancelled)?;
+        if source.kind == "pixiv" {
+            return crate::media_metadata::Read::open(
+                source,
+                Some(version),
+                cancelled,
+                self.runtime.deadline(),
+            )?
+            .raw(asset, record_id, observation_id);
+        }
         if source.kind == "demo" {
             demo_number(asset)?;
             let version = demo_version(

@@ -35,6 +35,7 @@ mod ranking_browse;
 mod resources;
 mod scoped_browse;
 mod settings;
+mod source_collections;
 mod source_locations;
 mod source_probe;
 mod tools;
@@ -96,7 +97,12 @@ impl IntoResponse for Failure {
             | "SOURCE_LOCATION_CONFLICT"
             | "PROJECT_ID_CONFLICT"
             | "IDEMPOTENCY_CONFLICT"
-            | "UPDATE_CONFLICT" => StatusCode::CONFLICT,
+            | "UPDATE_CONFLICT"
+            | "COLLECTION_IDEMPOTENCY_CONFLICT"
+            | "COLLECTION_EXECUTION_ACTIVE"
+            | "COLLECTION_SCOPE_CHANGED"
+            | "COLLECTION_PROTOCOL"
+            | "COLLECTION_FORMAT_UNSUPPORTED" => StatusCode::CONFLICT,
             "LLM_QUEUE_FULL"
             | "EVALUATION_BUSY"
             | "EVALUATION_STORAGE_UNHEALTHY"
@@ -111,10 +117,14 @@ impl IntoResponse for Failure {
             | "CACHE_BUSY"
             | "UPDATE_UNAVAILABLE"
             | "UPDATE_NETWORK"
-            | "UPDATE_REMOTE_ERROR" => StatusCode::SERVICE_UNAVAILABLE,
+            | "UPDATE_REMOTE_ERROR"
+            | "COLLECTION_UNAVAILABLE"
+            | "COLLECTION_REMOTE_UNAVAILABLE" => StatusCode::SERVICE_UNAVAILABLE,
             "LOCATION_UNAVAILABLE" => StatusCode::NOT_FOUND,
             "SOURCE_TIMEOUT" => StatusCode::GATEWAY_TIMEOUT,
-            "SOURCE_RESOURCE_LIMIT" | "METADATA_LIMIT" => StatusCode::PAYLOAD_TOO_LARGE,
+            "SOURCE_RESOURCE_LIMIT" | "METADATA_LIMIT" | "COLLECTION_LIMIT" => {
+                StatusCode::PAYLOAD_TOO_LARGE
+            }
             "CANCELLED" => StatusCode::CONFLICT,
             "LLM_DISABLED"
             | "LLM_CREDENTIAL_UNAVAILABLE"
@@ -134,7 +144,9 @@ impl IntoResponse for Failure {
             | "SOURCE_FORMAT_UNSUPPORTED"
             | "UPDATE_UNSUPPORTED"
             | "UPDATE_CREDENTIAL_REQUIRED"
-            | "UPDATE_BASELINE_REQUIRED" => StatusCode::BAD_REQUEST,
+            | "UPDATE_BASELINE_REQUIRED"
+            | "COLLECTION_POLICY_UNSUPPORTED"
+            | "COLLECTION_CREDENTIAL_REQUIRED" => StatusCode::BAD_REQUEST,
             "QUERY_UNSUPPORTED"
             | "RANKING_SCOPE_UNSUPPORTED"
             | "RANKING_SOURCE_UNSUPPORTED"
@@ -1557,6 +1569,11 @@ async fn shutdown(State(s): State<AppState>) -> Json<OkResponse> {
         management::delete_preset,
         management::reveal,
         lake_updates::status, lake_updates::configure, lake_updates::capabilities, lake_updates::lakes,
+        source_collections::status, source_collections::capabilities, source_collections::lakes, source_collections::create_lake,
+        source_collections::accounts, source_collections::save_account, source_collections::probe_account, source_collections::clear_account,
+        source_collections::preview, source_collections::create, source_collections::jobs, source_collections::job,
+        source_collections::tasks, source_collections::coverage, source_collections::action, source_collections::pipeline, source_collections::save_pipeline,
+        source_collections::work, source_collections::work_media, source_collections::author, source_collections::author_works,
         lake_updates::relocations, lake_updates::prepare_relocation, lake_updates::apply_relocation, lake_updates::cancel_relocation,
         lake_updates::pipeline, lake_updates::save_pipeline,
         lake_updates::register, lake_updates::credentials, lake_updates::clear_credentials, lake_updates::probe,
@@ -1586,6 +1603,8 @@ pub fn routes() -> axum::Router<AppState> {
         .route("/v1/source-probes", post(source_probe::probe))
         .nest("/v1/llm", llm::routes())
         .nest("/v1/lake-updates", lake_updates::routes())
+        .nest("/v1/source-collections", source_collections::routes())
+        .merge(source_collections::source_routes())
         .nest("/v1/projects/{project_id}/aesthetic", aesthetic::routes())
         .nest(
             "/v1/projects/{project_id}/aesthetic/analysis",

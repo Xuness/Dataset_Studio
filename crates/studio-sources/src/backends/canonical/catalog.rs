@@ -69,6 +69,7 @@ pub struct Catalog {
     pub generation: String,
     pub sequence: u64,
     pub online: bool,
+    pub format_version: u32,
     count: Option<u64>,
 }
 impl Catalog {
@@ -102,6 +103,7 @@ impl Catalog {
                 generation: snapshot.pointer.generation,
                 sequence: snapshot.sequence,
                 online: true,
+                format_version: snapshot.pointer.schema_version,
                 count: Some(snapshot.count),
             });
         }
@@ -171,6 +173,7 @@ impl Catalog {
             generation: current.generation,
             sequence: seq,
             online: false,
+            format_version: 1,
             count: None,
         })
     }
@@ -182,7 +185,7 @@ impl Catalog {
             )
             .map_err(Error::io)?;
             if library.library_id != self.library_id
-                || library.format_version != 1
+                || library.format_version != if self.format_version == 3 { 2 } else { 1 }
                 || library.image_format != "uncompressed-pax-tar"
             {
                 return Err(Error::new(
@@ -236,7 +239,7 @@ impl Catalog {
             revision: self.revision.clone(),
             enumeration: "stored_objects".into(),
             count: self.count,
-            index_version: if self.online { 2 } else { 1 },
+            index_version: self.format_version,
         }
     }
     pub fn page(

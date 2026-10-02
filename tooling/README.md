@@ -4,6 +4,8 @@
 
 数据湖存储维护：`node tooling/lake-storage.mjs` 提供 `build / verify / compare / release / activate / cleanup / handoff / retire`。构建不需要旧生产者索引；`handoff` 和 `retire` 默认预览，`--apply` 才提交交接或回收。`cleanup` 只清理本工具未启用的准备库并先归档小型证据。操作约束与命令示例见 [0050](../docs/decisions/0050-archive-rebuild-and-producer-retirement.md)。
 
+Pixiv 后端：`node tooling/source-collections.mjs` 调用同一个采集服务；`node tooling/integration-collections.mjs` 使用离线夹具验证 HTTP/SDK、来源读取和任务控制，已加入 `pnpm test:integration`。`node tooling/validate-pixiv-public.mjs --author 10109777 --output '<isolated output>'` 是显式联网的小样本验证，不属于自动测试。`lake-storage build --site pixiv` 支持只靠归档重建在线 3。参数、会话边界和使用例见[采集接入说明](../docs/architecture/source-collections.md)。
+
 三站更新服务已纳入 `services/lake-worker`，运行源码随引擎打包，不需要另一个 Store 仓库。先运行 `pwsh -File tooling/setup-lake-worker.ps1 -Dev` 安装本项目的 Python 依赖，也可用 `STUDIO_LAKE_TEST_PYTHON` 指定已有环境。`pnpm test:lake` 覆盖编码、归档和恢复；`node tooling/integration-lake-updates.mjs` 验证内置运行器与 HTTP/SDK；`pnpm test:lake-ui` 验证真实界面和命名策略预设。夹具仅使用 `.local/test-runs/` 隔离湖，无正式 API 抓取。标准 `pnpm check` 已包括 Python 服务测试，完整集成入口包括更新 HTTP 回归。在线读取回归另见 `node tooling/integration-online.mjs`。
 
 三站更新工作台：`node tooling/smoke-lake-updates-ui.mjs`，使用本项目的 Python 环境与本机 Edge，端口 1453。脚本创建隔离真实在线湖、控制库和项目，验证范围冻结、跨项目/重启、三湖提交、计划、凭据及不同窗口尺寸；不会使用正式凭据或调用源站 API。

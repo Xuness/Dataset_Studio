@@ -309,9 +309,23 @@ try {
     resolve(runtime.state_root, "updates.sqlite"),
   );
   try {
-    legacy.exec(
-      "BEGIN IMMEDIATE; DROP TABLE lake_dispatch; PRAGMA user_version=6; COMMIT;",
-    );
+    // Model an actual v6 database: leaving v8 tables while lowering user_version
+    // would create an impossible historical fixture and correctly fail migration.
+    const additions = legacy
+      .prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'collection_%'",
+      )
+      .all();
+    for (const { name } of additions) {
+      assert.match(name, /^collection_[a-z_]+$/);
+      assert.equal(
+        legacy.prepare(`SELECT count(*) AS n FROM "${name}"`).get().n,
+        0,
+      );
+    }
+    legacy.exec("PRAGMA foreign_keys=OFF; BEGIN IMMEDIATE;");
+    for (const { name } of additions) legacy.exec(`DROP TABLE "${name}";`);
+    legacy.exec("DROP TABLE lake_dispatch; PRAGMA user_version=6; COMMIT;");
   } finally {
     legacy.close();
   }
@@ -343,7 +357,7 @@ try {
     { readOnly: true },
   );
   try {
-    assert.equal(upgraded.prepare("PRAGMA user_version").get().user_version, 7);
+    assert.equal(upgraded.prepare("PRAGMA user_version").get().user_version, 8);
     assert.equal(
       upgraded.prepare("SELECT count(*) AS n FROM lake_dispatch").get().n,
       0,

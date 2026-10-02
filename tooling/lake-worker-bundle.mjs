@@ -17,7 +17,8 @@ export async function verifyLakeWorkerBundle(root, applicationRoot) {
       const name = `${relative}/${entry.name}`;
       if (entry.isDirectory() && entry.name !== "__pycache__")
         await collect(name);
-      else if (entry.isFile() && entry.name.endsWith(".py")) files.push(name);
+      else if (entry.isFile() && /\.(py|sql)$/.test(entry.name))
+        files.push(name);
     }
   }
   await collect("src");

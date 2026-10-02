@@ -57,6 +57,73 @@ pub(crate) fn directory(source: &Source) -> Result<FieldDirectory> {
             },
         });
     }
+    if source.kind == "pixiv" {
+        for (id, name, kind, basis) in [
+            ("work.id", "作品 ID", Text, "work_observations.work_id"),
+            ("author.id", "作者 ID", Text, "work_observations.author_id"),
+            ("source.width", "当前页宽度", Integer, "media_entries.width"),
+            (
+                "source.height",
+                "当前页高度",
+                Integer,
+                "media_entries.height",
+            ),
+            ("stored.width", "存储宽度", Integer, "objects.stored_width"),
+            (
+                "stored.height",
+                "存储高度",
+                Integer,
+                "objects.stored_height",
+            ),
+            ("tags", "标签", Tags, "work_tags.literal_tag"),
+            (
+                "pixiv.x_restrict",
+                "Pixiv 内容分级",
+                Integer,
+                "pixiv.x_restrict",
+            ),
+            ("pixiv.ai_type", "Pixiv AI 标记", Integer, "pixiv.ai_type"),
+            (
+                "pixiv.bookmark_count",
+                "收藏数",
+                Integer,
+                "pixiv.bookmark_count",
+            ),
+            ("pixiv.view_count", "浏览数", Integer, "pixiv.view_count"),
+            ("pixiv.like_count", "点赞数", Integer, "pixiv.like_count"),
+        ] {
+            fields.push(FieldDefinition {
+                id: id.into(),
+                name: name.into(),
+                field_type: kind,
+                unit: None,
+                missing: "unknown_is_null".into(),
+                basis: basis.into(),
+                display: true,
+                operators: match kind {
+                    Tags => vec![
+                        HasTag, HasAllTags, HasAnyTags, HasNoTags, IsMissing, IsPresent,
+                    ],
+                    Integer => vec![Eq, Ne, Gte, Lte, IsMissing, IsPresent],
+                    _ => vec![Eq, Ne, IsMissing, IsPresent],
+                },
+                sortable: false,
+                cost: "bounded_media_relation_query".into(),
+            });
+        }
+        return Ok(FieldDirectory {
+            version: 1,
+            source_id: source.id.clone(),
+            fields,
+            observation_rules: vec![
+                ObservationRule::CurrentPost,
+                ObservationRule::AnyObservation,
+            ],
+            orders: vec![QueryOrder::AssetKeyAsc, QueryOrder::AssetKeyDesc],
+            max_conditions: 12,
+            direct_query: true,
+        });
+    }
     if crate::profiles::is_canonical(source) {
         for (id, name, kind, unit, basis) in [
             (

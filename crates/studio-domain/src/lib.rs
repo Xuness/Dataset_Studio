@@ -4,6 +4,7 @@ pub mod aesthetic;
 pub mod aesthetic_analysis;
 pub mod lake_updates;
 pub mod llm;
+pub mod source_collections;
 mod sources;
 pub use sources::*;
 mod metadata;

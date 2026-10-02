@@ -1,3 +1,4 @@
+from update_fixtures import remove_collection_schema
 """Deterministic command races, lake fairness and cancellation ownership/recovery."""
 
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -344,6 +345,7 @@ def test_v4_upgrade_enqueues_old_cancelled_tasks_and_retains_paused_files(tmp_pa
     with state.db() as db:
         db.execute("DROP TRIGGER cancel_cleanup")
         db.execute("DROP TABLE job_cleanup")
+        remove_collection_schema(db)
         db.execute("PRAGMA user_version=4")
     reopened = State(state.root)
     assert reopened.job(identity)["cleanup"]["phase"] == "pending"
@@ -352,7 +354,7 @@ def test_v4_upgrade_enqueues_old_cancelled_tasks_and_retains_paused_files(tmp_pa
     assert not partial.exists() and (kept / ("c" * 64 + ".downloaded")).read_bytes() == b"resume me"
     assert reopened.job(paused["id"])["cleanup"] is None
     with reopened.db() as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 7
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 8
 
 
 def queue(tmp_path, backlog):
@@ -380,7 +382,7 @@ def test_per_lake_heads_survive_backlog_delayed_retry_and_failed_future(tmp_path
 
     class Pool:
         def submit(self, function, identity):
-            assert function == runner.run
+            assert function == runner.run_slice
             lake = state.job(identity)["lake_id"]
             submitted.append(lake)
             futures[lake] = Future()
@@ -449,7 +451,7 @@ def test_cleanup_gets_idle_lake_before_next_backlogged_execution(tmp_path):
 
     runner.stop = Stop()
     runner.schedule(Pool(), False)
-    assert submitted == [("cleanup", "A"), ("run", "B"), ("run", "C"), ("run", "D")]
+    assert submitted == [("cleanup", "A"), ("run_slice", "B"), ("run_slice", "C"), ("run_slice", "D")]
 
 
 def test_fourth_lake_gets_next_slot_before_old_backlog_and_order_survives_restart(tmp_path):

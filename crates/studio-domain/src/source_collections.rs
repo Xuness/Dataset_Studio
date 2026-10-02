@@ -1,0 +1,44 @@
+//! Collection commands are independent of HTTP and the Python process transport.
+#[derive(Clone, Copy)]
+pub enum CollectionOperation {
+    Status,
+    Capabilities,
+    Lakes,
+    LakeCreate,
+    Accounts,
+    AccountSave,
+    AccountProbe,
+    AccountClear,
+    Preview,
+    Create,
+    Jobs,
+    Job,
+    Tasks,
+    Coverage,
+    Action,
+    PipelineGet,
+    PipelineSet,
+}
+impl CollectionOperation {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Status => "collection_status",
+            Self::Capabilities => "collection_capabilities",
+            Self::Lakes => "collection_lakes",
+            Self::LakeCreate => "collection_lake_create",
+            Self::Accounts => "collection_accounts",
+            Self::AccountSave => "collection_account_save",
+            Self::AccountProbe => "collection_account_probe",
+            Self::AccountClear => "collection_account_clear",
+            Self::Preview => "collection_preview",
+            Self::Create => "collection_create",
+            Self::Jobs => "collection_jobs",
+            Self::Job => "collection_job",
+            Self::Tasks => "collection_tasks",
+            Self::Coverage => "collection_coverage",
+            Self::Action => "collection_action",
+            Self::PipelineGet => "collection_pipeline_get",
+            Self::PipelineSet => "collection_pipeline_set",
+        }
+    }
+}

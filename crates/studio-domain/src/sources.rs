@@ -13,6 +13,12 @@ pub struct SourceCapabilities {
     pub raw_metadata: bool,
     pub incremental: bool,
     pub stored_dimensions: bool,
+    #[serde(default)]
+    pub work_members: bool,
+    #[serde(default)]
+    pub author_metadata: bool,
+    #[serde(default)]
+    pub literal_tags: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

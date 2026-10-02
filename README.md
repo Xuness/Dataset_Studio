@@ -20,6 +20,8 @@ Ctrl+Z 撤销图片选择，Ctrl+Y 或 Ctrl+Shift+Z 重做。“设置 → 编�
 
 “工具 → 数据湖”管理 Danbooru、Yandere、Gelbooru 的共享更新、预约计划和项目范围准备。API 抓取、图片编码、断点恢复及归档发布已由本仓库的 `services/lake-worker` 维护，运行源码内置于引擎，不再需要 Danbooru-Store 源码目录。保存策略支持原文件、WebP/JPEG/PNG 自定义编码与命名预设；详见[数据湖更新服务](services/lake-worker/README.md)。
 
+Pixiv 已接入独立多媒体湖、作者采集和任务管理、后端 API / SDK；可通过独立命令创建任务，并通过现有来源读取、查询和预览接口消费结果。Pixiv 前端页面暂缓，使用方法和公开样本边界见[来源采集后端](docs/architecture/source-collections.md)。
+
 ## 启动
 
 在 Windows 上双击仓库根目录的 **启动开发版.bat**。

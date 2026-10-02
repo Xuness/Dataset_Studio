@@ -2479,6 +2479,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{project_id}/sources/{source_id}/authors/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["source_author"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/sources/{source_id}/authors/{id}/works": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["source_author_works"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects/{project_id}/sources/{source_id}/fields": {
         parameters: {
             query?: never;
@@ -2521,6 +2553,38 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["relink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/sources/{source_id}/works/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["source_work"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/sources/{source_id}/works/{id}/media": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["source_work_media"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -2759,6 +2823,230 @@ export interface paths {
             cookie?: never;
         };
         get: operations["adapters"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-collections/accounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["collections_accounts"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-collections/accounts/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["collections_save_account"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-collections/accounts/{id}/clear": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["collections_clear_account"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-collections/accounts/{id}/probe": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["collections_probe_account"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-collections/capabilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["collections_capabilities"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-collections/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["collections_jobs"];
+        put?: never;
+        post: operations["collections_create_job"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-collections/jobs/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["collections_preview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-collections/jobs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["collections_job"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-collections/jobs/{id}/actions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["collections_action"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-collections/jobs/{id}/coverage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["collections_coverage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-collections/jobs/{id}/tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["collections_tasks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-collections/lakes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["collections_lakes"];
+        put?: never;
+        post: operations["collections_create_lake"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-collections/pipeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["collections_pipeline"];
+        put: operations["collections_save_pipeline"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/source-collections/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["collections_status"];
         put?: never;
         post?: never;
         delete?: never;
@@ -3543,11 +3831,18 @@ export interface components {
             v2?: null | components["schemas"]["RankingV2Scores"];
         };
         AssetRecord: {
+            kind?: string | null;
+            manifest_id?: string | null;
+            media_id?: string | null;
+            /** Format: int32 */
+            ordinal?: number | null;
             origin_observation_id?: string | null;
             post_id?: string | null;
             record_id: string;
+            representation?: string | null;
             source_md5?: string | null;
             storage_profile?: string | null;
+            work_id?: string | null;
         };
         AssetSummaries: {
             items: components["schemas"]["AssetSummaryEntry"][];
@@ -3730,6 +4025,299 @@ export interface components {
             id: string;
             name: string;
         };
+        CollectionAccount: {
+            bound_user_id?: string | null;
+            credential_set: boolean;
+            id: string;
+            label: string;
+            last_probe_at?: string | null;
+            mode: components["schemas"]["CollectionAccountMode"];
+            /** Format: int64 */
+            revision: number;
+            site: string;
+            state: string;
+        };
+        /** @enum {string} */
+        CollectionAccountMode: "anonymous" | "session";
+        CollectionAccountProbe: {
+            account: components["schemas"]["CollectionAccount"];
+            visibility: components["schemas"]["CollectionVisibility"];
+        };
+        CollectionAccounts: {
+            items: components["schemas"]["CollectionAccount"][];
+            next_cursor?: string | null;
+        };
+        /** @enum {string} */
+        CollectionAction: "pause" | "resume" | "retry_failed" | "cancel" | "replay_publication";
+        CollectionAuthorProgress: {
+            /** Format: int64 */
+            admitted: number;
+            /** Format: int64 */
+            discovered: number;
+            /** Format: int64 */
+            scanned: number;
+        };
+        CollectionCapabilities: {
+            archive_formats: number[];
+            authentication_modes: string[];
+            collector: string;
+            /** Format: int32 */
+            contract_version: number;
+            discovery_entrypoints: string[];
+            limits: {
+                [key: string]: number;
+            };
+            online_formats: number[];
+            work_types: string[];
+        };
+        CollectionClosure: {
+            directories_complete: boolean;
+            discovery_exhausted: boolean;
+            manifests_complete: boolean;
+            visibility_verified: boolean;
+        };
+        CollectionCookie: {
+            domain: string;
+            /** Format: int64 */
+            expires_unix?: number | null;
+            http_only: boolean;
+            name: string;
+            path: string;
+            secure: boolean;
+            value: string;
+        };
+        CollectionCoverage: {
+            closure: components["schemas"]["CollectionClosure"];
+            job_id: string;
+            progress: components["schemas"]["CollectionProgress"];
+            scope: components["schemas"]["CollectionScope"];
+            state: string;
+            statement: string;
+        };
+        CollectionDiscovery: {
+            entrypoints: string[];
+            /** Format: int32 */
+            max_depth: number;
+            /** Format: int32 */
+            recommendation_seeds_per_author: number;
+        };
+        CollectionIssue: {
+            code: string;
+            message: string;
+            severity: string;
+        };
+        CollectionJob: {
+            account_id: string;
+            created_at: string;
+            definition: components["schemas"]["CollectionJobDefinition"];
+            desired_state: string;
+            execution_active: boolean;
+            /** Format: int64 */
+            execution_epoch: number;
+            id: string;
+            library_id: string;
+            progress: components["schemas"]["CollectionProgress"];
+            /** Format: int64 */
+            revision: number;
+            state: components["schemas"]["CollectionJobState"];
+            updated_at: string;
+            wait_reason?: string | null;
+        };
+        CollectionJobAction: {
+            action: components["schemas"]["CollectionAction"];
+            /** Format: int64 */
+            expected_revision: number;
+            request_key: string;
+            task_ids?: string[] | null;
+        };
+        CollectionJobDefinition: {
+            account_id: string;
+            collector: string;
+            discovery: components["schemas"]["CollectionDiscovery"];
+            library_id: string;
+            media: components["schemas"]["CollectionMediaPlan"];
+            run_budget: components["schemas"]["CollectionRunBudget"];
+            scope: components["schemas"]["CollectionScope"];
+            seeds: components["schemas"]["CollectionSeeds"];
+            /** Format: int32 */
+            version: number;
+        };
+        CollectionJobResult: {
+            job: components["schemas"]["CollectionJob"];
+            replayed: boolean;
+        };
+        /** @enum {string} */
+        CollectionJobState: "queued" | "running" | "pausing" | "paused" | "waiting_credentials" | "waiting_retry" | "waiting_resources" | "waiting_budget" | "publishing" | "needs_review" | "cancelling" | "cancelled" | "completed" | "completed_with_gaps";
+        CollectionJobs: {
+            items: components["schemas"]["CollectionJob"][];
+            next_cursor?: string | null;
+        };
+        CollectionLake: {
+            /** Format: int32 */
+            archive_format: number;
+            collector: string;
+            index_root: string;
+            library_id: string;
+            media_root: string;
+            /** Format: int32 */
+            online_format: number;
+            site: string;
+            state: string;
+        };
+        CollectionLakes: {
+            items: components["schemas"]["CollectionLake"][];
+            next_cursor?: string | null;
+        };
+        CollectionMediaPlan: {
+            image_policy: components["schemas"]["LakeImagePolicy"];
+            retain_original: boolean;
+            reuse: components["schemas"]["CollectionReuse"];
+            ugoira: string;
+        };
+        CollectionMediaProgress: {
+            /** Format: int64 */
+            archived: number;
+            /** Format: int64 */
+            downloaded: number;
+            /** Format: int64 */
+            gaps: number;
+            /** Format: int64 */
+            historical_reused: number;
+            /** Format: int64 */
+            http_validated: number;
+            /** Format: int64 */
+            planned?: number | null;
+            /** Format: int64 */
+            published: number;
+        };
+        CollectionObjectProgress: {
+            /** Format: int64 */
+            browsable_images: number;
+            /** Format: int64 */
+            stored: number;
+        };
+        CollectionPipelineSettings: {
+            /** Format: int64 */
+            revision: number;
+            shared_limits: components["schemas"]["LakePipelineConfig"];
+            value: components["schemas"]["CollectionPipelineValue"];
+        };
+        CollectionPipelineValue: {
+            /** Format: int32 */
+            metadata_concurrency: number;
+            /** Format: int64 */
+            pending_media_limit: number;
+            pixiv: components["schemas"]["LakeSitePipeline"];
+            /** Format: int64 */
+            publication_backlog_mib: number;
+            /** Format: int32 */
+            time_slice_seconds: number;
+        };
+        CollectionPreview: {
+            definition: components["schemas"]["CollectionJobDefinition"];
+            issues: components["schemas"]["CollectionIssue"][];
+            /** Format: int64 */
+            known_media_count?: number | null;
+            /** Format: int64 */
+            known_seed_count: number;
+            /** Format: int64 */
+            known_work_count?: number | null;
+        };
+        CollectionProgress: {
+            authors: components["schemas"]["CollectionAuthorProgress"];
+            closure: components["schemas"]["CollectionClosure"];
+            /** Format: int64 */
+            download_bytes: number;
+            media: components["schemas"]["CollectionMediaProgress"];
+            objects: components["schemas"]["CollectionObjectProgress"];
+            publication: components["schemas"]["CollectionPublicationProgress"];
+            works: components["schemas"]["CollectionWorkProgress"];
+        };
+        CollectionPublicationProgress: {
+            /** Format: int64 */
+            archive_seq: number;
+            /** Format: int64 */
+            pending_batches: number;
+            /** Format: int64 */
+            served_seq: number;
+        };
+        CollectionReuse: {
+            /** Format: int32 */
+            max_age_hours: number;
+            mode: string;
+        };
+        CollectionRevisionCommand: {
+            /** Format: int64 */
+            expected_revision: number;
+            request_key: string;
+        };
+        CollectionRunBudget: {
+            /** Format: int64 */
+            admitted_authors: number;
+            /** Format: int64 */
+            api_requests: number;
+            /** Format: int64 */
+            download_bytes: number;
+            /** Format: int64 */
+            wall_seconds: number;
+        };
+        CollectionScope: {
+            include_ai: boolean;
+            include_unknown_markers: boolean;
+            ratings: string[];
+            work_types: string[];
+        };
+        /** @enum {string} */
+        CollectionSeedKind: "authors" | "works";
+        CollectionSeeds: {
+            ids: string[];
+            kind: components["schemas"]["CollectionSeedKind"];
+        };
+        CollectionServiceStatus: {
+            active: components["schemas"]["CollectionJob"][];
+            /** Format: int32 */
+            collection_contract_version: number;
+            configured: boolean;
+            counts: {
+                [key: string]: number;
+            };
+            /** Format: int32 */
+            protocol_version: number;
+            runtime: components["schemas"]["LakeUpdateRuntimeHealth"];
+        };
+        CollectionTask: {
+            /** Format: int64 */
+            attempts: number;
+            id: string;
+            job_id: string;
+            kind: string;
+            reason?: string | null;
+            /** Format: int64 */
+            retry_at_ms: number;
+            state: string;
+            subject_key: string;
+        };
+        CollectionTasks: {
+            items: components["schemas"]["CollectionTask"][];
+            next_cursor?: string | null;
+        };
+        CollectionVisibility: {
+            ai_display: string;
+            context_id: string;
+            coverage_verified: boolean;
+            login: string;
+            observed_at: string;
+            r18: string;
+            r18g: string;
+        };
+        CollectionWorkProgress: {
+            /** Format: int64 */
+            details: number;
+            /** Format: int64 */
+            gaps: number;
+            /** Format: int64 */
+            planned?: number | null;
+        };
         Collections: {
             items: components["schemas"]["Collection"][];
         };
@@ -3748,6 +4336,16 @@ export interface components {
         CreateCollection: {
             name: string;
             scope?: null | components["schemas"]["ScopeRef"];
+        };
+        CreateCollectionJob: {
+            definition: components["schemas"]["CollectionJobDefinition"];
+            request_key: string;
+        };
+        CreateCollectionLake: {
+            index_root: string;
+            media_root: string;
+            request_key: string;
+            site: string;
         };
         CreateLakeUpdate: {
             definition: components["schemas"]["LakeUpdateDefinition"];
@@ -4835,6 +5433,15 @@ export interface components {
         MaybePreference: {
             preference?: null | components["schemas"]["Preference"];
         };
+        MediaBinding: {
+            browsable_image: boolean;
+            evidence: string;
+            last_verified_at?: string | null;
+            object_sha256: string;
+            recipe_id: string;
+            record_id: string;
+            representation: string;
+        };
         MemberWriteProgress: {
             /** Format: int64 */
             completed: number;
@@ -5813,6 +6420,20 @@ export interface components {
         RunQuery: {
             spec: components["schemas"]["QuerySpec"];
         };
+        SaveCollectionAccount: {
+            account_id: string;
+            cookies?: components["schemas"]["CollectionCookie"][] | null;
+            /** Format: int64 */
+            expected_revision?: number | null;
+            label: string;
+            mode: components["schemas"]["CollectionAccountMode"];
+            request_key: string;
+        };
+        SaveCollectionPipeline: {
+            /** Format: int64 */
+            expected_revision: number;
+            value: components["schemas"]["CollectionPipelineValue"];
+        };
         SaveDraft: {
             /** Format: int64 */
             expected_revision: number;
@@ -5995,9 +6616,30 @@ export interface components {
             name: string;
             revision?: string | null;
         };
+        SourceAuthorDetail: {
+            author_id: string;
+            observation: unknown;
+            version: string;
+        };
+        SourceAuthorWork: {
+            current?: unknown;
+            work_id: string;
+        };
+        SourceAuthorWorks: {
+            author_id: string;
+            context_id: string;
+            items: components["schemas"]["SourceAuthorWork"][];
+            next_cursor?: string | null;
+            observed_at: string;
+            snapshot_id: string;
+            traversal_exhausted: boolean;
+            version: string;
+        };
         SourceCapabilities: {
+            author_metadata: boolean;
             browse: boolean;
             incremental: boolean;
+            literal_tags: boolean;
             media: boolean;
             metadata: boolean;
             post_order: boolean;
@@ -6005,6 +6647,7 @@ export interface components {
             raw_metadata: boolean;
             relink: boolean;
             stored_dimensions: boolean;
+            work_members: boolean;
         };
         SourceDescriptor: {
             backend_id: string;
@@ -6052,6 +6695,13 @@ export interface components {
             sources: components["schemas"]["SourceRequirementStatus"][];
             supported: boolean;
         };
+        SourceWorkDetail: {
+            manifest?: unknown;
+            manifest_state: string;
+            observation?: unknown;
+            version: string;
+            work_id: string;
+        };
         Sources: {
             items: components["schemas"]["Source"][];
         };
@@ -6089,6 +6739,31 @@ export interface components {
         };
         UpdateLakes: {
             items: components["schemas"]["UpdateLake"][];
+        };
+        WorkMediaItem: {
+            availability: string;
+            bindings: components["schemas"]["MediaBinding"][];
+            /** Format: int32 */
+            height?: number | null;
+            kind: string;
+            media_id: string;
+            /** Format: int32 */
+            ordinal: number;
+            slot_key: string;
+            source_variant: string;
+            /** Format: int32 */
+            width?: number | null;
+            work_id: string;
+        };
+        WorkMediaPage: {
+            context_id?: string | null;
+            items: components["schemas"]["WorkMediaItem"][];
+            manifest_id?: string | null;
+            manifest_state: string;
+            next_cursor?: string | null;
+            observed_at?: string | null;
+            version: string;
+            work_id: string;
         };
     };
     responses: never;
@@ -10374,6 +11049,64 @@ export interface operations {
             };
         };
     };
+    source_author: {
+        parameters: {
+            query?: {
+                version?: string;
+                cursor?: string;
+                limit?: number;
+                manifest_id?: string;
+                recipe_id?: string;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+                source_id: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceAuthorDetail"];
+                };
+            };
+        };
+    };
+    source_author_works: {
+        parameters: {
+            query?: {
+                version?: string;
+                cursor?: string;
+                limit?: number;
+                manifest_id?: string;
+                recipe_id?: string;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+                source_id: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceAuthorWorks"];
+                };
+            };
+        };
+    };
     fields: {
         parameters: {
             query?: never;
@@ -10440,6 +11173,64 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SourceRelinked"];
+                };
+            };
+        };
+    };
+    source_work: {
+        parameters: {
+            query?: {
+                version?: string;
+                cursor?: string;
+                limit?: number;
+                manifest_id?: string;
+                recipe_id?: string;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+                source_id: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SourceWorkDetail"];
+                };
+            };
+        };
+    };
+    source_work_media: {
+        parameters: {
+            query?: {
+                version?: string;
+                cursor?: string;
+                limit?: number;
+                manifest_id?: string;
+                recipe_id?: string;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+                source_id: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkMediaPage"];
                 };
             };
         };
@@ -10784,6 +11575,392 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SourceRegistrations"];
+                };
+            };
+        };
+    };
+    collections_accounts: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionAccounts"];
+                };
+            };
+        };
+    };
+    collections_save_account: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveCollectionAccount"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionAccount"];
+                };
+            };
+        };
+    };
+    collections_clear_account: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CollectionRevisionCommand"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionAccount"];
+                };
+            };
+        };
+    };
+    collections_probe_account: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CollectionRevisionCommand"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionAccountProbe"];
+                };
+            };
+        };
+    };
+    collections_capabilities: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionCapabilities"];
+                };
+            };
+        };
+    };
+    collections_jobs: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+                library_id?: string;
+                state?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionJobs"];
+                };
+            };
+        };
+    };
+    collections_create_job: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateCollectionJob"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionJobResult"];
+                };
+            };
+        };
+    };
+    collections_preview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CollectionJobDefinition"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionPreview"];
+                };
+            };
+        };
+    };
+    collections_job: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionJob"];
+                };
+            };
+        };
+    };
+    collections_action: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CollectionJobAction"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionJobResult"];
+                };
+            };
+        };
+    };
+    collections_coverage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionCoverage"];
+                };
+            };
+        };
+    };
+    collections_tasks: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+                kind?: string;
+                state?: string;
+                reason?: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionTasks"];
+                };
+            };
+        };
+    };
+    collections_lakes: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionLakes"];
+                };
+            };
+        };
+    };
+    collections_create_lake: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateCollectionLake"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionLake"];
+                };
+            };
+        };
+    };
+    collections_pipeline: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionPipelineSettings"];
+                };
+            };
+        };
+    };
+    collections_save_pipeline: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveCollectionPipeline"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionPipelineSettings"];
+                };
+            };
+        };
+    };
+    collections_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionServiceStatus"];
                 };
             };
         };

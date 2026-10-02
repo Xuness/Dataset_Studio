@@ -2,7 +2,27 @@ use super::*;
 use rusqlite::types::Value;
 use studio_application::ReadCancellation;
 
-fn field(field: &str) -> Result<&'static str> {
+fn field(field: &str, version: u32) -> Result<&'static str> {
+    if version == 3 {
+        return Ok(match field {
+            "asset.id" => "o.sha256",
+            "stored.bytes" => "o.length",
+            "stored.extension" => "o.stored_ext",
+            "stored.width" => "o.stored_width",
+            "stored.height" => "o.stored_height",
+            "work.id" => "p.work_id",
+            "author.id" => "p.author_id",
+            "source.width" => "m.width",
+            "source.height" => "m.height",
+            "tags" => "p.observation_id",
+            "pixiv.x_restrict" => "json_extract(p.source_fields_json,'$.pixiv.x_restrict')",
+            "pixiv.ai_type" => "json_extract(p.source_fields_json,'$.pixiv.ai_type')",
+            "pixiv.bookmark_count" => "json_extract(p.source_fields_json,'$.pixiv.bookmark_count')",
+            "pixiv.view_count" => "json_extract(p.source_fields_json,'$.pixiv.view_count')",
+            "pixiv.like_count" => "json_extract(p.source_fields_json,'$.pixiv.like_count')",
+            _ => return Err(Error::new("QUERY_UNSUPPORTED", "媒体湖不支持该字段")),
+        });
+    }
     Ok(match field {
         "asset.id" => "o.sha256",
         "stored.bytes" => "o.length",
@@ -237,7 +257,7 @@ impl Snapshot {
         let mut positives = Vec::new();
         let mut impossible = false;
         for condition in &spec.conditions {
-            let column = field(&condition.field)?;
+            let column = field(&condition.field, self.pointer.schema_version)?;
             use QueryOperator::*;
             let sql = match condition.operator {
                 IsMissing => format!("{column} IS NULL"),
@@ -354,6 +374,16 @@ impl Snapshot {
         let seed = seed
             .map(|v| format!(" AND p.row_id IN ({v})"))
             .unwrap_or_default();
+        if self.pointer.schema_version == 3 {
+            return match spec.observation_rule {
+                ObservationRule::CurrentPost => format!(
+                    "SELECT a.sha256 FROM current_works cw JOIN visible_works p ON p.observation_id=cw.observation_id JOIN visible_media m ON m.manifest_id=cw.manifest_id JOIN current_media_assets ma ON ma.media_id=m.media_id JOIN visible_assets a ON a.asset_id=ma.asset_id WHERE ({predicate}){asset}{seed}"
+                ),
+                ObservationRule::AnyObservation => format!(
+                    "SELECT a.sha256 FROM visible_assets a JOIN visible_media m ON m.media_id=a.media_id JOIN visible_manifests mf ON mf.manifest_id=m.manifest_id JOIN visible_works p ON p.observation_id=mf.detail_observation_id WHERE ({predicate}){asset}{seed}"
+                ),
+            };
+        }
         match spec.observation_rule {
             ObservationRule::CurrentPost => format!(
                 "SELECT a.sha256 FROM current_posts cp JOIN visible_assets a ON a.asset_id=cp.asset_id JOIN visible_observations p ON p.row_id=cp.row_id WHERE ({predicate}){asset}{seed}"

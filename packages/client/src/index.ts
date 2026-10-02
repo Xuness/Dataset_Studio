@@ -1,5 +1,6 @@
 import { SourceClient } from "./sources.js";
 import { LakeUpdateClient } from "./lakeUpdates.js";
+import { SourceCollectionClient } from "./sourceCollections.js";
 export { sourceSupports } from "./sources.js";
 export { commonQueryFields } from "./queryFields.js";
 import type {
@@ -87,6 +88,9 @@ function metadataQuery(options: MetadataOptions) {
   return query;
 }
 export class StudioClient {
+  readonly sourceCollections = new SourceCollectionClient(
+    <T>(path: string, init?: RequestInit) => this.request<T>(path, init),
+  );
   readonly lakeUpdates = new LakeUpdateClient(
     <T>(path: string, init?: RequestInit) => this.request<T>(path, init),
   );

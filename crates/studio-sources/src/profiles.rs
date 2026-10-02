@@ -8,7 +8,13 @@ pub struct SiteProfile {
     pub normalizer: Option<&'static str>,
     pub absent_fields: &'static [&'static str],
 }
-pub const SITES: [SiteProfile; 3] = [
+pub const SITES: [SiteProfile; 4] = [
+    SiteProfile {
+        kind: "pixiv",
+        name: "Pixiv",
+        normalizer: Some("pixiv-web-v1"),
+        absent_fields: &[],
+    },
     SiteProfile {
         kind: "danbooru",
         name: "Danbooru",
@@ -78,13 +84,22 @@ pub fn descriptor(kind: &str) -> Result<SourceDescriptor> {
     }
     let profile =
         site(kind).ok_or_else(|| Error::new("SOURCE_FORMAT_UNSUPPORTED", "未注册的数据源类型"))?;
-    let mut projections = vec!["origin_width_v1".into(), "origin_groups_v1".into()];
+    let mut projections = if kind == "pixiv" {
+        vec![]
+    } else {
+        vec!["origin_width_v1".into(), "origin_groups_v1".into()]
+    };
     if profile.kind == "danbooru" {
         projections.extend(["danbooru_ranking_v1".into(), "danbooru_ranking_v2".into()]);
     }
     Ok(SourceDescriptor {
         version: 1,
-        backend_id: "canonical_lake_v1".into(),
+        backend_id: if kind == "pixiv" {
+            "canonical_media_v2"
+        } else {
+            "canonical_lake_v1"
+        }
+        .into(),
         display_name: profile.name.into(),
         site_id: Some(kind.into()),
         semantics_version: profile.normalizer.unwrap_or("danbooru-v1").into(),
@@ -93,11 +108,14 @@ pub fn descriptor(kind: &str) -> Result<SourceDescriptor> {
             media: true,
             metadata: true,
             query: true,
-            post_order: true,
+            post_order: kind != "pixiv",
             relink: true,
             raw_metadata: true,
             incremental: true,
             stored_dimensions: profile.normalizer.is_some(),
+            work_members: kind == "pixiv",
+            author_metadata: kind == "pixiv",
+            literal_tags: kind == "pixiv",
         },
         projections,
     })
@@ -188,6 +206,21 @@ pub fn detected_site(root: &std::path::Path) -> Result<Option<String>> {
     type Cache = HashMap<std::path::PathBuf, (u64, SystemTime, String)>;
     static CACHE: OnceLock<Mutex<Cache>> = OnceLock::new();
     let root = root.canonicalize().map_err(Error::io)?;
+    let library_path = root.join("library.json");
+    if library_path.metadata().is_ok_and(|m| m.len() <= 16384) {
+        let library: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&library_path).map_err(Error::io)?)
+                .map_err(Error::io)?;
+        if library["format_version"] == 2 {
+            if library["site"] != "pixiv" || library["schema_set"] != "canonical-media-v2" {
+                return Err(Error::new(
+                    "SOURCE_FORMAT_UNSUPPORTED",
+                    "不支持的数据湖来源或事实 schema",
+                ));
+            }
+            return Ok(Some("pixiv".into()));
+        }
+    }
     let path = root.join("source_manifests/hf-conversion-plan.json");
     let meta = match path.metadata() {
         Ok(meta) => meta,

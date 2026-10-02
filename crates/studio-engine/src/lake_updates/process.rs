@@ -25,6 +25,15 @@ pub(super) fn reply(bytes: &[u8]) -> Result<Value> {
             "SOURCE_ID_MISMATCH" => "SOURCE_ID_MISMATCH",
             "SOURCE_CHANGED" => "SOURCE_CHANGED",
             "SOURCE_LOCATION_CONFLICT" => "SOURCE_LOCATION_CONFLICT",
+            "COLLECTION_IDEMPOTENCY_CONFLICT" => "COLLECTION_IDEMPOTENCY_CONFLICT",
+            "COLLECTION_EXECUTION_ACTIVE" => "COLLECTION_EXECUTION_ACTIVE",
+            "COLLECTION_SCOPE_CHANGED" => "COLLECTION_SCOPE_CHANGED",
+            "COLLECTION_PROTOCOL" => "COLLECTION_PROTOCOL",
+            "COLLECTION_FORMAT_UNSUPPORTED" => "COLLECTION_FORMAT_UNSUPPORTED",
+            "COLLECTION_POLICY_UNSUPPORTED" => "COLLECTION_POLICY_UNSUPPORTED",
+            "COLLECTION_CREDENTIAL_REQUIRED" => "COLLECTION_CREDENTIAL_REQUIRED",
+            "COLLECTION_REMOTE_UNAVAILABLE" => "COLLECTION_REMOTE_UNAVAILABLE",
+            "COLLECTION_LIMIT" => "COLLECTION_LIMIT",
             "UPDATE_CONFLICT" => "UPDATE_CONFLICT",
             "UPDATE_PROTOCOL" => "UPDATE_PROTOCOL",
             "UPDATE_UNSUPPORTED" => "UPDATE_UNSUPPORTED",
@@ -52,7 +61,16 @@ pub(super) fn handshake(bytes: &[u8]) -> Result<()> {
             "运行环境握手失败；请检查依赖、状态目录和运行器版本",
         )
     })?;
-    if value["worker_version"] != "0.2.0" || value["runtime_check"] != 1 {
+    if value["worker_version"] != "0.2.0"
+        || value["runtime_check"] != 1
+        || value["features"]["collections"] != 1
+        || !value["archive_versions"]
+            .as_array()
+            .is_some_and(|v| v.contains(&json!(2)))
+        || !value["online_versions"]
+            .as_array()
+            .is_some_and(|v| v.contains(&json!(3)))
+    {
         return Err(Error::new("UPDATE_PROTOCOL", "运行器版本不兼容"));
     }
     Ok(())

@@ -41,12 +41,20 @@ class Resources:
         self.encode_jobs = self.decode_bytes = 0
         self.download_jobs = {}
         self.bandwidth_next = 0.0
+        self.source_sites = {}
 
     def configure(self, config):
         with self.condition:
             if config["download_mib_per_second"] != self.config["download_mib_per_second"]:
                 self.bandwidth_next = 0.0
-            self.config = config
+            self.config = {**config, "sites": {**config["sites"], **self.source_sites}}
+            self.condition.notify_all()
+
+    def configure_source(self, site, value):
+        """Collectors share all device/memory limits; only site request quotas are separate."""
+        with self.condition:
+            self.source_sites[site] = copy.deepcopy(value)
+            self.config = {**self.config, "sites": {**self.config["sites"], **self.source_sites}}
             self.condition.notify_all()
 
     def try_download(self, site):

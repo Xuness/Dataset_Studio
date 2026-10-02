@@ -51,8 +51,12 @@ class Runner:
         self.settings_lock = threading.Lock()
         self.settings_revision = -1
         self.settings_checked = 0.0
+        self.slice_context = threading.local()
         self.injected_sites = set(self.sites)
         self.refresh_settings(force=True)
+        from ..collections.runner import Runner as CollectionRunner
+
+        self.collections = CollectionRunner(state, resources=self.resources, stop=self.stop)
 
     def refresh_settings(self, force=False):
         with self.settings_lock:
@@ -98,6 +102,15 @@ class Runner:
             self.cleanup(identity)
         return self.state.job(identity)
 
+    def run_slice(self, identity):
+        """Daemon fairness only; explicit legacy CLI runs retain their previous semantics."""
+        duration = self.collections.service.pipeline()["value"]["time_slice_seconds"]
+        self.slice_context.value = {"deadline": time.monotonic() + duration, "yielded": False}
+        try:
+            return self.run(identity)
+        finally:
+            del self.slice_context.value
+
     def cleanup(self, identity):
         cleanup.run(self.state, identity, self.resources)
 
@@ -114,7 +127,7 @@ class Runner:
             if current["state"] in {"paused", "cancelled"}:
                 return current
             if error.code == "CANCELLED":
-                state = "queued" if self.stop.is_set() else "paused"
+                state = "queued" if self.stop.is_set() or getattr(self.slice_context, "value", {}).get("yielded") else "paused"
             elif error.code == "UPDATE_CREDENTIAL_REQUIRED":
                 state = "waiting_credentials"
             elif error.code == "UPDATE_SPACE":
@@ -196,10 +209,14 @@ class Runner:
                     )
         last_check, was_cancelled = 0.0, False
         control_lock = threading.Lock()
+        slice_info = getattr(self.slice_context, "value", None)
 
         def cancelled():
             nonlocal last_check, was_cancelled
             if self.stop.is_set():
+                return True
+            if slice_info is not None and time.monotonic() >= slice_info["deadline"]:
+                slice_info["yielded"] = True
                 return True
             with control_lock:
                 if time.monotonic() - last_check >= 0.1:
@@ -720,13 +737,16 @@ class Runner:
         while not self.stop.is_set():
             self.refresh_settings()
             self.state.tick_schedules()
-            for lake, (future, identity, execution) in list(active.items()):
+            for lake, (future, identity, execution, family) in list(active.items()):
                 if future.done():
                     del active[lake]
                     try:
                         future.result()
                     except Exception:
-                        dispatch.failed(self.state, identity, execution)
+                        if family == "collection":
+                            self.collections.update_state(identity, "waiting_retry", "COLLECTION_EXECUTOR_FAILED", retry=60)
+                        else:
+                            dispatch.failed(self.state, identity, execution)
             if cleaning is not None and cleaning[0].done():
                 future, identity, _ = cleaning
                 cleaning = None
@@ -744,7 +764,8 @@ class Runner:
                 self.state, excluded, self.resources.config["active_lakes"] - len(active)
             ):
                 dispatch.submitted(self.state, job["lake_id"])
-                active[job["lake_id"]] = (pool.submit(self.run, job["id"]), job["id"], job["execution"])
+                execute = self.collections.run if job["family"] == "collection" else self.run_slice
+                active[job["lake_id"]] = (pool.submit(execute, job["id"]), job["id"], job["execution"], job["family"])
             atomic_json(
                 self.state.root / "heartbeat.json",
                 {

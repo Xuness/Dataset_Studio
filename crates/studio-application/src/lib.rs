@@ -4,6 +4,7 @@ pub mod aesthetic;
 pub mod aesthetic_analysis;
 pub mod lake_updates;
 pub mod llm;
+pub mod source_collections;
 mod sources;
 pub use sources::*;
 mod tools;
@@ -69,6 +70,17 @@ pub struct Media {
 
 /// Metadata inspection is independent of project selection and task inputs.
 pub trait MetadataAdapter: Send + Sync {
+    fn source_relation(
+        &self,
+        _source: &Source,
+        _request: SourceRelationRequest,
+        _context: &SourceReadContext,
+    ) -> Result<serde_json::Value> {
+        Err(Error::new(
+            "METADATA_UNSUPPORTED",
+            "来源不支持作品或作者关联读取",
+        ))
+    }
     fn metadata_context(
         &self,
         source: &Source,

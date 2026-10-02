@@ -5,6 +5,7 @@ pub mod profiles;
 mod registry;
 pub use registry::registry;
 mod duckdb;
+mod media_metadata;
 mod metadata;
 pub use metadata::MetadataReader;
 mod ranking;
