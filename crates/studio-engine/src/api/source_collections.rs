@@ -95,6 +95,21 @@ pub(super) async fn save_account(
     }
     invoke(s, Op::AccountSave, value).await
 }
+#[utoipa::path(post,path="/v1/source-collections/accounts/{id}/authenticate",params(("id"=String,Path)),request_body=SaveCollectionAccount,responses((status=200,body=CollectionAccountProbe)),operation_id="collections_authenticate_account")]
+pub(super) async fn authenticate_account(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+    Body(body): Body<SaveCollectionAccount>,
+) -> ApiResult<CollectionAccountProbe> {
+    if id != body.account_id || !matches!(body.mode, CollectionAccountMode::Session) {
+        return Err(domain::Error::invalid("请使用相同身份的 Pixiv 登录会话").into());
+    }
+    let value = json!(body);
+    if serde_json::to_vec(&value).map_err(domain::Error::io)?.len() > 65536 {
+        return Err(domain::Error::new("COLLECTION_LIMIT", "凭据请求超过 64 KiB").into());
+    }
+    invoke(s, Op::AccountAuthenticate, value).await
+}
 #[utoipa::path(post,path="/v1/source-collections/accounts/{id}/probe",params(("id"=String,Path)),request_body=CollectionRevisionCommand,responses((status=200,body=CollectionAccountProbe)),operation_id="collections_probe_account")]
 pub(super) async fn probe_account(
     State(s): State<AppState>,
@@ -296,6 +311,7 @@ pub(super) fn routes() -> axum::Router<AppState> {
         .route("/lakes/register", post(register_lake))
         .route("/accounts", get(accounts))
         .route("/accounts/{id}", axum::routing::put(save_account))
+        .route("/accounts/{id}/authenticate", post(authenticate_account))
         .route("/accounts/{id}/probe", post(probe_account))
         .route("/accounts/{id}/clear", post(clear_account))
         .route("/jobs/preview", post(preview))

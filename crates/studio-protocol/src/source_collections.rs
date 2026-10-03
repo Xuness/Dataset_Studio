@@ -132,7 +132,7 @@ pub struct CollectionLake {
     pub collector: String,
     pub state: String,
 }
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CollectionCookie {
     pub name: String,
@@ -143,7 +143,7 @@ pub struct CollectionCookie {
     pub http_only: bool,
     pub expires_unix: Option<u64>,
 }
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SaveCollectionAccount {
     pub request_key: String,
@@ -160,7 +160,7 @@ pub struct CollectionRevisionCommand {
     pub request_key: String,
     pub expected_revision: u64,
 }
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Serialize, Deserialize, ToSchema)]
 pub struct CollectionAccount {
     pub id: String,
     pub site: String,
@@ -172,7 +172,7 @@ pub struct CollectionAccount {
     pub bound_user_id: Option<String>,
     pub last_probe_at: Option<String>,
 }
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Serialize, Deserialize, ToSchema)]
 pub struct CollectionVisibility {
     pub context_id: String,
     pub observed_at: String,
@@ -182,10 +182,50 @@ pub struct CollectionVisibility {
     pub ai_display: String,
     pub coverage_verified: bool,
 }
-#[derive(Serialize, Deserialize, ToSchema)]
+#[derive(Clone, Serialize, Deserialize, ToSchema)]
 pub struct CollectionAccountProbe {
     pub account: CollectionAccount,
     pub visibility: CollectionVisibility,
+}
+
+/// Native login bridge: no Cookie or browser profile is exposed to the UI.
+#[derive(Clone, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct StartCollectionLogin {
+    pub request_key: String,
+    pub account_id: String,
+    pub expected_revision: Option<u64>,
+    pub label: String,
+}
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CollectionLoginPhase {
+    Waiting,
+    Verifying,
+    Unconfirmed,
+    Succeeded,
+    Cancelled,
+    Expired,
+}
+#[derive(Clone, Serialize, Deserialize, ToSchema)]
+pub struct CollectionLoginError {
+    pub code: String,
+    pub message: String,
+}
+#[derive(Clone, Serialize, Deserialize, ToSchema)]
+pub struct CollectionLoginSession {
+    pub id: String,
+    pub account_id: String,
+    pub label: String,
+    pub phase: CollectionLoginPhase,
+    pub window_open: bool,
+    pub result: Option<CollectionAccountProbe>,
+    pub error: Option<CollectionLoginError>,
+}
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct CollectionLoginStatus {
+    pub available: bool,
+    pub session: Option<CollectionLoginSession>,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct CollectionIssue {

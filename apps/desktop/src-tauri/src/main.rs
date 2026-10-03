@@ -7,6 +7,7 @@ use std::{
 };
 use studio_protocol::{API_VERSION, EngineConnection, Health};
 use tauri::Manager;
+mod pixiv_login;
 struct Host {
     data_dir: PathBuf,
     lock: Arc<tokio::sync::Mutex<()>>,
@@ -30,8 +31,7 @@ async fn live(path: &std::path::Path) -> Option<EngineConnection> {
     (health.api_version == API_VERSION && health.instance_id == connection.instance_id)
         .then_some(connection)
 }
-#[tauri::command]
-async fn engine_connection(host: tauri::State<'_, Host>) -> Result<EngineConnection, String> {
+async fn connect_owned_engine(host: &Host) -> Result<EngineConnection, String> {
     let _guard = host.lock.lock().await;
     let discovery = host.data_dir.join("engine.json");
     if let Some(connection) = live(&discovery).await {
@@ -95,6 +95,19 @@ async fn engine_connection(host: tauri::State<'_, Host>) -> Result<EngineConnect
     }
     Err("本机引擎连接超时。已有任务与项目状态保存在磁盘中，可重试连接。".into())
 }
+pub(crate) async fn owned_engine_connection(
+    app: &tauri::AppHandle,
+) -> Result<EngineConnection, String> {
+    connect_owned_engine(&app.state::<Host>()).await
+}
+#[tauri::command]
+async fn engine_connection(
+    window: tauri::WebviewWindow,
+    host: tauri::State<'_, Host>,
+) -> Result<EngineConnection, String> {
+    pixiv_login::require_main(&window).map_err(|e| e.message)?;
+    connect_owned_engine(&host).await
+}
 fn main() {
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _, _| {
@@ -110,13 +123,30 @@ fn main() {
             let data_dir = std::env::var_os("STUDIO_DATA_DIR")
                 .map(PathBuf::from)
                 .unwrap_or(app.path().app_local_data_dir()?);
+            app.manage(pixiv_login::LoginHost::new(data_dir.clone()));
             app.manage(Host {
                 data_dir,
                 lock: Arc::new(tokio::sync::Mutex::new(())),
             });
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![engine_connection])
+        .on_window_event(|window, event| {
+            if matches!(event, tauri::WindowEvent::Destroyed) {
+                if window.label() == "main" {
+                    pixiv_login::close_all(window.app_handle());
+                } else {
+                    pixiv_login::close_children(window.app_handle(), window.label());
+                }
+            }
+        })
+        .invoke_handler(tauri::generate_handler![
+            engine_connection,
+            pixiv_login::pixiv_login_start,
+            pixiv_login::pixiv_login_status,
+            pixiv_login::pixiv_login_show,
+            pixiv_login::pixiv_login_finish,
+            pixiv_login::pixiv_login_cancel
+        ])
         .run(tauri::generate_context!())
         .expect("桌面宿主启动失败");
 }

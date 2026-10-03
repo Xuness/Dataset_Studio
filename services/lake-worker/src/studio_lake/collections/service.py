@@ -373,6 +373,8 @@ class Service:
             return self.registry("accounts", args)
         if command == "account_save":
             return self.accounts.save(args)
+        if command == "account_authenticate":
+            return self.accounts.authenticate(args)
         if command in {"account_clear", "account_probe"}:
             args = dict(args)
             identity = args.pop("id")

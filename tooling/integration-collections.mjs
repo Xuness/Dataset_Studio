@@ -239,6 +239,23 @@ try {
     ],
   });
   assert.equal(account.state, "unverified");
+  await assert.rejects(
+    client.sourceCollections.authenticateAccount({
+      account_id: accountId,
+      request_key: crypto.randomUUID(),
+      expected_revision: account.revision,
+      mode: "session",
+      label: "rejected browser candidate",
+      cookies: [],
+    }),
+    (e) => e.code === "INVALID_INPUT",
+  );
+  assert.equal(
+    (await client.sourceCollections.accounts()).items.find(
+      (a) => a.id === accountId,
+    ).revision,
+    account.revision,
+  );
   const accountsFirst = await client.sourceCollections.accounts({ limit: 1 });
   assert.ok(accountsFirst.next_cursor);
   const accountsSecond = await client.sourceCollections.accounts({

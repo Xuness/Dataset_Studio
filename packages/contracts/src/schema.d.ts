@@ -2863,6 +2863,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/source-collections/accounts/{id}/authenticate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["collections_authenticate_account"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/source-collections/accounts/{id}/clear": {
         parameters: {
             query?: never;
@@ -4297,6 +4313,25 @@ export interface components {
         CollectionLakes: {
             items: components["schemas"]["CollectionLake"][];
             next_cursor?: string | null;
+        };
+        CollectionLoginError: {
+            code: string;
+            message: string;
+        };
+        /** @enum {string} */
+        CollectionLoginPhase: "waiting" | "verifying" | "unconfirmed" | "succeeded" | "cancelled" | "expired";
+        CollectionLoginSession: {
+            account_id: string;
+            error?: null | components["schemas"]["CollectionLoginError"];
+            id: string;
+            label: string;
+            phase: components["schemas"]["CollectionLoginPhase"];
+            result?: null | components["schemas"]["CollectionAccountProbe"];
+            window_open: boolean;
+        };
+        CollectionLoginStatus: {
+            available: boolean;
+            session?: null | components["schemas"]["CollectionLoginSession"];
         };
         CollectionMediaPlan: {
             image_policy: components["schemas"]["LakeImagePolicy"];
@@ -6917,6 +6952,14 @@ export interface components {
         };
         Sources: {
             items: components["schemas"]["Source"][];
+        };
+        /** @description Native login bridge: no Cookie or browser profile is exposed to the UI. */
+        StartCollectionLogin: {
+            account_id: string;
+            /** Format: int64 */
+            expected_revision?: number | null;
+            label: string;
+            request_key: string;
         };
         SubmitJob: {
             /** Format: int64 */
@@ -11835,6 +11878,31 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CollectionAccount"];
+                };
+            };
+        };
+    };
+    collections_authenticate_account: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveCollectionAccount"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionAccountProbe"];
                 };
             };
         };

@@ -1570,7 +1570,7 @@ async fn shutdown(State(s): State<AppState>) -> Json<OkResponse> {
         management::reveal,
         lake_updates::status, lake_updates::configure, lake_updates::capabilities, lake_updates::lakes,
         source_collections::status, source_collections::capabilities, source_collections::lakes, source_collections::create_lake,
-        source_collections::accounts, source_collections::save_account, source_collections::probe_account, source_collections::clear_account,
+        source_collections::accounts, source_collections::save_account, source_collections::authenticate_account, source_collections::probe_account, source_collections::clear_account,
         source_collections::preview, source_collections::create, source_collections::jobs, source_collections::job,
         source_collections::tasks, source_collections::coverage, source_collections::action, source_collections::pipeline, source_collections::save_pipeline,
         source_collections::work, source_collections::work_media, source_collections::author, source_collections::author_works,
@@ -1586,6 +1586,9 @@ async fn shutdown(State(s): State<AppState>) -> Json<OkResponse> {
         lake_inputs::create, lake_inputs::list, lake_inputs::action
     ),
     components(schemas(
+        StartCollectionLogin,
+        CollectionLoginStatus,
+        CollectionLoginError,
         EngineConnection,
         ApiError,
         ProjectEvent,

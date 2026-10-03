@@ -8,7 +8,7 @@
 2. 在“新建更新”选择 Pixiv，填写作者或作品 ID／链接。默认公开访问，凭据可留空；可设置作品类型、分级、未知标记、关系扩展、保存配方和预算。
 3. “增量复查”控制详情快照有效期和历史文件复用。周期在“本轮预算与周期”启用，随后在同一工作台的“定时计划”管理。
 4. 完成后按作者、作品、原始标签等筛选。图片属性显示作者、作品和页序，提供“筛选同作者／同作品”。Ugoira 保存帧包与时序，以派生首帧进入图片浏览。
-5. 登录会话在“设置 → 数据湖 API → Pixiv”导入 PHPSESSID 或 Cookie JSON，验证后才能用于登录采集。账号身份与显示条件分别记录。公开任务需要换登录范围时，新建复查并选择该会话。
+5. 登录会话在“设置 → 数据湖 API → Pixiv”管理。Windows 桌面版点击“通过浏览器登录”，在官网完成登录后返回点击“已登录，验证并保存”；也可导入 PHPSESSID 或 Cookie JSON 后验证。账号身份与显示条件分别记录。公开任务需要换登录范围时，新建复查并选择该会话。
 
 数据湖位置可在同一设置页重新关联。迁移时按页面流程暂停写入并搬好目录，程序同步项目和采集器的位置；无需重建图片身份。
 
@@ -51,7 +51,7 @@ node tooling/source-collections.mjs run --root '<control>' --input '<run.json>'
 }
 ```
 
-会话账号使用 `mode=session` 并传入结构化 `cookies` 数组，每项含 `name/value/domain/path/secure/http_only/expires_unix`；只接受 Pixiv 域和 HTTPS Cookie。导入后调用 `account_probe`，参数为 `id/request_key/expected_revision`。账号身份、认证状态、目标内容可见性分别报告。浏览器登录助手尚未接入；无需保持浏览器窗口常驻。
+会话账号使用 `mode=session` 并传入结构化 `cookies` 数组，每项含 `name/value/domain/path/secure/http_only/expires_unix`；只接受 Pixiv 域和 HTTPS Cookie。导入后调用 `account_probe`，参数为 `id/request_key/expected_revision`。浏览器助手使用 `account_authenticate`，先确认候选身份再原子保存，失败时保留旧凭据。账号身份、认证状态、目标内容可见性分别报告；无需保持浏览器窗口常驻。生命周期、桌面端口与验证边界见 [0054](../decisions/0054-pixiv-browser-login-assistant.md)。
 
 ## 有限快照任务
 
@@ -107,6 +107,7 @@ node tooling/source-collections.mjs run --root '<control>' --input '<run.json>'
 | `POST .../lakes/register`                                                       | 核验并登记由本控制器管理的已有 Pixiv 湖               |
 | `GET .../accounts`、`PUT .../accounts/{id}`                                     | 分页列账号、导入或更新凭据                            |
 | `POST .../accounts/{id}/probe`、`clear`                                         | 会话探测、清除凭据                                    |
+| `POST .../accounts/{id}/authenticate`                                           | 验证候选会话后原子保存，失败保留原账号状态            |
 | `POST .../jobs/preview`、`POST .../jobs`                                        | 只读规范化预览、幂等创建                              |
 | `GET .../jobs`、`jobs/{id}`、`tasks`、`coverage`                                | 队列、状态、细项和覆盖依据                            |
 | `POST .../jobs/{id}/actions`                                                    | `pause/resume/retry_failed/cancel/replay_publication` |

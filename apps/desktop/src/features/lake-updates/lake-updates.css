@@ -331,3 +331,12 @@
 .collection-api-settings {
   margin: 18px 0;
 }
+.collection-login-assistant {
+  grid-column: 1 / -1;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  background: var(--recessed);
+}
+.collection-login-assistant p {
+  margin: 4px 0 10px;
+}

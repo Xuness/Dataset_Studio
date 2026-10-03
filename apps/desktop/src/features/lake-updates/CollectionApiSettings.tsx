@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { StudioClient } from "@studio/client";
 import type { Schema } from "@studio/contracts";
 import { Button, ErrorDetails } from "@studio/ui";
 import { lakeKey, useLakeRefresh } from "./queries.js";
 import { dateLabel } from "./model.js";
+import { CollectionLogin } from "./CollectionLogin.js";
 
 const accountStates: Record<string, string> = {
   valid: "已验证",
@@ -30,6 +31,18 @@ export function CollectionApiSettings({ client }: { client: StudioClient }) {
   const [pending, setPending] = useState(false),
     [error, setError] = useState<unknown>(null),
     [notice, setNotice] = useState("");
+  const [loginActive, setLoginActive] = useState(false);
+  const savedByBrowser = useCallback(
+    async (account: Schema["CollectionAccount"]) => {
+      setId(account.id);
+      setLabel(account.label);
+      setSecret("");
+      setImported(null);
+      setNotice("登录会话已验证并加密保存，可以在采集任务中选择该会话。");
+      await refresh();
+    },
+    [refresh],
+  );
   const selected = accounts.data?.items.find((a) => a.id === id);
   async function act(run: () => Promise<unknown>, message: string) {
     setPending(true);
@@ -103,6 +116,7 @@ export function CollectionApiSettings({ client }: { client: StudioClient }) {
         <label>
           登录会话
           <select
+            disabled={pending || loginActive}
             aria-label="Pixiv 登录会话"
             value={id}
             onChange={(e) => {
@@ -136,14 +150,24 @@ export function CollectionApiSettings({ client }: { client: StudioClient }) {
         <label>
           名称
           <input
+            disabled={pending || loginActive}
             maxLength={80}
             value={label}
             onChange={(e) => setLabel(e.target.value)}
           />
         </label>
+        <CollectionLogin
+          client={client}
+          account={selected}
+          label={label}
+          disabled={pending}
+          onActive={setLoginActive}
+          onSaved={savedByBrowser}
+        />
         <label>
           PHPSESSID
           <input
+            disabled={pending || loginActive}
             aria-label="Pixiv PHPSESSID"
             type="password"
             autoComplete="new-password"
@@ -158,6 +182,7 @@ export function CollectionApiSettings({ client }: { client: StudioClient }) {
         <label>
           或导入 Pixiv Cookie JSON
           <input
+            disabled={pending || loginActive}
             aria-label="导入 Pixiv Cookie JSON"
             type="file"
             accept=".json,application/json"
@@ -169,7 +194,12 @@ export function CollectionApiSettings({ client }: { client: StudioClient }) {
         </label>
         <div className="lake-actions">
           <Button
-            disabled={pending || !label.trim() || (!secret.trim() && !imported)}
+            disabled={
+              pending ||
+              loginActive ||
+              !label.trim() ||
+              (!secret.trim() && !imported)
+            }
             onClick={() =>
               void act(async () => {
                 const account = await client.sourceCollections.saveAccount({
@@ -202,7 +232,7 @@ export function CollectionApiSettings({ client }: { client: StudioClient }) {
             保存 Pixiv 凭据
           </Button>
           <Button
-            disabled={pending || !selected?.credential_set}
+            disabled={pending || loginActive || !selected?.credential_set}
             onClick={() =>
               void act(async () => {
                 await client.sourceCollections.probeAccount(selected!.id, {
@@ -215,7 +245,7 @@ export function CollectionApiSettings({ client }: { client: StudioClient }) {
             验证 Pixiv 会话
           </Button>
           <Button
-            disabled={pending || !selected?.credential_set}
+            disabled={pending || loginActive || !selected?.credential_set}
             onClick={() =>
               void act(async () => {
                 await client.sourceCollections.clearAccount(selected!.id, {

@@ -64,6 +64,12 @@ export class SourceCollectionClient {
       { method: "POST", body: JSON.stringify(value) },
     );
   }
+  authenticateAccount(value: Schema["SaveCollectionAccount"]) {
+    return this.request<Schema["CollectionAccountProbe"]>(
+      `${base}/accounts/${encodeURIComponent(value.account_id)}/authenticate`,
+      { method: "POST", body: JSON.stringify(value) },
+    );
+  }
   clearAccount(id: string, value: Schema["CollectionRevisionCommand"]) {
     return this.request<Schema["CollectionAccount"]>(
       `${base}/accounts/${encodeURIComponent(id)}/clear`,

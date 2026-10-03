@@ -8197,6 +8197,46 @@
         }
       }
     },
+    "/v1/source-collections/accounts/{id}/authenticate": {
+      "post": {
+        "tags": [
+          "source_collections"
+        ],
+        "operationId": "collections_authenticate_account",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveCollectionAccount"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionAccountProbe"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/source-collections/accounts/{id}/clear": {
       "post": {
         "tags": [
@@ -13429,6 +13469,100 @@
             "type": [
               "string",
               "null"
+            ]
+          }
+        }
+      },
+      "CollectionLoginError": {
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "CollectionLoginPhase": {
+        "type": "string",
+        "enum": [
+          "waiting",
+          "verifying",
+          "unconfirmed",
+          "succeeded",
+          "cancelled",
+          "expired"
+        ]
+      },
+      "CollectionLoginSession": {
+        "type": "object",
+        "required": [
+          "id",
+          "account_id",
+          "label",
+          "phase",
+          "window_open"
+        ],
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "error": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CollectionLoginError"
+              }
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "phase": {
+            "$ref": "#/components/schemas/CollectionLoginPhase"
+          },
+          "result": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CollectionAccountProbe"
+              }
+            ]
+          },
+          "window_open": {
+            "type": "boolean"
+          }
+        }
+      },
+      "CollectionLoginStatus": {
+        "type": "object",
+        "required": [
+          "available"
+        ],
+        "properties": {
+          "available": {
+            "type": "boolean"
+          },
+          "session": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/CollectionLoginSession"
+              }
             ]
           }
         }
@@ -23420,6 +23554,35 @@
             }
           }
         }
+      },
+      "StartCollectionLogin": {
+        "type": "object",
+        "description": "Native login bridge: no Cookie or browser profile is exposed to the UI.",
+        "required": [
+          "request_key",
+          "account_id",
+          "label"
+        ],
+        "properties": {
+          "account_id": {
+            "type": "string"
+          },
+          "expected_revision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "label": {
+            "type": "string"
+          },
+          "request_key": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
       },
       "SubmitJob": {
         "type": "object",

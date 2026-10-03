@@ -22,7 +22,8 @@
     "test:clipboard": "node tooling/cargo-run.mjs build -p studio-desktop --example clipboard_probe && node tooling/smoke-clipboard-ui.mjs",
     "engine:stop": "node tooling/stop-engine.mjs",
     "test:lake": "node tooling/test-lake-worker.mjs",
-    "test:lake-ui": "node tooling/smoke-lake-updates-ui.mjs"
+    "test:lake-ui": "node tooling/smoke-lake-updates-ui.mjs",
+    "test:pixiv-login": "node tooling/cargo-run.mjs build -p studio-desktop --example pixiv_login_probe && node tooling/smoke-pixiv-login.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.0",

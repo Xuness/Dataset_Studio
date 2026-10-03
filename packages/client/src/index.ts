@@ -1,6 +1,8 @@
 import { SourceClient } from "./sources.js";
 import { LakeUpdateClient } from "./lakeUpdates.js";
 import { SourceCollectionClient } from "./sourceCollections.js";
+import type { CollectionLoginAssistant } from "./collectionLogin.js";
+export type { CollectionLoginAssistant } from "./collectionLogin.js";
 export { sourceSupports } from "./sources.js";
 export { commonQueryFields } from "./queryFields.js";
 import type {
@@ -195,7 +197,10 @@ export class StudioClient {
     if (typeof this.sessionTimer === "object" && "unref" in this.sessionTimer)
       this.sessionTimer.unref();
   }
-  constructor(readonly connection: EngineConnection) {
+  constructor(
+    readonly connection: EngineConnection,
+    readonly collectionLogin?: CollectionLoginAssistant,
+  ) {
     validateConnection(connection);
     this.mediaClient = new MediaClient(connection, (path, init) =>
       this.request(path, init),

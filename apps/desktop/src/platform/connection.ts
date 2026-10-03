@@ -1,6 +1,7 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { StudioClient, validateConnection } from "@studio/client";
+import { collectionLogin } from "./collectionLogin.js";
 let previousClient: StudioClient | null = null;
 export async function connectEngine() {
   const raw: unknown = isTauri()
@@ -9,7 +10,7 @@ export async function connectEngine() {
         if (!r.ok) throw new Error("请使用 pnpm dev:web 启动本机引擎与前端。");
         return r.json() as Promise<unknown>;
       });
-  const client = new StudioClient(validateConnection(raw));
+  const client = new StudioClient(validateConnection(raw), collectionLogin);
   await client.health();
   if (previousClient) client.preserveEdits(previousClient);
   previousClient = client;

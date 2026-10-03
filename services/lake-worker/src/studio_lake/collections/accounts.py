@@ -104,6 +104,69 @@ class Accounts:
                 ledger.succeed(db, args["request_key"], identity)
         return self.public(identity)
 
+    def authenticate(self, args, *, client=None):
+        """Probe candidate credentials before atomically replacing the saved account."""
+        model.fields(args, ("request_key", "expected_revision", "account_id", "label", "mode"), ("cookies",))
+        identity = model.identity(args["account_id"])
+        model.choice(args["mode"], ("session",))
+        if not isinstance(args["label"], str) or not 1 <= len(args["label"]) <= 128:
+            model.invalid("Account label must be 1–128 characters")
+        values = cookies(args.get("cookies"))
+        args = {**args, "cookies": values}
+
+        def current(db):
+            row = db.execute("SELECT * FROM collection_accounts WHERE id=?", (identity,)).fetchone()
+            if args["expected_revision"] != (row["revision"] if row else None):
+                raise UpdateError("REVISION_CONFLICT", "Account changed; restart the login assistant")
+            if row and row["mode"] != "session":
+                raise UpdateError("COLLECTION_SCOPE_CHANGED", "Use a new identity for a login session")
+            return dict(row) if row else None
+
+        with self.state.db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            request, _ = ledger.begin(db, "account_authenticate", args["request_key"], args, identity, secret=True)
+            if request["state"] == "succeeded":
+                return dict(account=self.public(identity), visibility=json.loads(request["result_json"]))
+            old = current(db)
+        viewer = old["viewer_key"] if old else str(uuid.uuid4())
+        candidate = dict(id=identity, mode="session", viewer_key=viewer)
+        from ..collectors.pixiv.http import Client
+
+        owned = client is None
+        client = client or Client(self.state.root, candidate, values)
+        try:
+            context = client.probe()
+            if hasattr(client, "cookie_snapshot"):
+                values = cookies(client.cookie_snapshot())
+        finally:
+            if owned:
+                client.close()
+        policy = json.loads(context["policy_json"])
+        observed_user = model.source_id(policy.get("user_id"))
+        if policy.get("login") != "authenticated":
+            raise UpdateError("COLLECTION_CREDENTIAL_REQUIRED", "Pixiv did not confirm an authenticated user")
+        # Rebuild the visibility identity from the confirmed policy and this saved viewer.
+        context = visibility(viewer, login="authenticated", user_id=observed_user, observed_at=context["observed_at"])
+        report = dict(context_id=context["context_id"], observed_at=context["observed_at"],
+                      **{k: v for k, v in json.loads(context["policy_json"]).items() if k != "user_id"}, coverage_verified=context["verified"])
+        with self.state.db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            request, _ = ledger.begin(db, "account_authenticate", args["request_key"], args, identity, secret=True)
+            if request["state"] == "succeeded":
+                return dict(account=self.public(identity), visibility=json.loads(request["result_json"]))
+            latest = current(db)
+            if latest and latest["bound_user_id"] and latest["bound_user_id"] != observed_user:
+                raise UpdateError("COLLECTION_SCOPE_CHANGED", "The browser identifies another Pixiv account; create a new account reference")
+            at = utc()
+            db.execute("""INSERT INTO collection_accounts VALUES(?,'pixiv',?,'session',?,?,?,1,'valid',?,?,?)
+                ON CONFLICT(id) DO UPDATE SET label=excluded.label,secret_blob=excluded.secret_blob,
+                bound_user_id=excluded.bound_user_id,revision=collection_accounts.revision+1,state='valid',
+                last_probe_json=excluded.last_probe_json,updated_at=excluded.updated_at""",
+                       (identity, args["label"], viewer, observed_user, protect(canonical(values).encode(), True),
+                        canonical(context), at, at))
+            ledger.succeed(db, args["request_key"], identity, report)
+        return dict(account=self.public(identity), visibility=report)
+
     def session(self, identity, *, require_valid=True):
         row = self.row(identity)
         if require_valid and row["state"] != "valid":
