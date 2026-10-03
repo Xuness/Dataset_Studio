@@ -27,6 +27,14 @@ try {
   const refs = JSON.parse(
     await readFile(resolve(run, "collections.json"), "utf8"),
   );
+  await promisify(execFile)(
+    lakeWorkerPython(root),
+    [resolve(root, "tooling/multibooru-fixture.py"), resolve(run, "booru")],
+    { windowsHide: true },
+  );
+  const booru = JSON.parse(
+    await readFile(resolve(run, "booru/multibooru.json"), "utf8"),
+  );
   await engine.start();
   const { StudioClient } = await clientFixture(root, resolve(run, "client"));
   const client = new StudioClient(engine.connection);
@@ -61,6 +69,27 @@ try {
     name: "Pixiv fixture",
     media_root: refs.lake.media_root,
     index_root: refs.lake.index_root,
+  });
+  for (const [kind, lake] of Object.entries(booru))
+    await client.sourceAccess.attach(project.id, {
+      kind,
+      name: kind + " fixture",
+      media_root: lake.lake,
+      index_root: lake.lake,
+    });
+  // Reproduce a pre-fix project whose shared preference was overwritten by Pixiv.
+  await client.drafts.save(project.id, "studio.session", "default", {
+    expected_revision: 0,
+    schema_version: 1,
+    value: {
+      order: "asset_key_asc",
+      moduleId: "core.browser",
+      panels: [],
+      scope: { kind: "all" },
+      focusKey: null,
+      view: "grid",
+      position: null,
+    },
   });
   const log = await open(resolve(run, "vite.log"), "a");
   vite = spawn(
@@ -133,6 +162,110 @@ try {
   await expect(page.locator(".asset-grid article").first()).toBeVisible();
   await expect(page.getByLabel("浏览排序", { exact: true })).toHaveValue(
     "asset_key_asc",
+  );
+  const browseOrder = page.getByLabel("浏览排序", { exact: true });
+  const openSource = async (name, order) => {
+    await page
+      .locator(".source-tree-row button.tree-row")
+      .filter({ hasText: name })
+      .click();
+    await expect(browseOrder).toHaveValue(order);
+    await expect(page.locator(".asset-grid article").first()).toBeVisible();
+    await expect(async () =>
+      assert.equal(
+        (await client.drafts.get(project.id, "studio.session")).draft.value
+          .scope.name,
+        name,
+      ),
+    ).toPass();
+  };
+  const persistedOrder = async (field, value) => {
+    await expect(async () =>
+      assert.equal(
+        (await client.drafts.get(project.id, "studio.session")).draft.value[
+          field
+        ],
+        value,
+      ),
+    ).toPass();
+  };
+  await expect(browseOrder.locator('option[value="post_id_desc"]')).toHaveCount(
+    0,
+  );
+  for (const kind of Object.keys(booru))
+    await openSource(kind + " fixture", "post_id_desc");
+  await persistedOrder("booruOrder", "post_id_desc");
+  await browseOrder.selectOption("post_id_asc");
+  await persistedOrder("booruOrder", "post_id_asc");
+  await openSource("Pixiv fixture", "asset_key_asc");
+  await browseOrder.selectOption("asset_key_desc");
+  await persistedOrder("order", "asset_key_desc");
+  await persistedOrder("booruOrder", "post_id_asc");
+  await page.reload();
+  await expect(browseOrder).toHaveValue("asset_key_desc");
+  for (const kind of Object.keys(booru))
+    await openSource(kind + " fixture", "post_id_asc");
+  await page.getByRole("button", { name: "全部项目数据", exact: true }).click();
+  await expect(browseOrder).toHaveValue("asset_key_desc");
+  await expect(browseOrder.locator('option[value="post_id_desc"]')).toHaveCount(
+    0,
+  );
+  await openSource("danbooru fixture", "post_id_asc");
+  await browseOrder.selectOption("asset_key_asc");
+  await persistedOrder("booruOrder", "asset_key_asc");
+  await openSource("Pixiv fixture", "asset_key_desc");
+  await page.reload();
+  await expect(browseOrder).toHaveValue("asset_key_desc");
+  await openSource("danbooru fixture", "asset_key_asc");
+  await browseOrder.selectOption("post_id_desc");
+  await persistedOrder("booruOrder", "post_id_desc");
+  await openSource("Pixiv fixture", "asset_key_desc");
+  await browseOrder.selectOption("asset_key_asc");
+  await persistedOrder("order", "asset_key_asc");
+  await persistedOrder("booruOrder", "post_id_desc");
+  checks.push(
+    "legacy shared identity order recovers Booru ID default; all three Booru lakes retain manual ID/identity choices across Pixiv, mixed browsing and reload",
+  );
+  await page
+    .getByRole("button", { name: "Rating / Tag 筛选", exact: true })
+    .click();
+  await page
+    .getByLabel("包含标签", { exact: true })
+    .fill("missing_fixture_tag");
+  const applyQuickFilter = page.getByRole("button", {
+    name: "应用筛选",
+    exact: true,
+  });
+  await expect(applyQuickFilter).toBeEnabled();
+  const [quickFilterResponse] = await Promise.all([
+    page.waitForResponse(
+      (response) =>
+        /\/query-(views|results)$/.test(response.url()) &&
+        response.request().method() === "POST",
+    ),
+    applyQuickFilter.click(),
+  ]);
+  const quickFilter = await quickFilterResponse.json();
+  assert.equal(quickFilter.spec.order, "asset_key_asc");
+  assert.deepEqual(quickFilter.spec.conditions[0].value.value, [
+    "missing_fixture_tag",
+  ]);
+  await engine.wait(
+    `/v1/projects/${project.id}/query-results/${quickFilter.id}`,
+    (result) => result.state === "ready",
+  );
+  assert.equal(
+    (await client.queries.assets(project.id, quickFilter.id, { limit: 10 }))
+      .page.items.length,
+    0,
+  );
+  await expect(page.locator(".asset-grid article")).toHaveCount(0);
+  await page.getByRole("button", { name: "清除筛选", exact: true }).click();
+  await expect(browseOrder).toHaveValue("asset_key_asc");
+  await expect(page.locator(".asset-grid article").first()).toBeVisible();
+  await persistedOrder("booruOrder", "post_id_desc");
+  checks.push(
+    "Pixiv quick filters use the effective identity order without changing Booru preference",
   );
   await page.locator(".asset-grid .asset-thumb").first().click();
   await page.getByRole("tab", { name: "检查器", exact: true }).click();

@@ -10,6 +10,8 @@
 
 数据湖更新：[工作台](decisions/0039-lake-update-workbench.md)、[内置服务与图片配方](decisions/0040-owned-lake-worker-and-image-recipes.md)、[运行环境与保存策略](../services/lake-worker/README.md)。
 
+数据湖浏览：[Booru 与通用图像排序偏好分离](decisions/0056-booru-browse-order.md)。
+
 更新任务生命周期：[原子命令、按湖调度与取消回收](decisions/0046-update-command-handoff-and-cancel-cleanup.md)、[R2 验收](verification/2026-09-29-astra-r2-update-lifecycle.md)。
 
 更新运行器启动修正：[开发期控制库缺失调度表的 v7 迁移与恢复](verification/2026-09-29-lake-dispatch-migration.md)。

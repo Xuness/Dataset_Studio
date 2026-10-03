@@ -890,6 +890,17 @@ function Studio({
       onSettings={() => setSettingsPage("editing")}
     />
   ) : null;
+  const browserSources = (sources.data?.items ?? []).filter(
+    (source) => view.scope.kind !== "source" || source.id === view.scope.id,
+  );
+  const booruBrowse =
+    browserSources.length > 0 &&
+    browserSources.every((source) => sourceSupports(source, "post_order"));
+  const browserOrder = booruBrowse
+    ? workspace.value.booruOrder
+    : workspace.value.order.startsWith("post_id_")
+      ? "asset_key_asc"
+      : workspace.value.order;
   const moduleContext: ModuleContext = {
     client,
     projectId: currentId,
@@ -897,7 +908,8 @@ function Studio({
     inputOptions: inputs,
     defaultInput: selected > 0 ? "selection" : defaultScope,
     browser: {
-      order: workspace.value.order,
+      order: browserOrder,
+      postOrderAllowed: booruBrowse,
       rankedBrowse: workspace.value.rankedBrowse,
       onRankedBrowse: (rankedBrowse) => {
         if (workspace.editable)
@@ -920,7 +932,11 @@ function Studio({
       },
       onOrder: (order) => {
         if (workspace.editable)
-          workspace.controller?.set((v) => ({ ...v, order, position: null }));
+          workspace.controller?.set((v) => ({
+            ...v,
+            ...(booruBrowse ? { booruOrder: order } : { order }),
+            position: null,
+          }));
       },
       scope: view.scope,
       focus: view.focus,

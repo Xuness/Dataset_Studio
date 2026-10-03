@@ -121,7 +121,7 @@ Rust 测试位于 crates 内，`pnpm test` 同时执行 SDK 检查 [client-found
 
 ## 多站点数据湖
 
-- [smoke-pixiv-ui.mjs](smoke-pixiv-ui.mjs)：Pixiv 合成湖的真实界面验收，复用资料浏览、查询、数据湖任务／计划和 API 设置；不访问远端，不使用真实凭据。
+- [smoke-pixiv-ui.mjs](smoke-pixiv-ui.mjs)：Pixiv 合成湖的真实界面验收，复用资料浏览、查询、数据湖任务／计划和 API 设置；同时验证三种 Booru 与 Pixiv 的排序偏好隔离、旧会话和刷新恢复。不访问远端，不使用真实凭据。
 - `pnpm test:pixiv-login` 构建原生验收宿主并运行 [smoke-pixiv-login.mjs](smoke-pixiv-login.mjs)：真实 WebView2、登录桥接及设置组件，验证私有配置隔离、Cookie 交接、取消、子窗口回收、错误与响应丢失后的幂等确认；网站和验证服务均为本机夹具，不使用真实凭据。单独原生规则测试为 `node tooling/cargo-run.mjs test -p studio-desktop --bin studio-desktop`。
 - 原生宿主构建后，`node tooling/smoke-pixiv-login.mjs --live-login-page` 显式打开 Pixiv 官方登录页，检查邮箱／密码表单并关闭窗口；不会填写密码或提交登录验证。该命令会联网，不属于自动测试，也不证明真实账号登录成功。
 - [validate-pixiv-production.mjs](validate-pixiv-production.mjs)：显式指定正在运行的引擎连接文件、正式两根目录、项目、作者及报告目录，执行公开目录采集、暂停续跑和增量复查。真实网络与归档写入不属于自动测试；同一报告目录禁止并发运行。命令示例见[来源采集](../docs/architecture/source-collections.md)。

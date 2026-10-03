@@ -50,6 +50,7 @@ export type ModuleScopeOption = {
 };
 export type BrowseViewProps = {
   order: QuerySpec["order"];
+  postOrderAllowed?: boolean;
   onOrder: (order: QuerySpec["order"]) => void;
   rankedBrowse: RankedBrowseSettings | null;
   onRankedBrowse: (settings: RankedBrowseSettings) => void;

@@ -30,7 +30,7 @@ import {
   useWorkbenchPanels,
 } from "@studio/ui";
 import type { ModuleContext, BrowseScope, BrowseViewProps } from "@studio/ui";
-import { assetIdentity, sourceSupports } from "@studio/client";
+import { assetIdentity } from "@studio/client";
 import type { StudioClient } from "@studio/client";
 import type {
   Asset,
@@ -48,7 +48,6 @@ import {
 import type { RankingBrowseState } from "./rankingBrowse.js";
 export type Scope = BrowseScope;
 export interface BrowserProps extends BrowseViewProps {
-  postOrderAllowed?: boolean;
   client: StudioClient;
   projectId: string;
   filters?: ReactNode;
@@ -61,13 +60,6 @@ export default function BrowserModule(context: ModuleContext) {
       client={context.client}
       projectId={context.projectId}
       {...context.browser}
-      postOrderAllowed={context.sources
-        .filter(
-          (s) =>
-            context.browser.scope.kind !== "source" ||
-            s.id === context.browser.scope.id,
-        )
-        .every((s) => sourceSupports(s, "post_order"))}
       onOpenQuery={() => context.openPanel("core.query")}
       onRefreshed={(previousId, result) =>
         adoptRefreshedFilter(
@@ -82,13 +74,7 @@ export default function BrowserModule(context: ModuleContext) {
   );
 }
 export function Browser(props: BrowserProps) {
-  const order =
-    props.postOrderAllowed === false && props.order.startsWith("post_id_")
-      ? "asset_key_asc"
-      : props.order;
-  useEffect(() => {
-    if (order !== props.order) props.onOrder(order);
-  }, [order, props.order, props.onOrder]);
+  const { order } = props;
   const ranked = useRankingBrowse(
     props.client,
     props.projectId,
@@ -949,7 +935,9 @@ function BrowserContent({
             title={
               ranked.active
                 ? "排名沿用计算时的评分，名次在各分级内计算"
-                : "同图关联多个帖子时取最小 ID；无帖子 ID 的图像排在末尾"
+                : postOrderAllowed
+                  ? "同图关联多个帖子时取最小 ID；无帖子 ID 的图像排在末尾"
+                  : "按图片内容的 SHA-256 排序"
             }
             value={ranked.active ? "ranking:" + ranked.settings.sort : order}
             onChange={(e) => chooseOrder(e.target.value)}

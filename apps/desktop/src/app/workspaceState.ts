@@ -8,6 +8,7 @@ import type {
 } from "@studio/ui";
 export type WorkspaceState = {
   order: QuerySpec["order"];
+  booruOrder: QuerySpec["order"];
   rankedBrowse: RankedBrowseSettings | null;
   moduleId: string;
   openViews: string[];
@@ -20,7 +21,8 @@ export type WorkspaceState = {
   managementTarget: ObjectTarget | null;
 };
 const initial: WorkspaceState = {
-  order: "post_id_desc",
+  order: "asset_key_asc",
+  booruOrder: "post_id_desc",
   rankedBrowse: null,
   moduleId: "core.browser",
   openViews: ["core.browser", "core.aesthetic"],
@@ -81,16 +83,17 @@ function decode(value: unknown): WorkspaceState | null {
         typeof value.position.cursor !== "string"))
   )
     return null;
-  if (
-    value.order !== undefined &&
-    ![
-      "post_id_asc",
-      "post_id_desc",
-      "asset_key_asc",
-      "asset_key_desc",
-    ].includes(String(value.order))
-  )
-    return null;
+  for (const order of [value.order, value.booruOrder])
+    if (
+      order !== undefined &&
+      ![
+        "post_id_asc",
+        "post_id_desc",
+        "asset_key_asc",
+        "asset_key_desc",
+      ].includes(String(order))
+    )
+      return null;
   const ranked = value.rankedBrowse;
   if (
     ranked != null &&
@@ -130,7 +133,14 @@ function decode(value: unknown): WorkspaceState | null {
       : [...new Set(["core.browser", "core.aesthetic", value.moduleId])],
     moduleId:
       value.moduleId === "core.resources" ? "core.browser" : value.moduleId,
-    order: value.order ?? "post_id_desc",
+    order: value.order ?? initial.order,
+    // Legacy identity order may have been written by the automatic Pixiv
+    // fallback. Keep it for general browsing and initialize Booru separately.
+    booruOrder:
+      value.booruOrder ??
+      (String(value.order).startsWith("post_id_")
+        ? value.order
+        : initial.booruOrder),
     rankedBrowse: ranked ?? null,
     inspectorTab:
       value.inspectorTab === "management" ? "management" : "properties",
