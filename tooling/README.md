@@ -121,6 +121,7 @@ Rust 测试位于 crates 内，`pnpm test` 同时执行 SDK 检查 [client-found
 
 ## 多站点数据湖
 
+- [smoke-multibooru-ui.mjs](smoke-multibooru-ui.mjs)：使用 `multibooru-fixture.py` 或 `integration-multibooru.mjs` 生成的隔离三站湖，验证添加、查询与筛选；同时检查元数据排名在不兼容来源下仍可修改输入与参数、禁止提交，并能切回 Danbooru，覆盖 v1/v2 和草稿刷新恢复。
 - [smoke-pixiv-ui.mjs](smoke-pixiv-ui.mjs)：Pixiv 合成湖的真实界面验收，复用资料浏览、查询、数据湖任务／计划和 API 设置；同时验证三种 Booru 与 Pixiv 的排序偏好隔离、旧会话和刷新恢复。不访问远端，不使用真实凭据。
 - `pnpm test:pixiv-login` 构建原生验收宿主并运行 [smoke-pixiv-login.mjs](smoke-pixiv-login.mjs)：真实 WebView2、登录桥接及设置组件，验证私有配置隔离、Cookie 交接、取消、子窗口回收、错误与响应丢失后的幂等确认；网站和验证服务均为本机夹具，不使用真实凭据。单独原生规则测试为 `node tooling/cargo-run.mjs test -p studio-desktop --bin studio-desktop`。
 - 原生宿主构建后，`node tooling/smoke-pixiv-login.mjs --live-login-page` 显式打开 Pixiv 官方登录页，检查邮箱／密码表单并关闭窗口；不会填写密码或提交登录验证。该命令会联网，不属于自动测试，也不证明真实账号登录成功。

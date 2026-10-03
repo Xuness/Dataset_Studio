@@ -446,6 +446,7 @@ export default function RankingPanel(context: ModuleContext) {
     if (
       submissionLock.current ||
       active ||
+      !hasDanbooru ||
       !d.scope ||
       stale ||
       !draft.editable ||
@@ -911,7 +912,8 @@ export default function RankingPanel(context: ModuleContext) {
                     .filter((s) => !s.supported)
                     .map((s) => `${s.name}：${s.reason}`)
                     .join("；") || "请选择支持此排名投影的输入范围。"}
-                  此工具使用 Danbooru 数据湖，或切换到基础工具。
+                  <br />
+                  请在下方“输入范围”选择 Danbooru 数据湖，或切换到基础工具。
                 </div>
               )}
               {issue && <p className="ranking-notice">{issue}</p>}
@@ -937,7 +939,7 @@ export default function RankingPanel(context: ModuleContext) {
                 options={options}
                 scopeId={d.scopeId}
                 onScope={changeScope}
-                disabled={!draft.editable || pending || active || !hasDanbooru}
+                disabled={!draft.editable || pending || active}
                 onSubmit={(e) => {
                   e.preventDefault();
                   void submit();

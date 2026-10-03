@@ -1,4 +1,4 @@
-import { openEditor } from "./ui-workbench.mjs";
+import { openEditor, openWindowPanel } from "./ui-workbench.mjs";
 // Real React UI against an isolated fixture engine. No user browser profile is used.
 import assert from "node:assert/strict";
 import { spawn, execFile } from "node:child_process";
@@ -449,7 +449,7 @@ try {
   await page.setViewportSize({ width: 2560, height: 1440 });
   await expect(page.locator(".ranking-table tbody tr")).toHaveCount(48);
   await expect(page.locator(".ranking-loading")).toHaveCount(0);
-  await page.getByTitle("属性面板", { exact: true }).click();
+  await openWindowPanel(page, "属性面板");
   await expect(page.locator(".ranking-inspector")).toHaveCount(0);
   await page.locator(".ranking-table tbody tr").nth(1).click();
   await expect(

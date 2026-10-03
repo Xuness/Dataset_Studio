@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium, expect } from "@playwright/test";
 import { EngineFixture, sleep, within } from "./engine-fixture.mjs";
+import { openEditor } from "./ui-workbench.mjs";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const fixture = resolve(process.argv[2] ?? "");
@@ -20,6 +21,7 @@ let browser, vite, page;
 let offlineFile;
 const errors = [],
   requests = [],
+  rankingSubmissions = [],
   checks = [];
 try {
   await engine.start();
@@ -91,6 +93,8 @@ try {
   page.on("request", (request) => {
     if (request.method() === "POST" && request.url().endsWith("/query-results"))
       requests.push(request.postDataJSON());
+    if (request.method() === "POST" && request.url().endsWith("/tools/jobs"))
+      rankingSubmissions.push(request.postDataJSON());
   });
   await page.goto(url);
   await page.locator(".recent-row").filter({ hasText: project.name }).click();
@@ -152,6 +156,7 @@ try {
   await attachLake("gelbooru", "Gelbooru");
   await toggleProjectPanel();
   await expect(page.locator(".project-foot")).toContainText("3 个数据湖");
+  await expect(page.locator(".status-bar")).toContainText("项目已保存");
   await page.reload();
   await expect(page.locator(".project-foot")).toContainText("3 个数据湖");
   await expect(addSource).toBeVisible();
@@ -171,6 +176,69 @@ try {
     "persistent add button after first source and project menu with hidden source panel",
     "three sources survive page reload and remain independently browsable",
   );
+
+  await openEditor(page, "计算工具");
+  const ranking = page.getByRole("region", { name: "Danbooru 元数据排名" });
+  const rankingScope = ranking.getByLabel("输入范围", { exact: true });
+  const rankingSubmit = ranking.getByRole("button", {
+    name: "计算排名",
+    exact: true,
+  });
+  const heat = ranking.getByLabel("同图重复帖热度", { exact: true });
+  const unsupported = ranking
+    .locator(".ranking-notice")
+    .filter({ hasText: "该来源不支持所需元数据投影" });
+  await expect(rankingScope).toHaveValue(lakes.gelbooru.library_id);
+  await expect(unsupported).toContainText("Gelbooru");
+  await expect(rankingScope).toBeEnabled();
+  await heat.selectOption("sum");
+  for (const version of ["v1", "v2"]) {
+    await ranking.getByLabel("筛选方案", { exact: true }).selectOption(version);
+    for (const kind of ["gelbooru", "yandere"]) {
+      await rankingScope.selectOption(lakes[kind].library_id);
+      await expect(unsupported).toContainText(
+        kind === "gelbooru" ? "Gelbooru" : "Yandere",
+      );
+      await expect(rankingScope).toBeEnabled();
+      await expect(heat).toBeEnabled();
+      await expect(rankingSubmit).toBeDisabled();
+      await ranking.locator("form").dispatchEvent("submit");
+      await rankingScope.selectOption(lakes.danbooru.library_id);
+      await expect(rankingSubmit).toBeEnabled();
+      await expect(unsupported).toHaveCount(0);
+      await expect(heat).toHaveValue("sum");
+    }
+  }
+  assert.equal(rankingSubmissions.length, 0);
+  checks.push(
+    "v1/v2 incompatible lake inputs remain editable, block submission, and recover when switched to Danbooru without losing parameters",
+  );
+  await rankingScope.selectOption(lakes.gelbooru.library_id);
+  await engine.wait(
+    `/v1/projects/${project.id}/drafts/core.tools/ranking`,
+    (r) =>
+      r.draft?.value.scopeId === lakes.gelbooru.library_id &&
+      r.draft.value.parameters.duplicate_heat === "sum" &&
+      !!r.draft.value.parameters.v2,
+  );
+  await expect(page.locator(".status-bar")).toContainText("项目已保存");
+  await page.reload();
+  await openEditor(page, "计算工具");
+  await expect(unsupported).toContainText("Gelbooru");
+  await expect(rankingScope).toBeEnabled();
+  await expect(rankingSubmit).toBeDisabled();
+  await expect(heat).toHaveValue("sum");
+  await page.screenshot({
+    path: resolve(run, "ranking-incompatible-editable.png"),
+  });
+  await rankingScope.selectOption(lakes.danbooru.library_id);
+  await expect(rankingSubmit).toBeEnabled();
+  await page.screenshot({ path: resolve(run, "ranking-danbooru-recovered.png") });
+  checks.push(
+    "persisted incompatible ranking input remains recoverable after reload",
+  );
+  await openEditor(page, "资料浏览");
+
   await page
     .locator("button.tree-row")
     .filter({ hasText: "Gelbooru" })
