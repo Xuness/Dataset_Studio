@@ -12,7 +12,7 @@ import requests
 from . import normalize
 from ...updates import rate
 from ...updates.sites import UpdateError
-from ...util import retry_after_seconds
+from ...util import IntegrityError, retry_after_seconds
 
 MAX_RESPONSE = 32 * 1024**2
 
@@ -27,15 +27,54 @@ class Response:
     content_encoding: str
 
 
-class GlobalData(HTMLParser):
+class LoginPage(HTMLParser):
+    """Read the server's viewer identity from legacy and current Pixiv pages."""
+
     def __init__(self):
         super().__init__()
         self.data = None
+        self.next_data = None
+        self.next_parts = None
+        self.next_seen = False
 
     def handle_starttag(self, tag, attrs):
         values = dict(attrs)
         if tag == "meta" and values.get("id") == "meta-global-data":
             self.data = json.loads(values.get("content", "{}"))
+        if tag == "script" and values.get("id") == "__NEXT_DATA__":
+            if self.next_seen:
+                raise ValueError("Duplicate Pixiv page state")
+            self.next_seen = True
+            self.next_parts = []
+
+    def handle_data(self, data):
+        if self.next_parts is not None:
+            self.next_parts.append(data)
+
+    def handle_endtag(self, tag):
+        if tag == "script" and self.next_parts is not None:
+            self.next_data = json.loads("".join(self.next_parts))
+            self.next_parts = None
+
+    def user_id(self):
+        if self.next_seen:
+            if not isinstance(self.next_data, dict):
+                return None
+            props = self.next_data.get("props")
+            page = props.get("pageProps") if isinstance(props, dict) else None
+            if not isinstance(page, dict) or page.get("isLoggedIn") is not True:
+                return None
+            serialized = page.get("serverSerializedPreloadedState")
+            if not isinstance(serialized, str):
+                return None
+            state = json.loads(serialized)
+            users = state.get("userData") if isinstance(state, dict) else None
+            # Other entries under userData.users are public profiles; only self
+            # identifies this session. Never infer identity from the cookie value.
+            user = users.get("self") if isinstance(users, dict) else None
+        else:
+            user = self.data.get("userData") if isinstance(self.data, dict) else None
+        return normalize.source_id(user["id"]) if isinstance(user, dict) and user.get("id") else None
 
 
 class Client:
@@ -145,12 +184,12 @@ class Client:
 
     def probe(self):
         response = self._request("/", html=True)
-        parser = GlobalData()
+        parser = LoginPage()
         try:
             parser.feed(response.body.decode("utf-8"))
-            user = parser.data.get("userData") if parser.data else None
-            user_id = normalize.source_id(user["id"]) if isinstance(user, dict) and user.get("id") else None
-        except (ValueError, TypeError, KeyError, UnicodeError):
+            parser.close()
+            user_id = parser.user_id()
+        except (ValueError, TypeError, KeyError, UnicodeError, IntegrityError, RecursionError):
             user_id = None
         if user_id is None:
             raise UpdateError("COLLECTION_CREDENTIAL_REQUIRED", "Pixiv did not confirm an authenticated user")
