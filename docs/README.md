@@ -12,6 +12,8 @@
 
 数据湖浏览：[Booru 与通用图像排序偏好分离](decisions/0056-booru-browse-order.md)。
 
+全湖元数据排名：[批量读取与固定输入复用](decisions/0057-bulk-ranking-and-snapshot-reuse.md)、[千万级性能验收](verification/2026-10-04-metarecall-full-lake-performance.md)。
+
 更新任务生命周期：[原子命令、按湖调度与取消回收](decisions/0046-update-command-handoff-and-cancel-cleanup.md)、[R2 验收](verification/2026-09-29-astra-r2-update-lifecycle.md)。
 
 更新运行器启动修正：[开发期控制库缺失调度表的 v7 迁移与恢复](verification/2026-09-29-lake-dispatch-migration.md)。

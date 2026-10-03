@@ -116,7 +116,7 @@ impl SqliteStore {
         delay_ms: u64,
         capture: Option<(QuerySpec, Vec<QuerySourceVersion>)>,
     ) -> Result<Job> {
-        self.submit_with_run(pid, key, scope, delay_ms, capture, None)
+        self.submit_with_run(pid, key, scope, delay_ms, capture, None, None)
     }
     pub fn retry_registered_job(
         &self,
@@ -159,6 +159,16 @@ impl SqliteStore {
         frozen: &JobRun,
         capture: Option<(QuerySpec, Vec<QuerySourceVersion>)>,
     ) -> Result<Job> {
+        self.submit_registered_job_with_snapshot(pid, submission, frozen, capture, None)
+    }
+    pub fn submit_registered_job_with_snapshot(
+        &self,
+        pid: &str,
+        submission: &ToolSubmission,
+        frozen: &JobRun,
+        capture: Option<(QuerySpec, Vec<QuerySourceVersion>)>,
+        snapshot_count: Option<u64>,
+    ) -> Result<Job> {
         if submission.run != frozen.run {
             return Err(Error::invalid("提交参数与固定参数不一致"));
         }
@@ -169,6 +179,7 @@ impl SqliteStore {
             submission.delay_ms,
             capture,
             Some((tool_request(submission)?, frozen)),
+            snapshot_count,
         )
     }
     pub fn job_run(&self, pid: &str, id: &str) -> Result<JobRun> {
@@ -201,6 +212,7 @@ impl SqliteStore {
         delay_ms: u64,
         capture: Option<(QuerySpec, Vec<QuerySourceVersion>)>,
         registered: Option<(String, &JobRun)>,
+        snapshot_count: Option<u64>,
     ) -> Result<Job> {
         validate_id(key)?;
         scope.validate_project(pid)?;
@@ -242,11 +254,48 @@ impl SqliteStore {
                 return read_job(&tx, pid, &id);
             }
             let id = new_id();
-            let (total, status, input_sql, results, provenance, owned_result) = if let Some((
-                spec,
-                versions,
-            )) = capture
+            let (total, status, input_sql, results, provenance, owned_result) = if let Some(total) =
+                snapshot_count
             {
+                let (spec, versions) = capture
+                    .as_ref()
+                    .ok_or_else(|| Error::invalid("缺少固定来源版本"))?;
+                let frozen = registered
+                    .as_ref()
+                    .map(|(_, run)| *run)
+                    .ok_or_else(|| Error::invalid("全湖排名需要已登记的算子"))?;
+                let ScopeTarget::Source {
+                    source_id,
+                    revision,
+                } = &scope.target
+                else {
+                    return Err(Error::invalid("直接固定来源仅适用于全湖排名"));
+                };
+                if !is_ranking_operator(&frozen.run.operator_id)
+                    || !frozen.fields.is_empty()
+                    || versions != &frozen.source_versions
+                    || versions.len() != 1
+                    || versions[0].source_id != *source_id
+                    || versions[0].catalog_revision != *revision
+                    || versions[0].consistency != "retained_online_snapshot"
+                    || spec.source_ids != vec![source_id.clone()]
+                    || !spec.conditions.is_empty()
+                    || spec.input_scope.is_some()
+                    || spec.observation_rule != ObservationRule::CurrentPost
+                    || total == 0
+                    || total > i64::MAX as u64
+                {
+                    return Err(Error::invalid("全湖排名的固定范围、算子或发布数量无效"));
+                }
+                (
+                    total,
+                    "queued",
+                    None,
+                    vec![],
+                    serde_json::json!({"version":2,"scope":scope,"source_snapshot":versions[0],"membership":"ranking_input","meaning":"retained_source_version; complete_typed_input_seals_membership"}),
+                    None,
+                )
+            } else if let Some((spec, versions)) = capture {
                 let spec = spec.normalize()?;
                 match &scope.target {
                     ScopeTarget::Source {
@@ -462,6 +511,13 @@ impl SqliteStore {
         .optional()
         .map_err(db_error)
         .map(Option::flatten)
+    }
+    pub fn ranking_source_snapshot(&self, pid: &str, id: &str) -> Result<bool> {
+        let p = self.handle(pid)?;
+        let db = p.read()?;
+        read_job(&db, pid, id)?;
+        db.query_row("SELECT coalesce(json_extract(provenance_json,'$.membership')='ranking_input',0) FROM job_scopes WHERE job_id=?1",
+            [id], |r| r.get(0)).map_err(db_error)
     }
     pub fn resolve_job_scopes(&self, pid: &str) -> Result<()> {
         let p = self.handle(pid)?;

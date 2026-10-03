@@ -2,6 +2,7 @@ use serde_json::Value;
 use std::{collections::BTreeMap, sync::Arc};
 use studio_domain::*;
 /// Bounded member stream: frozen ordinal, image SHA-256, and matching query branch.
+/// Producers emit increasing ordinals, with all branches for an ordinal adjacent.
 pub type RankingMemberAppend<'a> = dyn FnMut(u64, &str, u32) -> Result<()> + 'a;
 pub type RankingMemberProducer<'a> = dyn FnMut(&mut RankingMemberAppend<'_>) -> Result<()> + 'a;
 

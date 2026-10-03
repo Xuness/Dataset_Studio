@@ -423,6 +423,12 @@ try {
     "Crash must interrupt a partially checkpointed run",
   );
   await engine.stop(true);
+  // Checkpoints written before incremental summary counters remain resumable.
+  const legacyCheckpoint = JSON.parse(await readFile(checkpoint, "utf8"));
+  delete legacyCheckpoint.statistics_version;
+  delete legacyCheckpoint.eligibility_counts;
+  delete legacyCheckpoint.missing_counts;
+  await writeFile(checkpoint, JSON.stringify(legacyCheckpoint));
   const pointer = within(fixtureRoot, resolve(fixture.lake, "CURRENT.json"));
   const offline = within(fixtureRoot, pointer + ".offline");
   await rename(pointer, offline);
@@ -430,10 +436,19 @@ try {
     await engine.start();
     await engine.api(base + "/open", "POST");
     const recovered = await complete(interrupted);
-    assert.deepEqual(
-      await rows(recovered.artifact.id, { order: "input" }),
-      all,
-    );
+    const recoveredRows = await rows(recovered.artifact.id, { order: "input" });
+    assert.deepEqual(recoveredRows, all);
+    const eligibilityCounts = {},
+      missingCounts = {};
+    for (const row of recoveredRows) {
+      const scores = row.scores;
+      eligibilityCounts[scores.eligibility] =
+        (eligibilityCounts[scores.eligibility] ?? 0) + 1;
+      for (const flag of scores.missing_flags)
+        missingCounts[flag] = (missingCounts[flag] ?? 0) + 1;
+    }
+    assert.deepEqual(recovered.summary.eligibility_counts, eligibilityCounts);
+    assert.deepEqual(recovered.summary.missing_counts, missingCounts);
     assert.equal(
       (await engine.api(base + "/artifacts")).items.filter(
         (a) => a.job_id === interrupted.id,

@@ -61,6 +61,19 @@ struct Predicates {
     impossible: bool,
 }
 impl Snapshot {
+    pub(crate) fn ranking_keys(&self, after: &str) -> Result<Vec<String>> {
+        let mut statement = self
+            .db
+            .prepare(
+                "SELECT sha256 FROM visible_objects WHERE sha256>?1 ORDER BY sha256 LIMIT 32768",
+            )
+            .map_err(sql_error)?;
+        statement
+            .query_map([after], |r| r.get(0))
+            .map_err(sql_error)?
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(sql_error)
+    }
     fn candidate_seed(
         &self,
         spec: &QuerySpec,
@@ -197,6 +210,46 @@ impl Snapshot {
             .map_err(sql_error)?
             .collect::<std::result::Result<Vec<_>, _>>()
             .map_err(sql_error)
+    }
+    /// Capture identities and browse order in one read. A per-object lookup via
+    /// a fresh connection for every small sink batch defeats a sequential scan.
+    pub(crate) fn stream_all_hits_window(
+        &self,
+        source: &Source,
+        after: i64,
+        sink: &mut dyn FnMut(&[QueryHit], u64) -> Result<()>,
+    ) -> Result<Option<i64>> {
+        let end = after.saturating_add(32768);
+        let mut statement = self.db.prepare(
+            "SELECT o.sha256,v.post_id FROM visible_objects o LEFT JOIN object_order v ON v.sha256=o.sha256 WHERE o.object_row>?1 AND o.object_row<=?2",
+        ).map_err(sql_error)?;
+        let mut rows = statement.query([after, end]).map_err(sql_error)?;
+        let mut batch = Vec::with_capacity(512);
+        while let Some(row) = rows.next().map_err(sql_error)? {
+            batch.push(QueryHit {
+                key: AssetKey {
+                    source_id: source.id.clone(),
+                    asset_id: row.get(0).map_err(sql_error)?,
+                },
+                post_id: row.get(1).map_err(sql_error)?,
+            });
+            if batch.len() == 512 {
+                sink(&batch, batch.len() as u64)?;
+                batch.clear();
+            }
+        }
+        if !batch.is_empty() {
+            sink(&batch, batch.len() as u64)?;
+        }
+        let more: bool = self
+            .db
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM visible_objects WHERE object_row>?1)",
+                [end],
+                |r| r.get(0),
+            )
+            .map_err(sql_error)?;
+        Ok(more.then_some(end))
     }
     pub fn stream_window(
         &self,

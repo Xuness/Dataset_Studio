@@ -36,7 +36,7 @@ fn raw(kind: ObjectKind, incoming: bool) -> String {
             "SELECT 'job' AS kind,j.id,'任务输入来源' AS relation,j.status IN ('queued','waiting_input','preparing','running') AS blocking FROM jobs j LEFT JOIN job_scopes s ON s.job_id=j.id WHERE NOT EXISTS(SELECT 1 FROM object_metadata o WHERE o.kind='job' AND o.id=j.id AND o.deleted=1) AND (EXISTS(SELECT 1 FROM job_inputs i WHERE i.job_id=j.id AND i.source_id=?1) OR json_extract(s.scope_json,'$.target.source_id')=?1 OR EXISTS(SELECT 1 FROM query_results r,json_each(r.spec_json,'$.source_ids') x WHERE r.id=s.result_id AND x.value=?1))".into(),
             "SELECT 'query' AS kind,q.id,'查询来源' AS relation,0 AS blocking FROM query_definitions q WHERE EXISTS(SELECT 1 FROM json_each(q.spec_json,'$.source_ids') WHERE value=?1) AND NOT EXISTS(SELECT 1 FROM object_metadata m WHERE m.kind='query' AND m.id=q.id AND m.deleted=1)".into(),
             "SELECT 'query_result' AS kind,q.id,'查询结果来源' AS relation,q.status IN ('queued','running') AS blocking FROM query_results q WHERE q.status!='released' AND EXISTS(SELECT 1 FROM json_each(q.spec_json,'$.source_ids') WHERE value=?1)".into(),
-            "SELECT 'artifact' AS kind,a.id,'已固定的计算来源' AS relation,0 AS blocking FROM artifacts a WHERE a.status!='released' AND EXISTS(SELECT 1 FROM job_inputs i WHERE i.job_id=a.job_id AND i.source_id=?1)".into(),
+            "SELECT 'artifact' AS kind,a.id,'已固定的计算来源' AS relation,0 AS blocking FROM artifacts a WHERE a.status!='released' AND (EXISTS(SELECT 1 FROM job_inputs i WHERE i.job_id=a.job_id AND i.source_id=?1) OR EXISTS(SELECT 1 FROM job_runs r,json_each(r.versions_json) v WHERE r.job_id=a.job_id AND json_extract(v.value,'$.source_id')=?1))".into(),
             "SELECT 'selection' AS kind,'selection' AS id,'当前选择包含此来源' AS relation,0 AS blocking WHERE EXISTS(SELECT 1 FROM selection WHERE source_id=?1) OR EXISTS(SELECT 1 FROM result_members r WHERE r.result_id=(SELECT result_id FROM selection_base WHERE singleton=1) AND r.source_id=?1 AND NOT EXISTS(SELECT 1 FROM selection_exclusions e WHERE e.source_id=r.source_id AND e.asset_id=r.asset_id))".into(),
         ],
         (ObjectKind::Workset,true)=>{
@@ -72,7 +72,7 @@ fn raw(kind: ObjectKind, incoming: bool) -> String {
         },
         (ObjectKind::Job,false)=>{
             let mut q=outgoing_refs("'job','job_input','job_scope'");
-            q.push("SELECT 'source' AS kind,s.id,'已固定的输入来源' AS relation,0 AS blocking FROM sources s WHERE EXISTS(SELECT 1 FROM job_inputs i WHERE i.job_id=?1 AND i.source_id=s.id)".into());
+            q.push("SELECT 'source' AS kind,s.id,'已固定的输入来源' AS relation,0 AS blocking FROM sources s WHERE EXISTS(SELECT 1 FROM job_inputs i WHERE i.job_id=?1 AND i.source_id=s.id) OR EXISTS(SELECT 1 FROM job_runs r,json_each(r.versions_json) v WHERE r.job_id=?1 AND json_extract(v.value,'$.source_id')=s.id)".into());
             q.push("SELECT 'workset' AS kind,json_extract(scope_json,'$.target.collection_id') AS id,'提交时的工作集' AS relation,0 AS blocking FROM job_scopes WHERE job_id=?1 AND json_extract(scope_json,'$.target.kind')='workset'".into());
             q
         },

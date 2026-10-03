@@ -5,6 +5,33 @@ use serde_json::Value;
 mod tests;
 
 impl SqliteStore {
+    pub fn ranking_snapshot_candidates(
+        &self,
+        pid: &str,
+        jid: &str,
+        versions: &[QuerySourceVersion],
+        total: u64,
+    ) -> Result<Vec<Artifact>> {
+        let project = self.handle(pid)?;
+        let db = project.read()?;
+        let mut stmt=db.prepare("SELECT a.id FROM artifacts a JOIN job_runs r ON r.job_id=a.job_id JOIN job_scopes s ON s.job_id=a.job_id WHERE a.kind=?1 AND a.status='ready' AND a.job_id!=?2 AND a.count=?3 AND r.versions_json=?4 AND json_extract(s.provenance_json,'$.membership')='ranking_input' ORDER BY a.created_at DESC,a.id DESC LIMIT 16").map_err(db_error)?;
+        let ids = stmt
+            .query_map(
+                params![
+                    RANKING_KIND,
+                    jid,
+                    total as i64,
+                    serde_json::to_string(versions).map_err(Error::io)?
+                ],
+                |r| r.get::<_, String>(0),
+            )
+            .map_err(db_error)?
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(db_error)?;
+        ids.into_iter()
+            .map(|id| artifacts::read(&db, pid, &id))
+            .collect()
+    }
     pub fn job_scope_artifacts(&self, pid: &str, jid: &str) -> Result<Vec<String>> {
         let p = self.handle(pid)?;
         let db = p.read()?;

@@ -24,6 +24,18 @@ struct Projections {
     directory: PathBuf,
 }
 impl SourceProjection for Projections {
+    fn ranking_source(
+        &self,
+        source: &Source,
+        expected: &QuerySourceVersion,
+        parameters: &RankingParameters,
+        memory: u64,
+        cancelled: ReadCancellation,
+        sink: &mut dyn FnMut(&[RankingInput]) -> Result<()>,
+    ) -> Result<u64> {
+        RankingReader::configured(self.directory.clone(), memory)
+            .project_source(source, expected, parameters, cancelled, sink)
+    }
     fn origin_width(
         &self,
         source: &Source,

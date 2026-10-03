@@ -12,9 +12,12 @@ use std::{
     time::{Duration, Instant, SystemTime, UNIX_EPOCH},
 };
 use studio_domain::*;
+mod dimensions;
 pub(crate) mod metadata;
 pub(crate) mod query;
 pub(crate) mod ranking;
+pub(crate) mod ranking_simple;
+pub(crate) mod ranking_source;
 pub(crate) mod raw;
 #[cfg(test)]
 mod tests;
@@ -227,6 +230,36 @@ impl Snapshot {
         cancelled: Arc<AtomicBool>,
         deadline: Option<Instant>,
     ) -> Result<Self> {
+        Self::open_mapped(source, revision, cancelled, deadline, 1 << 30)
+    }
+    pub(crate) fn open_bulk(
+        source: &Source,
+        revision: Option<&str>,
+        cancelled: Arc<AtomicBool>,
+        deadline: Option<Instant>,
+    ) -> Result<Self> {
+        // This reserves virtual address space, not a heap buffer. Read-only
+        // pages share the OS file cache; closing each bounded snapshot releases
+        // its mapping, including before lake maintenance or relocation.
+        Self::open_mapped(
+            source,
+            revision,
+            cancelled,
+            deadline,
+            if cfg!(target_pointer_width = "64") {
+                128 << 30
+            } else {
+                1 << 30
+            },
+        )
+    }
+    fn open_mapped(
+        source: &Source,
+        revision: Option<&str>,
+        cancelled: Arc<AtomicBool>,
+        deadline: Option<Instant>,
+        mmap_bytes: i64,
+    ) -> Result<Self> {
         let until = deadline.unwrap_or_else(|| Instant::now() + Duration::from_secs(8));
         check_read(&cancelled, until)?;
         let (pointer, path) = pointer(source)?;
@@ -237,8 +270,16 @@ impl Snapshot {
         .map_err(sql_error)?;
         db.busy_timeout(Duration::from_millis(500))
             .map_err(sql_error)?;
-        db.execute_batch("PRAGMA cache_size=-8192; PRAGMA mmap_size=1073741824;")
+        db.execute_batch("PRAGMA cache_size=-8192;")
             .map_err(sql_error)?;
+        db.pragma_update(None, "mmap_size", mmap_bytes)
+            .map_err(sql_error)?;
+        if mmap_bytes > 1 << 30 {
+            let limit: i64 = db
+                .pragma_query_value(None, "mmap_size", |r| r.get(0))
+                .map_err(sql_error)?;
+            tracing::debug!(mmap_limit = limit, "ranking bulk SQLite mapping");
+        }
         let version: u32 = db
             .query_row("PRAGMA user_version", [], |r| r.get(0))
             .map_err(sql_error)?;
@@ -317,6 +358,50 @@ impl Snapshot {
     }
     fn check(&self) -> Result<()> {
         check_read(&self.cancelled, self.deadline)
+    }
+    /// End each bounded WAL snapshot while retaining the read-only connection
+    /// and its file mapping. Repeatedly unmapping a large lake discards the
+    /// process's page translations even when the OS file cache is still warm.
+    pub(crate) fn next_bulk_page(&mut self) -> Result<()> {
+        self.check()?;
+        self.db.execute_batch("COMMIT;").map_err(sql_error)?;
+        self.deadline = Instant::now() + Duration::from_secs(60);
+        let until = self.deadline;
+        let flag = self.cancelled.clone();
+        self.db
+            .progress_handler(
+                1000,
+                Some(move || flag.load(Ordering::Acquire) || Instant::now() >= until),
+            )
+            .map_err(sql_error)?;
+        Self::lease(
+            &self.path,
+            self.sequence,
+            &format!("read/{}", self.sequence),
+            "interactive",
+            "read",
+            false,
+            (&self.cancelled, until),
+        )?;
+        self.db.execute_batch("BEGIN;").map_err(sql_error)?;
+        if self.sequence < number(&self.db, "min_seq")?
+            || self.sequence > number(&self.db, "served_seq")?
+        {
+            return Err(Error::new("VIEW_EXPIRED", "全湖读取的保留版本已失效"));
+        }
+        if self.sequence > 0
+            && !self
+                .db
+                .query_row(
+                    "SELECT EXISTS(SELECT 1 FROM publications WHERE seq=?1)",
+                    [self.sequence as i64],
+                    |r| r.get::<_, bool>(0),
+                )
+                .map_err(sql_error)?
+        {
+            return Err(Error::new("VIEW_EXPIRED", "全湖读取的发布记录已回收"));
+        }
+        Ok(())
     }
     pub fn latest(source: &Source) -> Result<Self> {
         Self::open(source, None, Arc::new(AtomicBool::new(false)), None)

@@ -88,6 +88,12 @@ const stages: Record<
     unit: "项",
     detail: "正在读取并整理元数据，随后开始评分。",
   },
+  snapshot_reuse: {
+    label: "复用固定元数据",
+    phase: 1,
+    unit: "bytes",
+    detail: "正在核验同一来源版本的元数据，并为本次排名保存独立快照。",
+  },
   eligibility: {
     label: "检查候选资格",
     phase: 2,

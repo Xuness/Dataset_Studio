@@ -153,6 +153,9 @@ impl Runtime {
     pub(crate) fn deadline(&self) -> Option<Instant> {
         self.deadline
     }
+    pub(crate) fn query_memory(&self) -> u64 {
+        self.query_memory_bytes
+    }
     pub fn for_deadline(&self, deadline: Option<Instant>) -> Self {
         Self {
             deadline,

@@ -211,6 +211,60 @@ fn assert_version(current: &QuerySourceVersion, expected: &QuerySourceVersion) -
     Ok(())
 }
 impl QueryAdapter for QueryReader {
+    fn snapshot_count(
+        &self,
+        source: &Source,
+        expected: &QuerySourceVersion,
+    ) -> Result<Option<u64>> {
+        if !crate::online::available(source) {
+            return Ok(None);
+        }
+        let view = crate::online::Snapshot::open(
+            source,
+            Some(&expected.catalog_revision),
+            self.cancelled.clone(),
+            self.runtime.deadline(),
+        )?;
+        assert_version(&view.version(source), expected)?;
+        Ok(Some(view.count))
+    }
+    fn execute_query_hits(
+        &self,
+        source: &Source,
+        spec: &QuerySpec,
+        expected: &QuerySourceVersion,
+        cancelled: Arc<AtomicBool>,
+        sink: &mut dyn FnMut(&[QueryHit], u64) -> Result<()>,
+    ) -> Result<bool> {
+        if !crate::online::available(source)
+            || !spec.conditions.is_empty()
+            || spec.input_scope.is_some()
+        {
+            return Ok(false);
+        }
+        self.fields(source)?.validate(spec)?;
+        let mut after = 0;
+        loop {
+            studio_application::read_cancelled(&cancelled)?;
+            let window = Instant::now() + Duration::from_secs(60);
+            let deadline = self
+                .runtime
+                .deadline()
+                .map(|d| d.min(window))
+                .unwrap_or(window);
+            let snapshot = crate::online::Snapshot::open(
+                source,
+                Some(&expected.catalog_revision),
+                cancelled.clone(),
+                Some(deadline),
+            )?;
+            assert_version(&snapshot.version(source), expected)?;
+            match snapshot.stream_all_hits_window(source, after, sink)? {
+                Some(next) => after = next,
+                None => return Ok(true),
+            }
+        }
+    }
     fn read_version_at(
         &self,
         source: &Source,

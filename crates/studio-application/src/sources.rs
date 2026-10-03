@@ -37,6 +37,22 @@ pub trait SourceQueryFactory: Send + Sync {
     fn create(&self, options: &SourceQueryOptions) -> Box<dyn QueryAdapter>;
 }
 pub trait SourceProjection: Send + Sync {
+    /// Project every identity at a retained version in canonical identity order.
+    /// The receiving engine seals the complete typed input as the member proof.
+    fn ranking_source(
+        &self,
+        _source: &Source,
+        _expected: &QuerySourceVersion,
+        _parameters: &RankingParameters,
+        _memory: u64,
+        _cancelled: ReadCancellation,
+        _sink: &mut dyn FnMut(&[RankingInput]) -> Result<()>,
+    ) -> Result<u64> {
+        Err(Error::new(
+            "RANKING_SOURCE_UNSUPPORTED",
+            "该来源不支持固定版本的全湖排名",
+        ))
+    }
     fn origin_width(
         &self,
         source: &Source,

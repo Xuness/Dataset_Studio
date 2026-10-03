@@ -192,6 +192,16 @@ impl SqliteStore {
         stage: &QueryStage,
         cancelled: &AtomicBool,
     ) -> Result<()> {
+        self.publish_snapshot_stage_with_memory(pid, rid, stage, cancelled, 256 << 20)
+    }
+    pub fn publish_snapshot_stage_with_memory(
+        &self,
+        pid: &str,
+        rid: &str,
+        stage: &QueryStage,
+        cancelled: &AtomicBool,
+        cache_bytes: u64,
+    ) -> Result<()> {
         let p = self.handle(pid)?;
         {
             let db = p.read()?;
@@ -201,7 +211,21 @@ impl SqliteStore {
             }
         }
         let mut members = p.result_writer.lock().map_err(lock_error)?;
-        stage.copy_to_members(&mut members, rid, cancelled)?;
+        let previous_cache: i64 = members
+            .pragma_query_value(None, "cache_size", |r| r.get(0))
+            .map_err(db_error)?;
+        members
+            .pragma_update(
+                None,
+                "cache_size",
+                -((cache_bytes.clamp(64 << 20, 2 << 30) / 1024) as i64),
+            )
+            .map_err(db_error)?;
+        let copied = stage.copy_to_members(&mut members, rid, cancelled);
+        let restored = members
+            .pragma_update(None, "cache_size", previous_cache)
+            .map_err(db_error);
+        copied.and(restored)?;
         let count: i64 = members
             .query_row(
                 "SELECT count FROM datasets WHERE id=?1 AND state='sealed'",

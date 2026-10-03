@@ -26,10 +26,11 @@ export class EngineFixture {
     await mkdir(this.logDir, { recursive: true });
     const log = await open(resolve(this.logDir, "engine.log"), "a");
     this.child = spawn(
-      engineExecutable(
-        this.root,
-        this.options.profile ?? engineProfile([], process.env, "debug"),
-      ),
+      this.options.executable ??
+        engineExecutable(
+          this.root,
+          this.options.profile ?? engineProfile([], process.env, "debug"),
+        ),
       [
         "serve",
         "--data-dir",

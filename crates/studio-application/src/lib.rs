@@ -199,6 +199,15 @@ pub trait MetadataAdapter: Send + Sync {
 
 /// Adapters stream bounded identity batches. The receiver owns deduplication and publication.
 pub trait QueryAdapter: Send + Sync {
+    /// Exact published membership count at a retained source version. None
+    /// preserves the materialized-capture path for other source formats.
+    fn snapshot_count(
+        &self,
+        _source: &Source,
+        _expected: &QuerySourceVersion,
+    ) -> Result<Option<u64>> {
+        Ok(None)
+    }
     fn read_version_at(
         &self,
         source: &Source,
@@ -260,6 +269,18 @@ pub trait QueryAdapter: Send + Sync {
         cancelled: std::sync::Arc<std::sync::atomic::AtomicBool>,
         sink: &mut dyn FnMut(&[AssetKey], u64) -> Result<()>,
     ) -> Result<()>;
+    /// Optional complete capture with ordering metadata from the same source
+    /// snapshot. False means unsupported and must not emit any rows.
+    fn execute_query_hits(
+        &self,
+        _source: &Source,
+        _spec: &QuerySpec,
+        _expected: &QuerySourceVersion,
+        _cancelled: ReadCancellation,
+        _sink: &mut dyn FnMut(&[QueryHit], u64) -> Result<()>,
+    ) -> Result<bool> {
+        Ok(false)
+    }
     fn execute_query_keys(
         &self,
         _source: &Source,

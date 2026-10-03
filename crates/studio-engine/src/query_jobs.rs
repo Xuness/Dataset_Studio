@@ -218,6 +218,36 @@ impl QueryRunner {
                 stage.borrow_mut().post_ready = false;
             }
             let native = studio_storage::native_spec(&result.spec);
+            if !fixed
+                && basis.is_none()
+                && result.spec.conditions.is_empty()
+                && result.spec.input_scope.is_none()
+                && reader.execute_query_hits(
+                    source,
+                    &native,
+                    expected,
+                    cancelled.clone(),
+                    &mut |hits, processed| {
+                        let keys = hits.iter().map(|h| h.key.clone()).collect::<Vec<_>>();
+                        let posts = hits.iter().map(|h| h.post_id).collect::<Vec<_>>();
+                        let mut staging = stage.borrow_mut();
+                        staging.append(&keys, &posts, processed)?;
+                        if last_progress.get().elapsed() >= Duration::from_millis(600) {
+                            store.query_build_progress(
+                                &result.project_id,
+                                &result.id,
+                                staging.processed,
+                                staging.evaluated,
+                            )?;
+                            last_progress.set(Instant::now());
+                        }
+                        Ok(())
+                    },
+                )?
+            {
+                stage.borrow_mut().full_source(&source.id);
+                continue;
+            }
             let ranked_candidates = ranking.active() && native.conditions.is_empty();
             let mut sink = |keys: &[AssetKey], processed| {
                 let scoped = store.filter_query_input(&result.project_id, &result.spec, keys)?;
@@ -337,7 +367,13 @@ impl QueryRunner {
         store.query_basis_usage(&result.project_id, &result.id, &ratings, candidates)?;
         store.query_build_phase(&result.project_id, &result.id, "publishing")?;
         if store.query_storage_kind(&result.project_id, &result.id)? == "sealed" {
-            store.publish_snapshot_stage(&result.project_id, &result.id, &stage, &cancelled)?;
+            store.publish_snapshot_stage_with_memory(
+                &result.project_id,
+                &result.id,
+                &stage,
+                &cancelled,
+                budget.memory_bytes / 2,
+            )?;
         } else {
             store.publish_stage_with_budget(
                 &result.project_id,

@@ -341,6 +341,214 @@ try {
   checks.push(
     "ranking v1 and v2 capture retained SQLite facts without native lake DuckDB",
   );
+  const fullView = await client.queries.browse(
+    project.id,
+    spec("asset_key_asc", [], [refs.danbooru.library_id]),
+  );
+  const fullSourceScope = {
+    project_id: project.id,
+    target: {
+      kind: "source",
+      source_id: refs.danbooru.library_id,
+      revision: fullView.source_versions[0].catalog_revision,
+    },
+  };
+  async function rankingRows(job) {
+    const jobs = await engine.wait(base + "/jobs", (r) =>
+      r.items.some(
+        (v) => v.id === job.id && ["succeeded", "failed"].includes(v.status),
+      ),
+    );
+    assert.equal(
+      jobs.items.find((v) => v.id === job.id).status,
+      "succeeded",
+      JSON.stringify(jobs),
+    );
+    const artifact = await engine.api(base + "/jobs/" + job.id + "/ranking");
+    const rows = [];
+    let cursor;
+    do {
+      const page = await engine.api(
+        base + "/artifacts/" + artifact.id + "/ranking/rows",
+        "POST",
+        {
+          filter: { order: "input" },
+          limit: 96,
+          cursor,
+        },
+      );
+      rows.push(...page.items);
+      cursor = page.next_cursor;
+    } while (cursor);
+    const summary = await engine.api(
+      base + "/artifacts/" + artifact.id + "/ranking",
+    );
+    const eligibility = {},
+      missing = {};
+    for (const row of rows) {
+      const score = row.scores;
+      eligibility[score.eligibility] =
+        (eligibility[score.eligibility] ?? 0) + 1;
+      for (const flag of score.missing_flags)
+        missing[flag] = (missing[flag] ?? 0) + 1;
+    }
+    assert.deepEqual(summary.eligibility_counts, eligibility);
+    assert.deepEqual(summary.missing_counts, missing);
+    return {
+      artifact,
+      rows,
+      summary,
+      job: jobs.items.find((v) => v.id === job.id),
+    };
+  }
+  for (const variant of [1, 2]) {
+    const run = {
+      operator_id:
+        variant === 1 ? "danbooru.metarecall" : "danbooru.metarecall_v2",
+      operator_version: 1,
+      parameters_version: 1,
+      parameters: {
+        ratings: ["g", "s", "q", "e"],
+        mode: "rank",
+        cohort_minimum: 8,
+        artist_enabled: false,
+        duplicate_heat: "sum",
+        minimum_stored_side: 64,
+        ...(variant === 2 ? { v2: { minimum_effective: 2 } } : {}),
+      },
+    };
+    const direct = await engine.api(base + "/tools/jobs", "POST", {
+      idempotency_key: crypto.randomUUID(),
+      scope: fullSourceScope,
+      run,
+    });
+    assert.ok(direct.total > 0);
+    assert.equal(direct.input_members_frozen, true);
+    const directResult = await rankingRows(direct);
+    const captured = await engine.api(base + "/tools/jobs", "POST", {
+      idempotency_key: crypto.randomUUID(),
+      run,
+      scope: {
+        project_id: project.id,
+        target: { kind: "query_result", result_id: fullView.id },
+      },
+    });
+    const capturedResult = await rankingRows(captured);
+    assert.deepEqual(directResult.rows, capturedResult.rows);
+    const inspect = new DatabaseSync(
+      resolve(project.directory, "project.sqlite"),
+      { readOnly: true },
+    );
+    assert.equal(
+      inspect
+        .prepare("SELECT count(*) n FROM job_input_legacy WHERE job_id=?")
+        .get(direct.id).n,
+      0,
+    );
+    assert.equal(
+      inspect
+        .prepare("SELECT count(*) n FROM job_input_bases WHERE job_id=?")
+        .get(direct.id).n,
+      0,
+    );
+    assert.equal(
+      JSON.parse(
+        inspect
+          .prepare("SELECT provenance_json FROM job_scopes WHERE job_id=?")
+          .get(direct.id).provenance_json,
+      ).membership,
+      "ranking_input",
+    );
+    inspect.close();
+    const inputFile = directResult.artifact.files.find((f) =>
+      f.path.endsWith("ranking-input.sqlite"),
+    );
+    const input = new DatabaseSync(resolve(project.directory, inputFile.path), {
+      readOnly: true,
+    });
+    assert.equal(
+      input.prepare("SELECT type FROM sqlite_schema WHERE name='members'").get()
+        .type,
+      "view",
+    );
+    assert.equal(
+      input.prepare("SELECT count(*) n FROM input_rows").get().n,
+      direct.total,
+    );
+    input.close();
+    const priorBytes = await readFile(
+      resolve(project.directory, inputFile.path),
+    );
+    const adjusted = globalThis.structuredClone(run);
+    adjusted.parameters.minimum_stored_side = 96;
+    adjusted.parameters.time_weight = 0.1;
+    const reused = await rankingRows(
+      await engine.api(base + "/tools/jobs", "POST", {
+        idempotency_key: crypto.randomUUID(),
+        scope: fullSourceScope,
+        run: adjusted,
+      }),
+    );
+    assert.ok(
+      reused.job.stage.telemetry.phases.some(
+        (p) => p.name === "snapshot_reuse",
+      ),
+    );
+    assert.deepEqual(
+      reused.rows.map((r) => r.input),
+      directResult.rows.map((r) => r.input),
+    );
+    assert.equal(reused.summary.parameters.minimum_stored_side, 96);
+    assert.deepEqual(
+      await readFile(resolve(project.directory, inputFile.path)),
+      priorBytes,
+    );
+    const reusableInput = reused.artifact.files.find((f) =>
+      f.path.endsWith("ranking-input.sqlite"),
+    );
+    const reusablePath = resolve(project.directory, reusableInput.path);
+    const goodCopy = await readFile(reusablePath);
+    const damaged = new DatabaseSync(reusablePath);
+    damaged
+      .prepare("UPDATE input_rows SET fav_count=12345678 WHERE ordinal=0")
+      .run();
+    damaged.close();
+    try {
+      const checked = await rankingRows(
+        await engine.api(base + "/tools/jobs", "POST", {
+          idempotency_key: crypto.randomUUID(),
+          scope: fullSourceScope,
+          run: adjusted,
+        }),
+      );
+      assert.deepEqual(
+        checked.rows.map((r) => r.input),
+        directResult.rows.map((r) => r.input),
+      );
+    } finally {
+      await writeFile(reusablePath, goodCopy);
+    }
+    const differentProjection = globalThis.structuredClone(adjusted);
+    differentProjection.parameters.duplicate_heat = "highest";
+    const fresh = await rankingRows(
+      await engine.api(base + "/tools/jobs", "POST", {
+        idempotency_key: crypto.randomUUID(),
+        scope: fullSourceScope,
+        run: differentProjection,
+      }),
+    );
+    assert.ok(
+      !fresh.job.stage.telemetry.phases.some(
+        (p) => p.name === "snapshot_reuse",
+      ),
+    );
+  }
+  checks.push(
+    "full-source v1/v2 rankings match materialized captures row for row and seal membership without a copied member dataset",
+  );
+  checks.push(
+    "compatible parameter changes reuse verified independent input copies; changed observation policy forces recapture and prior artifacts keep their bytes",
+  );
   const expiring = await client.queries.browse(project.id, spec());
   await engine.stop();
   const expiryDb = new DatabaseSync(

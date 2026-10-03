@@ -271,6 +271,34 @@ impl SourceRead {
             sink,
         )
     }
+    pub fn ranking_source(
+        &self,
+        source: &Source,
+        expected: &QuerySourceVersion,
+        parameters: &RankingParameters,
+        memory: u64,
+        sink: &mut dyn FnMut(&[RankingInput]) -> Result<()>,
+    ) -> Result<u64> {
+        self.require_class(ReadClass::NativeQuery)?;
+        let p = self.provider(source)?;
+        p.descriptor
+            .require_projection(if parameters.v2.is_some() {
+                "danbooru_ranking_v2"
+            } else {
+                "danbooru_ranking_v1"
+            })?;
+        p.projection
+            .as_ref()
+            .ok_or_else(unsupported)?
+            .ranking_source(
+                source,
+                expected,
+                parameters,
+                memory.min(self.memory_bytes),
+                self.context.cancelled.clone(),
+                sink,
+            )
+    }
 }
 fn unsupported() -> Error {
     Error::new("METADATA_UNSUPPORTED", "来源不支持请求的能力")
@@ -445,6 +473,9 @@ impl SourceQuery<'_> {
     }
 }
 impl QueryAdapter for SourceQuery<'_> {
+    fn snapshot_count(&self, s: &Source, v: &QuerySourceVersion) -> Result<Option<u64>> {
+        self.reader(s)?.snapshot_count(s, v)
+    }
     fn read_version_at(
         &self,
         s: &Source,
@@ -509,6 +540,16 @@ impl QueryAdapter for SourceQuery<'_> {
         out: &mut dyn FnMut(&[AssetKey], u64) -> Result<()>,
     ) -> Result<()> {
         self.reader(s)?.execute_query_keys(s, q, v, c, keys, out)
+    }
+    fn execute_query_hits(
+        &self,
+        s: &Source,
+        q: &QuerySpec,
+        v: &QuerySourceVersion,
+        c: ReadCancellation,
+        out: &mut dyn FnMut(&[QueryHit], u64) -> Result<()>,
+    ) -> Result<bool> {
+        self.reader(s)?.execute_query_hits(s, q, v, c, out)
     }
     fn execute_delta(
         &self,

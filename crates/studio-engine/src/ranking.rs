@@ -18,6 +18,9 @@ use studio_storage::{
 };
 
 const STAGE_LIMIT: u64 = 64 << 30;
+mod input_reuse;
+#[cfg(test)]
+mod tests;
 fn parameters(run: &OperatorRun) -> Result<RankingParameters> {
     serde_json::from_value::<RankingParameters>(run.parameters.clone())
         .map_err(Error::io)?
@@ -67,108 +70,135 @@ pub fn prepare(
         .metrics()
         .into_iter()
         .find(|m| m.budget.class == ReadClass::NativeQuery)
-        .map(|m| m.budget.bytes)
-        .unwrap_or(4 << 30)
-        .min(4 << 30);
+        .map(|m| m.budget.bytes.saturating_sub(METADATA_MEMORY_BYTES))
+        .unwrap_or(QUERY_MEMORY_BYTES);
     for name in ["input.sqlite", "input.sqlite-journal"] {
         remove_partial(staging, name)?;
     }
     let input_path = staging.join("input.sqlite");
-    let mut table = if p.duplicate_heat.is_some() {
+    let bases = store.ranking_job_bases(&job.project_id, &job.id)?;
+    let source_snapshot = store.ranking_source_snapshot(&job.project_id, &job.id)?;
+    let reused = source_snapshot
+        && bases.is_empty()
+        && input_reuse::copy(store, job, &frozen, &p, staging, &input_path, &cancelled)?;
+    let mut table = if reused {
+        RankingInputTable::open_private_copy(&input_path)?
+    } else if p.duplicate_heat.is_some() {
         RankingInputTable::create_enriched(&input_path, p.v2.is_some())?
     } else if p.v2.is_some() {
         RankingInputTable::create_v2(&input_path)?
     } else {
         RankingInputTable::create(&input_path)?
     };
-    let bases = store.ranking_job_bases(&job.project_id, &job.id)?;
+    if source_snapshot {
+        if !bases.is_empty()
+            || frozen.source_versions.len() != 1
+            || !matches!(
+                job.input_scope.as_ref().map(|s| &s.target),
+                Some(ScopeTarget::Source { .. })
+            )
+        {
+            return Err(Error::new("INPUT_INVALID", "全湖排名的固定来源标记无效"));
+        }
+        if !reused {
+            table.use_source_members(memory)?;
+        }
+    }
+    table.set_meta("complete", &false)?;
     table.set_meta("job_run", &frozen)?;
     table.set_meta("bases", &bases)?;
     table.set_meta("memory_bytes", &memory)?;
     table.set_meta("created_at", &job.created_at)?;
-    let (mut after, mut count) = (None, 0u64);
-    let mut last_progress = Instant::now() - Duration::from_secs(1);
-    loop {
-        read_cancelled(&cancelled)?;
-        let keys = store.job_inputs(&job.project_id, &job.id, after.as_ref())?;
-        if keys.is_empty() {
-            break;
+    if !reused {
+        let (mut after, mut count) = (None, 0u64);
+        let mut last_progress = Instant::now() - Duration::from_secs(1);
+        if !source_snapshot {
+            loop {
+                read_cancelled(&cancelled)?;
+                let keys = store.ranking_job_inputs(&job.project_id, &job.id, after.as_ref())?;
+                if keys.is_empty() {
+                    break;
+                }
+                for batch in keys.chunks(512) {
+                    read_cancelled(&cancelled)?;
+                    let branches = if bases.is_empty() {
+                        vec![vec![0]; batch.len()]
+                    } else {
+                        store.ranking_member_bases(&job.project_id, &job.id, batch, &bases)?
+                    };
+                    let rows = batch
+                        .iter()
+                        .cloned()
+                        .zip(branches)
+                        .map(|(key, b)| {
+                            let ordinal = count;
+                            count += 1;
+                            (ordinal, key, b)
+                        })
+                        .collect::<Vec<_>>();
+                    table.append_members(&rows)?;
+                }
+                after = keys.last().cloned();
+                if last_progress.elapsed() >= Duration::from_millis(700) {
+                    store.job_stage(
+                        &job.project_id,
+                        &job.id,
+                        &JobStage {
+                            name: "scope_basis".into(),
+                            completed: count,
+                            total: job.total,
+                            ..Default::default()
+                        },
+                    )?;
+                    last_progress = Instant::now();
+                    check_stage(&input_path)?;
+                }
+            }
         }
-        let branches = store.ranking_member_bases(&job.project_id, &job.id, &keys, &bases)?;
-        let rows = keys
-            .iter()
-            .cloned()
-            .zip(branches)
-            .map(|(key, b)| {
-                let ordinal = count;
-                count += 1;
-                (ordinal, key, b)
-            })
-            .collect::<Vec<_>>();
-        table.append_members(&rows)?;
-        after = keys.last().cloned();
-        if last_progress.elapsed() >= Duration::from_millis(700) {
+        if !source_snapshot && count != job.total {
+            return Err(Error::new("INPUT_CHANGED", "排名任务的固定成员数量不一致"));
+        }
+        table.flush()?;
+        let members = if source_snapshot {
+            None
+        } else {
+            Some(RankingInputTable::open(&input_path)?)
+        };
+        let mut completed = 0u64;
+        let mut write_time = Duration::ZERO;
+        for expected in &frozen.source_versions {
+            read_cancelled(&cancelled)?;
+            let reader = sources.background(ReadClass::NativeQuery, memory, cancelled.clone())?;
+            let source = store.source(&job.project_id, &expected.source_id)?;
             store.job_stage(
                 &job.project_id,
                 &job.id,
                 &JobStage {
-                    name: "scope_basis".into(),
-                    completed: count,
+                    name: "metadata_snapshot".into(),
+                    completed,
                     total: job.total,
                     ..Default::default()
                 },
             )?;
-            last_progress = Instant::now();
-            check_stage(&input_path)?;
-        }
-    }
-    if count != job.total {
-        return Err(Error::new("INPUT_CHANGED", "排名任务的固定成员数量不一致"));
-    }
-    table.flush()?;
-    let members = RankingInputTable::open(&input_path)?;
-    let mut completed = 0u64;
-    for expected in &frozen.source_versions {
-        read_cancelled(&cancelled)?;
-        let reader = sources.background(ReadClass::NativeQuery, memory, cancelled.clone())?;
-        let source = store.source(&job.project_id, &expected.source_id)?;
-        store.job_stage(
-            &job.project_id,
-            &job.id,
-            &JobStage {
-                name: "metadata_snapshot".into(),
-                completed,
-                total: job.total,
-                ..Default::default()
-            },
-        )?;
-        reader.ranking(
-            &source,
-            expected,
-            &bases,
-            &p,
-            memory,
-            &mut |append| {
-                let mut cursor = None;
-                loop {
-                    read_cancelled(&cancelled)?;
-                    let rows = members.members(&source.id, cursor)?;
-                    if rows.is_empty() {
-                        break;
-                    }
-                    for (ordinal, key, basis) in &rows {
-                        for index in basis {
-                            append(*ordinal, &key.asset_id, *index)?;
-                        }
-                    }
-                    cursor = rows.last().map(|v| v.0);
-                }
-                Ok(())
-            },
-            &mut |rows| {
+            let mut write = |rows: &[RankingInput]| {
                 read_cancelled(&cancelled)?;
+                if source_snapshot
+                    && rows
+                        .iter()
+                        .any(|row| row.ordinal >= job.total || row.source_id != source.id)
+                {
+                    return Err(Error::new(
+                        "INPUT_INVALID",
+                        "全湖排名的成员序号或来源不一致",
+                    ));
+                }
+                let writing = Instant::now();
                 table.append(rows)?;
+                write_time += writing.elapsed();
                 completed += rows.len() as u64;
+                if completed > job.total {
+                    return Err(Error::new("INPUT_INVALID", "排名输入数量超出固定范围"));
+                }
                 if last_progress.elapsed() >= Duration::from_millis(700) {
                     store.job_stage(
                         &job.project_id,
@@ -192,23 +222,65 @@ pub fn prepare(
                     check_stage(&input_path)?;
                 }
                 Ok(())
+            };
+            if source_snapshot {
+                if reader.ranking_source(&source, expected, &p, memory, &mut write)? != job.total {
+                    return Err(Error::new("INPUT_INVALID", "全湖排名与固定发布数量不一致"));
+                }
+            } else {
+                reader.ranking(
+                    &source,
+                    expected,
+                    &bases,
+                    &p,
+                    memory,
+                    &mut |append| {
+                        let mut cursor = None;
+                        loop {
+                            read_cancelled(&cancelled)?;
+                            let rows = members
+                                .as_ref()
+                                .expect("materialized members")
+                                .members(&source.id, cursor)?;
+                            if rows.is_empty() {
+                                break;
+                            }
+                            for (ordinal, key, basis) in &rows {
+                                for index in basis {
+                                    append(*ordinal, &key.asset_id, *index)?;
+                                }
+                            }
+                            cursor = rows.last().map(|v| v.0);
+                        }
+                        Ok(())
+                    },
+                    &mut write,
+                )?;
+            }
+        }
+        store.job_stage(
+            &job.project_id,
+            &job.id,
+            &JobStage {
+                name: "snapshot_index".into(),
+                ..Default::default()
             },
         )?;
+        tracing::info!(job_id=%job.id, rows=completed, write_ms=write_time.as_millis(), "ranking input rows written");
+        if source_snapshot {
+            table.finalize_source()?;
+            table.verify_source_members(job.total)?;
+        } else {
+            table.verify_members(job.total)?;
+            table.finalize(&p.ratings)?;
+        }
+    } else {
+        table.verify_source_members(job.total)?;
+        store.update_job(&job.project_id, &job.id, "preparing", job.total, None, None)?;
     }
-    store.job_stage(
-        &job.project_id,
-        &job.id,
-        &JobStage {
-            name: "snapshot_index".into(),
-            ..Default::default()
-        },
-    )?;
-    table.verify_members(job.total)?;
-    table.finalize(&p.ratings)?;
     crate::tool_inputs::validate_versions(store, &job.project_id, &frozen, sources)?;
     read_cancelled(&cancelled)?;
     table.set_meta("complete", &true)?;
-    drop(members);
     drop(table);
     fs::OpenOptions::new()
         .write(true)
@@ -258,6 +330,36 @@ struct Checkpoint {
     eligible: BTreeMap<String, u64>,
     finished: Vec<RankingRatingSummary>,
     working: Option<String>,
+    #[serde(default)]
+    statistics_version: u32,
+    #[serde(default)]
+    eligibility_counts: BTreeMap<String, u64>,
+    #[serde(default)]
+    missing_counts: BTreeMap<String, u64>,
+}
+impl Checkpoint {
+    fn count_rows(&mut self, rows: &[RankingScores]) {
+        for row in rows {
+            let name = match row.eligibility {
+                RankingEligibility::Eligible => "eligible",
+                RankingEligibility::MetadataUnavailable => "metadata_unavailable",
+                RankingEligibility::RatingUnknown => "rating_unknown",
+                RankingEligibility::RatingExcluded => "rating_excluded",
+                RankingEligibility::DimensionsUnknown => "dimensions_unknown",
+                RankingEligibility::DimensionsExcluded => "dimensions_excluded",
+                RankingEligibility::PolicyExcluded => "policy_excluded",
+                RankingEligibility::Duplicate => "duplicate",
+            };
+            *self.eligibility_counts.entry(name.into()).or_default() += 1;
+            for flag in &row.missing_flags {
+                if let Some(count) = self.missing_counts.get_mut(flag) {
+                    *count += 1;
+                } else {
+                    self.missing_counts.insert(flag.clone(), 1);
+                }
+            }
+        }
+    }
 }
 fn emit(
     plan: &WorkerPlan,
@@ -279,15 +381,11 @@ fn emit(
         }),
     )
 }
-fn ineligible(input: &RankingInput, p: &RankingParameters) -> RankingScores {
+fn ineligible(input: &RankingInput, eligibility: RankingEligibility) -> RankingScores {
     RankingScores {
         ordinal: input.ordinal,
         rating: input.rating.clone(),
-        eligibility: if input.duplicate_of.is_some() {
-            RankingEligibility::Duplicate
-        } else {
-            formula::eligibility(input, p)
-        },
+        eligibility,
         missing_flags: formula::flag_names(formula::flags(input)),
         selected_route: RankingRoute::Ineligible,
         time_reason: "not_eligible".into(),
@@ -335,6 +433,7 @@ pub fn run(plan: &WorkerPlan) -> Result<()> {
             RankingResultTable::create(&plan.output_path)?
         }
     };
+    output.configure_work_memory(memory)?;
     if input.is_v2()? != p.v2.is_some() || output.is_v2()? != p.v2.is_some() {
         return Err(Error::new(
             "RANKING_FORMAT_UNSUPPORTED",
@@ -348,28 +447,36 @@ pub fn run(plan: &WorkerPlan) -> Result<()> {
         state.eligible.clear();
         state.ineligible = 0;
         state.working = None;
+        state.statistics_version = 1;
+        state.eligibility_counts.clear();
+        state.missing_counts.clear();
         let mut after = None;
         let mut visited = 0u64;
         let mut last = Instant::now() - Duration::from_secs(1);
         loop {
-            let page = input.page(after, None)?;
+            let page = input.classification_page(after)?;
             if page.is_empty() {
                 break;
             }
             let mut rows = Vec::new();
             for row in &page {
-                let classified = ineligible(row, &p);
-                if classified.eligibility == RankingEligibility::Eligible {
+                let eligibility = if row.duplicate_of.is_some() {
+                    RankingEligibility::Duplicate
+                } else {
+                    formula::eligibility(row, &p)
+                };
+                if eligibility == RankingEligibility::Eligible {
                     *state
                         .eligible
                         .entry(row.rating.clone().expect("eligible rating"))
                         .or_default() += 1;
                 } else {
                     state.ineligible += 1;
-                    rows.push(classified);
+                    rows.push(ineligible(row, eligibility));
                 }
             }
             output.append(&rows)?;
+            state.count_rows(&rows);
             visited += page.len() as u64;
             after = page.last().map(|r| r.ordinal);
             if last.elapsed() >= Duration::from_millis(500) {
@@ -387,6 +494,17 @@ pub fn run(plan: &WorkerPlan) -> Result<()> {
         }
         output.flush()?;
         state.initialized = true;
+        atomic_json(&plan.checkpoint_path, &state)?;
+    }
+    if state.statistics_version != 1 {
+        // Older checkpoints did not accumulate statistics. Reconstruct them
+        // once, excluding any uncheckpointed rating that will be recomputed.
+        if let Some(rating) = &state.working {
+            output.delete_eligible_rating(rating)?;
+        }
+        state.eligibility_counts = output.counts("eligibility")?;
+        state.missing_counts = output.missing_counts()?;
+        state.statistics_version = 1;
         atomic_json(&plan.checkpoint_path, &state)?;
     }
     for rating in ["g", "s", "q", "e"] {
@@ -427,7 +545,7 @@ pub fn run(plan: &WorkerPlan) -> Result<()> {
         let mut last = Instant::now() - Duration::from_secs(1);
         emit(plan, base, "loading_rating", 0, count, Some(rating))?;
         loop {
-            let page = input.page(after, Some(rating))?;
+            let page = input.eligible_page(after, rating, &p)?;
             if page.is_empty() {
                 break;
             }
@@ -514,19 +632,19 @@ pub fn run(plan: &WorkerPlan) -> Result<()> {
         let mut written = 0u64;
         emit(plan, base, "writing", 0, count, Some(rating))?;
         for (batch_index, batch) in samples.chunks(512).enumerate() {
-            output.append(
-                &batch
-                    .iter()
-                    .enumerate()
-                    .map(|(index, s)| {
-                        let mut row = s.scores(rating);
-                        row.v2 = v2_scores
-                            .as_ref()
-                            .map(|values| values[batch_index * 512 + index]);
-                        row
-                    })
-                    .collect::<Vec<_>>(),
-            )?;
+            let rows = batch
+                .iter()
+                .enumerate()
+                .map(|(index, s)| {
+                    let mut row = s.scores(rating);
+                    row.v2 = v2_scores
+                        .as_ref()
+                        .map(|values| values[batch_index * 512 + index]);
+                    row
+                })
+                .collect::<Vec<_>>();
+            output.append(&rows)?;
+            state.count_rows(&rows);
             written += batch.len() as u64;
             if plan.delay_ms > 0 {
                 std::thread::sleep(Duration::from_millis(plan.delay_ms.min(1000)));
@@ -559,8 +677,8 @@ pub fn run(plan: &WorkerPlan) -> Result<()> {
         eligible_count: state.finished.iter().map(|s| s.eligible).sum(),
         parameters: p,
         ratings: state.finished,
-        eligibility_counts: output.counts("eligibility")?,
-        missing_counts: output.missing_counts()?,
+        eligibility_counts: state.eligibility_counts,
+        missing_counts: state.missing_counts,
         input_sha256: plan.input_sha256.clone(),
         created_at: input.meta("created_at")?,
     };
@@ -624,8 +742,8 @@ pub fn validate_output_progress(
         }
     }
     loop {
-        let a = input.page(after, None)?;
-        let b = output.all_page(after)?;
+        let a = input.validation_page(after, &p)?;
+        let b = output.validation_page(after)?;
         if a.is_empty() && b.is_empty() {
             break;
         }
@@ -636,9 +754,12 @@ pub fn validate_output_progress(
             if i.ordinal != s.ordinal || i.rating != s.rating {
                 return Err(Error::new("RANKING_INVALID", "排名行与输入身份不一致"));
             }
-            let classified = ineligible(i, &p);
-            if classified.eligibility != s.eligibility || classified.duplicate_of != s.duplicate_of
-            {
+            let classified = if i.duplicate_of.is_some() {
+                RankingEligibility::Duplicate
+            } else {
+                formula::eligibility(i, &p)
+            };
+            if classified != s.eligibility || i.duplicate_of != s.duplicate_of {
                 return Err(Error::new("RANKING_INVALID", "排名用途资格不一致"));
             }
             if s.eligibility == RankingEligibility::Eligible {

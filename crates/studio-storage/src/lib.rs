@@ -258,7 +258,7 @@ impl SqliteStore {
         };
         let mut stmt = db.prepare(sql).map_err(db_error)?;
         stmt.query_map(
-            params![id, source, asset, limit.clamp(1, 1000) as u32],
+            params![id, source, asset, limit.clamp(1, 32768) as u32],
             |r| {
                 Ok(AssetKey {
                     source_id: r.get(0)?,
@@ -277,6 +277,16 @@ impl SqliteStore {
         after: Option<&AssetKey>,
     ) -> Result<Vec<AssetKey>> {
         self.keys(project_id, Some(("job", id)), after, 256)
+    }
+    /// Population workers hold a NativeQuery reservation and consume larger,
+    /// still bounded pages. Interactive callers keep their existing limits.
+    pub fn ranking_job_inputs(
+        &self,
+        project_id: &str,
+        id: &str,
+        after: Option<&AssetKey>,
+    ) -> Result<Vec<AssetKey>> {
+        self.keys(project_id, Some(("job", id)), after, 32768)
     }
     pub fn submit_job(
         &self,

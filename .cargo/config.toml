@@ -1,0 +1,7 @@
+# Large read-only lake snapshots opt in to mmap below this ceiling. SQLite's
+# default ~2 GiB compile-time ceiling otherwise silently truncates mmap_size.
+# This changes the bundled engine library, not any system SQLite installation.
+# Resource accounting uses process memory and explicit reservations; disabling
+# SQLite's unused global heap counters avoids allocator-lock contention.
+[env]
+LIBSQLITE3_FLAGS = { value = "SQLITE_MAX_MMAP_SIZE=137438953472LL SQLITE_DEFAULT_MEMSTATUS=0", force = false }

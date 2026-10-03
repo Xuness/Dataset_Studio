@@ -4189,6 +4189,7 @@ name = "studio-sources"
 version = "0.9.1"
 dependencies = [
  "base64 0.22.1",
+ "chrono",
  "dunce",
  "flate2",
  "hex",
@@ -4201,6 +4202,8 @@ dependencies = [
  "studio-application",
  "studio-domain",
  "tempfile",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

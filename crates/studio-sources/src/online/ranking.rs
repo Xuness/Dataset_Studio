@@ -14,6 +14,9 @@ fn transfer(
     sql: &str,
     values: Vec<Value>,
 ) -> Result<()> {
+    let started = Instant::now();
+    let mut transferred = 0u64;
+    let mut append_time = Duration::ZERO;
     let mut statement = view.db.prepare(sql).map_err(sql_error)?;
     let width = statement.column_count();
     let mut rows = statement
@@ -22,6 +25,7 @@ fn transfer(
     let mut batch = Vec::new();
     let mut bytes = 0usize;
     while let Some(row) = rows.next().map_err(sql_error)? {
+        transferred += 1;
         let row = (0..width)
             .map(|i| row.get::<_, Value>(i).map_err(sql_error))
             .collect::<Result<Vec<_>>>()?;
@@ -35,14 +39,25 @@ fn transfer(
             .sum::<usize>();
         batch.push(row);
         if batch.len() >= 512 || bytes >= 1 << 20 {
+            let appending = Instant::now();
             db.append_values(table, &batch)?;
+            append_time += appending.elapsed();
             batch.clear();
             bytes = 0;
         }
     }
     if !batch.is_empty() {
+        let appending = Instant::now();
         db.append_values(table, &batch)?;
+        append_time += appending.elapsed();
     }
+    tracing::debug!(
+        table,
+        rows = transferred,
+        elapsed_ms = started.elapsed().as_millis(),
+        append_ms = append_time.as_millis(),
+        "ranking projection transfer"
+    );
     Ok(())
 }
 
@@ -55,7 +70,7 @@ fn capture(
     rows: &[(u64, String, u32)],
     cancelled: ReadCancellation,
 ) -> Result<()> {
-    let view = Snapshot::open(
+    let view = Snapshot::open_bulk(
         source,
         Some(&expected.catalog_revision),
         cancelled,
@@ -72,7 +87,9 @@ fn capture(
             ])
         })
         .collect::<Result<Vec<_>>>()?;
-    db.append_values("online_scope", &scope)?;
+    for batch in scope.chunks(512) {
+        db.append_values("online_scope", batch)?;
+    }
     let default = QuerySpec {
         version: 3,
         source_ids: vec![source.id.clone()],
@@ -136,7 +153,13 @@ fn capture(
         )?;
         // Valid stored dimensions already satisfy the downstream projection. Only
         // missing/ambiguous dimensions need the complete compressed source record.
-        let mut statement=view.db.prepare("SELECT DISTINCT r.observation_id,r.raw_bytes,r.raw_zlib,r.raw_sha256 FROM visible_assets a JOIN raw_metadata r ON r.observation_id=a.observation_id WHERE a.sha256 IN (SELECT value FROM json_each(?1)) AND NOT coalesce(CASE WHEN json_valid(a.details_json) THEN json_type(a.details_json,'$.stored_width')='integer' AND json_type(a.details_json,'$.stored_height')='integer' AND json_extract(a.details_json,'$.stored_width') BETWEEN 1 AND 4294967295 AND json_extract(a.details_json,'$.stored_height') BETWEEN 1 AND 4294967295 ELSE 0 END,0)").map_err(sql_error)?;
+        let started = Instant::now();
+        let mut decoded = 0u64;
+        let mut decode_time = Duration::ZERO;
+        let mut parse_time = Duration::ZERO;
+        // Deduplicate only the small identity keys. DISTINCT over the compressed
+        // blobs constructs a large temporary B-tree before any decoding begins.
+        let mut statement=view.db.prepare("SELECT r.observation_id,r.raw_bytes,r.raw_zlib,r.raw_sha256 FROM raw_metadata r WHERE r.observation_id IN (SELECT a.observation_id FROM visible_assets a WHERE a.sha256 IN (SELECT value FROM json_each(?1)) AND NOT coalesce(CASE WHEN json_valid(a.details_json) THEN json_type(a.details_json,'$.stored_width')='integer' AND json_type(a.details_json,'$.stored_height')='integer' AND json_extract(a.details_json,'$.stored_width') BETWEEN 1 AND 4294967295 AND json_extract(a.details_json,'$.stored_height') BETWEEN 1 AND 4294967295 ELSE 0 END,0))").map_err(sql_error)?;
         let mut rows = statement.query([ids]).map_err(sql_error)?;
         let mut raw = Vec::new();
         while let Some(row) = rows.next().map_err(sql_error)? {
@@ -152,12 +175,18 @@ fn capture(
             }
             let compressed: Vec<u8> = row.get(2).map_err(sql_error)?;
             let hash: String = row.get(3).map_err(sql_error)?;
+            let step = Instant::now();
             let body = super::raw::decode(&compressed, size as u64, &hash, 16 << 20)?;
-            let json: serde_json::Value = serde_json::from_str(&body).map_err(error)?;
-            let projected = serde_json::json!({"raw_stored_width":json.get("raw_stored_width"),"raw_stored_height":json.get("raw_stored_height")});
+            decode_time += step.elapsed();
+            decoded += 1;
+            let step = Instant::now();
+            let projected: super::dimensions::Dimensions =
+                serde_json::from_str(&body).map_err(error)?;
+            let projected = serde_json::to_string(&projected).map_err(error)?;
+            parse_time += step.elapsed();
             raw.push(vec![
                 Value::Text(row.get(0).map_err(sql_error)?),
-                Value::Text(projected.to_string()),
+                Value::Text(projected),
             ]);
             if raw.len() == 512 {
                 db.append_values("online_raw", &raw)?;
@@ -167,6 +196,13 @@ fn capture(
         if !raw.is_empty() {
             db.append_values("online_raw", &raw)?;
         }
+        tracing::debug!(
+            rows = decoded,
+            elapsed_ms = started.elapsed().as_millis(),
+            decode_ms = decode_time.as_millis(),
+            parse_ms = parse_time.as_millis(),
+            "ranking dimension fallback"
+        );
     }
     Ok(())
 }
@@ -192,7 +228,7 @@ pub(crate) fn prepare(
             return Err(Error::invalid("排名图片身份无效"));
         }
         batch.push((ordinal, sha.to_owned(), basis));
-        if batch.len() == 512 {
+        if batch.len() == 16384 {
             capture(
                 db,
                 source,

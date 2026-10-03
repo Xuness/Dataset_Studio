@@ -5,6 +5,7 @@ use serde::{Serialize, de::DeserializeOwned};
 use std::{cell::Cell, fs, path::Path};
 use studio_domain::*;
 mod browse;
+mod compute;
 pub use browse::{PostIdScan, RankingScan};
 
 const INPUT_ID: i64 = 0x4d524931;
@@ -14,6 +15,7 @@ const COMMIT_ROWS: usize = 8192;
 #[derive(Default)]
 struct WriteBatch {
     rows: Cell<usize>,
+    limit: Cell<usize>,
 }
 impl WriteBatch {
     fn begin(&self, db: &Connection) -> Result<()> {
@@ -29,7 +31,12 @@ impl WriteBatch {
             return result;
         }
         self.rows.set(self.rows.get() + count);
-        if self.rows.get() >= COMMIT_ROWS {
+        let limit = if self.limit.get() == 0 {
+            COMMIT_ROWS
+        } else {
+            self.limit.get()
+        };
+        if self.rows.get() >= limit {
             self.flush(db)?;
         }
         Ok(())
@@ -149,6 +156,16 @@ fn connect(path: &Path, id: i64, create: bool, writable: bool) -> Result<Connect
         }
     }
     if !writable {
+        db.pragma_update(
+            None,
+            "mmap_size",
+            if cfg!(target_pointer_width = "64") {
+                128i64 << 30
+            } else {
+                1i64 << 30
+            },
+        )
+        .map_err(db_error)?;
         db.execute_batch("PRAGMA query_only=ON;")
             .map_err(db_error)?;
     }
@@ -261,6 +278,14 @@ pub struct RankingInputTable {
     batch: WriteBatch,
 }
 impl RankingInputTable {
+    /// Only engine-owned, checksum-verified copies may be rebound to a new job.
+    /// Published snapshots must remain read-only.
+    pub fn open_private_copy(path: &Path) -> Result<Self> {
+        Ok(Self {
+            db: connect(path, INPUT_ID, false, true)?,
+            batch: WriteBatch::default(),
+        })
+    }
     pub fn create(path: &Path) -> Result<Self> {
         let db = connect(path, INPUT_ID, true, true)?;
         db.execute_batch("CREATE TABLE input_rows(ordinal INTEGER PRIMARY KEY,source_id TEXT NOT NULL,asset_id BLOB NOT NULL,record_id BLOB,observation_id BLOB,post_id INTEGER,rating TEXT,created_at_us INTEGER,observed_at_us INTEGER,updated_at_us INTEGER,time_quality TEXT NOT NULL,source_priority INTEGER,fav_count INTEGER,up_score INTEGER,down_score INTEGER,score INTEGER,artists TEXT NOT NULL,parent_id INTEGER,stored_width INTEGER,stored_height INTEGER,dimension_basis TEXT NOT NULL,stored_extension TEXT NOT NULL,stored_bytes INTEGER NOT NULL,is_banned INTEGER,is_deleted INTEGER,is_pending INTEGER,is_flagged INTEGER,damage_classes INTEGER NOT NULL,tags_known INTEGER NOT NULL,record_count INTEGER NOT NULL,rating_conflict INTEGER NOT NULL,basis_ids TEXT NOT NULL,source_issues TEXT); CREATE UNIQUE INDEX input_identity ON input_rows(source_id,asset_id); CREATE INDEX input_rating ON input_rows(rating,ordinal); CREATE TABLE members(ordinal INTEGER PRIMARY KEY,source_id TEXT NOT NULL,asset_id BLOB NOT NULL,bases TEXT NOT NULL); CREATE INDEX members_source ON members(source_id,ordinal);").map_err(db_error)?;
@@ -278,6 +303,108 @@ impl RankingInputTable {
     pub fn set_meta(&self, key: &str, value: &impl Serialize) -> Result<()> {
         self.flush()?;
         put_meta(&self.db, key, value)
+    }
+    /// A retained full-source version already freezes membership. The typed
+    /// input is its only materialization; no second identity table is needed.
+    pub fn use_source_members(&self, memory_bytes: u64) -> Result<()> {
+        self.flush()?;
+        let definition: String = self
+            .db
+            .query_row(
+                "SELECT sql FROM sqlite_schema WHERE name='input_rows' AND type='table'",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(db_error)?;
+        let definition =
+            definition.replacen("ordinal INTEGER PRIMARY KEY", "ordinal INTEGER NOT NULL", 1);
+        if definition.contains("ordinal INTEGER PRIMARY KEY")
+            || !definition.contains("ordinal INTEGER NOT NULL")
+        {
+            return Err(Error::new(
+                "RANKING_FORMAT_UNSUPPORTED",
+                "输入暂存结构不兼容",
+            ));
+        }
+        // This unsealed input is rebuilt after interruption, never resumed or
+        // published. Its final file is flushed before the immutable plan hash
+        // and durable plan are written by the engine. Avoid per-page rollback
+        // journaling and random wide-row inserts during this private build.
+        self.db.execute_batch("PRAGMA journal_mode=OFF; PRAGMA synchronous=OFF; DROP TABLE members; DROP TABLE input_rows;").map_err(db_error)?;
+        self.db.execute_batch(&definition).map_err(db_error)?;
+        self.db
+            .pragma_update(
+                None,
+                "cache_size",
+                -((memory_bytes / 8).clamp(64 << 20, 512 << 20) as i64 / 1024),
+            )
+            .map_err(db_error)?;
+        // SQLite disables sorter worker threads for temp_store=MEMORY. Its
+        // file-backed PMAs keep memory bounded and permit parallel index sorts.
+        self.db
+            .pragma_update(None, "temp_store", "FILE")
+            .map_err(db_error)?;
+        self.db
+            .pragma_update(
+                None,
+                "threads",
+                ((memory_bytes >> 28).max(1) as usize)
+                    .min(
+                        std::thread::available_parallelism()
+                            .map(usize::from)
+                            .unwrap_or(1),
+                    )
+                    .min(8) as i64,
+            )
+            .map_err(db_error)?;
+        self.db.execute_batch("CREATE VIEW members AS SELECT ordinal,source_id,asset_id,basis_ids AS bases FROM input_rows;").map_err(db_error)?;
+        self.set_meta("membership", &"retained_source_snapshot")
+    }
+    pub fn finalize_source(&self) -> Result<()> {
+        self.flush()?;
+        // Row payloads are now fixed. Map them for repeated index scans while
+        // SQLite continues to write the new index pages through its pager.
+        self.db
+            .pragma_update(
+                None,
+                "mmap_size",
+                if cfg!(target_pointer_width = "64") {
+                    128i64 << 30
+                } else {
+                    1i64 << 30
+                },
+            )
+            .map_err(db_error)?;
+        for (name, sql) in [
+            (
+                "ordinal",
+                "CREATE UNIQUE INDEX input_ordinal ON input_rows(ordinal)",
+            ),
+            (
+                "identity",
+                "CREATE UNIQUE INDEX input_identity ON input_rows(asset_id,source_id)",
+            ),
+            (
+                "rating",
+                "CREATE INDEX input_rating ON input_rows(rating,ordinal)",
+            ),
+            (
+                "post",
+                "CREATE INDEX input_post ON input_rows(post_id,ordinal) WHERE post_id IS NOT NULL",
+            ),
+        ] {
+            let start = std::time::Instant::now();
+            self.db.execute_batch(sql).map_err(db_error)?;
+            tracing::info!(
+                name,
+                elapsed_ms = start.elapsed().as_millis(),
+                "ranking input index built"
+            );
+        }
+        self.db.execute_batch("CREATE TABLE duplicate_members(ordinal INTEGER PRIMARY KEY,duplicate_of INTEGER NOT NULL);").map_err(db_error)?;
+        // Source identity is unique. The unique indexes above and the final
+        // count/range checks prove one dense ordinal per published member.
+        Ok(())
     }
     pub fn flush(&self) -> Result<()> {
         self.batch.flush(&self.db)
@@ -355,81 +482,76 @@ impl RankingInputTable {
         }
         self.batch.begin(&self.db)?;
         let result = (|| -> Result<()> {
-            let mut stmt=self.db.prepare_cached(&format!("INSERT INTO input_rows({INPUT_COLUMNS}) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21,?22,?23,?24,?25,?26,?27,?28,?29,?30,?31,?32,?33)")).map_err(db_error)?;
             let v2 = self.is_v2()?;
-            let mut extra = if v2 {
-                Some(
-                    self.db
-                        .prepare_cached("UPDATE input_rows SET tags=?1 WHERE ordinal=?2")
-                        .map_err(db_error)?,
-                )
-            } else {
-                None
-            };
-            let mut evidence = if self.has_evidence()? {
-                Some(
-                    self.db
-                        .prepare_cached("UPDATE input_rows SET evidence_json=?1 WHERE ordinal=?2")
-                        .map_err(db_error)?,
-                )
-            } else {
-                None
-            };
+            let evidence = self.has_evidence()?;
+            let columns = format!(
+                "{INPUT_COLUMNS}{}{}",
+                if v2 { ",tags" } else { "" },
+                if evidence { ",evidence_json" } else { "" }
+            );
+            let placeholders = (1..=33 + usize::from(v2) + usize::from(evidence))
+                .map(|i| format!("?{i}"))
+                .collect::<Vec<_>>()
+                .join(",");
+            let mut stmt = self
+                .db
+                .prepare_cached(&format!(
+                    "INSERT INTO input_rows({columns}) VALUES ({placeholders})"
+                ))
+                .map_err(db_error)?;
             for v in rows {
                 let asset = bytes(&v.asset_id)?;
                 let record = v.record_id.as_deref().map(bytes).transpose()?;
                 let observation = v.observation_id.as_deref().map(bytes).transpose()?;
-                stmt.execute(params![
-                    v.ordinal as i64,
-                    v.source_id,
-                    asset,
-                    record,
-                    observation,
-                    v.post_id,
-                    v.rating,
-                    v.created_at_us,
-                    v.observed_at_us,
-                    v.updated_at_us,
-                    v.time_quality,
-                    v.source_priority,
-                    v.fav_count,
-                    v.up_score,
-                    v.down_score,
-                    v.score,
-                    serde_json::to_string(&v.artists).map_err(Error::io)?,
-                    v.parent_id,
-                    v.stored_width,
-                    v.stored_height,
-                    v.dimension_basis,
-                    v.stored_extension,
-                    i64::try_from(v.stored_bytes)
-                        .map_err(|_| Error::invalid("存储大小超出范围"))?,
-                    v.is_banned,
-                    v.is_deleted,
-                    v.is_pending,
-                    v.is_flagged,
-                    v.damage_classes,
-                    v.tags_known,
-                    v.record_count,
-                    v.rating_conflict,
-                    serde_json::to_string(&v.basis_ids).map_err(Error::io)?,
-                    v.source_issues
-                ])
+                let evidence_json = v
+                    .evidence
+                    .as_ref()
+                    .map(serde_json::to_string)
+                    .transpose()
+                    .map_err(Error::io)?;
+                stmt.execute(rusqlite::params_from_iter(
+                    params![
+                        v.ordinal as i64,
+                        v.source_id,
+                        asset,
+                        record,
+                        observation,
+                        v.post_id,
+                        v.rating,
+                        v.created_at_us,
+                        v.observed_at_us,
+                        v.updated_at_us,
+                        v.time_quality,
+                        v.source_priority,
+                        v.fav_count,
+                        v.up_score,
+                        v.down_score,
+                        v.score,
+                        serde_json::to_string(&v.artists).map_err(Error::io)?,
+                        v.parent_id,
+                        v.stored_width,
+                        v.stored_height,
+                        v.dimension_basis,
+                        v.stored_extension,
+                        i64::try_from(v.stored_bytes)
+                            .map_err(|_| Error::invalid("存储大小超出范围"))?,
+                        v.is_banned,
+                        v.is_deleted,
+                        v.is_pending,
+                        v.is_flagged,
+                        v.damage_classes,
+                        v.tags_known,
+                        v.record_count,
+                        v.rating_conflict,
+                        serde_json::to_string(&v.basis_ids).map_err(Error::io)?,
+                        v.source_issues
+                    ]
+                    .iter()
+                    .copied()
+                    .chain(v2.then_some(&v.tags as &dyn rusqlite::ToSql))
+                    .chain(evidence.then_some(&evidence_json as &dyn rusqlite::ToSql)),
+                ))
                 .map_err(db_error)?;
-                if let Some(extra) = extra.as_mut() {
-                    extra
-                        .execute(params![v.tags, v.ordinal as i64])
-                        .map_err(db_error)?;
-                }
-                if let Some(stmt) = evidence.as_mut()
-                    && let Some(value) = &v.evidence
-                {
-                    stmt.execute(params![
-                        serde_json::to_string(value).map_err(Error::io)?,
-                        v.ordinal as i64
-                    ])
-                    .map_err(db_error)?;
-                }
             }
             Ok(())
         })();
@@ -452,6 +574,26 @@ impl RankingInputTable {
         let invalid:bool=self.db.query_row("SELECT EXISTS(SELECT 1 FROM members m LEFT JOIN input_rows i USING(ordinal) WHERE i.ordinal IS NULL OR m.source_id!=i.source_id OR m.asset_id!=i.asset_id)",[],|r|r.get(0)).map_err(db_error)?;
         if counts != (expected, expected) || invalid {
             return Err(Error::new("INPUT_INVALID", "固定元数据与任务成员不一致"));
+        }
+        Ok(())
+    }
+    pub fn verify_source_members(&self, expected: u64) -> Result<()> {
+        self.flush()?;
+        let (first, last): (Option<u64>, Option<u64>) = self.db.query_row(
+            "SELECT (SELECT ordinal FROM input_rows ORDER BY ordinal LIMIT 1),(SELECT ordinal FROM input_rows ORDER BY ordinal DESC LIMIT 1)",
+            [], |r| Ok((optional_unsigned(r, 0)?, optional_unsigned(r, 1)?)),
+        ).map_err(db_error)?;
+        // Unique identity and ordinal keys were sealed above; the engine checks
+        // the expected source and ordinal range as rows are appended.
+        if expected == 0
+            || self.count()? != expected
+            || first != Some(0)
+            || last != Some(expected - 1)
+        {
+            return Err(Error::new(
+                "INPUT_INVALID",
+                "全湖排名输入未完整覆盖发布版本",
+            ));
         }
         Ok(())
     }
@@ -511,6 +653,33 @@ pub struct RankingResultTable {
     batch: WriteBatch,
 }
 impl RankingResultTable {
+    pub fn configure_work_memory(&self, memory_bytes: u64) -> Result<()> {
+        self.flush()?;
+        // Checkpoints cover eligibility or a complete rating. A partial rating
+        // is discarded on retry; intermediate commits add no resumable work.
+        self.batch.limit.set(usize::MAX);
+        self.db
+            .pragma_update(
+                None,
+                "cache_size",
+                -((memory_bytes / 8).clamp(32 << 20, 512 << 20) as i64 / 1024),
+            )
+            .map_err(db_error)?;
+        self.db
+            .pragma_update(
+                None,
+                "threads",
+                ((memory_bytes >> 28).max(1) as usize)
+                    .min(
+                        std::thread::available_parallelism()
+                            .map(usize::from)
+                            .unwrap_or(1),
+                    )
+                    .min(8) as i64,
+            )
+            .map_err(db_error)?;
+        Ok(())
+    }
     pub fn create(path: &Path) -> Result<Self> {
         let db = connect(path, SCORE_ID, true, true)?;
         db.execute_batch("CREATE TABLE scores(ordinal INTEGER PRIMARY KEY,rating TEXT,eligibility TEXT NOT NULL,missing_flags TEXT NOT NULL,g REAL,c REAL,a REAL,v REAL,t REAL,local_percentile REAL,local_count INTEGER NOT NULL,support_k REAL,cohort_level INTEGER,time_reason TEXT NOT NULL,artist_support INTEGER NOT NULL,main_score REAL,rescue_score REAL,main_rank INTEGER,rescue_rank INTEGER,selected_route TEXT NOT NULL,duplicate_of INTEGER); CREATE INDEX scores_rating ON scores(rating,ordinal);").map_err(db_error)?;
@@ -550,12 +719,25 @@ impl RankingResultTable {
         }
         self.batch.begin(&self.db)?;
         let result = (|| -> Result<()> {
-            let mut stmt=self.db.prepare_cached(&format!("INSERT INTO scores({SCORE_COLUMNS}) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19,?20,?21)")).map_err(db_error)?;
-            let mut extra = if self.is_v2()? {
-                Some(self.db.prepare_cached("UPDATE scores SET v2_json=?1,direct_rank=?2,fused_rank=?3,created_year=?4,year_rank=?5 WHERE ordinal=?6").map_err(db_error)?)
-            } else {
-                None
-            };
+            let v2 = self.is_v2()?;
+            let columns = format!(
+                "{SCORE_COLUMNS}{}",
+                if v2 {
+                    ",v2_json,direct_rank,fused_rank,created_year,year_rank"
+                } else {
+                    ""
+                }
+            );
+            let placeholders = (1..=if v2 { 26 } else { 21 })
+                .map(|i| format!("?{i}"))
+                .collect::<Vec<_>>()
+                .join(",");
+            let mut stmt = self
+                .db
+                .prepare_cached(&format!(
+                    "INSERT INTO scores({columns}) VALUES ({placeholders})"
+                ))
+                .map_err(db_error)?;
             for v in rows {
                 for x in [
                     v.g,
@@ -575,43 +757,49 @@ impl RankingResultTable {
                         return Err(Error::new("RANKING_INVALID", "排名成果出现非有限数值"));
                     }
                 }
-                stmt.execute(params![
-                    v.ordinal as i64,
-                    v.rating,
-                    enum_text(&v.eligibility)?,
-                    serde_json::to_string(&v.missing_flags).map_err(Error::io)?,
-                    v.g,
-                    v.c,
-                    v.a,
-                    v.v,
-                    v.t,
-                    v.local_percentile,
-                    v.local_count as i64,
-                    v.support_k,
-                    v.cohort_level,
-                    v.time_reason,
-                    v.artist_support as i64,
-                    v.main_score,
-                    v.rescue_score,
-                    v.main_rank.map(|x| x as i64),
-                    v.rescue_rank.map(|x| x as i64),
-                    enum_text(&v.selected_route)?,
-                    v.duplicate_of.map(|x| x as i64)
-                ])
-                .map_err(db_error)?;
-                if let Some(extra) = extra.as_mut() {
-                    extra
-                        .execute(params![
-                            v.v2.map(|x| serde_json::to_string(&x).map_err(Error::io))
-                                .transpose()?,
+                let v2_json =
+                    v.v2.map(|x| serde_json::to_string(&x).map_err(Error::io))
+                        .transpose()?;
+                stmt.execute(rusqlite::params_from_iter(
+                    params![
+                        v.ordinal as i64,
+                        v.rating,
+                        enum_text(&v.eligibility)?,
+                        serde_json::to_string(&v.missing_flags).map_err(Error::io)?,
+                        v.g,
+                        v.c,
+                        v.a,
+                        v.v,
+                        v.t,
+                        v.local_percentile,
+                        v.local_count as i64,
+                        v.support_k,
+                        v.cohort_level,
+                        v.time_reason,
+                        v.artist_support as i64,
+                        v.main_score,
+                        v.rescue_score,
+                        v.main_rank.map(|x| x as i64),
+                        v.rescue_rank.map(|x| x as i64),
+                        enum_text(&v.selected_route)?,
+                        v.duplicate_of.map(|x| x as i64)
+                    ]
+                    .iter()
+                    .copied()
+                    .chain(
+                        params![
+                            v2_json,
                             v.v2.map(|x| x.direct_rank as i64),
                             v.v2.map(|x| x.fused_rank as i64),
                             v.v2.and_then(|x| x.created_year),
                             v.v2.map(|x| x.year_rank as i64),
-                            v.ordinal as i64
-                        ])
-                        .map_err(db_error)?;
-                }
+                        ]
+                        .iter()
+                        .copied()
+                        .take(if v2 { 5 } else { 0 }),
+                    ),
+                ))
+                .map_err(db_error)?;
             }
             Ok(())
         })();
@@ -648,9 +836,20 @@ impl RankingResultTable {
     }
     pub fn finish(&self, summary: &RankingSummary) -> Result<()> {
         self.flush()?;
+        self.db
+            .pragma_update(
+                None,
+                "mmap_size",
+                if cfg!(target_pointer_width = "64") {
+                    128i64 << 30
+                } else {
+                    1i64 << 30
+                },
+            )
+            .map_err(db_error)?;
         self.db.execute_batch("CREATE INDEX IF NOT EXISTS scores_main ON scores(rating,coalesce(main_rank,9223372036854775807),ordinal); CREATE INDEX IF NOT EXISTS scores_rescue ON scores(rating,coalesce(rescue_rank,9223372036854775807),ordinal); CREATE INDEX IF NOT EXISTS scores_route_main ON scores(rating,selected_route,coalesce(main_rank,9223372036854775807),ordinal); CREATE INDEX IF NOT EXISTS scores_eligibility_main ON scores(rating,eligibility,coalesce(main_rank,9223372036854775807),ordinal);").map_err(db_error)?;
         if self.is_v2()? {
-            self.db.execute_batch("CREATE INDEX IF NOT EXISTS scores_direct ON scores(rating,coalesce(direct_rank,9223372036854775807),ordinal); CREATE INDEX IF NOT EXISTS scores_fused ON scores(rating,coalesce(fused_rank,9223372036854775807),ordinal); CREATE INDEX IF NOT EXISTS scores_year ON scores(rating,created_year,year_rank,ordinal);").map_err(db_error)?;
+            self.db.execute_batch("CREATE INDEX IF NOT EXISTS scores_direct ON scores(rating,coalesce(direct_rank,9223372036854775807),ordinal); CREATE INDEX IF NOT EXISTS scores_fused ON scores(rating,coalesce(fused_rank,9223372036854775807),ordinal);").map_err(db_error)?;
         }
         put_meta(&self.db, "summary", summary)?;
         put_meta(&self.db, "complete", &true)?;
@@ -1095,6 +1294,69 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn full_source_build_seals_unsorted_rows_and_rejects_duplicate_ordinals() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/test-runs");
+        fs::create_dir_all(&root).unwrap();
+        let directory = tempfile::tempdir_in(root).unwrap();
+        for enriched in [false, true] {
+            let path = directory.path().join(format!("source-{enriched}.sqlite"));
+            let mut table = if enriched {
+                RankingInputTable::create_enriched(&path, true)
+            } else {
+                RankingInputTable::create(&path)
+            }
+            .unwrap();
+            table.use_source_members(4 << 30).unwrap();
+            let rows: Vec<_> = [2, 0, 1]
+                .into_iter()
+                .map(|ordinal| RankingInput {
+                    ordinal,
+                    source_id: "source".into(),
+                    asset_id: format!("{ordinal:064x}"),
+                    tags: enriched.then(|| "tag_x".into()),
+                    ..Default::default()
+                })
+                .collect();
+            table.append(&rows).unwrap();
+            table.finalize_source().unwrap();
+            table.verify_source_members(3).unwrap();
+            table.set_meta("complete", &true).unwrap();
+            drop(table);
+            let table = RankingInputTable::open(&path).unwrap();
+            assert!(table.meta::<bool>("complete").unwrap());
+            assert_eq!(
+                table
+                    .page(None, None)
+                    .unwrap()
+                    .iter()
+                    .map(|r| r.ordinal)
+                    .collect::<Vec<_>>(),
+                vec![0, 1, 2]
+            );
+            assert_eq!(table.is_v2().unwrap(), enriched);
+            assert_eq!(table.has_evidence().unwrap(), enriched);
+            assert_eq!(table.members("source", None).unwrap().len(), 3);
+        }
+        let path = directory.path().join("duplicate.sqlite");
+        let mut table = RankingInputTable::create(&path).unwrap();
+        table.use_source_members(1 << 30).unwrap();
+        table
+            .append(&[
+                RankingInput {
+                    asset_id: "0".repeat(64),
+                    ..Default::default()
+                },
+                RankingInput {
+                    asset_id: "1".repeat(64),
+                    ..Default::default()
+                },
+            ])
+            .unwrap();
+        assert!(table.finalize_source().is_err());
+        assert!(table.meta::<bool>("complete").is_err());
     }
 
     #[test]

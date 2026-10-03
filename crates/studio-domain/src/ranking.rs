@@ -18,6 +18,33 @@ mod tests {
         assert_eq!(restored.duplicate_heat, None);
         assert_eq!(serde_json::to_value(restored).unwrap(), old);
     }
+    #[test]
+    fn reusable_projection_preserves_observation_policy_and_field_coverage() {
+        let p = RankingParameters {
+            v2: Some(Default::default()),
+            minimum_stored_side: Some(384),
+            ..Default::default()
+        };
+        let mut other = p.clone();
+        other.minimum_stored_side = Some(1024);
+        other.mode = RankingMode::Select;
+        other.time_weight = 0.1;
+        other.ratings = vec!["g".into()];
+        assert!(p.same_projection(&other));
+        other.minimum_stored_side = None;
+        assert!(!p.same_projection(&other));
+        other = p.clone();
+        other.v2 = None;
+        assert!(!p.same_projection(&other));
+        other = p.clone();
+        other.duplicate_heat = Some(DuplicateHeat::Sum);
+        assert!(!p.same_projection(&other));
+        let mut legacy = p.clone();
+        legacy.duplicate_heat = None;
+        other = legacy.clone();
+        other.ratings = vec!["e".into()];
+        assert!(!legacy.same_projection(&other));
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -113,6 +140,14 @@ impl Default for RankingParameters {
     }
 }
 impl RankingParameters {
+    /// Formula coefficients and thresholds do not change captured metadata.
+    /// Legacy representative selection does depend on the requested ratings.
+    pub fn same_projection(&self, other: &Self) -> bool {
+        self.duplicate_heat == other.duplicate_heat
+            && self.v2.is_some() == other.v2.is_some()
+            && self.minimum_stored_side.is_some() == other.minimum_stored_side.is_some()
+            && (self.duplicate_heat.is_some() || self.ratings == other.ratings)
+    }
     pub fn normalize(mut self) -> Result<Self> {
         self.v2 = self
             .v2

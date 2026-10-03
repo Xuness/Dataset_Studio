@@ -15,5 +15,9 @@ sha2.workspace = true
 hex.workspace = true
 image.workspace = true
 libloading.workspace = true
+tracing.workspace = true
 tempfile.workspace = true
 dunce = "1.0.5"
+chrono = { version = "0.4", default-features = false, features = ["std"] }
+[dev-dependencies]
+tracing-subscriber.workspace = true

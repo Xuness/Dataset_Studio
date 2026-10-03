@@ -66,9 +66,24 @@ pub(super) async fn submit(
             } else {
                 None
             };
-            let job = s
-                .store
-                .submit_registered_job(&pid, &request, &frozen, capture)?;
+            let snapshot_count = if domain::is_ranking_operator(&request.run.operator_id)
+                && matches!(request.scope.target, domain::ScopeTarget::Source { .. })
+                && frozen.source_versions.len() == 1
+                && frozen.source_versions[0].consistency == "retained_online_snapshot"
+            {
+                let expected = &frozen.source_versions[0];
+                read.query(domain::METADATA_MEMORY_BYTES, false)
+                    .snapshot_count(&s.store.source(&pid, &expected.source_id)?, expected)?
+            } else {
+                None
+            };
+            let job = s.store.submit_registered_job_with_snapshot(
+                &pid,
+                &request,
+                &frozen,
+                capture,
+                snapshot_count,
+            )?;
             query_views::retain_job(&s, &pid, &job, &read)?;
             if domain::is_ranking_operator(&job.operator) && job.stage.is_none() {
                 s.store.job_stage(

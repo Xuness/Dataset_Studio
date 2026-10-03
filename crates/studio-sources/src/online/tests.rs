@@ -132,6 +132,251 @@ fn read(f: &Fixture, spec: &QuerySpec, version: &QuerySourceVersion) -> SourceQu
 }
 
 #[test]
+fn bulk_identity_capture_keeps_historical_post_order_nulls_and_sparse_windows() {
+    let f = Fixture::new();
+    let db = Connection::open(&f.path).unwrap();
+    db.execute(
+        "INSERT INTO objects VALUES(65537,?1,'images.tar',0,20,'png',1)",
+        [sha(3)],
+    )
+    .unwrap();
+    db.execute("UPDATE publications SET objects_count=3 WHERE seq=1", [])
+        .unwrap();
+    let reader = QueryReader::default();
+    let expected = reader.read_version(&f.source, false).unwrap();
+    db.execute(
+        "UPDATE object_versions SET valid_until=2 WHERE sha256=?1",
+        [sha(1)],
+    )
+    .unwrap();
+    db.execute("INSERT INTO object_versions VALUES(?1,2,NULL,99)", [sha(1)])
+        .unwrap();
+    db.execute(
+        "INSERT INTO objects VALUES(65538,?1,'images.tar',0,20,'png',2)",
+        [sha(4)],
+    )
+    .unwrap();
+    db.execute("INSERT INTO publications VALUES(2,'next','now',4,3,3)", [])
+        .unwrap();
+    db.execute(
+        "UPDATE online_state SET value='2' WHERE key='served_seq'",
+        [],
+    )
+    .unwrap();
+    let mut hits = Vec::new();
+    assert!(
+        reader
+            .execute_query_hits(
+                &f.source,
+                &f.spec(vec![]),
+                &expected,
+                Arc::new(AtomicBool::new(false)),
+                &mut |batch, count| {
+                    assert_eq!(batch.len() as u64, count);
+                    hits.extend_from_slice(batch);
+                    Ok(())
+                },
+            )
+            .unwrap()
+    );
+    assert_eq!(
+        hits.iter()
+            .map(|h| (h.key.asset_id.clone(), h.post_id))
+            .collect::<Vec<_>>(),
+        vec![(sha(1), Some(1)), (sha(2), Some(2)), (sha(3), None)]
+    );
+    assert!(
+        !reader
+            .execute_query_hits(
+                &f.source,
+                &f.spec(vec![tags(&["tag_x"])]),
+                &expected,
+                Arc::new(AtomicBool::new(false)),
+                &mut |_, _| panic!("Unsupported query must not emit rows"),
+            )
+            .unwrap()
+    );
+    assert_eq!(
+        reader
+            .execute_query_hits(
+                &f.source,
+                &f.spec(vec![]),
+                &expected,
+                Arc::new(AtomicBool::new(true)),
+                &mut |_, _| panic!("Cancelled capture must not emit rows"),
+            )
+            .unwrap_err()
+            .code,
+        "CANCELLED"
+    );
+}
+
+#[test]
+fn chunked_ranking_matches_whole_projection_across_duplicate_and_branch_boundaries() {
+    let f = Fixture::new();
+    let db = Connection::open(&f.path).unwrap();
+    db.execute(
+        "UPDATE assets SET details_json=?1",
+        [r#"{"stored_width":128,"stored_height":256}"#],
+    )
+    .unwrap();
+    let expected = QueryReader::default()
+        .read_version(&f.source, true)
+        .unwrap();
+    let reader = crate::RankingReader::configured(f.root.path().join("projection"), 4 << 30);
+    let bases = vec![RankingBasis {
+        index: 1,
+        result_id: None,
+        spec: f.spec(vec![]),
+    }];
+    let rows = [
+        (0, sha(1), 0),
+        (0, sha(1), 1),
+        (1, sha(2), 0),
+        (1, sha(2), 1),
+        (2, sha(999), 0),
+        (3, sha(1), 0),
+        (3, sha(1), 1),
+    ];
+    for policy in [None, Some(DuplicateHeat::Highest), Some(DuplicateHeat::Sum)] {
+        let parameters = RankingParameters {
+            duplicate_heat: policy,
+            minimum_stored_side: Some(64),
+            v2: Some(Default::default()),
+            ..Default::default()
+        }
+        .normalize()
+        .unwrap();
+        let mut produce = |append: &mut studio_application::RankingMemberAppend<'_>| {
+            for (ordinal, asset, basis) in &rows {
+                append(*ordinal, asset, *basis)?;
+            }
+            Ok(())
+        };
+        let mut reference = Vec::new();
+        reader
+            .project_batch(
+                &f.source,
+                &expected,
+                &bases,
+                &parameters,
+                Arc::new(AtomicBool::new(false)),
+                &mut produce,
+                &mut |rows| {
+                    reference.extend_from_slice(rows);
+                    Ok(())
+                },
+            )
+            .unwrap();
+        let mut chunked = Vec::new();
+        reader
+            .project_chunks(
+                &f.source,
+                &expected,
+                &bases,
+                &parameters,
+                Arc::new(AtomicBool::new(false)),
+                &mut produce,
+                &mut |rows| {
+                    chunked.extend_from_slice(rows);
+                    Ok(())
+                },
+                3,
+            )
+            .unwrap();
+        assert_eq!(reference.len(), 4);
+        let mut simple = Vec::new();
+        reader
+            .project(
+                &f.source,
+                &expected,
+                &[],
+                &parameters,
+                Arc::new(AtomicBool::new(false)),
+                &mut |append| {
+                    for row in &reference {
+                        append(row.ordinal, &row.asset_id, 0)?;
+                    }
+                    Ok(())
+                },
+                &mut |page| {
+                    simple.extend_from_slice(page);
+                    Ok(())
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            serde_json::to_value(&reference).unwrap(),
+            serde_json::to_value(simple).unwrap()
+        );
+        let mut complete_source = Vec::new();
+        assert_eq!(
+            reader
+                .project_source(
+                    &f.source,
+                    &expected,
+                    &parameters,
+                    Arc::new(AtomicBool::new(false)),
+                    &mut |page| {
+                        complete_source.extend_from_slice(page);
+                        Ok(())
+                    }
+                )
+                .unwrap(),
+            2
+        );
+        complete_source.sort_unstable_by_key(|r| r.ordinal);
+        assert_eq!(
+            serde_json::to_value(&reference[..2]).unwrap(),
+            serde_json::to_value(complete_source).unwrap()
+        );
+        assert_eq!(
+            serde_json::to_value(reference).unwrap(),
+            serde_json::to_value(chunked).unwrap()
+        );
+    }
+    let error = reader
+        .project_chunks(
+            &f.source,
+            &expected,
+            &[],
+            &RankingParameters::default(),
+            Arc::new(AtomicBool::new(false)),
+            &mut |append| {
+                append(1, &sha(1), 0)?;
+                append(0, &sha(2), 0)
+            },
+            &mut |_| Ok(()),
+            3,
+        )
+        .unwrap_err();
+    assert_eq!(error.code, "INVALID_INPUT");
+    let start = Instant::now();
+    let error = reader
+        .project_chunks(
+            &f.source,
+            &expected,
+            &[],
+            &RankingParameters::default(),
+            Arc::new(AtomicBool::new(false)),
+            &mut |append| {
+                for ordinal in 0..16 {
+                    append(ordinal, &sha(1), 0)?;
+                }
+                Ok(())
+            },
+            &mut |_| Err(Error::new("SINK_FAILED", "test sink failure")),
+            3,
+        )
+        .unwrap_err();
+    assert_eq!(error.code, "SINK_FAILED");
+    assert!(
+        start.elapsed() < Duration::from_secs(10),
+        "Bounded channels must release workers on sink failure"
+    );
+}
+
+#[test]
 fn ranking_uses_stored_dimensions_without_reading_unneeded_raw_and_checks_fallback_integrity() {
     let f = Fixture::new();
     let connection = Connection::open(&f.path).unwrap();

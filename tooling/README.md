@@ -89,6 +89,10 @@ Rust 测试位于 crates 内，`pnpm test` 同时执行 SDK 检查 [client-found
 - [verify-reads.mjs](verify-reads.mjs)：指定对象的读取预算、应用缓存和重启。
 - [verify-ranking.mjs](verify-ranking.mjs)：真实元数据的有界排名试点。
 
+全湖性能入口为 [benchmark-ranking.mjs](benchmark-ranking.mjs)，与上述有界试点分开使用。先构建 Release 引擎，再传入 `--index-root`、`--media-root`、`--parameters <OperatorRun.json>`，可设置 `--memory-gib` 和 `--timeout-seconds`。默认在独立项目运行完整全湖排名，保留报告、成果、二进制摘要与首屏记录；不清空操作系统缓存，也不改写图片或湖中元数据。
+
+`--reuse-run <已成功的运行目录>` 使用该运行的项目验证固定输入复用，仍重新计算和发布。`--live-connection <开发引擎的 engine.json> --project-id <项目 ID> --source-id <来源 ID>` 会向明确指定的实际项目提交任务；它核对开发引擎二进制，保持当前资源设置，不启动或关闭该引擎。真实数据运行会生成持久成果和版本租约；归档报告后应通过正常项目/任务生命周期清理不需要的隔离项目，不直接删除仍有引用的湖租约。
+
 ## 夹具与结果归档
 
 数据库在线升级 P1 的规模实验与并发测试由 Rust 测试集维护，包含在 `pnpm check`。独立复跑命令、SQLite 版本与测量边界见 [P1 验收](../docs/verification/2026-09-26-online-upgrade-phase1.md)；存储或预览改动还需运行 `pnpm test:integration`。
