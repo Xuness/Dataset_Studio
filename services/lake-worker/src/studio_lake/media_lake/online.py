@@ -4,10 +4,11 @@ import json
 from pathlib import Path
 import uuid
 
+import apsw
 import pyarrow.parquet as pq
 
 from . import ONLINE_VERSION
-from .schema import FACTS, MAX_BATCH_METADATA_BYTES, MAX_BATCH_ROWS, arrow_schema, canonical, check_rows, sql, utc
+from .schema import FACTS, MAX_BATCH_METADATA_BYTES, MAX_BATCH_ROWS, InvalidCanonicalResult, arrow_schema, canonical, check_rows, sql, utc
 from .records import apply_facts, counts, insert_fact, publication_row, project, validate_relations
 from ..online_schema import set_state, settings
 from ..online_storage import connect
@@ -127,8 +128,11 @@ class Publisher:
                         apply_facts(db, load_records(self.lib.root / "segments" / commit["batch_id"], m), commit["seq"], commit["batch_id"])
                     seq = head + 1
                     publication_row(db, seq, manifest["batch_id"], digest(canonical(manifest).encode()), manifest["created_at"])
-                    apply_facts(db, records, seq, manifest["batch_id"])
-                    validate_relations(db, records, self.lib.info["library_id"])
+                    try:
+                        apply_facts(db, records, seq, manifest["batch_id"])
+                        validate_relations(db, records, self.lib.info["library_id"])
+                    except (IntegrityError, apsw.ConstraintError) as error:
+                        raise InvalidCanonicalResult(str(error)) from error
                 finally:
                     db.execute("ROLLBACK")
             finally:

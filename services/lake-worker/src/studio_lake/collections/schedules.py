@@ -77,13 +77,11 @@ class Schedules:
             db.execute("BEGIN IMMEDIATE")
             rows = list(db.execute("""SELECT s.* FROM collection_schedules s WHERE s.enabled=1 AND s.next_at<=?
                 AND NOT EXISTS(SELECT 1 FROM lake_relocations r WHERE r.lake_id=s.lake_id AND r.phase NOT IN ('complete','cancelled'))
-                ORDER BY s.next_at,s.id LIMIT 100""", (at,)))
+                AND NOT EXISTS(SELECT 1 FROM collection_jobs j WHERE j.id=s.last_job
+                  AND j.state NOT IN (""" + ",".join("?" for _ in TERMINAL) + ")) ORDER BY s.next_at,s.id LIMIT 100", (at, *sorted(TERMINAL))))
             for row in rows:
                 # Paused, waiting for credentials/budget and review are all unfinished.
                 # Preserve them for the user instead of accumulating later copies.
-                last = db.execute("SELECT state FROM collection_jobs WHERE id=?", (row["last_job"],)).fetchone()
-                if last and last[0] not in TERMINAL:
-                    continue
                 occurrence = row["next_at"] + int((at - row["next_at"]) // row["every_seconds"]) * row["every_seconds"]
                 key = str(uuid.uuid5(uuid.NAMESPACE_URL, f"pixiv-schedule:{row['id']}:{row['revision']}:{occurrence}"))
                 identity, _, _ = self.service.create_job_db(db, json.loads(row["definition_json"]), key)

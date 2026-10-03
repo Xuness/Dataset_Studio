@@ -144,6 +144,8 @@ await client.sourceAccess.authorWorks(projectId, sourceId, "10109777", {
 
 ## 维护与验证
 
+控制库 v11 的结果隔离、稳定下载暂存与多回执组批见 [0055](../decisions/0055-pixiv-receipts-and-bounded-batches.md)。继续任务保留有效断点；显式重试失败项会使旧下载缓存失效。永久无效结果的隔离证据在取消后继续保留，任务细项显示对应原因。增量快照沿用同时要求详情与媒体清单的内容版本相容。
+
 独立重建不依赖控制库或原在线缓存：
 
 ```powershell

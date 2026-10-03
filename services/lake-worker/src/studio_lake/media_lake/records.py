@@ -83,7 +83,8 @@ def validate_relations(db, records, library_id):
             raise IntegrityError("Media slot mismatch")
         if row["kind"] == "ugoira":
             frames = list(db.execute("SELECT ordinal FROM animation_frames WHERE media_id=? ORDER BY ordinal", (row["media_id"],)))
-            if not frames or [f[0] for f in frames] != list(range(len(frames))):
+            manifest = one(db, "SELECT complete FROM media_manifests WHERE manifest_id=?", (row["manifest_id"],))
+            if (not frames and manifest and manifest["complete"]) or [f[0] for f in frames] != list(range(len(frames))):
                 raise IntegrityError("Animation frame sequence is incomplete")
     for row in records.get("assets", []):
         if row["asset_id"] != stable_id("asset-record-v2", row["media_id"], row["representation"], row["recipe_id"],
@@ -125,6 +126,10 @@ def project_work(db, work_id, seq):
     state = "missing"
     if manifest:
         state = "ready"
+        from .content import compatible
+
+        if not compatible(db, detail, manifest):
+            state = "needs_refresh"
         if latest and not latest["complete"]:
             state = "needs_refresh"
         if detail and detail["work_type"] in {"illustration", "manga", "ugoira"}:

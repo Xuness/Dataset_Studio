@@ -93,6 +93,11 @@ def work(captured):
                       "ai_type": integer(data.get("aiType")), "bookmark_count": integer(data.get("bookmarkCount")),
                       "view_count": integer(data.get("viewCount")), "like_count": integer(data.get("likeCount"))}}),
                   issues_json=canonical(issues))
+    from ...media_lake.content import revision
+
+    fields = json.loads(record["source_fields_json"])
+    fields["pixiv"]["content_revision"] = revision(data)
+    record["source_fields_json"] = canonical(fields)
     tags = []
     for ordinal, value in enumerate(data.get("tags", {}).get("tags", [])):
         if not isinstance(value, dict) or not isinstance(value.get("tag"), str):

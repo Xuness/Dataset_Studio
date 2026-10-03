@@ -217,7 +217,7 @@ def test_pixiv_relocation_preserves_snapshot_and_resumes_collection(tmp_path):
     assert next_runner.run(next_job["id"], time_slice=60)["state"] == "completed"
 
 
-def test_changed_source_retains_diagnostic_then_cancel_reclaims_scratch(tmp_path):
+def test_changed_source_retains_diagnostic_hash_and_reclaims_bad_bytes(tmp_path):
     service, runner, job, _ = setup(tmp_path)
     image = io.BytesIO()
     Image.new("RGB", (13, 9), "red").save(image, format="PNG")
@@ -227,7 +227,8 @@ def test_changed_source_retains_diagnostic_then_cancel_reclaims_scratch(tmp_path
     assert result["progress"]["media"]["gaps"] == 2
     assert result["progress"]["objects"]["stored"] == 0
     scratch = service.state.root / "collection-spool" / job["id"]
-    assert len(list(scratch.rglob("*.downloaded"))) == 2
+    assert not list(service.state.root.rglob("*.downloaded"))
+    assert all(row["summary"]["download"]["bytes"] == len(image.getvalue()) for row in service.tasks(job["id"], dict(kind="media_download"))["items"])
     service.action(job["id"], dict(request_key=key(), expected_revision=result["revision"], action="cancel"))
     assert runner.run(job["id"])["state"] == "cancelled"
     assert not scratch.exists()

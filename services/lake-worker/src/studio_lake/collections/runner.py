@@ -3,12 +3,12 @@
 from concurrent.futures import ThreadPoolExecutor
 import json
 from pathlib import Path
-import shutil
 import threading
 import time
 import uuid
 
-from . import TERMINAL, TASK_TERMINAL, incremental, media, planner, receipts
+from . import TERMINAL, TASK_TERMINAL, batches, incremental, media, planner, receipts, tasks, validation
+from .failures import exception_code, task_state
 from .service import Service
 from ..collectors.pixiv import normalize
 from ..collectors.pixiv.http import Client, MediaSessions, MAX_RESPONSE
@@ -19,11 +19,6 @@ from ..updates.sites import UpdateError
 from ..updates.staging import estimate
 from ..util import FileLock, IntegrityError, read_json, safe_managed_path
 
-
-def exception_code(error):
-    if isinstance(error, UpdateError):
-        return "COLLECTION_LIMIT" if error.code == "UPDATE_RESOURCE_LIMIT" else error.code
-    return "COLLECTION_IO" if isinstance(error, OSError) else "COLLECTION_INTEGRITY"
 
 
 class Runner:
@@ -63,7 +58,7 @@ class Runner:
             code = exception_code(error)
             target = {"COLLECTION_CREDENTIAL_REQUIRED": "waiting_credentials", "COLLECTION_SCOPE_CHANGED": "needs_review",
                       "COLLECTION_REMOTE_UNAVAILABLE": "waiting_retry", "UPDATE_SPACE": "waiting_resources",
-                      "COLLECTION_IO": "waiting_resources", "CANCELLED": "queued"}.get(code, "needs_review")
+                      "CANCELLED": "queued"}.get(code, "needs_review")
             self.update_state(identity, target, code, getattr(error, "retry_after", 0))
             # Exceptions can contain response URLs. Retain structure, never exception text.
             import traceback
@@ -88,7 +83,7 @@ class Runner:
                 receipts.publish_ack(self.service, lib, identity)
                 receipts.release(self.service, lib, identity, resources=self.resources)
                 with self.state.db() as db:
-                    if db.execute("SELECT 1 FROM collection_outbox WHERE job_id=? AND (control_applied=0 OR published=0) LIMIT 1", (identity,)).fetchone():
+                    if db.execute("SELECT 1 FROM collection_outbox WHERE job_id=? AND state<>'quarantined' AND (control_applied=0 OR published=0) LIMIT 1", (identity,)).fetchone():
                         raise IntegrityError("Cancelled job still has unacknowledged acquisition receipts")
                 root = safe_managed_path(self.state.root, self.state.root / "collection-spool" / identity)
                 if root.exists():
@@ -105,6 +100,10 @@ class Runner:
                         directory.rmdir()
                         self.resources.retire(directory)
                     root.rmdir()
+                downloads = safe_managed_path(self.state.root, self.state.root / "collection-downloads" / identity)
+                if downloads.exists():
+                    for directory in list(downloads.iterdir()):
+                        tasks.retire_download(self.service, identity, directory.name, self.resources)
                 with self.state.db() as db:
                     db.execute("BEGIN IMMEDIATE")
                     current = self.service.row(identity, db)
@@ -120,15 +119,13 @@ class Runner:
             row = db.execute("SELECT desired_state FROM collection_jobs WHERE id=?", (identity,)).fetchone()
         return not row or row[0] != "run"
 
-    def recover(self, lib, identity):
+    def recover(self, lib, identity, *, force=True):
         # Accept old staged claims before issuing a new execution epoch.
-        while True:
-            with self.state.db() as db:
-                row = db.execute("SELECT * FROM collection_outbox WHERE job_id=? AND state='prepared' ORDER BY created_at,id LIMIT 1", (identity,)).fetchone()
-            if row is None:
-                break
-            receipts.accept(self.service, lib, dict(row))
+        # Journal authority wins even if a crash preceded the outbox acknowledgement.
         receipts.reconcile(self.service, lib)
+        changed = batches.flush(self.service, lib, identity, force=force)
+        receipts.reconcile(self.service, lib)
+        return changed
 
     def _run(self, lib, identity, *, time_slice):
         self.recover(lib, identity)
@@ -176,56 +173,19 @@ class Runner:
             db.execute("UPDATE collection_jobs SET counters_json=? WHERE id=?", (canonical(counts), identity))
 
     def claim(self, job, *, media_task=False):
-        with self.state.db() as db:
-            db.execute("BEGIN IMMEDIATE")
-            current = self.service.row(job["id"], db)
-            if current["desired_state"] != "run" or current["execution_epoch"] != job["execution_epoch"]:
-                return None
-            row = db.execute("SELECT * FROM collection_tasks WHERE job_id=? AND kind " + ("=" if media_task else "<>") + " 'media_download' AND state IN ('queued','retry_wait') AND retry_at_ms<=? ORDER BY priority DESC,task_row LIMIT 1",
-                             (job["id"], int(time.time() * 1000))).fetchone()
-            if row is None:
-                return None
-            task = dict(row)
-            task.update(claimed_epoch=job["execution_epoch"], claim_token=str(uuid.uuid4()), state="running", attempts=task["attempts"] + 1)
-            previous = task["result_receipt"]
-            directory = receipts.staging(self.service, job, task["claim_token"])
-            if previous:
-                old = safe_managed_path(self.state.root, self.state.root / previous).parent
-                if old.is_dir() and read_json(old / "owner.json")["job_id"] == job["id"]:
-                    # A released execution cannot mutate these files. Partial.load validates
-                    # hashes, validators and the fixed locator before range continuation.
-                    for suffix in (".downloaded", ".download.json", ".partial", ".partial.json"):
-                        candidate = safe_managed_path(self.state.root, old / (task["id"] + suffix))
-                        if candidate.is_file():
-                            shutil.copyfile(candidate, directory / candidate.name)
-            marker = str((directory / "result.json").relative_to(self.state.root))
-            db.execute("UPDATE collection_tasks SET state='running',claimed_epoch=?,claim_token=?,attempts=?,result_receipt=?,reason=NULL,updated_at=? WHERE id=?",
-                       (task["claimed_epoch"], task["claim_token"], task["attempts"], marker, utc(), task["id"]))
-            task["directory"] = directory
-            return task
+        return tasks.claim(self.service, job, media_task=media_task)
 
     def failure(self, job, task, error):
         code = exception_code(error)
-        if code == "CANCELLED":
-            state = "queued"
-        elif code in {"COLLECTION_CREDENTIAL_REQUIRED", "COLLECTION_SCOPE_CHANGED"}:
-            state = "waiting_credentials"
-        elif code in {"UPDATE_SPACE", "COLLECTION_IO"}:
-            state = "waiting_resources"
-        elif code == "COLLECTION_NOT_ACCESSIBLE":
-            state = "unavailable"
-        elif code == "COLLECTION_SOURCE_CHANGED":
-            state = "unavailable"
-        elif code == "COLLECTION_REMOTE_UNAVAILABLE" and task["attempts"] < 8:
-            state = "retry_wait"
-        else:
-            state = "needs_review"
+        state = task_state(code, task["attempts"])
         if state in {"unavailable", "needs_review"}:
-            receipts.prepared(self.service, job, task, {}, state=state, reason=code, directory=task["directory"])
+            receipts.prepared(self.service, job, task, {}, state=state, reason=code,
+                              summary=tasks.download_evidence(task), directory=task["directory"])
         else:
             with self.state.db() as db:
                 db.execute("UPDATE collection_tasks SET state=?,reason=?,retry_at_ms=?,updated_at=? WHERE id=? AND claim_token=?",
                            (state, code, int((time.time() + max(1, getattr(error, "retry_after", 0), min(300, 2 ** task["attempts"]))) * 1000) if state == "retry_wait" else 0, utc(), task["id"], task["claim_token"]))
+            tasks.prune_attempt(self.service, job, task["directory"], self.resources)
         if state == "waiting_credentials":
             raise error
 
@@ -271,6 +231,7 @@ class Runner:
                 normalized = normalize.manifest(captured, payload["detail"])
             else:
                 normalized = self.relationship(captured, job, payload)
+            validation.records({**raw_records, **normalized}, job["lake_id"], detail=payload.get("detail"))
         except (IntegrityError, ValueError, TypeError, KeyError, AttributeError) as error:
             # Retain the bounded source bytes even when a new source shape cannot
             # yet become normalized facts. Login HTML and Cookie headers never enter here.
@@ -353,7 +314,7 @@ class Runner:
                     raise UpdateError("COLLECTION_SCOPE_CHANGED", "Server-confirmed session identity or visibility changed")
             with ThreadPoolExecutor(max_workers=config["pixiv"]["download_concurrency"] + 1) as pool:
                 while True:
-                    self.recover(lib, identity)
+                    self.recover(lib, identity, force=False)
                     if publishing and publishing.done():
                         try:
                             publishing.result()
@@ -408,37 +369,55 @@ class Runner:
                         if len(futures) < config["pixiv"]["download_concurrency"]:
                             slot = self.resources.try_download("pixiv")
                             if slot:
-                                task = self.claim(current, media_task=True)
+                                try:
+                                    task = self.claim(current, media_task=True)
+                                except BaseException:
+                                    slot.release()
+                                    raise
                                 if task:
-                                    payload = json.loads(task["payload_json"])
-                                    plan = media.Plan(estimate(spec["media"]["image_policy"], payload["entry"], self.resources), spec["media"]["retain_original"])
-                                    reservation = self.resources.try_reserve(task["directory"], task["id"], plan.peak())
-                                    if reservation:
-                                        self.resources.plan(task["directory"], task["id"], plan)
+                                    reservation = None
+                                    try:
+                                        payload = json.loads(task["payload_json"])
+                                        plan = media.Plan(estimate(spec["media"]["image_policy"], payload["entry"], self.resources), spec["media"]["retain_original"])
+                                        self.resources.track(task["directory"])
+                                        reservation = self.resources.try_reserve(task["download_directory"], task["id"], plan.peak())
+                                        if reservation is None:
+                                            raise UpdateError("UPDATE_SPACE", "Shared staging is full")
+                                        tasks.prepare_download(self.service, current, task)
+                                        self.resources.plan(task["download_directory"], task["id"], plan)
                                         def progress(**values):
                                             if values.get("downloaded_bytes_delta"):
                                                 self.consume(identity, download_bytes=values["downloaded_bytes_delta"])
                                         future = pool.submit(media.acquire, lib, task, spec, task["directory"], client, sessions, self.resources,
                                                              cancelled, progress)
                                         futures[future] = (task, reservation, slot)
-                                    else:
+                                    except BaseException as error:
+                                        if reservation:
+                                            reservation.release()
                                         slot.release()
-                                        self.failure(current, task, UpdateError("UPDATE_SPACE", "Shared staging is full"))
+                                        if not isinstance(error, Exception):
+                                            raise
+                                        self.failure(current, task, error)
                                 else:
                                     slot.release()
                         with self.state.db() as db:
                             pending_media = db.execute("SELECT coalesce(sum(n),0) FROM collection_counts WHERE job_id=? AND kind='media_download' AND state NOT IN ('done','unavailable','excluded','needs_review','cancelled')", (identity,)).fetchone()[0]
                         task = self.claim(current) if pending_media < config["pending_media_limit"] else None
                         if task:
-                            reservation = self.resources.try_reserve(task["directory"], task["id"], MAX_RESPONSE * 3)
-                            if reservation is None:
-                                self.failure(current, task, UpdateError("UPDATE_SPACE", "Shared metadata staging is full"))
-                                continue
+                            reservation = None
                             try:
+                                reservation = self.resources.try_reserve(task["directory"], task["id"], MAX_RESPONSE * 3)
+                                if reservation is None:
+                                    raise UpdateError("UPDATE_SPACE", "Shared metadata staging is full")
                                 self.metadata(current, task, context, client, lib)
+                                # Acquisition has ended; only actual immutable result
+                                # bytes remain. Holding a full response budget per
+                                # small receipt would artificially prevent grouping.
+                                self.resources.stage_size(task["directory"], task["id"], 0)
                                 reservations[task["claim_token"]] = reservation
                             except Exception as error:
-                                reservation.release()
+                                if reservation:
+                                    reservation.release()
                                 self.failure(current, task, error)
                             continue
                     if futures:
@@ -449,6 +428,8 @@ class Runner:
                     with self.state.db() as db:
                         due = db.execute("SELECT 1 FROM collection_tasks WHERE job_id=? AND state='queued' LIMIT 1", (identity,)).fetchone()
                     if due:
+                        continue
+                    if self.recover(lib, identity):
                         continue
                     break
                 # Drain publication before returning the execution lock. Already accepted

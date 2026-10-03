@@ -12,6 +12,7 @@ import time
 from .planner import scope_allows
 from ..image_policy import profile_id
 from ..media_lake.records import one
+from ..media_lake.content import compatible
 from ..online_storage import connect
 from ..updates.sites import UpdateError
 from ..util import contained, read_json
@@ -61,6 +62,9 @@ def reusable_work(lib, identity, spec, context, *, at=None):
         manifest = one(db, "SELECT m.*,c.comparison_key FROM media_manifests m JOIN visibility_contexts c USING(context_id) WHERE m.manifest_id=? AND m.commit_seq<=?",
                        (detail["manifest_id"], seq))
         if not manifest or not manifest["complete"] or manifest["observed_at"] < cutoff or manifest["comparison_key"] != context["comparison_key"]:
+            return None
+        # Also guard online projections produced before the compatibility rule existed.
+        if not compatible(db, detail, manifest):
             return None
         required = requirements(spec, detail["work_type"])
         count = db.execute("SELECT count(*) FROM media_entries WHERE manifest_id=? AND commit_seq<=?", (manifest["manifest_id"], seq)).fetchone()[0]

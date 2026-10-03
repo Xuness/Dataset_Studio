@@ -322,7 +322,7 @@ class Service:
                         if selected:
                             suffix = " AND id IN (" + ",".join("?" for _ in selected) + ")"
                             values = selected
-                        db.execute("UPDATE collection_tasks SET state='queued',attempts=0,retry_at_ms=0,reason=NULL,updated_at=? WHERE job_id=? AND state IN ('unavailable','needs_review','waiting_credentials','waiting_resources','retry_wait')" + suffix, (utc(), identity, *values))
+                        db.execute("UPDATE collection_tasks SET state='queued',attempts=0,retry_at_ms=0,reason=NULL,download_generation=download_generation+1,updated_at=? WHERE job_id=? AND state IN ('unavailable','needs_review','waiting_credentials','waiting_resources','retry_wait')" + suffix, (utc(), identity, *values))
                     else:
                         db.execute("UPDATE collection_tasks SET state='queued',retry_at_ms=0,reason=NULL WHERE job_id=? AND state IN ('waiting_credentials','waiting_resources','retry_wait')", (identity,))
                     state, desired = "queued", "run"

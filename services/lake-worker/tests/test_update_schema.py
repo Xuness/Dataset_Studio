@@ -58,7 +58,7 @@ def test_dispatch_upgrade_retains_control_data_and_existing_service_order(tmp_pa
     dispatch.submitted(reopened, "A")
     assert [r["lake_id"] for r in dispatch.candidates(reopened, (), 3)] == ["B", "A"]
     with reopened.db() as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 10
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 11
     durable = rows(reopened)
     assert rows(State(state.root)) == durable
 

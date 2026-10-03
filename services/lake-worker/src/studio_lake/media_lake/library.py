@@ -63,9 +63,15 @@ def replay_receipt(directory, manifest):
         if point["stream_key"] in streams or point["next_revision"] != point["expected_revision"] + 1:
             raise IntegrityError("Invalid collection checkpoint progression")
         streams.add(point["stream_key"])
+    outcome_receipts, outcome_tasks = set(), set()
     for outcome in replay.get("task_outcomes", []):
         if outcome["state"] not in {"archived", "done", "unavailable", "excluded", "needs_review"} or not _uuid(outcome["claim_token"]):
             raise IntegrityError("Invalid collection task outcome")
+        identity = outcome.get("receipt_id") or (receipts[0] if len(receipts) == 1 else None)
+        if identity not in receipts or identity in outcome_receipts or outcome["task_id"] in outcome_tasks:
+            raise IntegrityError("Task outcome does not identify one distinct batch receipt")
+        outcome_receipts.add(identity)
+        outcome_tasks.add(outcome["task_id"])
     intent = "collection_intent.json" in manifest["files"]
     key = (stable_id("collection-intent-v1", manifest["library_id"], source["job_id"], source["definition_sha256"])
            if intent else stable_id("collection-batch-v1", manifest["library_id"], source["job_id"], sorted(receipts)))
@@ -170,7 +176,11 @@ class MediaLibrary(Library):
         return None
 
     def accept_manifest(self, directory, manifest, verify=True, *, fence=None):
-        """Caller owns writer_lock. Archive confirmation never waits for publication."""
+        """Caller owns writer_lock; acceptance validates against the available serving store.
+
+        Publication acknowledgement is separate. An unavailable serving store
+        still prevents new acceptance because it supplies cross-batch constraints.
+        """
         directory = Path(directory)
         verify_manifest(self, directory, manifest)
         replay = replay_receipt(directory, manifest)
@@ -328,6 +338,9 @@ class MediaBatch(LegacyBatch):
     def add_blob(self, data, ext, *, content_type, media_category="image", width=None, height=None):
         before = len(self.objects)
         sha, ext = super().add_blob(data, ext, self.lib.lookup_object)
+        # An existing blob has now been verified too. Repeated occurrences in
+        # this physical batch need no additional lookup or random archive read.
+        self.new_hashes.add(sha)
         if len(self.objects) > before:
             self.objects[-1].update(pack_file="media.tar", content_type=content_type, media_category=media_category,
                                     stored_width=width, stored_height=height)

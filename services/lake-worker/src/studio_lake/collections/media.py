@@ -11,6 +11,7 @@ import zipfile
 
 from PIL import Image
 
+from .failures import decoding
 from ..collectors.pixiv.normalize import media_url
 from ..image_policy import prepare_image, profile_id
 from ..library import read_object
@@ -87,11 +88,11 @@ def acquire(lib, task, spec, directory, client, sessions, resources, cancelled, 
     payload = json.loads(task["payload_json"])
     entry, frames, key = payload["entry"], payload["frames"], task["id"]
     media_url(entry["source_url"])
-    policy = spec["media"]["image_policy"]
+    download_directory = task.get("download_directory", directory)
     reuse = history(lib, entry, frames, spec)
     if reuse:
         required = sum(r["length"] for r in reuse) * 2 + OVERHEAD
-        resources.stage_size(directory, key, required)
+        resources.stage_size(download_directory, key, required)
         files = []
         for row in reuse:
             data = read_object(lib.root, row["pack_path"], row["offset"], row["length"])
@@ -102,20 +103,26 @@ def acquire(lib, task, spec, directory, client, sessions, resources, cancelled, 
                                      details=dict(reused_asset_id=row["asset_id"], locator=entry["source_url"], original_details=json.loads(row["details_json"])),
                                      evidence="historical_reuse", verified_at=row["last_verified_at"], source_sha=row["source_sha256"], source_bytes=row["source_bytes"]))
         return dict(files=files, download_bytes=0, reused=True, acquired_at=utc())
-    raw, download_receipt = directory / (key + ".downloaded"), directory / (key + ".download.json")
+    raw, download_receipt = download_directory / (key + ".downloaded"), download_directory / (key + ".download.json")
     downloaded = None
     if raw.exists() and download_receipt.exists():
         saved = read_json(download_receipt)
         if raw.stat().st_size <= resources.max_download_bytes and file_hash(raw) == saved.get("sha256"):
             downloaded = {**saved, "download_path": str(raw)}
     if downloaded is None:
-        downloaded = fetch(directory, key, entry["source_url"], "original", {"post_id": entry["work_id"]}, client, resources, cancelled, sessions, progress)
+        downloaded = fetch(download_directory, key, entry["source_url"], "original", {"post_id": entry["work_id"]}, client, resources, cancelled, sessions, progress)
     if downloaded["state"] != "downloaded":
         raise UpdateError("COLLECTION_REMOTE_UNAVAILABLE" if downloaded["state"] == "failed" else "COLLECTION_MEDIA_INVALID",
                           downloaded.get("reason", "media_download_failed"), retry_after=max(1, downloaded.get("retry_at", time.time() + 60) - time.time()))
     acquired_at = utc()
-    if entry["kind"] == "ugoira":
-        return animation(directory, key, downloaded, frames, resources, cancelled, acquired_at)
+    with decoding():
+        if entry["kind"] == "ugoira":
+            return animation(directory, key, downloaded, frames, resources, cancelled, acquired_at, download_directory=download_directory)
+        return static_image(directory, key, downloaded, entry, spec, resources, cancelled, acquired_at, download_directory)
+
+
+def static_image(directory, key, downloaded, entry, spec, resources, cancelled, acquired_at, download_directory):
+    raw, policy = Path(downloaded["download_path"]), spec["media"]["image_policy"]
     inspected = inspect_path(raw)
     if inspected is None:
         with Image.open(raw) as header:
@@ -127,7 +134,7 @@ def acquire(lib, task, spec, directory, client, sessions, resources, cancelled, 
     if entry["width"] is not None and entry["height"] is not None and (width, height) != (entry["width"], entry["height"]):
         raise UpdateError("COLLECTION_SOURCE_CHANGED", "Downloaded dimensions differ from the frozen media manifest")
     plan = Plan(estimate(policy, {"width": width, "height": height}, resources, source_bytes=raw.stat().st_size), spec["media"]["retain_original"])
-    resources.stage_size(directory, key, plan.peak())
+    resources.stage_size(download_directory, key, plan.peak())
     with resources.encoding(width * height * 16 + raw.stat().st_size * 3, cancelled):
         data = raw.read_bytes()
         if digest(data) != downloaded["sha256"]:
@@ -142,16 +149,17 @@ def acquire(lib, task, spec, directory, client, sessions, resources, cancelled, 
                                      details=details, verified_at=acquired_at, source_sha=downloaded["sha256"], source_bytes=len(data)))
         if policy["profile"] != "original":
             encoded, ext, details = prepare_image(data, policy)
-            resources.stage_size(directory, key, 2 * (len(data) + len(encoded)) + OVERHEAD)
+            resources.stage_size(download_directory, key, 2 * (len(data) + len(encoded)) + OVERHEAD)
             files.append(stored_file(directory, key, encoded, role="derived", recipe=profile_id(policy), ext=ext,
                                      width=details["stored_width"], height=details["stored_height"], details=details, evidence="derived",
                                      verified_at=acquired_at, source_sha=downloaded["sha256"], source_bytes=len(data)))
-    resources.stage_size(directory, key, raw.stat().st_size + 2 * sum(f["bytes"] for f in files) + OVERHEAD)
+    resources.stage_size(download_directory, key, raw.stat().st_size + 2 * sum(f["bytes"] for f in files) + OVERHEAD)
     return dict(files=files, download_bytes=downloaded["download_bytes"], reused=False, acquired_at=acquired_at)
 
 
-def animation(directory, key, downloaded, frames, resources, cancelled, at):
+def animation(directory, key, downloaded, frames, resources, cancelled, at, *, download_directory=None):
     raw = Path(downloaded["download_path"])
+    download_directory = download_directory or directory
     if not frames or len(frames) > 20000:
         raise UpdateError("COLLECTION_LIMIT", "Animation frame count exceeds its budget")
     with zipfile.ZipFile(raw) as archive:
@@ -167,7 +175,7 @@ def animation(directory, key, downloaded, frames, resources, cancelled, at):
         if width * height > resources.config["max_image_pixels"]:
             raise UpdateError("COLLECTION_LIMIT", "Animation poster exceeds the pixel budget")
         first_size = archive.getinfo(expected[0]).file_size
-        resources.stage_size(directory, key, raw.stat().st_size * 3 + first_size * 3 + OVERHEAD)
+        resources.stage_size(download_directory, key, raw.stat().st_size * 3 + first_size * 3 + OVERHEAD)
         with resources.encoding(width * height * 16 + first_size * 3 + raw.stat().st_size, cancelled):
             first = archive.read(expected[0])
             # CRC validation streams every member; nothing is extracted to a caller-controlled path.
@@ -183,7 +191,7 @@ def animation(directory, key, downloaded, frames, resources, cancelled, at):
                 image.convert("RGBA").save(poster, format="PNG")
             data = raw.read_bytes()
             poster_data = poster.getvalue()
-            resources.stage_size(directory, key, len(data) * 3 + len(poster_data) * 2 + OVERHEAD)
+            resources.stage_size(download_directory, key, len(data) * 3 + len(poster_data) * 2 + OVERHEAD)
             original = stored_file(directory, key, data, role="original", recipe="original", ext="zip", category="archive",
                                    details=dict(variant="web_frame_package", frame_count=len(frames)), verified_at=at,
                                    source_sha=downloaded["sha256"], source_bytes=len(data))

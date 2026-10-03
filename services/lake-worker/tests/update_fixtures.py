@@ -13,3 +13,11 @@ def remove_collection_schema(db):
         for name in sorted(leaves):
             db.execute('DROP TABLE "' + name + '"')
         names -= leaves
+
+
+def remove_collection_recovery(db):
+    """Recreate the v10 column shape before testing a real older-version upgrade."""
+    db.execute("DROP TABLE collection_quarantines")
+    db.execute("DROP TABLE collection_batches")
+    db.execute("ALTER TABLE collection_tasks DROP COLUMN download_generation")
+    db.execute("ALTER TABLE collection_outbox DROP COLUMN outcome_state")

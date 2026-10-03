@@ -103,6 +103,13 @@ class Resources:
                 return None
             return Reservation(self, identity)
 
+    def track(self, directory):
+        """Include a related output directory in the same admission accounting."""
+        directory = Path(directory)
+        with self.condition:
+            self.roots.add(directory.parent)
+            self.devices.setdefault(directory.parent, directory.parent.stat().st_dev)
+
     def _actual(self):
         sizes = {}
         for root in self.roots:

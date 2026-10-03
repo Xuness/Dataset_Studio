@@ -22,6 +22,10 @@ MAX_BATCH_ROWS = 100_000
 MAX_BATCH_METADATA_BYTES = 64 * 1024**2
 
 
+class InvalidCanonicalResult(IntegrityError):
+    """A new result violates canonical constraints; existing archive I/O is separate."""
+
+
 def canonical(value):
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
 

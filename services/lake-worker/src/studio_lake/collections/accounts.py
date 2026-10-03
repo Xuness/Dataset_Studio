@@ -3,6 +3,7 @@
 import json
 import re
 import uuid
+from dataclasses import dataclass, field
 
 from . import model, requests as ledger
 from ..collectors.pixiv.normalize import visibility
@@ -35,6 +36,24 @@ def cookies(value):
         seen.add(key)
         normalized.append(dict(item))
     return sorted(normalized, key=lambda c: (c["domain"], c["path"], c["name"]))
+
+
+@dataclass(frozen=True)
+class VerifiedSession:
+    context: dict
+    user_id: str
+    cookies: list = field(repr=False)
+
+
+def verify_session(client, values, viewer):
+    context = client.probe()
+    policy = json.loads(context["policy_json"])
+    if policy.get("login") != "authenticated":
+        raise UpdateError("COLLECTION_CREDENTIAL_REQUIRED", "Pixiv did not confirm an authenticated user")
+    identity = model.source_id(policy.get("user_id"))
+    updated = cookies(client.cookie_snapshot()) if hasattr(client, "cookie_snapshot") else values
+    context = visibility(viewer, login="authenticated", user_id=identity, observed_at=context["observed_at"])
+    return VerifiedSession(context, identity, updated)
 
 
 class Accounts:
@@ -135,18 +154,11 @@ class Accounts:
         owned = client is None
         client = client or Client(self.state.root, candidate, values)
         try:
-            context = client.probe()
-            if hasattr(client, "cookie_snapshot"):
-                values = cookies(client.cookie_snapshot())
+            verified = verify_session(client, values, viewer)
         finally:
             if owned:
                 client.close()
-        policy = json.loads(context["policy_json"])
-        observed_user = model.source_id(policy.get("user_id"))
-        if policy.get("login") != "authenticated":
-            raise UpdateError("COLLECTION_CREDENTIAL_REQUIRED", "Pixiv did not confirm an authenticated user")
-        # Rebuild the visibility identity from the confirmed policy and this saved viewer.
-        context = visibility(viewer, login="authenticated", user_id=observed_user, observed_at=context["observed_at"])
+        context, observed_user, values = verified.context, verified.user_id, verified.cookies
         report = dict(context_id=context["context_id"], observed_at=context["observed_at"],
                       **{k: v for k, v in json.loads(context["policy_json"]).items() if k != "user_id"}, coverage_verified=context["verified"])
         with self.state.db() as db:
@@ -214,7 +226,8 @@ class Accounts:
             owned = client is None
             client = client or Client(self.state.root, row, values)
             try:
-                context = client.probe()
+                verified = verify_session(client, values, row["viewer_key"])
+                context, values = verified.context, verified.cookies
             finally:
                 if owned:
                     client.close()
@@ -226,8 +239,9 @@ class Accounts:
                 raise UpdateError("REVISION_CONFLICT", "A newer credential import superseded this probe")
             if current["bound_user_id"] and current["bound_user_id"] != observed_user:
                 raise UpdateError("COLLECTION_SCOPE_CHANGED", "These cookies identify a different Pixiv account; create a new account reference")
-            db.execute("UPDATE collection_accounts SET bound_user_id=?,last_probe_json=?,state='valid',revision=revision+1,updated_at=? WHERE id=?",
-                       (observed_user, canonical(context), utc(), identity))
+            secret = protect(canonical(values).encode(), True) if current["mode"] == "session" else None
+            db.execute("UPDATE collection_accounts SET bound_user_id=?,last_probe_json=?,secret_blob=?,state='valid',revision=revision+1,updated_at=? WHERE id=?",
+                       (observed_user, canonical(context), secret, utc(), identity))
             report = dict(context_id=context["context_id"], observed_at=context["observed_at"],
                           **{k: v for k, v in json.loads(context["policy_json"]).items() if k != "user_id"}, coverage_verified=context["verified"])
             ledger.succeed(db, args["request_key"], identity, report)

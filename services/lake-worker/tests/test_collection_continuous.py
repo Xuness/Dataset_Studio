@@ -13,6 +13,7 @@ from studio_lake.media_lake.reader import Reader
 from studio_lake.media_lake.schema import utc
 from studio_lake.updates.sites import UpdateError
 from studio_lake.updates.state import State
+from update_fixtures import remove_collection_recovery
 
 
 class FreshClient(Client):
@@ -57,7 +58,7 @@ def test_public_completion_and_incremental_retention(tmp_path):
     assert task["reason"] == "fresh_existing_snapshot"
     assert task["summary"]["retained_work"]["served_seq"] > 0
     assert task["summary"]["directory_receipt_task_id"]
-    assert result["progress"]["publication"]["archive_seq"] - first["progress"]["publication"]["archive_seq"] == 3
+    assert result["progress"]["publication"]["archive_seq"] - first["progress"]["publication"]["archive_seq"] == 2
     reopened = Service(State(service.state.root))
     receipts.reconcile(reopened, reopened.state.library(job["library_id"]))
     assert reopened.job(second["id"])["progress"] == result["progress"]
@@ -167,6 +168,7 @@ def test_v8_upgrade_preserves_completed_facts_and_controls(tmp_path):
     service, runner, job, _ = fresh_setup(tmp_path)
     result = runner.run(job["id"], time_slice=60)
     with service.state.db() as db:
+        remove_collection_recovery(db)
         db.execute("DROP TABLE collection_schedules")
         db.execute("ALTER TABLE collection_tasks DROP COLUMN summary_json")
         for index in ("collection_job_definition", "collection_job_created", "update_job_created"):
@@ -175,7 +177,7 @@ def test_v8_upgrade_preserves_completed_facts_and_controls(tmp_path):
     reopened = Service(State(service.state.root))
     assert reopened.job(job["id"])["progress"] == result["progress"]
     with reopened.state.db() as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 10
+        assert db.execute("PRAGMA user_version").fetchone()[0] == 11
 
 
 def test_early_development_v8_indexes_rebuilt_from_archive(tmp_path):
@@ -184,6 +186,7 @@ def test_early_development_v8_indexes_rebuilt_from_archive(tmp_path):
     second, _ = next_job(service, request)
     runner.run(second["id"], time_slice=60)
     with service.state.db() as db:
+        remove_collection_recovery(db)
         original = [tuple(r) for r in db.execute("SELECT * FROM collection_discovery_edges ORDER BY snapshot_id,target_id")]
         db.execute("DROP TRIGGER collection_count_insert")
         db.execute("DROP TRIGGER collection_count_update")

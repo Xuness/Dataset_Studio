@@ -361,7 +361,7 @@ try {
   try {
     assert.equal(
       upgraded.prepare("PRAGMA user_version").get().user_version,
-      10,
+      11,
     );
     assert.equal(
       upgraded.prepare("SELECT count(*) AS n FROM lake_dispatch").get().n,
