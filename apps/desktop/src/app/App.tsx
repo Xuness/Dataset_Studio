@@ -558,7 +558,10 @@ function Studio({
   ]);
   useEffect(() => {
     if (
+      workspace.value.moduleId === "core.browser" &&
+      workspace.value.scope.kind === "result" &&
       activeResult.data &&
+      activeResult.data.id === workspace.value.scope.id &&
       activeResult.data.state !== "ready" &&
       workspace.editable &&
       workspace.controller
@@ -572,7 +575,13 @@ function Studio({
       }));
       setError("已保存的查询结果已释放或尚未完成，已返回项目数据。");
     }
-  }, [activeResult.data, workspace.controller, workspace.editable]);
+  }, [
+    activeResult.data,
+    workspace.controller,
+    workspace.editable,
+    workspace.value.moduleId,
+    workspace.value.scope,
+  ]);
   function activate(p: Project) {
     setError("");
     return session.activate(p);
@@ -606,6 +615,10 @@ function Studio({
           });
           void queryClient.invalidateQueries({
             queryKey: [...prefix, "selection-history"],
+          });
+        } else if (event.kind.startsWith("preset.")) {
+          void queryClient.invalidateQueries({
+            queryKey: [...prefix, "presets"],
           });
         } else void queryClient.invalidateQueries({ queryKey: prefix });
       },

@@ -73,6 +73,7 @@ Rust 测试位于 crates 内，`pnpm test` 同时执行 SDK 检查 [client-found
 按需要用 `node tooling/<脚本名>.mjs` 执行。各脚本的桌面、端口和引擎前置条件以脚本开头及仓库说明为准。
 
 - 排名：[smoke-ranking-ui.mjs](smoke-ranking-ui.mjs)、[smoke-ranking-browse-ui.mjs](smoke-ranking-browse-ui.mjs)、[smoke-ranking-pagesize-ui.mjs](smoke-ranking-pagesize-ui.mjs)。
+- 参数预设：[smoke-preset-recovery-ui.mjs](smoke-preset-recovery-ui.mjs) 使用隔离项目、真实预设 API 和流式项目事件，验证 V2 参数保存、跨窗口预设刷新与后台浏览结果失效互不干扰；查询结果的过期状态在 HTTP 边界回放，返回资料浏览时仍执行恢复。
 - 管理与设置：[smoke-management-ui.mjs](smoke-management-ui.mjs)、[smoke-settings-ui.mjs](smoke-settings-ui.mjs)。原生设置窗口验证前需关闭已有开发窗口与前端服务。
 - 模型与评审：[smoke-llm-ui.mjs](smoke-llm-ui.mjs)、[system-prompts-ui.mjs](system-prompts-ui.mjs)、[smoke-aesthetic-ui.mjs](smoke-aesthetic-ui.mjs)。
 - 评审接入小样本：[smoke-evaluation-workflow.mjs](smoke-evaluation-workflow.mjs)。独立生成 16 张同 Rating 合成图，经本机 mock、真实 SDK/HTTP/SQLite 验证预检、创建/处置/实验断线恢复、重评和离线双变体导航；使用端口 1449，不访问商业模型。

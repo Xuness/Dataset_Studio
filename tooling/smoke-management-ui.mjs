@@ -198,10 +198,13 @@ try {
   await page.goto(url);
   await page.locator(".recent-row").filter({ hasText: project.name }).click();
   await expect(page.locator(".asset-card")).toHaveCount(48, { timeout: 30000 });
+  await page.getByRole("button", { name: "定位与显示", exact: true }).click();
+  await page.getByLabel("浏览排序", { exact: true }).selectOption("asset_key_asc");
   const firstChoice = page
     .locator(".asset-card")
     .first()
     .locator(".asset-check");
+  await expect(firstChoice).toHaveAttribute("aria-pressed", "true");
   await firstChoice.click();
   await expect
     .poll(async () => (await engine.api(base + "/selection")).count)
