@@ -228,7 +228,17 @@ try {
   assert.ok(calls.length);
   await client.aesthetic.control(project.id, stage.id, "pause");
   hold = false;
-  await wait(stage.id, (v) => v.state === "paused");
+  const paused = await wait(stage.id, (v) => v.state === "paused");
+  assert.equal(
+    paused.progress.failed,
+    0,
+    "pausing unsent image reads is not a failed batch",
+  );
+  assert.equal(
+    paused.progress.blocked,
+    0,
+    "pausing must not lock candidates before a send",
+  );
   const paid = calls.length;
   client.dispose();
   await engine.stop();

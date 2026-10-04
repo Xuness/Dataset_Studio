@@ -43,6 +43,9 @@ pub fn terminal(state: &str) -> bool {
 }
 
 pub fn control_state(stage: &AestheticStage, action: &str) -> Result<&'static str> {
+    if action == "start" && stage.archived {
+        return Err(Error::invalid("请先恢复归档的阶段再开始评审"));
+    }
     match action {
         "start"
             if matches!(

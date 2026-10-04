@@ -82,6 +82,16 @@ impl LlmCancellation {
 
 pub type LlmCallResult<T> = std::result::Result<T, LlmFailure>;
 pub trait LlmReceiptSink: Send + Sync {
+    /// Admission and the durable network-attempt record happen after local queueing.
+    fn before_send(&self) -> BoxFuture<'_, Result<LlmDispatchDecision>> {
+        async { Ok(LlmDispatchDecision::default()) }.boxed()
+    }
+    /// Ephemeral UI telemetry. Never acknowledges evidence or writes every token.
+    fn progress(&self, _progress: LlmTransferProgress) {}
+    /// Pause only unsent admission; paid responses continue draining and are persisted.
+    fn dispatch_cancelled(&self) -> bool {
+        false
+    }
     /// Must acknowledge durable storage before provider parsing starts.
     fn persist(&self, receipt: LlmRawReceipt) -> BoxFuture<'_, Result<()>>;
 }
@@ -110,6 +120,31 @@ pub trait LlmBackend: Send + Sync {
             Err(LlmFailure::new(
                 "LLM_CONFIGURATION",
                 "此后端不支持原始回执保全",
+            ))
+        }
+        .boxed()
+    }
+    fn preview_recorded(
+        &self,
+        plan: &LlmInvocationPlan,
+        options: &LlmRecordedOptions,
+    ) -> Result<serde_json::Value> {
+        if options.stream {
+            return Err(studio_domain::Error::invalid("此后端不支持流式回执保全"));
+        }
+        self.preview(plan)
+    }
+    fn generate_recorded_with_options(
+        &self,
+        _plan: LlmInvocationPlan,
+        _cancel: LlmCancellation,
+        _sink: Arc<dyn LlmReceiptSink>,
+        _options: LlmRecordedOptions,
+    ) -> BoxFuture<'_, LlmCallResult<LlmResponse>> {
+        async {
+            Err(LlmFailure::new(
+                "LLM_CONFIGURATION",
+                "此后端不支持阶段传输设置",
             ))
         }
         .boxed()

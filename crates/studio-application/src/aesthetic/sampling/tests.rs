@@ -19,6 +19,8 @@ fn data(n: usize, ratings: bool) -> Replay {
                 protected: false,
                 disposition: Default::default(),
                 disposition_reason: None,
+                blocked: false,
+                blocking_batch: None,
             })
             .collect(),
         observations: vec![],

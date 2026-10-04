@@ -79,6 +79,20 @@ pub fn endpoint(base: &str, suffix: &str) -> LlmCallResult<Url> {
     Ok(url)
 }
 pub fn client(provider: &LlmProvider, secret: Option<&LlmSecret>) -> LlmCallResult<Client> {
+    build_client(provider, secret, true)
+}
+/// Recorded requests enforce separate first-response/idle deadlines in their read loop.
+pub fn recorded_client(
+    provider: &LlmProvider,
+    secret: Option<&LlmSecret>,
+) -> LlmCallResult<Client> {
+    build_client(provider, secret, false)
+}
+fn build_client(
+    provider: &LlmProvider,
+    secret: Option<&LlmSecret>,
+    read_timeout: bool,
+) -> LlmCallResult<Client> {
     validate(&provider.config).map_err(|_| LlmFailure::new("LLM_CONFIGURATION", "连接配置无效"))?;
     let mut headers = HeaderMap::new();
     for (key, value) in &provider.config.headers {
@@ -104,9 +118,11 @@ pub fn client(provider: &LlmProvider, secret: Option<&LlmSecret>) -> LlmCallResu
     let mut builder = Client::builder()
         .default_headers(headers)
         .connect_timeout(Duration::from_millis(n.connect_timeout_ms.into()))
-        .read_timeout(Duration::from_millis(n.idle_timeout_ms.into()))
         .pool_max_idle_per_host(n.max_concurrency as usize)
         .redirect(reqwest::redirect::Policy::none());
+    if read_timeout {
+        builder = builder.read_timeout(Duration::from_millis(n.idle_timeout_ms.into()));
+    }
     if let Some(proxy) = &n.proxy_url {
         builder = if proxy.is_empty() {
             builder.no_proxy()
@@ -135,16 +151,21 @@ pub fn network_error(error: reqwest::Error) -> LlmFailure {
     result
 }
 pub fn request_id(response: &reqwest::Response) -> Option<String> {
-    ["x-request-id", "request-id", "x-goog-request-id"]
-        .iter()
-        .find_map(|name| {
-            response
-                .headers()
-                .get(*name)
-                .and_then(|v| v.to_str().ok())
-                .filter(|s| s.len() <= 256)
-                .map(str::to_owned)
-        })
+    [
+        "x-request-id",
+        "request-id",
+        "x-goog-request-id",
+        "x-generation-id",
+    ]
+    .iter()
+    .find_map(|name| {
+        response
+            .headers()
+            .get(*name)
+            .and_then(|v| v.to_str().ok())
+            .filter(|s| s.len() <= 256)
+            .map(str::to_owned)
+    })
 }
 pub fn status_error(response: &reqwest::Response) -> LlmFailure {
     let status = response.status().as_u16();

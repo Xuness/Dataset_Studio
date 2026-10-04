@@ -72,6 +72,7 @@ pub fn preflight(
     let available_storage_bytes =
         fs2::available_space(state.store.directory(pid)?).map_err(Error::io)?;
     let rejection = validate_capacity(total)
+        .and_then(|_| studio_application::aesthetic::validate_call_budget(&request, total))
         .and_then(|_| {
             request.sampling.as_ref().map_or(Ok(()), |p| {
                 studio_application::aesthetic::sampling::validate(p, total)
@@ -135,6 +136,7 @@ pub fn create(state: &AppState, pid: &str, request: AestheticCreate) -> Result<A
     }
     let (total, project_version, sources, input_version) = input(state, pid, &request)?;
     validate_capacity(total)?;
+    studio_application::aesthetic::validate_call_budget(&request, total)?;
     if let Some(policy) = &request.sampling {
         studio_application::aesthetic::sampling::validate(policy, total)?;
     }

@@ -35,7 +35,7 @@ impl AestheticRepository for EvaluationDb {
     fn attempts(&self, id: &str, batch: u64) -> Result<Vec<AestheticAttempt>> {
         let db = self.read()?;
         read_batch(&db, id, batch)?;
-        let mut stmt=db.prepare("SELECT id,state,created_at,receipt,failure,semantic_request_hash FROM attempts WHERE batch=?1 ORDER BY created_at,id LIMIT 8").map_err(db_error)?;
+        let mut stmt=db.prepare("SELECT id,state,created_at,receipt,failure,semantic_request_hash,execution_settings FROM attempts WHERE batch=?1 ORDER BY created_at,id LIMIT 8").map_err(db_error)?;
         let rows = stmt
             .query_map([batch as i64], |r| {
                 Ok((
@@ -45,6 +45,7 @@ impl AestheticRepository for EvaluationDb {
                     r.get::<_, Option<String>>(3)?,
                     r.get::<_, Option<String>>(4)?,
                     r.get::<_, Option<String>>(5)?,
+                    r.get::<_, Option<String>>(6)?,
                 ))
             })
             .map_err(db_error)?
@@ -60,6 +61,7 @@ impl AestheticRepository for EvaluationDb {
                     receipt: r.3.map(decode).transpose()?,
                     failure: r.4.map(decode).transpose()?,
                     semantic_request_hash: r.5,
+                    execution_settings: r.6.map(decode).transpose()?,
                     raw_receipt: self.raw_summary(&r.0)?,
                 })
             })
@@ -76,8 +78,9 @@ impl AestheticRepository for EvaluationDb {
                 return Ok(());
             }
             let batch=read_batch(db,&id,sequence)?;
+            if matches!(batch.state.as_str(),"deferred"|"superseded") {return Err(Error::new("EVALUATION_BATCH_CLOSED","已结束的逻辑批次不能再接受结果"));}
             if batch.attempt_id.as_deref()!=Some(&attempt) {return Err(Error::new("REVISION_CONFLICT","调用不是批次的当前尝试"));}
-            db.execute("INSERT INTO receipt_parses(attempt_id,adapter_version,state,normalized,created_at) SELECT ?1,'native_json_v1','decoded',?2,?3 WHERE EXISTS(SELECT 1 FROM raw_receipts WHERE attempt_id=?1)",params![attempt,json,now()]).map_err(db_error)?;
+            db.execute("INSERT INTO receipt_parses(attempt_id,adapter_version,state,normalized,created_at) SELECT ?1,json_extract(metadata,'$.adapter_version'),'decoded',?2,?3 FROM raw_receipts WHERE attempt_id=?1",params![attempt,json,now()]).map_err(db_error)?;
             db.execute("UPDATE attempts SET state='received',receipt=?2 WHERE id=?1",params![attempt,json]).map_err(db_error)?;
             db.execute("UPDATE batches SET state='received',error=NULL WHERE sequence=?1",[sequence as i64]).map_err(db_error)?;
             db.execute("UPDATE stages SET unknown=unknown-?2,input_tokens=input_tokens+?3,output_tokens=output_tokens+?4,usage_unknown=usage_unknown+?5 WHERE id=?1",params![id,(batch.state=="outcome_unknown") as u32,receipt.usage.input_tokens.unwrap_or(0).min(i64::MAX as u64) as i64,receipt.usage.output_tokens.unwrap_or(0).min(i64::MAX as u64) as i64,(receipt.usage.input_tokens.is_none()||receipt.usage.output_tokens.is_none()) as u32]).map_err(db_error)?;
@@ -112,18 +115,18 @@ impl AestheticRepository for EvaluationDb {
                             let reason = if valid { None } else { Some(observation.unjudgeable.iter().find(|v|v.id==member.label).map(|v|v.reason.clone()).unwrap_or_else(||"insufficient_judged_peers".into())) };
                             let elite=observation.elite_candidates.contains(&member.label);
                             let was_protected:bool=db.query_row("SELECT protected FROM candidates WHERE stage_id=?1 AND ordinal=?2",params![id,member.candidate.ordinal as i64],|r|r.get(0)).map_err(db_error)?;
-                            db.execute("UPDATE candidates SET reserved=0,blocked=?3,exposures=exposures+?4,protected=MAX(protected,?5),sort_key=?6,disposition=?7,disposition_reason=?8 WHERE stage_id=?1 AND ordinal=?2",params![id,member.candidate.ordinal as i64,!valid,valid as u32,elite,hash(&format!("{id}:{}:{}",member.candidate.ordinal,member.candidate.exposures+u32::from(valid))),if valid {"active"} else {"needs_review"},reason]).map_err(db_error)?;
+                            db.execute("UPDATE candidates SET reserved=0,blocked=?3,blocked_batch=NULL,exposures=exposures+?4,protected=MAX(protected,?5),sort_key=?6,disposition=?7,disposition_reason=?8 WHERE stage_id=?1 AND ordinal=?2",params![id,member.candidate.ordinal as i64,!valid,valid as u32,elite,hash(&format!("{id}:{}:{}",member.candidate.ordinal,member.candidate.exposures+u32::from(valid))),if valid {"active"} else {"needs_review"},reason]).map_err(db_error)?;
                             if elite && !was_protected {db.execute("UPDATE stages SET protected=protected+1 WHERE id=?1",[&id]).map_err(db_error)?;}
                         }
                         db.execute("UPDATE batches SET state='accepted',observation=?2,error=NULL WHERE sequence=?1",params![sequence as i64,json]).map_err(db_error)?;
                         db.execute("UPDATE attempts SET state='accepted' WHERE id=?1",[&attempt]).map_err(db_error)?;
-                        db.execute("UPDATE stages SET accepted=accepted+1 WHERE id=?1",[&id]).map_err(db_error)?;
+                        db.execute("UPDATE stages SET accepted=accepted+1,failure_streak=0 WHERE id=?1",[&id]).map_err(db_error)?;
                         Ok(1)
                     },
                     Err(error)=>{
                         db.execute("UPDATE batches SET state='invalid',error=?2 WHERE sequence=?1",params![sequence as i64,error.message]).map_err(db_error)?;
                         db.execute("UPDATE attempts SET state='invalid' WHERE id=?1",[&attempt]).map_err(db_error)?;
-                        for member in &batch.members {db.execute("UPDATE candidates SET reserved=0,blocked=1 WHERE stage_id=?1 AND ordinal=?2",params![id,member.candidate.ordinal as i64]).map_err(db_error)?;}
+                        for member in &batch.members {db.execute("UPDATE candidates SET reserved=0,blocked=1,blocked_batch=?3 WHERE stage_id=?1 AND ordinal=?2",params![id,member.candidate.ordinal as i64,sequence as i64]).map_err(db_error)?;}
                         db.execute("UPDATE stages SET invalid=invalid+1 WHERE id=?1",[&id]).map_err(db_error)?;
                         Ok(0)
                     }

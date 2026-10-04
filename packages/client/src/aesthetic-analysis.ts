@@ -49,6 +49,12 @@ export class AestheticAnalysisClient {
       post({ action }),
     );
   }
+  latestForStage(pid: string, id: string, signal?: AbortSignal) {
+    return this.request<Schema["AestheticAnalysisJob"] | null>(
+      `${root(pid)}/stages/${encodeURIComponent(id)}/latest-snapshot`,
+      { signal: signal ?? null },
+    );
+  }
   snapshot(pid: string, id: string, signal?: AbortSignal) {
     return this.request<Schema["AestheticAnalysisJob"]>(
       `${root(pid)}/snapshots/${encodeURIComponent(id)}`,

@@ -78,6 +78,11 @@ pub fn validate_create(value: &AestheticAnalysisCreate) -> Result<()> {
             snapshot_id,
             filter,
             ..
+        }
+        | AestheticAnalysisSpec::Preview {
+            snapshot_id,
+            filter,
+            ..
         } => {
             studio_domain::validate_id(snapshot_id)?;
             validate_filter(filter)?;

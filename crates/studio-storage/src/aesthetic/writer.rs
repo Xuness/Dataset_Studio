@@ -55,7 +55,7 @@ impl Writer {
                     |r| r.get(0),
                 )
                 .map_err(db_error)?;
-            if version > 7 || (version == 0 && occupied) {
+            if version > 8 || (version == 0 && occupied) {
                 return Err(Error::new("FORMAT_UNSUPPORTED", "评审账本版本不兼容"));
             }
             if occupied {
@@ -74,7 +74,7 @@ impl Writer {
         let version: u32 = db
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .map_err(db_error)?;
-        if version > 0 && version < 7 {
+        if version > 0 && version < 8 {
             let parent = path
                 .parent()
                 .ok_or_else(|| Error::invalid("评审路径无效"))?;
@@ -88,7 +88,7 @@ impl Writer {
                 return Err(Error::invalid("评审备份目录必须在项目内"));
             }
             let destination = directory.join(format!(
-                "evaluation-v{version}-to-v7-{}-{}.sqlite",
+                "evaluation-v{version}-to-v8-{}-{}.sqlite",
                 crate::now(),
                 studio_domain::new_id()
             ));
@@ -116,7 +116,7 @@ impl Writer {
                 .sync_all()
                 .map_err(Error::io)?;
         }
-        if version < 7 {
+        if version < 8 {
             let tx = db.transaction().map_err(db_error)?;
             if version == 0 {
                 tx.execute_batch(include_str!("schema.sql"))
@@ -142,7 +142,11 @@ impl Writer {
                 tx.execute_batch(include_str!("schema_v6.sql"))
                     .map_err(db_error)?;
             }
-            tx.execute_batch(include_str!("schema_v7.sql"))
+            if version < 7 {
+                tx.execute_batch(include_str!("schema_v7.sql"))
+                    .map_err(db_error)?;
+            }
+            tx.execute_batch(include_str!("schema_v8.sql"))
                 .map_err(db_error)?;
             let violations = tx
                 .prepare("PRAGMA foreign_key_check")
@@ -157,12 +161,17 @@ impl Writer {
                 ));
             }
             tx.commit().map_err(db_error)?;
-        } else if version != 7 {
+        } else if version != 8 {
             return Err(Error::new("FORMAT_UNSUPPORTED", "评审账本版本不兼容"));
         }
         // A new writer is created only under the exclusive project lease.
         let tx = db.transaction().map_err(db_error)?;
-        tx.execute_batch("UPDATE attempts SET state='outcome_unknown' WHERE state='sent';
+        tx.execute_batch("WITH interrupted AS MATERIALIZED (
+            SELECT b.stage_id,json_extract(m.value,'$.candidate.ordinal') ordinal,b.sequence batch
+            FROM batches b,json_each(b.members) m WHERE b.state='sent'
+          ) UPDATE candidates SET reserved=0,blocked=1,blocked_batch=(SELECT batch FROM interrupted i WHERE i.stage_id=candidates.stage_id AND i.ordinal=candidates.ordinal)
+            WHERE (stage_id,ordinal) IN (SELECT stage_id,ordinal FROM interrupted);
+          UPDATE attempts SET state='outcome_unknown' WHERE state='sent';
           UPDATE batches SET state='outcome_unknown',error='引擎中断；上游可能已受理，请核对后明确选择重试' WHERE state='sent';
           UPDATE batches SET state='queued' WHERE state='preparing';
           UPDATE stages SET state='paused',error='执行已中断；本地结果可以重新解析，远端请求不会自动重发' WHERE state IN ('preparing','running','pausing');

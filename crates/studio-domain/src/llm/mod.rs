@@ -2,10 +2,12 @@
 mod configuration;
 mod inference;
 mod receipt;
+mod recorded;
 mod system_prompts;
 pub use configuration::*;
 pub use inference::*;
 pub use receipt::*;
+pub use recorded::*;
 pub use system_prompts::*;
 
 pub const LLM_SCHEMA_VERSION: u32 = 2;

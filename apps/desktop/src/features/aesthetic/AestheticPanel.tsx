@@ -39,6 +39,8 @@ export default function AestheticPanel(context: ModuleContext) {
   );
   const [creating, setCreating] = useState(false);
   const [evaluationTarget, setEvaluationTarget] = useState<string>();
+  const [fitTarget, setFitTarget] = useState<string>();
+  const [analysisTarget, setAnalysisTarget] = useState<string>();
   const [comparisonTarget, setComparisonTarget] = useState<{
     left: string;
     right: string;
@@ -96,6 +98,10 @@ export default function AestheticPanel(context: ModuleContext) {
     }
     if (value !== "evaluation") setEvaluationTarget(undefined);
     if (value !== "comparison") setComparisonTarget(undefined);
+    if (value !== "ranking") {
+      setFitTarget(undefined);
+      setAnalysisTarget(undefined);
+    }
     if (session.editable) session.controller.set({ view: value });
   }
   const toolbarStart = (
@@ -164,7 +170,32 @@ export default function AestheticPanel(context: ModuleContext) {
             openStageId={evaluationTarget}
             creating={creating}
             onCloseCreation={() => setCreating(false)}
-            onRankings={() => view("ranking")}
+            onRankings={async (stageId) => {
+              const snapshot =
+                await context.client.aesthetic.analysis.latestForStage(
+                  context.projectId,
+                  stageId,
+                );
+              const rating =
+                snapshot?.result?.kind === "fit"
+                  ? snapshot.result.groups.find((g) => g.compared > 0)?.rating
+                  : undefined;
+              rankingSession.controller.set({
+                ...rankingBrowserInitial,
+                snapshotId: snapshot?.id ?? "",
+                rating: rating ?? "g",
+              });
+              await rankingSession.controller.flush();
+              setFitTarget(snapshot ? undefined : stageId);
+              setAnalysisTarget(undefined);
+              view("ranking");
+            }}
+            onAnalysisJob={(job) => {
+              rankingSession.controller.set({ ...rankingBrowserInitial });
+              setAnalysisTarget(job.id);
+              setFitTarget(undefined);
+              view("ranking");
+            }}
           />
         ) : (
           <RankingWorkspace
@@ -172,6 +203,8 @@ export default function AestheticPanel(context: ModuleContext) {
             context={context}
             toolbarStart={toolbarStart}
             protectedOnly={session.value.view === "protected"}
+            initialFitStageId={fitTarget}
+            initialJobId={analysisTarget}
             onEvaluation={(stageId) => {
               setEvaluationTarget(stageId);
               view("evaluation");

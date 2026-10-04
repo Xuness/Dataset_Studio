@@ -43,7 +43,7 @@ impl EvaluationDb {
         let stage = stage.to_owned();
         let attempt = attempt.to_owned();
         self.writer.submit_named(2048,"receipt_parse",&stage.clone(),move|db|{
-            db.execute("INSERT INTO receipt_parses(attempt_id,adapter_version,state,error,created_at) SELECT a.id,'native_json_v1',?3,?4,?5 FROM attempts a JOIN batches b ON b.sequence=a.batch WHERE a.id=?1 AND b.stage_id=?2",params![attempt,stage,if error.is_some(){"failed"}else{"decoded"},error,now()]).map_err(db_error)?;
+            db.execute("INSERT INTO receipt_parses(attempt_id,adapter_version,state,error,created_at) SELECT a.id,COALESCE((SELECT json_extract(metadata,'$.adapter_version') FROM raw_receipts WHERE attempt_id=a.id),'native_json_v1'),?3,?4,?5 FROM attempts a JOIN batches b ON b.sequence=a.batch WHERE a.id=?1 AND b.stage_id=?2",params![attempt,stage,if error.is_some(){"failed"}else{"decoded"},error,now()]).map_err(db_error)?;
             Ok(())
         })
     }
@@ -62,12 +62,13 @@ impl EvaluationDb {
         self.writer.submit_named(json.len(),"receipt_parse",&stage.clone(),move|db|{
             let batch:u64=db.query_row("SELECT b.sequence FROM batches b WHERE b.stage_id=?1 AND b.attempt_id=?2",params![stage,attempt],|r|crate::unsigned(r,0)).optional().map_err(db_error)?.ok_or_else(||Error::new("REVISION_CONFLICT","此调用已被另一尝试替代"))?;
             if db.query_row("SELECT EXISTS(SELECT 1 FROM evidence WHERE batch=?1)",[batch as i64],|r|r.get::<_,bool>(0)).map_err(db_error)? {return Ok(());}
+            if db.query_row("SELECT state IN ('deferred','superseded') FROM batches WHERE sequence=?1",[batch as i64],|r|r.get::<_,bool>(0)).map_err(db_error)? {return Err(Error::new("EVALUATION_BATCH_CLOSED","已结束的逻辑批次不再接受迟到结果；原始回执保留"));}
             let state:String=db.query_row("SELECT state FROM stages WHERE id=?1",[&stage],|r|r.get(0)).map_err(db_error)?;
             if matches!(state.as_str(),"running"|"preparing"|"pausing"|"cancelling") {return Err(Error::new("REVISION_CONFLICT","阶段正在执行"));}
             let (old,state):(Option<String>,String)=db.query_row("SELECT a.receipt,b.state FROM attempts a JOIN batches b ON b.sequence=a.batch WHERE a.id=?1",[&attempt],|r|Ok((r.get(0)?,r.get(1)?))).map_err(db_error)?;
             let old_usage=old.as_ref().map(|s|decode::<AestheticReceipt>(s.clone())).transpose()?.map(|r|r.usage);
             if let Some(old)=old {db.execute("INSERT INTO receipt_parses(attempt_id,adapter_version,state,normalized,created_at) VALUES(?1,'historical','previous_normalization',?2,?3)",params![attempt,old,now()]).map_err(db_error)?;}
-            db.execute("INSERT INTO receipt_parses(attempt_id,adapter_version,state,normalized,created_at) VALUES(?1,'native_json_v1','decoded',?2,?3)",params![attempt,json,now()]).map_err(db_error)?;
+            db.execute("INSERT INTO receipt_parses(attempt_id,adapter_version,state,normalized,created_at) SELECT ?1,COALESCE((SELECT json_extract(metadata,'$.adapter_version') FROM raw_receipts WHERE attempt_id=?1),'native_json_v1'),'decoded',?2,?3",params![attempt,json,now()]).map_err(db_error)?;
             let bound=|v:Option<u64>|v.unwrap_or(0).min(i64::MAX as u64) as i64;
             let input=bound(receipt.usage.input_tokens)-old_usage.as_ref().map_or(0,|u|bound(u.input_tokens));
             let output=bound(receipt.usage.output_tokens)-old_usage.as_ref().map_or(0,|u|bound(u.output_tokens));

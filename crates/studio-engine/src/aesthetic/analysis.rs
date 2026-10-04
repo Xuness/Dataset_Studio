@@ -235,6 +235,68 @@ fn run(
             }
             AestheticAnalysisSummary::Compare { groups }
         }
+        AestheticAnalysisSpec::Preview {
+            snapshot_id,
+            filter,
+            ..
+        } => {
+            let mut after = 0;
+            let mut count = 0;
+            let mut ranked_count = 0;
+            let mut protected_added = 0;
+            let mut boundary_tie_count = 0;
+            let mut ranked = filter.clone();
+            ranked.include_protected = false;
+            loop {
+                check(cancel)?;
+                let page = db.ranking_page(snapshot_id, after, None, 256)?;
+                if page.is_empty() {
+                    break;
+                }
+                let protected =
+                    db.effective_protection(snapshot_id, &page, item.input.review_watermark)?;
+                for (row, protected) in page.iter().zip(protected) {
+                    after = row.position;
+                    if !matches_filter(row, filter, protected) {
+                        continue;
+                    }
+                    count += 1;
+                    if matches_filter(row, &ranked, protected) {
+                        ranked_count += 1;
+                        let lo = if filter.component.is_some() {
+                            row.rank_min
+                        } else {
+                            row.rating_rank_min
+                        };
+                        let hi = if filter.component.is_some() {
+                            row.rank_max
+                        } else {
+                            row.rating_rank_max
+                        };
+                        let cutoff = filter.rank_to.or_else(|| {
+                            filter.top_percent.map(|v| {
+                                ((row.component_size as f64 * v / 100.0).ceil() as u64).max(1)
+                            })
+                        });
+                        if let (Some(lo), Some(hi), Some(cutoff)) = (lo, hi, cutoff)
+                            && lo <= cutoff
+                            && hi > cutoff
+                        {
+                            boundary_tie_count += 1;
+                        }
+                    } else {
+                        protected_added += 1;
+                    }
+                }
+                progress("counting_selection", after, item.input.candidates)?;
+            }
+            AestheticAnalysisSummary::Preview {
+                count,
+                ranked_count,
+                protected_added,
+                boundary_tie_count,
+            }
+        }
         AestheticAnalysisSpec::Derive {
             snapshot_id,
             filter,

@@ -144,3 +144,5 @@ Rust 测试位于 crates 内，`pnpm test` 同时执行 SDK 检查 [client-found
 - [verify-multibooru.mjs](verify-multibooru.mjs)：显式传入 JSON 样本清单才读取真实湖；每湖最多 64 个记录、8 个预览。每项声明索引/图片根目录、library_id、generation 以及样本身份、原始 JSON/schema 摘要、标签和尺寸。只写独立测试应用及报告；首次会按需构建完整的应用身份/排序索引，未进行全湖媒体扫描。
 
 实现和验证边界见 [ADR 0035](../docs/decisions/0035-source-registry-and-dispatch.md)及[验收记录](../docs/verification/2026-09-26-multibooru.md)。
+
+美学评审执行与恢复：`node tooling/integration-aesthetic-execution.mjs` 使用本地模拟供应商验证 SSE/JSON 回执、分层超时、有限重试、同轮隔离、暂停/恢复及精确筛选预览，已纳入 `pnpm test:integration`。`node tooling/smoke-aesthetic-execution-ui.mjs <successful run>` 复用其隔离项目验证工作台并保存截图，不启动模型调用。设计与边界见 [0059](../docs/decisions/0059-aesthetic-streaming-and-recovery.md)。

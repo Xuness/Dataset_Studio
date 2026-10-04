@@ -55,6 +55,11 @@ pub enum AestheticAnalysisSpec {
         left: String,
         right: String,
     },
+    Preview {
+        snapshot_id: String,
+        filter: AestheticRankingFilter,
+        review_watermark: Option<u64>,
+    },
     Derive {
         snapshot_id: String,
         filter: AestheticRankingFilter,
@@ -132,6 +137,12 @@ pub enum AestheticAnalysisSummary {
     Fit(AestheticFitSummary),
     Compare {
         groups: Vec<AestheticComparisonGroup>,
+    },
+    Preview {
+        count: u64,
+        ranked_count: u64,
+        protected_added: u64,
+        boundary_tie_count: u64,
     },
     Derive {
         collection_id: String,

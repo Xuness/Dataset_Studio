@@ -2,6 +2,8 @@ use crate::{AssetKey, QuerySourceVersion, llm::*};
 use serde::{Deserialize, Serialize};
 use studio_domain::aesthetic as domain;
 use utoipa::ToSchema;
+mod execution;
+pub use execution::*;
 
 #[derive(Serialize, ToSchema)]
 pub struct AestheticExecution {
@@ -131,6 +133,10 @@ pub struct AestheticCreate {
     pub max_request_mib: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sampling: Option<AestheticSamplingPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution_policy: Option<AestheticExecutionPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub budget_mode: Option<String>,
 }
 impl From<domain::AestheticCreate> for AestheticCreate {
     fn from(v: domain::AestheticCreate) -> Self {
@@ -147,6 +153,8 @@ impl From<domain::AestheticCreate> for AestheticCreate {
             expected_input_version: v.expected_input_version,
             max_request_mib: v.max_request_mib,
             sampling: v.sampling.map(Into::into),
+            execution_policy: v.execution_policy.map(Into::into),
+            budget_mode: v.budget_mode,
         }
     }
 }
@@ -165,6 +173,8 @@ impl From<AestheticCreate> for domain::AestheticCreate {
             expected_input_version: v.expected_input_version,
             max_request_mib: v.max_request_mib,
             sampling: v.sampling.map(Into::into),
+            execution_policy: v.execution_policy.map(Into::into),
+            budget_mode: v.budget_mode,
         }
     }
 }
@@ -222,6 +232,9 @@ pub struct AestheticStage {
     pub usage_unknown: u64,
     pub error: Option<String>,
     pub sampling: Option<AestheticSamplingStatus>,
+    pub archived: bool,
+    pub execution_settings: Option<AestheticExecutionSettings>,
+    pub progress: AestheticStageProgress,
 }
 impl From<domain::AestheticStage> for AestheticStage {
     fn from(v: domain::AestheticStage) -> Self {
@@ -248,6 +261,9 @@ impl From<domain::AestheticStage> for AestheticStage {
             usage_unknown: v.usage_unknown,
             error: v.error,
             sampling: v.sampling.map(Into::into),
+            archived: v.archived,
+            execution_settings: v.execution_settings.map(Into::into),
+            progress: v.progress.into(),
         }
     }
 }
@@ -264,6 +280,8 @@ pub struct AestheticCandidate {
     pub protected: bool,
     pub disposition: AestheticDisposition,
     pub disposition_reason: Option<String>,
+    pub blocked: bool,
+    pub blocking_batch: Option<u64>,
 }
 impl From<domain::AestheticCandidate> for AestheticCandidate {
     fn from(v: domain::AestheticCandidate) -> Self {
@@ -279,6 +297,8 @@ impl From<domain::AestheticCandidate> for AestheticCandidate {
             protected: v.protected,
             disposition: v.disposition.into(),
             disposition_reason: v.disposition_reason,
+            blocked: v.blocked,
+            blocking_batch: v.blocking_batch,
         }
     }
 }
@@ -300,6 +320,7 @@ impl From<domain::AestheticMember> for AestheticMember {
 #[derive(Serialize, ToSchema)]
 pub struct AestheticBatch {
     pub sequence: u64,
+    pub stage_sequence: u64,
     pub stage_id: String,
     pub rating: String,
     pub state: String,
@@ -310,11 +331,26 @@ pub struct AestheticBatch {
     pub parent_sequence: Option<u64>,
     pub replacement_sequences: Vec<u64>,
     pub sampling: Option<AestheticBatchSampling>,
+    pub attempt_count: u32,
+    pub retry_at: Option<String>,
+    pub recovery_deadline: Option<String>,
+    pub resolution_reason: Option<String>,
+    pub last_failure: Option<LlmFailure>,
+    pub has_raw_receipt: bool,
+    pub transfer: Option<AestheticTransfer>,
 }
 impl From<domain::AestheticBatch> for AestheticBatch {
     fn from(v: domain::AestheticBatch) -> Self {
         Self {
             sequence: v.sequence,
+            stage_sequence: v.stage_sequence,
+            attempt_count: v.attempt_count,
+            retry_at: v.retry_at,
+            recovery_deadline: v.recovery_deadline,
+            resolution_reason: v.resolution_reason,
+            last_failure: v.last_failure.map(Into::into),
+            has_raw_receipt: v.has_raw_receipt,
+            transfer: v.transfer.map(Into::into),
             parent_sequence: v.parent_sequence,
             replacement_sequences: v.replacement_sequences,
             sampling: v.sampling.map(Into::into),
@@ -387,6 +423,7 @@ pub struct AestheticAttempt {
     pub failure: Option<LlmFailure>,
     pub semantic_request_hash: Option<String>,
     pub raw_receipt: Option<AestheticRawSummary>,
+    pub execution_settings: Option<AestheticExecutionSettings>,
 }
 impl From<domain::AestheticAttempt> for AestheticAttempt {
     fn from(v: domain::AestheticAttempt) -> Self {
@@ -398,6 +435,7 @@ impl From<domain::AestheticAttempt> for AestheticAttempt {
             receipt: v.receipt.map(Into::into),
             failure: v.failure.map(Into::into),
             semantic_request_hash: v.semantic_request_hash,
+            execution_settings: v.execution_settings.map(Into::into),
             raw_receipt: v.raw_receipt.map(|r| AestheticRawSummary {
                 sha256: r.sha256,
                 bytes: r.bytes,

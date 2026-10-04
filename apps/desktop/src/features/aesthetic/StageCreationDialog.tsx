@@ -9,6 +9,11 @@ import {
   WorkbenchDialog,
 } from "@studio/ui";
 import type { ModuleContext } from "@studio/ui";
+import {
+  defaultExecutionPolicy,
+  ExecutionPolicyFields,
+  validPolicy,
+} from "./ExecutionSettings.js";
 
 type Pending = {
   request: Schema["AestheticCreate"];
@@ -22,13 +27,17 @@ const initial = {
   modelId: "",
   promptId: "",
   exposures: 2,
-  samplingMode: "adaptive",
+  samplingMode: "refine",
   maxExposures: 8,
   rankTolerance: 10,
   samplingSeed: 17,
   maxCalls: 100,
   concurrency: 2,
   maxRequestMiB: 32,
+  executionPolicy: defaultExecutionPolicy,
+  budgetTouched: false,
+  trial: false,
+  overrides: {} as NonNullable<Schema["AestheticCreate"]["overrides"]>,
   pending: null as Pending | null,
 };
 function decode(value: unknown): typeof initial | null {
@@ -54,6 +63,14 @@ function decode(value: unknown): typeof initial | null {
   return {
     ...initial,
     ...v,
+    executionPolicy: validPolicy(v.executionPolicy)
+      ? v.executionPolicy
+      : defaultExecutionPolicy,
+    budgetTouched:
+      typeof v.budgetTouched === "boolean" ? v.budgetTouched : true,
+    trial: typeof v.trial === "boolean" ? v.trial : false,
+    overrides:
+      v.overrides && typeof v.overrides === "object" ? v.overrides : {},
     maxRequestMiB:
       typeof v.maxRequestMiB === "number" &&
       v.maxRequestMiB >= 8 &&
@@ -68,19 +85,44 @@ export function StageCreationDialog({
   context,
   onClose,
   onCreated,
+  sourceStage,
 }: {
   context: ModuleContext;
   onClose: () => void;
   onCreated: (stage: Schema["AestheticStage"]) => void | Promise<void>;
+  sourceStage?: Schema["AestheticStage"] | undefined;
 }) {
   const { client, projectId } = context;
   const draft = useDraft(
     client,
     projectId,
     "core.aesthetic",
-    initial,
+    sourceStage
+      ? {
+          ...initial,
+          name: sourceStage.name.slice(0, 110) + " 副本",
+          collectionId: sourceStage.config.request.collection_id,
+          modelId: sourceStage.config.request.model_id,
+          promptId: sourceStage.config.request.system_prompt_id,
+          exposures: sourceStage.config.request.exposures,
+          maxExposures: sourceStage.sampling?.policy.max_exposures ?? 8,
+          samplingMode: sourceStage.sampling?.policy.mode ?? "refine",
+          samplingSeed: sourceStage.sampling?.policy.seed ?? 17,
+          maxCalls: sourceStage.config.request.max_calls,
+          concurrency:
+            sourceStage.execution_settings?.policy.concurrency ??
+            sourceStage.config.request.concurrency,
+          rankTolerance:
+            (sourceStage.sampling?.policy.rank_tolerance ?? 0.1) * 100,
+          maxRequestMiB: sourceStage.config.max_request_bytes / 1048576,
+          executionPolicy:
+            sourceStage.execution_settings?.policy ?? defaultExecutionPolicy,
+          overrides: sourceStage.config.model.parameters ?? {},
+          budgetTouched: true,
+        }
+      : initial,
     decode,
-    "configuration",
+    sourceStage ? "configuration-copy-" + sourceStage.id : "configuration",
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
@@ -111,9 +153,50 @@ export function StageCreationDialog({
   const inputs = context.inputOptions.filter(
     (v) => v.scope.target.kind === "workset",
   );
+  const inputCount = inputs.find(
+    (v) =>
+      v.scope.target.kind === "workset" &&
+      v.scope.target.collection_id === value.collectionId,
+  )?.count;
+  const lowerBound =
+    inputCount == null ? null : Math.ceil((inputCount * value.exposures) / 16);
+  function recommendedCalls(count: number, form: typeof initial) {
+    const exposures =
+      form.samplingMode === "refine"
+        ? Math.min(form.maxExposures, Math.max(form.exposures, 4))
+        : form.exposures;
+    return Math.min(
+      10000000,
+      Math.max(1, Math.ceil(Math.ceil((count * exposures) / 16) * 1.25)),
+    );
+  }
+  const recommendation =
+    inputCount == null ? null : recommendedCalls(inputCount, value);
   function edit(patch: Partial<typeof initial>) {
     if (editable)
-      draft.controller.set((old) => ({ ...old, ...patch, pending: null }));
+      draft.controller.set((old) => {
+        const next = { ...old, ...patch, pending: null };
+        if (patch.maxCalls !== undefined) next.budgetTouched = true;
+        if (patch.exposures !== undefined)
+          next.maxExposures = Math.max(next.maxExposures, next.exposures);
+        if (patch.modelId !== undefined && patch.modelId !== old.modelId)
+          next.overrides = {};
+        if (
+          !next.budgetTouched &&
+          (patch.collectionId !== undefined ||
+            patch.exposures !== undefined ||
+            patch.samplingMode !== undefined ||
+            patch.maxExposures !== undefined)
+        ) {
+          const count = inputs.find(
+            (v) =>
+              v.scope.target.kind === "workset" &&
+              v.scope.target.collection_id === next.collectionId,
+          )?.count;
+          if (count != null) next.maxCalls = recommendedCalls(count, next);
+        }
+        return next;
+      });
     setError(null);
   }
   async function run(action: () => Promise<void>) {
@@ -148,7 +231,12 @@ export function StageCreationDialog({
         rank_tolerance: value.rankTolerance / 100,
         seed: value.samplingSeed,
       },
-      overrides: {},
+      overrides: value.overrides ?? {},
+      budget_mode: value.trial ? "trial" : "complete",
+      execution_policy: {
+        ...value.executionPolicy,
+        concurrency: value.concurrency,
+      },
     };
     // Invalidate an older report even when this check fails.
     draft.controller.set((old) => ({ ...old, pending: null }));
@@ -187,6 +275,7 @@ export function StageCreationDialog({
           "EVALUATION_CAPACITY_EXCEEDED",
           "EVALUATION_SAMPLING_CAPACITY",
           "EVALUATION_EMPTY",
+          "EVALUATION_BUDGET_INSUFFICIENT",
           "INVALID_INPUT",
         ].includes(e.code)
       )
@@ -207,6 +296,12 @@ export function StageCreationDialog({
       }}
     >
       <div className="evaluation-create">
+        {sourceStage && (
+          <p>
+            从“{sourceStage.name}
+            ”复制配置。将创建独立阶段，使用当前模型及提示词版本；原证据保留在原阶段。
+          </p>
+        )}
         {error !== null && <ErrorDetails error={error} />}
         {(models.error || prompts.error) && (
           <ErrorDetails error={models.error || prompts.error} />
@@ -379,6 +474,53 @@ export function StageCreationDialog({
                 </select>
               </label>
             </div>
+          </details>
+          <p
+            className={
+              lowerBound != null && value.maxCalls < lowerBound
+                ? "aesthetic-notice"
+                : "aesthetic-help"
+            }
+          >
+            {lowerBound == null
+              ? "选择工作集后估算基础曝光预算。"
+              : `基础曝光调用下界：${lowerBound.toLocaleString()} 次；当前上限 ${value.maxCalls.toLocaleString()} 次；建议起步预算 ${recommendation?.toLocaleString()} 次。连接、拆批和重试会增加实际需求。`}
+          </p>
+          {recommendation != null && value.maxCalls < recommendation && (
+            <button
+              type="button"
+              disabled={!editable}
+              onClick={() =>
+                edit({
+                  maxCalls: recommendation,
+                  trial: false,
+                })
+              }
+            >
+              采用建议预算 {recommendation.toLocaleString()} 次
+            </button>
+          )}
+          <label>
+            <input
+              type="checkbox"
+              checked={value.trial}
+              disabled={!editable}
+              onChange={(e) => edit({ trial: e.target.checked })}
+            />
+            小预算试跑：允许预算低于最低曝光下界
+          </label>
+          <details className="wb-fold">
+            <summary>
+              传输与异常恢复 ·{" "}
+              {value.executionPolicy.stream ? "流式" : "非流式"} · 单次{" "}
+              {value.executionPolicy.request_timeout_ms / 1000} 秒
+            </summary>
+            <ExecutionPolicyFields
+              policy={value.executionPolicy}
+              showConcurrency={false}
+              disabled={!editable}
+              onChange={(executionPolicy) => edit({ executionPolicy })}
+            />
           </details>
           <button type="submit" disabled={!editable}>
             预检输入

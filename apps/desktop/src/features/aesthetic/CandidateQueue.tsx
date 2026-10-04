@@ -10,7 +10,7 @@ import {
 } from "@studio/ui";
 import type { ModuleContext } from "@studio/ui";
 import { SamplingDiagnostic } from "./SamplingPanel.js";
-import { CandidateCard } from "./Evidence.js";
+import { CandidateCard, EvidenceViewer } from "./Evidence.js";
 
 const labels: Record<Schema["AestheticDisposition"], string> = {
   active: "正常参与",
@@ -29,7 +29,7 @@ type Entry = {
   key: string;
 };
 const initial = {
-  filter: "needs_review" as "" | Schema["AestheticDisposition"],
+  filter: "blocked" as "" | "blocked" | Schema["AestheticDisposition"],
   after: "",
   past: [] as string[],
   selected: null as number | null,
@@ -38,7 +38,7 @@ const initial = {
 function decode(value: unknown): typeof initial | null {
   if (!value || typeof value !== "object") return null;
   const v = value as typeof initial;
-  return ["", ...Object.keys(labels)].includes(v.filter) &&
+  return ["", "blocked", ...Object.keys(labels)].includes(v.filter) &&
     typeof v.after === "string" &&
     (v.selected === null ||
       (Number.isSafeInteger(v.selected) && v.selected >= 0)) &&
@@ -65,12 +65,14 @@ export function CandidateQueue({
   onInspect,
   onBusy,
   onChanged,
+  onBatch,
 }: {
   context: ModuleContext;
   stage: Schema["AestheticStage"];
   onInspect: () => void;
   onBusy: (value: boolean) => void;
   onChanged: () => void;
+  onBatch: (sequence: number) => void;
 }) {
   const { client, projectId } = context;
   const cache = useQueryClient();
@@ -99,7 +101,8 @@ export function CandidateQueue({
         false,
         saved.after || undefined,
         signal,
-        saved.filter || undefined,
+        saved.filter && saved.filter !== "blocked" ? saved.filter : undefined,
+        saved.filter === "blocked",
       ),
     enabled: draft.editable,
     refetchInterval: ["running", "preparing", "pausing", "cancelling"].includes(
@@ -126,6 +129,7 @@ export function CandidateQueue({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const [message, setMessage] = useState("");
+  const [viewImage, setViewImage] = useState(false);
   const lock = useRef(false);
   const paused = ["ready", "paused", "needs_attention", "failed"].includes(
     stage.state,
@@ -247,6 +251,7 @@ export function CandidateQueue({
               }
             >
               <option value="">全部状态</option>
+              <option value="blocked">全部被阻塞候选</option>
               {Object.entries(labels).map(([id, label]) => (
                 <option key={id} value={id}>
                   {label}
@@ -260,6 +265,20 @@ export function CandidateQueue({
             onClick={() => void cache.invalidateQueries({ queryKey: prefix })}
           >
             刷新候选
+          </button>
+          <button
+            disabled={busy || !draft.editable}
+            onClick={() =>
+              draft.controller.set((old) => ({
+                ...old,
+                filter: "blocked",
+                after: "",
+                past: [],
+                selected: null,
+              }))
+            }
+          >
+            查看全部被阻塞候选（{stage.progress?.blocked ?? "—"}）
           </button>
         </div>
         <p className="aesthetic-help">
@@ -286,7 +305,11 @@ export function CandidateQueue({
               }}
             >
               <CandidateCard context={context} candidate={candidate} />
-              <span>{labels[candidate.disposition]}</span>
+              <span>
+                {candidate.blocking_batch
+                  ? "等待批次恢复"
+                  : labels[candidate.disposition]}
+              </span>
               {candidate.disposition_reason && (
                 <small>
                   {reasons[candidate.disposition_reason] ??
@@ -352,11 +375,27 @@ export function CandidateQueue({
               <h4>
                 候选 {row.data.ordinal + 1} · {labels[row.data.disposition]}
               </h4>
+              <button onClick={() => setViewImage(true)}>查看候选大图</button>
+              {row.data.blocking_batch != null && (
+                <div className="aesthetic-notice">
+                  <p>
+                    此图由未完成批次锁定，需要恢复或暂缓对应批次。不会将网络失败当作图片质量问题。
+                  </p>
+                  <button
+                    disabled={busy}
+                    onClick={() => onBatch(row.data!.blocking_batch!)}
+                  >
+                    定位关联批次 #{row.data.blocking_batch}
+                  </button>
+                </div>
+              )}
               <p>
                 {row.data.disposition_reason
                   ? (reasons[row.data.disposition_reason] ??
                     row.data.disposition_reason)
-                  : "没有待处理原因"}
+                  : row.data.blocking_batch
+                    ? "关联批次仍待处理"
+                    : "没有候选处置原因"}
               </p>
               <p className="aesthetic-help">
                 {row.data.rating.toUpperCase()} · 有效曝光 {row.data.exposures}
@@ -457,6 +496,14 @@ export function CandidateQueue({
           <DraftStatus controller={draft.controller} quiet />
         </div>
       </WorkbenchPanelPortal>
+      {viewImage && row.data && (
+        <EvidenceViewer
+          context={context}
+          candidates={[row.data]}
+          initialOrdinal={row.data.ordinal}
+          onClose={() => setViewImage(false)}
+        />
+      )}
     </>
   );
 }

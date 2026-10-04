@@ -187,7 +187,7 @@ impl EvaluationDb {
         scheduler::validate(&status.policy, stage.total)?;
         let (input, previous, available, pending, unclaimed) = {
             let db = self.read()?;
-            let pending:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM batches WHERE stage_id=?1 AND state NOT IN ('accepted','superseded'))",[id],|r|r.get(0)).map_err(db_error)?;
+            let pending:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM batches WHERE stage_id=?1 AND state NOT IN ('accepted','superseded','deferred'))",[id],|r|r.get(0)).map_err(db_error)?;
             let unclaimed:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM sampling_queue WHERE plan_id=?1 AND round=?2 AND batch IS NULL)",params![status.plan_id,status.round],|r|r.get(0)).map_err(db_error)?;
             let (watermark,observations):(u64,u64)=db.query_row("SELECT COALESCE(MAX(e.sequence),0),COUNT(*) FROM evidence e JOIN batches b ON b.sequence=e.batch WHERE b.stage_id=?1",[id],|r|Ok((crate::unsigned(r,0)?,crate::unsigned(r,1)?))).map_err(db_error)?;
             let input = AestheticAnalysisInput {

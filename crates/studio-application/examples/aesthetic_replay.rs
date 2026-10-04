@@ -24,6 +24,8 @@ impl AestheticReplaySource for Synthetic {
                 protected: false,
                 disposition: Default::default(),
                 disposition_reason: None,
+                blocked: false,
+                blocking_batch: None,
             })
             .collect())
     }

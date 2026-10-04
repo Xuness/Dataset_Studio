@@ -18,6 +18,11 @@ pub struct Page {
     limit: Option<usize>,
     protected: Option<bool>,
     disposition: Option<domain::aesthetic::AestheticDisposition>,
+    state: Option<String>,
+    search: Option<String>,
+    archived: Option<bool>,
+    blocked: Option<bool>,
+    sequence: Option<u64>,
 }
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct AestheticStages {
@@ -115,7 +120,7 @@ async fn create(
     }
     Ok(Json(stage.into()))
 }
-#[utoipa::path(operation_id="aesthetic_stages",get,path="/stages",params(("project_id"=String,Path),("after"=Option<String>,Query),("limit"=Option<usize>,Query)),responses((status=200,body=AestheticStages)))]
+#[utoipa::path(operation_id="aesthetic_stages",get,path="/stages",params(("project_id"=String,Path),("after"=Option<String>,Query),("limit"=Option<usize>,Query),("archived"=Option<bool>,Query),("search"=Option<String>,Query),("state"=Option<String>,Query)),responses((status=200,body=AestheticStages)))]
 async fn stages(
     State(s): State<AppState>,
     Path(pid): Path<String>,
@@ -123,9 +128,13 @@ async fn stages(
 ) -> ApiResult<AestheticStages> {
     let limit = page.limit.unwrap_or(25).clamp(1, 50);
     let mut rows = blocking(move || {
-        s.store
-            .evaluation(&pid)?
-            .stages(page.after.as_deref(), limit + 1)
+        s.store.evaluation(&pid)?.recent_stages(
+            page.after.as_deref(),
+            limit + 1,
+            page.archived.unwrap_or(false),
+            page.search.as_deref().unwrap_or(""),
+            page.state.as_deref(),
+        )
     })
     .await?;
     let more = rows.len() > limit;
@@ -164,6 +173,7 @@ async fn control(
         let db = copy.store.evaluation(&p)?;
         if action == "start" {
             copy.aesthetic.check_start(&copy, &p)?;
+            crate::aesthetic::check_execution(&copy, &db.stage(&sid)?)?;
         }
         let stage = if action == "parse" {
             db.parse_received(&sid)?;
@@ -189,6 +199,8 @@ async fn control(
         }
     } else if value.action == "cancel" {
         s.aesthetic.cancel(&pid, &id);
+    } else if value.action == "pause" {
+        s.aesthetic.pause(&pid, &id);
     }
     Ok(Json(stage.into()))
 }
@@ -202,7 +214,7 @@ fn ordinal(value: Option<&str>) -> domain::Result<Option<u64>> {
         })
         .transpose()
 }
-#[utoipa::path(operation_id="aesthetic_batches",get,path="/stages/{id}/batches",params(("project_id"=String,Path),("id"=String,Path),("after"=Option<String>,Query),("limit"=Option<usize>,Query)),responses((status=200,body=AestheticBatches)))]
+#[utoipa::path(operation_id="aesthetic_batches",get,path="/stages/{id}/batches",params(("project_id"=String,Path),("id"=String,Path),("after"=Option<String>,Query),("limit"=Option<usize>,Query),("state"=Option<String>,Query),("sequence"=Option<u64>,Query)),responses((status=200,body=AestheticBatches)))]
 async fn batches(
     State(s): State<AppState>,
     Path((pid, id)): Path<(String, String)>,
@@ -210,10 +222,24 @@ async fn batches(
 ) -> ApiResult<AestheticBatches> {
     let after = ordinal(page.after.as_deref())?.unwrap_or(0);
     let limit = page.limit.unwrap_or(20).clamp(1, 50);
-    let mut rows =
-        blocking(move || s.store.evaluation(&pid)?.batches(&id, after, limit + 1)).await?;
+    let runner = s.aesthetic.clone();
+    let project = pid.clone();
+    let stage = id.clone();
+    let mut rows = blocking(move || {
+        s.store.evaluation(&pid)?.filtered_batches(
+            &id,
+            after,
+            limit + 1,
+            page.state.as_deref(),
+            page.sequence,
+        )
+    })
+    .await?;
     let more = rows.len() > limit;
     rows.truncate(limit);
+    for batch in &mut rows {
+        batch.transfer = runner.transfer(&project, &stage, batch.sequence);
+    }
     Ok(Json(AestheticBatches {
         next_cursor: if more {
             rows.last().map(|v| v.sequence.to_string())
@@ -223,7 +249,7 @@ async fn batches(
         items: rows.into_iter().map(Into::into).collect(),
     }))
 }
-#[utoipa::path(operation_id="aesthetic_candidates",get,path="/stages/{id}/candidates",params(("project_id"=String,Path),("id"=String,Path),("after"=Option<String>,Query),("protected"=Option<bool>,Query),("disposition"=Option<String>,Query,description="active, needs_review, rejudge, or excluded; omitted returns all dispositions")),responses((status=200,body=AestheticCandidates)))]
+#[utoipa::path(operation_id="aesthetic_candidates",get,path="/stages/{id}/candidates",params(("project_id"=String,Path),("id"=String,Path),("after"=Option<String>,Query),("protected"=Option<bool>,Query),("blocked"=Option<bool>,Query),("disposition"=Option<String>,Query,description="active, needs_review, rejudge, or excluded; omitted returns all dispositions")),responses((status=200,body=AestheticCandidates)))]
 async fn candidates(
     State(s): State<AppState>,
     Path((pid, id)): Path<(String, String)>,
@@ -231,6 +257,9 @@ async fn candidates(
 ) -> ApiResult<AestheticCandidates> {
     let after = ordinal(page.after.as_deref())?;
     let rows = blocking(move || {
+        if page.blocked.unwrap_or(false) {
+            return s.store.evaluation(&pid)?.blocked_candidates(&id, after);
+        }
         s.store.evaluation(&pid)?.filtered_candidates(
             &id,
             after,
@@ -349,7 +378,10 @@ async fn backup(State(s): State<AppState>, Path(pid): Path<String>) -> ApiResult
     reparse_batch,
     configure_sampling,
     sampling_diagnostic,
-    recovery_package
+    recovery_package,
+    configure_execution,
+    stage_metadata,
+    batch_action
 ))]
 pub struct AestheticApiDoc;
 pub(super) fn routes() -> axum::Router<AppState> {
@@ -359,6 +391,9 @@ pub(super) fn routes() -> axum::Router<AppState> {
         .route("/creation-intents/{id}/abandon", post(abandon_creation))
         .route("/stages", get(stages).post(create))
         .route("/stages/{id}", get(stage))
+        .route("/stages/{id}/metadata", post(stage_metadata))
+        .route("/stages/{id}/execution", post(configure_execution))
+        .route("/stages/{id}/batch-actions", post(batch_action))
         .route("/stages/{id}/control", post(control))
         .route("/stages/{id}/sampling", post(configure_sampling))
         .route("/stages/{id}/sampling/{ordinal}", get(sampling_diagnostic))
@@ -375,6 +410,43 @@ pub(super) fn routes() -> axum::Router<AppState> {
         .route("/metrics", get(metrics))
         .route("/backup", post(backup))
         .route("/recovery-package", post(recovery_package))
+}
+
+#[utoipa::path(operation_id="aesthetic_stage_metadata",post,path="/stages/{id}/metadata",params(("project_id"=String,Path),("id"=String,Path)),request_body=AestheticStageMetadata,responses((status=200,body=AestheticStage)))]
+async fn stage_metadata(
+    State(s): State<AppState>,
+    Path((pid, id)): Path<(String, String)>,
+    Body(value): Body<AestheticStageMetadata>,
+) -> ApiResult<AestheticStage> {
+    Ok(Json(
+        blocking(move || s.store.evaluation(&pid)?.stage_metadata(&id, value.into()))
+            .await?
+            .into(),
+    ))
+}
+#[utoipa::path(operation_id="aesthetic_configure_execution",post,path="/stages/{id}/execution",params(("project_id"=String,Path),("id"=String,Path)),request_body=AestheticExecutionUpdate,responses((status=200,body=AestheticStage)))]
+async fn configure_execution(
+    State(s): State<AppState>,
+    Path((pid, id)): Path<(String, String)>,
+    Body(value): Body<AestheticExecutionUpdate>,
+) -> ApiResult<AestheticStage> {
+    Ok(Json(
+        blocking(move || crate::aesthetic::configure_execution(&s, &pid, &id, value.into()))
+            .await?
+            .into(),
+    ))
+}
+#[utoipa::path(operation_id="aesthetic_batch_action",post,path="/stages/{id}/batch-actions",params(("project_id"=String,Path),("id"=String,Path)),request_body=AestheticBatchAction,responses((status=200,body=AestheticBatchActionResult)))]
+async fn batch_action(
+    State(s): State<AppState>,
+    Path((pid, id)): Path<(String, String)>,
+    Body(value): Body<AestheticBatchAction>,
+) -> ApiResult<AestheticBatchActionResult> {
+    Ok(Json(
+        blocking(move || s.store.evaluation(&pid)?.batch_action(&id, value.into()))
+            .await?
+            .into(),
+    ))
 }
 
 #[utoipa::path(operation_id="aesthetic_configure_sampling",post,path="/stages/{id}/sampling",params(("project_id"=String,Path),("id"=String,Path)),request_body=AestheticSamplingRequest,responses((status=200,body=AestheticStage)))]

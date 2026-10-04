@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { aestheticTime } from "./analysisPresentation.js";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, DraftStatus, ErrorDetails, useDraft } from "@studio/ui";
 import type { ModuleContext } from "@studio/ui";
@@ -343,8 +344,7 @@ export function RankingReviewPanel({
                 {decisions[review.request.decision] ?? review.request.decision}
               </strong>
               <span>
-                {review.request.reviewer} ·{" "}
-                {new Date(review.created_at).toLocaleString()}
+                {review.request.reviewer} · {aestheticTime(review.created_at)}
               </span>
               <p>{review.request.reason}</p>
             </article>

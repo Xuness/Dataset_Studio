@@ -3,6 +3,12 @@ import { useQuery } from "@tanstack/react-query";
 import type { Schema } from "@studio/contracts";
 import type { ModuleContext } from "@studio/ui";
 import { Button, ErrorDetails, WorkbenchDialog } from "@studio/ui";
+import { AssetImage } from "../browser/AssetImage.js";
+import {
+  rankingAsset,
+  rankingLabel,
+  analysisActive,
+} from "./analysisPresentation.js";
 type Job = Schema["AestheticAnalysisJob"];
 
 function useAction() {
@@ -38,10 +44,12 @@ export function FitDialog({
   context,
   onClose,
   onCreated,
+  initialStageId,
 }: {
   context: ModuleContext;
   onClose: () => void;
   onCreated: (job: Job) => void;
+  initialStageId?: string | undefined;
 }) {
   const action = useAction();
   const [after, setAfter] = useState<string>();
@@ -50,7 +58,27 @@ export function FitDialog({
     queryFn: ({ signal }) =>
       context.client.aesthetic.stages(context.projectId, after, signal),
   });
-  const [stageId, setStageId] = useState("");
+  const [stageId, setStageId] = useState(initialStageId ?? "");
+  const pinnedStage = useQuery({
+    queryKey: [
+      "project",
+      context.projectId,
+      "aesthetic",
+      "fit-source",
+      stageId,
+    ],
+    queryFn: ({ signal }) =>
+      context.client.aesthetic.stage(context.projectId, stageId, signal),
+    enabled: !!stageId,
+  });
+  const availableStages = [
+    ...new Map(
+      [
+        ...(pinnedStage.data ? [pinnedStage.data] : []),
+        ...(stages.data?.items ?? []),
+      ].map((stage) => [stage.id, stage]),
+    ).values(),
+  ];
   const [name, setName] = useState("排名快照");
   const [estimator, setEstimator] = useState("davidson_v2");
   const [iterations, setIterations] = useState(128);
@@ -116,7 +144,7 @@ export function FitDialog({
               onChange={(e) => setStageId(e.target.value)}
             >
               <option value="">选择已有接受证据的阶段</option>
-              {stages.data?.items.map((stage) => (
+              {availableStages.map((stage) => (
                 <option
                   key={stage.id}
                   value={stage.id}
@@ -213,6 +241,14 @@ export function FitDialog({
         <p>
           只使用已保存证据进行离线计算，不调用模型。计算固定当前证据水位；完成后发布独立快照。
         </p>
+        <p className="aesthetic-help">
+          评审运行中也可以预览当前证据。比较关系尚未连通时，快照只提供分量内名次。
+        </p>
+        {pinnedStage.data?.accepted === 0 && (
+          <p className="aesthetic-notice">
+            当前阶段尚无有效评审，保存至少一批有效结果后即可生成快照。
+          </p>
+        )}
         {(action.error || stages.error) && (
           <ErrorDetails error={action.error ?? stages.error} />
         )}
@@ -223,7 +259,7 @@ export function FitDialog({
           <Button
             type="submit"
             className="primary"
-            disabled={action.busy || !stageId}
+            disabled={action.busy || !stageId || !pinnedStage.data?.accepted}
           >
             {action.busy ? "正在提交…" : "开始离线计算"}
           </Button>
@@ -248,28 +284,81 @@ export function DeriveDialog({
 }) {
   const action = useAction();
   const [name, setName] = useState(rating.toUpperCase() + " 类排名工作集");
+  const [mode, setMode] = useState<"percent" | "count">("percent");
   const [percent, setPercent] = useState(25);
+  const [topCount, setTopCount] = useState(1000);
   const [protect, setProtect] = useState(true);
   const [preview, setPreview] = useState<
     Schema["AestheticRankingSelection"] | null
   >(null);
+  const [countJobId, setCountJobId] = useState("");
+  const countJob = useQuery({
+    queryKey: [
+      "project",
+      context.projectId,
+      "aesthetic",
+      "selection-count",
+      countJobId,
+    ],
+    queryFn: ({ signal }) =>
+      context.client.aesthetic.analysis.job(
+        context.projectId,
+        countJobId,
+        signal,
+      ),
+    enabled: !!countJobId,
+    refetchInterval: (query) =>
+      !query.state.data || analysisActive(query.state.data.state)
+        ? 1000
+        : false,
+  });
+  const summary =
+    countJob.data?.state === "completed" &&
+    countJob.data.result?.kind === "preview"
+      ? countJob.data.result
+      : null;
   const filter = {
     ratings: [rating],
-    top_percent: percent,
+    ...(mode === "percent" ? { top_percent: percent } : { rank_to: topCount }),
     include_protected: protect,
   };
+  const valid =
+    mode === "percent"
+      ? Number.isFinite(percent) && percent > 0 && percent <= 100
+      : Number.isSafeInteger(topCount) && topCount > 0 && topCount <= 10000000;
+  function invalidate() {
+    setPreview(null);
+    setCountJobId("");
+    if (countJob.data && analysisActive(countJob.data.state))
+      void context.client.aesthetic.analysis
+        .control(context.projectId, countJob.data.id, "cancel")
+        .catch(() => {});
+  }
   async function previewSelection(after?: string | null) {
-    await action.run(
-      async () =>
-        setPreview(
-          await context.client.aesthetic.analysis.select(
-            context.projectId,
-            snapshotId,
-            { filter, after: after ?? null, limit: 12 },
-          ),
-        ),
-      false,
-    );
+    await action.run(async () => {
+      const page = await context.client.aesthetic.analysis.select(
+        context.projectId,
+        snapshotId,
+        { filter, after: after ?? null, limit: 12 },
+      );
+      setPreview(page);
+      if (!after) {
+        const value = {
+          name: "工作集筛选统计",
+          spec: {
+            kind: "preview" as const,
+            snapshot_id: snapshotId,
+            filter,
+            review_watermark: page.review_watermark,
+          },
+        };
+        const job = await context.client.aesthetic.analysis.create(
+          context.projectId,
+          { ...value, idempotency_key: action.key(value) },
+        );
+        setCountJobId(job.id);
+      }
+    }, false);
   }
   return (
     <WorkbenchDialog
@@ -281,7 +370,7 @@ export function DeriveDialog({
       <form
         onSubmit={(event) => {
           event.preventDefault();
-          if (!preview) return;
+          if (!preview || !summary?.count) return;
           void action.run(async () => {
             const value = {
               name,
@@ -317,22 +406,57 @@ export function DeriveDialog({
             <input value={rating.toUpperCase()} readOnly />
           </label>
           <label>
-            排名前百分比
-            <input
-              aria-label="排名前百分比"
-              type="number"
-              min={0.01}
-              max={100}
-              step="any"
-              value={percent}
-              required
+            排名范围
+            <select
+              aria-label="排名范围"
+              value={mode}
               disabled={action.busy}
               onChange={(e) => {
-                setPercent(Number(e.target.value));
-                setPreview(null);
+                setMode(e.target.value as "percent" | "count");
+                invalidate();
               }}
-            />
+            >
+              <option value="percent">前百分比</option>
+              <option value="count">前 N 名</option>
+            </select>
           </label>
+          {mode === "percent" ? (
+            <label>
+              排名前百分比
+              <input
+                aria-label="排名前百分比"
+                type="number"
+                min={0.01}
+                max={100}
+                step="any"
+                required
+                value={percent}
+                disabled={action.busy}
+                onChange={(e) => {
+                  setPercent(Number(e.target.value));
+                  invalidate();
+                }}
+              />
+            </label>
+          ) : (
+            <label>
+              前 N 名
+              <input
+                aria-label="前 N 名"
+                type="number"
+                min={1}
+                max={10000000}
+                step={1}
+                required
+                value={topCount}
+                disabled={action.busy}
+                onChange={(e) => {
+                  setTopCount(Number(e.target.value));
+                  invalidate();
+                }}
+              />
+            </label>
+          )}
           <label>
             额外保留保护候选
             <input
@@ -341,33 +465,63 @@ export function DeriveDialog({
               disabled={action.busy}
               onChange={(e) => {
                 setProtect(e.target.checked);
-                setPreview(null);
+                invalidate();
               }}
             />
           </label>
         </div>
         <p>
-          后端按完整筛选范围生成，截断边界保留整个并列组；保护状态固定在预览的复核水位。
+          边界保留整个并列组；保护候选可额外加入。预览会按固定的复核状态统计完整范围，显示实际数量。
         </p>
         <Button
           type="button"
-          disabled={
-            action.busy ||
-            !Number.isFinite(percent) ||
-            percent <= 0 ||
-            percent > 100
-          }
+          disabled={action.busy || !valid}
           onClick={() => void previewSelection()}
         >
           预览筛选
         </Button>
-        {preview && (
+        {countJob.data && analysisActive(countJob.data.state) && (
+          <p role="status">
+            正在统计完整筛选范围：{countJob.data.progress.toLocaleString()} /{" "}
+            {countJob.data.total.toLocaleString()}；可关闭窗口，统计在后台继续。
+          </p>
+        )}
+        {summary && (
           <div className="aesthetic-notice" role="status">
-            本页预览 {preview.items.length} 项 · 复核水位{" "}
-            {preview.review_watermark}。
-            {preview.next_cursor
-              ? "还有待扫描的候选，这不是总数。"
-              : "本次筛选已扫描到末尾。"}
+            <strong>实际将生成 {summary.count.toLocaleString()} 张图片</strong>
+            <p>
+              排名筛选 {summary.ranked_count.toLocaleString()}{" "}
+              张（其中边界并列组 {summary.boundary_tie_count.toLocaleString()}{" "}
+              张，已包含在内）＋额外保护{" "}
+              {summary.protected_added.toLocaleString()} 张。
+            </p>
+          </div>
+        )}
+        {preview && (
+          <>
+            <div className="aesthetic-preview-images">
+              {preview.items.map((item) => (
+                <figure
+                  key={`${item.ranking.key.source_id}:${item.ranking.key.asset_id}`}
+                >
+                  <AssetImage
+                    client={context.client}
+                    projectId={context.projectId}
+                    asset={rankingAsset(item.ranking)}
+                    edge={240}
+                  />
+                  <figcaption>
+                    {rankingLabel(item.ranking)}
+                    {item.effective_protected && " · 保护候选"}
+                  </figcaption>
+                </figure>
+              ))}
+            </div>
+            <p>
+              本页预览 {preview.items.length} 张 · 复核水位{" "}
+              {preview.review_watermark}
+              {preview.next_cursor ? " · 还有后续预览" : " · 已到预览末尾"}
+            </p>
             {preview.next_cursor && (
               <button
                 type="button"
@@ -377,9 +531,34 @@ export function DeriveDialog({
                 继续预览
               </button>
             )}
-          </div>
+          </>
         )}
-        {action.error !== null && <ErrorDetails error={action.error} />}
+        {(action.error ?? countJob.error ?? countJob.data?.error) != null && (
+          <ErrorDetails
+            error={action.error ?? countJob.error ?? countJob.data?.error}
+          />
+        )}
+        {countJob.data &&
+          ["failed", "cancelled", "interrupted"].includes(
+            countJob.data.state,
+          ) && (
+            <button
+              type="button"
+              disabled={action.busy}
+              onClick={() => {
+                void action.run(async () => {
+                  await context.client.aesthetic.analysis.control(
+                    context.projectId,
+                    countJobId,
+                    "resume",
+                  );
+                  await countJob.refetch();
+                });
+              }}
+            >
+              恢复筛选统计
+            </button>
+          )}
         <div className="wb-dialog-actions">
           <Button type="button" disabled={action.busy} onClick={onClose}>
             取消
@@ -387,7 +566,7 @@ export function DeriveDialog({
           <Button
             type="submit"
             className="primary"
-            disabled={action.busy || !preview}
+            disabled={action.busy || !preview || !summary?.count}
           >
             {action.busy ? "正在提交…" : "生成完整工作集"}
           </Button>

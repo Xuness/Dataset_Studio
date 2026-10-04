@@ -132,7 +132,7 @@ pub(in crate::aesthetic) fn round(
             if summary.state!="staging"||claimed{return Err(Error::new("EVIDENCE_INVALID","不能覆盖已发布的采样轮次"));}
             db.execute("UPDATE sampling_rounds SET evidence_watermark=?3,summary_json=?4 WHERE plan_id=?1 AND round=?2",params![owned.plan,owned.round,owned.watermark as i64,owned.staging]).map_err(db_error)?;
         }else{
-            db.execute("INSERT INTO sampling_rounds VALUES(?1,?2,?3,?4)",params![owned.plan,owned.round,owned.watermark as i64,owned.staging]).map_err(db_error)?;
+            db.execute("INSERT INTO sampling_rounds(plan_id,round,evidence_watermark,summary_json) VALUES(?1,?2,?3,?4)",params![owned.plan,owned.round,owned.watermark as i64,owned.staging]).map_err(db_error)?;
         }
         Ok(())
     })?;

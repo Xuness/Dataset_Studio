@@ -1135,6 +1135,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{project_id}/aesthetic/analysis/stages/{id}/latest-snapshot": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["aesthetic_latest_snapshot"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects/{project_id}/aesthetic/backup": {
         parameters: {
             query?: never;
@@ -1263,6 +1279,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{project_id}/aesthetic/stages/{id}/batch-actions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["aesthetic_batch_action"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects/{project_id}/aesthetic/stages/{id}/batches": {
         parameters: {
             query?: never;
@@ -1385,6 +1417,38 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["aesthetic_control"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/aesthetic/stages/{id}/execution": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["aesthetic_configure_execution"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/aesthetic/stages/{id}/metadata": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["aesthetic_stage_metadata"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3255,6 +3319,13 @@ export interface components {
         } | {
             filter: components["schemas"]["AestheticRankingFilter"];
             /** @enum {string} */
+            kind: "preview";
+            /** Format: int64 */
+            review_watermark?: number | null;
+            snapshot_id: string;
+        } | {
+            filter: components["schemas"]["AestheticRankingFilter"];
+            /** @enum {string} */
             kind: "derive";
             /** Format: int64 */
             review_watermark?: number | null;
@@ -3268,6 +3339,17 @@ export interface components {
             /** @enum {string} */
             kind: "compare";
         } | {
+            /** Format: int64 */
+            boundary_tie_count: number;
+            /** Format: int64 */
+            count: number;
+            /** @enum {string} */
+            kind: "preview";
+            /** Format: int64 */
+            protected_added: number;
+            /** Format: int64 */
+            ranked_count: number;
+        } | {
             collection_id: string;
             /** Format: int64 */
             count: number;
@@ -3278,6 +3360,7 @@ export interface components {
             /** Format: int64 */
             batch: number;
             created_at: string;
+            execution_settings?: null | components["schemas"]["AestheticExecutionSettings"];
             failure?: null | components["schemas"]["LlmFailure"];
             id: string;
             raw_receipt?: null | components["schemas"]["AestheticRawSummary"];
@@ -3292,19 +3375,58 @@ export interface components {
             relative_path: string;
         };
         AestheticBatch: {
+            /** Format: int32 */
+            attempt_count: number;
             attempt_id?: string | null;
             error?: string | null;
+            has_raw_receipt: boolean;
+            last_failure?: null | components["schemas"]["LlmFailure"];
             members: components["schemas"]["AestheticMember"][];
             observation?: null | components["schemas"]["AestheticObservation"];
             /** Format: int64 */
             parent_sequence?: number | null;
             rating: string;
+            recovery_deadline?: string | null;
             replacement_sequences: number[];
+            resolution_reason?: string | null;
+            retry_at?: string | null;
             sampling?: null | components["schemas"]["AestheticBatchSampling"];
             /** Format: int64 */
             sequence: number;
             stage_id: string;
+            /** Format: int64 */
+            stage_sequence: number;
             state: string;
+            transfer?: null | components["schemas"]["AestheticTransfer"];
+        };
+        AestheticBatchAction: {
+            acknowledge_possible_charge: boolean;
+            /** @description retry, reparse, or defer. Reparse is handled by the engine. */
+            action: string;
+            /** @description Empty means all matching batches at the operation's frozen upper bound. */
+            batches: number[];
+            idempotency_key: string;
+            reason: string;
+        };
+        AestheticBatchActionItem: {
+            error?: string | null;
+            /** Format: int64 */
+            sequence: number;
+            /** Format: int64 */
+            stage_sequence: number;
+            state: string;
+        };
+        AestheticBatchActionResult: {
+            completed: boolean;
+            /** Format: int64 */
+            failed: number;
+            id: string;
+            /** @description Bounded results of the most recently processed page. */
+            items: components["schemas"]["AestheticBatchActionItem"][];
+            /** Format: int64 */
+            processed: number;
+            /** Format: int64 */
+            succeeded: number;
         };
         AestheticBatchSampling: {
             /** Format: int64 */
@@ -3320,6 +3442,9 @@ export interface components {
         };
         AestheticCandidate: {
             basis: string;
+            blocked: boolean;
+            /** Format: int64 */
+            blocking_batch?: number | null;
             /** Format: int64 */
             bytes: number;
             content_version: string;
@@ -3415,9 +3540,11 @@ export interface components {
             action: string;
         };
         AestheticCreate: {
+            budget_mode?: string | null;
             collection_id: string;
             /** Format: int32 */
             concurrency: number;
+            execution_policy?: null | components["schemas"]["AestheticExecutionPolicy"];
             expected_input_version?: string | null;
             /** Format: int32 */
             exposures: number;
@@ -3458,6 +3585,45 @@ export interface components {
             input_version: string;
             sampler_version: string;
             template_version: string;
+        };
+        AestheticExecutionPolicy: {
+            /**
+             * Format: int32
+             * @description Wall-clock recovery budget, starting at the first network dispatch.
+             */
+            batch_timeout_ms: number;
+            /** Format: int32 */
+            concurrency: number;
+            /** Format: int32 */
+            connect_timeout_ms: number;
+            /** @description pause or defer; defer closes failed logical batches without accepting evidence. */
+            exhausted: string;
+            /** Format: int32 */
+            first_response_timeout_ms: number;
+            /** Format: int32 */
+            idle_timeout_ms: number;
+            /** Format: int32 */
+            max_retries: number;
+            /** Format: int32 */
+            request_timeout_ms: number;
+            retry_unknown: boolean;
+            stream: boolean;
+        };
+        AestheticExecutionSettings: {
+            /** Format: int64 */
+            model_revision: number;
+            policy: components["schemas"]["AestheticExecutionPolicy"];
+            /** Format: int64 */
+            provider_revision: number;
+            /** Format: int64 */
+            revision: number;
+            updated_at: string;
+        };
+        AestheticExecutionUpdate: {
+            /** Format: int64 */
+            expected_revision: number;
+            idempotency_key: string;
+            policy: components["schemas"]["AestheticExecutionPolicy"];
         };
         AestheticExperiment: {
             created_at: string;
@@ -3799,6 +3965,7 @@ export interface components {
         AestheticStage: {
             /** Format: int64 */
             accepted: number;
+            archived: boolean;
             /** Format: int64 */
             attempts: number;
             /** Format: int64 */
@@ -3811,6 +3978,7 @@ export interface components {
             error?: string | null;
             /** Format: int64 */
             excluded: number;
+            execution_settings?: null | components["schemas"]["AestheticExecutionSettings"];
             /** Format: int64 */
             frozen: number;
             id: string;
@@ -3821,6 +3989,7 @@ export interface components {
             name: string;
             /** Format: int64 */
             output_tokens: number;
+            progress: components["schemas"]["AestheticStageProgress"];
             /** Format: int64 */
             protected: number;
             sampling?: null | components["schemas"]["AestheticSamplingStatus"];
@@ -3834,9 +4003,46 @@ export interface components {
             /** Format: int64 */
             usage_unknown: number;
         };
+        AestheticStageMetadata: {
+            archived: boolean;
+            name: string;
+        };
+        AestheticStageProgress: {
+            /** Format: int64 */
+            blocked: number;
+            /** Format: int64 */
+            covered: number;
+            /** Format: int64 */
+            deferred: number;
+            /** Format: int64 */
+            exposed_once: number;
+            /** Format: int64 */
+            failed: number;
+            /** Format: int64 */
+            in_flight: number;
+            /** Format: int64 */
+            preparing: number;
+            /** Format: int64 */
+            queued: number;
+            /** Format: int64 */
+            retry_waiting: number;
+            /** Format: int64 */
+            round_accepted: number;
+            /** Format: int64 */
+            round_planned: number;
+            /** Format: int64 */
+            round_unclaimed: number;
+        };
         AestheticStages: {
             items: components["schemas"]["AestheticStage"][];
             next_cursor?: string | null;
+        };
+        AestheticTransfer: {
+            last_data_at?: string | null;
+            phase: string;
+            /** Format: int64 */
+            received_bytes: number;
+            started_at?: string | null;
         };
         AestheticUnjudgeable: {
             id: string;
@@ -8944,6 +9150,28 @@ export interface operations {
             };
         };
     };
+    aesthetic_latest_snapshot: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": null | components["schemas"]["AestheticAnalysisJob"];
+                };
+            };
+        };
+    };
     aesthetic_backup: {
         parameters: {
             query?: never;
@@ -9080,6 +9308,9 @@ export interface operations {
             query?: {
                 after?: string;
                 limit?: number;
+                archived?: boolean;
+                search?: string;
+                state?: string;
             };
             header?: never;
             path: {
@@ -9146,11 +9377,39 @@ export interface operations {
             };
         };
     };
+    aesthetic_batch_action: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AestheticBatchAction"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AestheticBatchActionResult"];
+                };
+            };
+        };
+    };
     aesthetic_batches: {
         parameters: {
             query?: {
                 after?: string;
                 limit?: number;
+                state?: string;
+                sequence?: number;
             };
             header?: never;
             path: {
@@ -9249,6 +9508,7 @@ export interface operations {
             query?: {
                 after?: string;
                 protected?: boolean;
+                blocked?: boolean;
                 /** @description active, needs_review, rejudge, or excluded; omitted returns all dispositions */
                 disposition?: string;
             };
@@ -9334,6 +9594,58 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["AestheticControl"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AestheticStage"];
+                };
+            };
+        };
+    };
+    aesthetic_configure_execution: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AestheticExecutionUpdate"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AestheticStage"];
+                };
+            };
+        };
+    };
+    aesthetic_stage_metadata: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AestheticStageMetadata"];
             };
         };
         responses: {

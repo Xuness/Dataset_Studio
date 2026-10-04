@@ -1,6 +1,8 @@
 //! Durable aesthetic observations. Scores and ranking estimators are separate projections.
 use crate::{AssetKey, QuerySourceVersion, llm::*};
 use serde::{Deserialize, Serialize};
+mod execution;
+pub use execution::*;
 
 pub const AESTHETIC_VERSION: u32 = 1;
 pub const AESTHETIC_BATCH_SIZE: usize = 16;
@@ -26,6 +28,11 @@ pub struct AestheticCreate {
     pub max_request_mib: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sampling: Option<AestheticSamplingPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution_policy: Option<AestheticExecutionPolicy>,
+    /// Omitted preserves legacy admission. New clients explicitly choose complete or trial.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub budget_mode: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -79,6 +86,12 @@ pub struct AestheticStage {
     pub error: Option<String>,
     #[serde(default)]
     pub sampling: Option<AestheticSamplingStatus>,
+    #[serde(default)]
+    pub archived: bool,
+    #[serde(default)]
+    pub execution_settings: Option<AestheticExecutionSettings>,
+    #[serde(default)]
+    pub progress: AestheticStageProgress,
 }
 
 impl AestheticStage {
@@ -176,6 +189,10 @@ pub struct AestheticCandidate {
     pub disposition: AestheticDisposition,
     #[serde(default)]
     pub disposition_reason: Option<String>,
+    #[serde(default)]
+    pub blocked: bool,
+    #[serde(default)]
+    pub blocking_batch: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
@@ -251,6 +268,8 @@ pub struct AestheticMember {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AestheticBatch {
     pub sequence: u64,
+    #[serde(default)]
+    pub stage_sequence: u64,
     pub stage_id: String,
     pub rating: String,
     pub state: String,
@@ -262,6 +281,20 @@ pub struct AestheticBatch {
     pub replacement_sequences: Vec<u64>,
     #[serde(default)]
     pub sampling: Option<AestheticBatchSampling>,
+    #[serde(default)]
+    pub attempt_count: u32,
+    #[serde(default)]
+    pub retry_at: Option<String>,
+    #[serde(default)]
+    pub recovery_deadline: Option<String>,
+    #[serde(default)]
+    pub resolution_reason: Option<String>,
+    #[serde(default)]
+    pub last_failure: Option<LlmFailure>,
+    #[serde(default)]
+    pub has_raw_receipt: bool,
+    #[serde(default)]
+    pub transfer: Option<AestheticTransfer>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -311,6 +344,8 @@ pub struct AestheticAttempt {
     pub failure: Option<LlmFailure>,
     pub semantic_request_hash: Option<String>,
     pub raw_receipt: Option<AestheticRawSummary>,
+    #[serde(default)]
+    pub execution_settings: Option<AestheticExecutionSettings>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AestheticRawSummary {

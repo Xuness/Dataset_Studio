@@ -2,6 +2,7 @@ use crate::api::AppState;
 use futures::{FutureExt, StreamExt, stream::FuturesUnordered};
 use std::{
     collections::HashMap,
+    path::PathBuf,
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, AtomicU64, Ordering},
@@ -16,11 +17,13 @@ use studio_storage::aesthetic::EvaluationDb;
 use tokio::sync::Semaphore;
 pub mod analysis;
 mod creation;
+mod execution;
 mod health;
 mod media;
 mod receipts;
 mod sampling;
 pub use creation::{create, preflight};
+pub use execution::{check_execution, configure_execution};
 pub use receipts::reparse_batch;
 
 fn request_reservation_kib(stage: &AestheticStage, batch: &AestheticBatch) -> Result<u32> {
@@ -50,6 +53,7 @@ const UPLOAD_BYTES_PER_SECOND: u64 = 3_500_000;
 struct Control {
     cancel: LlmCancellation,
     reads: Arc<AtomicBool>,
+    stop_dispatch: Arc<AtomicBool>,
 }
 pub struct Runner {
     active: Mutex<HashMap<(String, String), Control>>,
@@ -62,6 +66,7 @@ pub struct Runner {
     peak: AtomicU64,
     uploaded: AtomicU64,
     gate: health::DispatchGate,
+    transfers: Mutex<HashMap<(String, String, u64), AestheticTransfer>>,
 }
 impl Default for Runner {
     fn default() -> Self {
@@ -76,6 +81,7 @@ impl Default for Runner {
             peak: AtomicU64::new(0),
             uploaded: AtomicU64::new(0),
             gate: Default::default(),
+            transfers: Default::default(),
         }
     }
 }
@@ -83,6 +89,13 @@ async fn work<T: Send + 'static>(f: impl FnOnce() -> Result<T> + Send + 'static)
     tokio::task::spawn_blocking(f).await.map_err(Error::io)?
 }
 impl Runner {
+    pub fn transfer(&self, pid: &str, stage: &str, sequence: u64) -> Option<AestheticTransfer> {
+        self.transfers
+            .lock()
+            .ok()?
+            .get(&(pid.into(), stage.into(), sequence))
+            .cloned()
+    }
     pub fn metrics(&self, pid: &str, directory: &std::path::Path) -> Result<AestheticMetrics> {
         let volume = health::storage_volume(directory)?;
         let (dispatch_health, storage_error_code, retained_outcomes) =
@@ -107,7 +120,16 @@ impl Runner {
             && let Some(control) = active.get(&(pid.into(), id.into()))
         {
             control.reads.store(true, Ordering::Release);
+            control.stop_dispatch.store(true, Ordering::Release);
             control.cancel.cancel();
+        }
+    }
+    pub fn pause(&self, pid: &str, id: &str) {
+        if let Ok(active) = self.active.lock()
+            && let Some(control) = active.get(&(pid.into(), id.into()))
+        {
+            control.stop_dispatch.store(true, Ordering::Release);
+            control.reads.store(true, Ordering::Release);
         }
     }
     pub fn shutdown(&self) {
@@ -115,6 +137,7 @@ impl Runner {
         if let Ok(active) = self.active.lock() {
             for control in active.values() {
                 control.reads.store(true, Ordering::Release);
+                control.stop_dispatch.store(true, Ordering::Release);
                 control.cancel.cancel();
             }
         }
@@ -127,6 +150,7 @@ impl Runner {
         let control = Control {
             cancel: Default::default(),
             reads: Arc::new(AtomicBool::new(false)),
+            stop_dispatch: Arc::new(AtomicBool::new(false)),
         };
         {
             let mut active = self
@@ -259,6 +283,7 @@ impl Runner {
         let mut failure: Option<Error> = None;
         loop {
             if failure.is_some() {
+                control.stop_dispatch.store(true, Ordering::Release);
                 if let Some(error) = &failure
                     && error.code != "IO_ERROR"
                     && health::storage_failure(error)
@@ -289,7 +314,11 @@ impl Runner {
                 continue;
             }
             let can_start = stage.state == "running" && failure.is_none();
-            if can_start && running.len() < stage.config.request.concurrency as usize {
+            let concurrency = stage
+                .execution_settings
+                .as_ref()
+                .map_or(stage.config.request.concurrency, |s| s.policy.concurrency);
+            if can_start && running.len() < concurrency as usize {
                 let ledger = db.clone();
                 let sid = id.clone();
                 let claim = match work(move || ledger.claim(&sid)).await {
@@ -311,6 +340,16 @@ impl Runner {
                     continue;
                 }
             }
+            if can_start && running.is_empty() && stage.attempts < stage.call_limit() {
+                let ledger = db.clone();
+                let sid = id.clone();
+                if let Some(due) = work(move || ledger.next_retry_at(&sid)).await? {
+                    let now = studio_storage::now().parse::<u64>().unwrap_or(0);
+                    let delay = Duration::from_millis(due.saturating_sub(now).clamp(50, 2000));
+                    tokio::select! {_=tokio::time::sleep(delay)=>{},_=control.cancel.cancelled()=>break}
+                    continue;
+                }
+            }
             if can_start && running.is_empty() && stage.sampling.is_some() {
                 match self
                     .plan_round(db.clone(), id.clone(), control.clone())
@@ -328,7 +367,9 @@ impl Runner {
             let Some(result) = running.next().await else {
                 break;
             };
-            if let Err(error) = result {
+            if let Err(error) = result
+                && error.code != "EVALUATION_BATCH"
+            {
                 failure = Some(error);
             }
         }
@@ -374,6 +415,10 @@ impl Runner {
         };
         let sid = stage.id.clone();
         let sequence = batch.sequence;
+        let _transfer = TransferGuard {
+            runner: self.clone(),
+            key: (pid.clone(), sid.clone(), sequence),
+        };
         let ledger = db.clone();
         let id = sid.clone();
         if work(move || ledger.stage(&id)).await?.state != "running" || self.gate.is_shutdown() {
@@ -399,26 +444,16 @@ impl Runner {
                     copy.store.evaluation(&media_pid)?.regroup(&config.id,batch.sequence,vec![batch.members[..middle].to_vec(),batch.members[middle..].to_vec()],vec![],"input_byte_limit")?;
                     return Ok(None);
                 }
-                let mut plan = copy.llm.prepare(LlmInvocationRequest {
-                    invocation_id: studio_domain::new_id(),
-                    model_id: config.config.model.model_id.clone(),
-                    expected_model_revision: Some(config.config.model.model_revision),
-                    expected_provider_revision: Some(config.config.model.provider_revision),
-                    preset_id: None,
-                    expected_preset_revision: None,
-                    system_prompt_id: None,
-                    expected_system_prompt_revision: None,
-                    overrides: config.config.model.parameters.clone(),
-                    messages,
-                    tools: vec![],
-                })?;
+                let mut plan = execution::prepare(&copy,&config,messages,studio_domain::new_id(),false)?;
                 // One ledger attempt is one network attempt; explicit 429 retries are visible here.
                 plan.provider.config.network.rate_limit_retries = 0;
                 use sha2::{Digest, Sha256};
-                let body = serde_json::to_vec(&copy.llm.preview(&plan)?).map_err(Error::io)?;
+                let options=config.execution_settings.as_ref().map(|s|studio_application::aesthetic::recorded_options(&s.policy));
+                let preview=match &options {Some(options)=>copy.llm.preview_recorded(&plan,options)?,None=>copy.llm.preview(&plan)?};
+                let body = serde_json::to_vec(&preview).map_err(Error::io)?;
                 let size = body.len() as u64;
                 let semantic_hash = hex::encode(Sha256::digest(serde_json::to_vec(&serde_json::json!({
-                    "version": 1, "config_hash": config.config_hash, "batch": batch.sequence,
+                    "version": 2, "config_hash": config.config_hash, "execution": config.execution_settings, "batch": batch.sequence,
                     "members": batch.members, "native_body_sha256": hex::encode(Sha256::digest(&body)),
                 })).map_err(Error::io)?));
                 if size > config.config.max_request_bytes {
@@ -434,12 +469,21 @@ impl Runner {
         let (plan, members, size, semantic_hash) = match prepared {
             Ok(Some(value)) => value,
             Ok(None) => return Ok(()),
+            // Pausing may interrupt image reads before the send commitment. Leave the
+            // batch preparing so settlement returns it to the queue without locking images.
+            Err(error) if error.code == "CANCELLED" => return Ok(()),
             Err(error) => {
                 let ledger = db.clone();
                 let id = sid.clone();
                 let message = error.to_string();
                 work(move || ledger.preparation_failed(&id, sequence, message)).await?;
-                return Err(error);
+                return Err(
+                    if matches!(error.code, "SOURCE_CHANGED" | "INVALID_INPUT" | "IO_ERROR") {
+                        Error::new("EVALUATION_BATCH", message_for_batch(&error))
+                    } else {
+                        error
+                    },
+                );
             }
         };
         // Pace request admission by serialized bytes. This is not a TCP traffic shaper.
@@ -452,25 +496,6 @@ impl Runner {
         };
         tokio::select! {_=tokio::time::sleep(wait)=>{},_=control.cancel.cancelled()=>return Err(Error::new("CANCELLED","上传等待已取消"))}
         let attempt = plan.snapshot.invocation_id.clone();
-        let ledger = db.clone();
-        let id = sid.clone();
-        let aid = attempt.clone();
-        let runner = self.clone();
-        let dispatch_pid = pid.clone();
-        let dispatch_volume = volume.clone();
-        let dispatch_directory = state.store.directory(&pid)?;
-        if !work(move || {
-            studio_storage::faults::check("dispatch_after_upload", &id)?;
-            runner.gate.commit(&dispatch_pid, &dispatch_volume, || {
-                creation::check_storage(&dispatch_directory)?;
-                ledger.begin_attempt(&id, sequence, members, aid, semantic_hash)
-            })
-        })
-        .await?
-        {
-            return Ok(());
-        }
-        self.uploaded.fetch_add(size, Ordering::Relaxed);
         let sink = Arc::new(ReceiptSink {
             runner: self.clone(),
             db: db.clone(),
@@ -478,12 +503,30 @@ impl Runner {
             volume: volume.clone(),
             stage: sid.clone(),
             attempt: attempt.clone(),
+            sequence,
+            members,
+            semantic_hash,
+            size,
+            directory: state.store.directory(&pid)?,
+            stop_dispatch: control.stop_dispatch.clone(),
         });
-        match state
-            .llm
-            .generate_recorded(plan, control.cancel.clone(), sink)
-            .await
-        {
+        let response = if let Some(settings) = &stage.execution_settings {
+            state
+                .llm
+                .generate_recorded_with_options(
+                    plan,
+                    control.cancel.clone(),
+                    sink,
+                    studio_application::aesthetic::recorded_options(&settings.policy),
+                )
+                .await
+        } else {
+            state
+                .llm
+                .generate_recorded(plan, control.cancel.clone(), sink)
+                .await
+        };
+        match response {
             Ok(response) => {
                 self.persist_outcome(
                     &db,
@@ -498,27 +541,91 @@ impl Runner {
                 let id = sid.clone();
                 work(move || ledger.parse_received(&id)).await?;
                 let ledger = db.clone();
-                let id = sid;
-                let stage = work(move || ledger.stage(&id)).await?;
-                if stage.invalid > 0 {
-                    return Err(Error::invalid(
-                        "存在无效评审；请检查批次原始返回后决定是否重试",
+                let id = sid.clone();
+                let result = work(move || {
+                    ledger.filtered_batches(
+                        &id,
+                        sequence.saturating_sub(1),
+                        1,
+                        None,
+                        Some(sequence),
+                    )
+                })
+                .await?;
+                if result.first().is_some_and(|b| b.state == "invalid") {
+                    return Err(Error::new(
+                        "EVALUATION_BATCH",
+                        "此批返回未通过格式校验，请查看或本地重解析",
                     ));
                 }
                 Ok(())
             }
             Err(failure) => {
-                let error = Error::new("EVALUATION_REMOTE", failure.message.clone());
+                let ledger = db.clone();
+                let id = sid.clone();
+                let aid = attempt.clone();
+                let sent = work(move || ledger.attempt_exists(&id, &aid)).await?;
+                if failure.code == "LLM_NOT_DISPATCHED" {
+                    if sent {
+                        self.persist_outcome(
+                            &db,
+                            &pid,
+                            &volume,
+                            &sid,
+                            &attempt,
+                            Outcome::Failure(failure),
+                        )
+                        .await?;
+                    }
+                    return Ok(());
+                }
+                if !sent {
+                    // Unsent admission failures retain their queued batch. Requiring a paid
+                    // retry here would turn a recoverable storage pause into a candidate lock.
+                    let local_code = match failure.code.as_str() {
+                        "EVALUATION_STORAGE_UNHEALTHY" => Some("EVALUATION_STORAGE_UNHEALTHY"),
+                        "EVALUATION_STORAGE_FULL" => Some("EVALUATION_STORAGE_FULL"),
+                        "EVALUATION_STORAGE_IO" => Some("EVALUATION_STORAGE_IO"),
+                        "EVALUATION_CORRUPT" => Some("EVALUATION_CORRUPT"),
+                        "EVALUATION_WRITER_EXITED" => Some("EVALUATION_WRITER_EXITED"),
+                        "EVALUATION_BUSY" => Some("EVALUATION_BUSY"),
+                        "DATABASE_ERROR" => Some("DATABASE_ERROR"),
+                        "IO_ERROR" => Some("IO_ERROR"),
+                        "LLM_QUEUE_FULL" => Some("LLM_QUEUE_FULL"),
+                        "CANCELLED" => Some("CANCELLED"),
+                        _ => None,
+                    };
+                    if let Some(code) = local_code {
+                        return Err(Error::new(code, failure.message));
+                    }
+                    let ledger = db.clone();
+                    let id = sid.clone();
+                    let message = format!("{}: {}", failure.code, failure.message);
+                    work(move || ledger.preparation_failed(&id, sequence, message)).await?;
+                    return Err(Error::new(
+                        "EVALUATION_REMOTE",
+                        format!("{}: {}", failure.code, failure.message),
+                    ));
+                }
                 self.persist_outcome(
                     &db,
                     &pid,
                     &volume,
                     &sid,
                     &attempt,
-                    Outcome::Failure(failure),
+                    Outcome::Failure(failure.clone()),
                 )
                 .await?;
-                Err(error)
+                let ledger = db.clone();
+                let id = sid;
+                let message = format!("{}: {}", failure.code, failure.message);
+                let recovery =
+                    work(move || ledger.schedule_recovery(&id, sequence, failure)).await?;
+                if recovery == "halt" {
+                    Err(Error::new("EVALUATION_REMOTE", message))
+                } else {
+                    Ok(())
+                }
             }
         }
     }
@@ -602,8 +709,77 @@ struct ReceiptSink {
     volume: String,
     stage: String,
     attempt: String,
+    sequence: u64,
+    members: Vec<AestheticMember>,
+    semantic_hash: String,
+    size: u64,
+    directory: PathBuf,
+    stop_dispatch: Arc<AtomicBool>,
 }
 impl studio_application::llm::LlmReceiptSink for ReceiptSink {
+    fn dispatch_cancelled(&self) -> bool {
+        self.stop_dispatch.load(Ordering::Acquire)
+    }
+    fn before_send(&self) -> futures::future::BoxFuture<'_, Result<LlmDispatchDecision>> {
+        async move {
+            if self.dispatch_cancelled() {
+                return Ok(LlmDispatchDecision {
+                    defer: true,
+                    recovery_deadline_ms: None,
+                });
+            }
+            let db = self.db.clone();
+            let id = self.stage.clone();
+            let sequence = self.sequence;
+            let members = self.members.clone();
+            let attempt = self.attempt.clone();
+            let hash = self.semantic_hash.clone();
+            let runner = self.runner.clone();
+            let pid = self.pid.clone();
+            let volume = self.volume.clone();
+            let directory = self.directory.clone();
+            let decision = work(move || {
+                studio_storage::faults::check("dispatch_after_upload", &id)?;
+                let sent = runner.gate.commit(&pid, &volume, || {
+                    creation::check_storage(&directory)?;
+                    db.begin_attempt(&id, sequence, members, attempt, hash)
+                })?;
+                Ok(LlmDispatchDecision {
+                    defer: !sent,
+                    recovery_deadline_ms: if sent {
+                        db.batch_deadline(&id, sequence)?
+                    } else {
+                        None
+                    },
+                })
+            })
+            .await?;
+            if !decision.defer {
+                self.runner.uploaded.fetch_add(self.size, Ordering::Relaxed);
+            }
+            Ok(decision)
+        }
+        .boxed()
+    }
+    fn progress(&self, p: LlmTransferProgress) {
+        if let Ok(mut values) = self.runner.transfers.lock() {
+            let value = values
+                .entry((self.pid.clone(), self.stage.clone(), self.sequence))
+                .or_insert(AestheticTransfer {
+                    phase: p.phase.into(),
+                    started_at: None,
+                    last_data_at: None,
+                    received_bytes: 0,
+                });
+            value.phase = p.phase.into();
+            value.started_at = p.started_at_ms.map(|v| v.to_string());
+            if let Some(last) = p.last_data_at_ms {
+                value.last_data_at = Some(last.to_string());
+            }
+            value.received_bytes = p.received_bytes;
+        }
+    }
+
     fn persist(&self, receipt: LlmRawReceipt) -> futures::future::BoxFuture<'_, Result<()>> {
         async move {
             self.runner
@@ -634,5 +810,20 @@ impl Drop for Admission {
             .reserved
             .fetch_sub(u64::from(self.request_kib) * 1024, Ordering::Relaxed);
         self.runner.active_requests.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
+fn message_for_batch(error: &Error) -> String {
+    format!("{}: {}", error.code, error.message)
+}
+struct TransferGuard {
+    runner: Arc<Runner>,
+    key: (String, String, u64),
+}
+impl Drop for TransferGuard {
+    fn drop(&mut self) {
+        if let Ok(mut transfers) = self.runner.transfers.lock() {
+            transfers.remove(&self.key);
+        }
     }
 }

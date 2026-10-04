@@ -154,6 +154,12 @@ try {
     .selectOption(stage.config.request.system_prompt_id);
   await page.getByLabel("采样方式", { exact: true }).selectOption("refine");
   await page.getByLabel("调用次数上限", { exact: true }).fill("3");
+  await page
+    .getByRole("checkbox", {
+      name: "小预算试跑：允许预算低于最低曝光下界",
+      exact: true,
+    })
+    .check();
   await page.getByRole("button", { name: "预检输入", exact: true }).click();
   await expect(page.getByLabel("输入预检结果")).toContainText(
     "基础容量预检通过",
@@ -170,6 +176,7 @@ try {
   ).items.find((s) => s.name === uiStageName);
   assert.equal(created.attempts, 0);
   assert.equal(created.config.request.max_calls, 3);
+  assert.equal(created.config.request.budget_mode, "trial");
   assert.equal(created.config.request.sampling.mode, "refine");
   assert.equal(created.sampling.version, "neighbor_budget_v2");
   await page.getByRole("button", { name: "资料浏览", exact: true }).click();

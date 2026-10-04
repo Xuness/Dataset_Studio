@@ -54,3 +54,9 @@ export function analysisState(value: string) {
 export function analysisActive(value: string) {
   return !["completed", "cancelled", "interrupted", "failed"].includes(value);
 }
+
+export function aestheticTime(value: string | null | undefined): string {
+  if (!value) return "—";
+  const time = new Date(/^\d+$/.test(value) ? Number(value) : value);
+  return Number.isFinite(time.getTime()) ? time.toLocaleString() : "时间未知";
+}

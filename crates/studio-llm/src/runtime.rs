@@ -16,9 +16,10 @@ use studio_application::llm::*;
 use studio_domain::{Result, llm::*};
 
 pub struct RemoteLlm {
-    credentials: Arc<dyn LlmCredentials>,
+    pub(crate) credentials: Arc<dyn LlmCredentials>,
     pub(crate) limits: Limits,
     clients: Mutex<HashMap<(String, u64), reqwest::Client>>,
+    pub(crate) recorded_clients: Mutex<HashMap<(String, u64, u32), reqwest::Client>>,
 }
 impl RemoteLlm {
     pub fn new(credentials: Arc<dyn LlmCredentials>) -> Self {
@@ -26,6 +27,7 @@ impl RemoteLlm {
             credentials,
             limits: Limits::default(),
             clients: Mutex::new(HashMap::new()),
+            recorded_clients: Mutex::new(HashMap::new()),
         }
     }
     pub(crate) async fn client(&self, provider: &LlmProvider) -> LlmCallResult<reqwest::Client> {
@@ -140,6 +142,22 @@ impl RemoteLlm {
     }
 }
 impl LlmBackend for RemoteLlm {
+    fn preview_recorded(
+        &self,
+        plan: &LlmInvocationPlan,
+        options: &LlmRecordedOptions,
+    ) -> Result<Value> {
+        crate::recorded::encode(plan, options)
+    }
+    fn generate_recorded_with_options(
+        &self,
+        plan: LlmInvocationPlan,
+        cancel: LlmCancellation,
+        sink: Arc<dyn LlmReceiptSink>,
+        options: LlmRecordedOptions,
+    ) -> BoxFuture<'_, LlmCallResult<LlmResponse>> {
+        self.recorded_with_options(plan, cancel, sink, options)
+    }
     fn generate_recorded(
         &self,
         plan: LlmInvocationPlan,

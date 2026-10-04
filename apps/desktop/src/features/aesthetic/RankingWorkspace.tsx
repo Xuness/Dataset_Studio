@@ -51,11 +51,15 @@ export function RankingWorkspace({
   protectedOnly,
   onEvaluation,
   toolbarStart,
+  initialFitStageId,
+  initialJobId,
 }: {
   context: ModuleContext;
   protectedOnly: boolean;
   onEvaluation: (stageId?: string) => void;
   toolbarStart: ReactNode;
+  initialFitStageId?: string | undefined;
+  initialJobId?: string | undefined;
 }) {
   const { client, projectId } = context;
   const cache = useQueryClient();
@@ -70,9 +74,9 @@ export function RankingWorkspace({
   const layout = useWorkbenchLayout(client, "aesthetic-ranking", initialLayout);
   const [jobsAfter, setJobsAfter] = useState<string>();
   const [dialog, setDialog] = useState<"fit" | "derive" | "prompt" | null>(
-    null,
+    initialFitStageId ? "fit" : null,
   );
-  const [activeJobId, setActiveJobId] = useState("");
+  const [activeJobId, setActiveJobId] = useState(initialJobId ?? "");
   const [notice, setNotice] = useState("");
   const [actionError, setActionError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
@@ -117,9 +121,22 @@ export function RankingWorkspace({
     ) ?? [];
   const firstId = snapshots[0]?.id;
   useEffect(() => {
-    if (draft.editable && !saved.snapshotId && firstId)
+    if (
+      draft.editable &&
+      !saved.snapshotId &&
+      firstId &&
+      !initialFitStageId &&
+      !initialJobId
+    )
       draft.controller.set((value) => ({ ...value, snapshotId: firstId }));
-  }, [draft.editable, draft.controller, saved.snapshotId, firstId]);
+  }, [
+    draft.editable,
+    draft.controller,
+    saved.snapshotId,
+    firstId,
+    initialFitStageId,
+    initialJobId,
+  ]);
   const snapshot = useQuery({
     queryKey: ["project", projectId, "aesthetic", "snapshot", saved.snapshotId],
     queryFn: ({ signal }) =>
@@ -276,6 +293,13 @@ export function RankingWorkspace({
     queryFn: ({ signal }) =>
       client.aesthetic.stage(projectId, stageId!, signal),
     enabled: !!stageId,
+    refetchInterval: (query) =>
+      query.state.data &&
+      ["running", "preparing", "pausing", "cancelling"].includes(
+        query.state.data.state,
+      )
+        ? 2000
+        : false,
   });
   const activeJob = useQuery({
     queryKey: [
@@ -311,8 +335,12 @@ export function RankingWorkspace({
     const job = activeJob.data;
     if (job?.state !== "completed") return;
     if (job.result?.kind === "fit") {
+      const groups = job.result.groups;
       draft.controller.set((value) => ({
         ...value,
+        rating: groups.some((g) => g.rating === value.rating && g.compared > 0)
+          ? value.rating
+          : (groups.find((g) => g.compared > 0)?.rating ?? value.rating),
         snapshotId: job.id,
         after: "",
         past: [],
@@ -544,6 +572,7 @@ export function RankingWorkspace({
               disabled={reviewBusy}
               onClick={() => {
                 void jobs.refetch();
+                if (stageId) void stage.refetch();
                 void cache.invalidateQueries({
                   queryKey: [
                     "project",
@@ -662,6 +691,21 @@ export function RankingWorkspace({
             </button>
           </div>
         )}
+        {snapshot.data &&
+          stage.data &&
+          stage.data.accepted > snapshot.data.input.observations && (
+            <div className="aesthetic-notice" role="status">
+              此快照包含 {snapshot.data.input.observations} 批证据，当前阶段另有{" "}
+              {stage.data.accepted - snapshot.data.input.observations}{" "}
+              批新证据尚未纳入。
+              <button
+                disabled={busy || reviewBusy}
+                onClick={() => setDialog("fit")}
+              >
+                生成更新后的快照
+              </button>
+            </div>
+          )}
         <div className="ranking-view-tools">
           <label>
             Rating
@@ -800,6 +844,7 @@ export function RankingWorkspace({
       {dialog === "fit" && (
         <FitDialog
           context={context}
+          initialStageId={stageId ?? initialFitStageId}
           onClose={() => setDialog(null)}
           onCreated={created}
         />

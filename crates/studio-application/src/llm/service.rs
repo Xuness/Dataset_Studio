@@ -8,6 +8,23 @@ pub struct LlmService {
     credentials: Arc<dyn LlmCredentials>,
 }
 impl LlmService {
+    pub fn preview_recorded(
+        &self,
+        plan: &LlmInvocationPlan,
+        options: &LlmRecordedOptions,
+    ) -> Result<serde_json::Value> {
+        self.backend.preview_recorded(plan, options)
+    }
+    pub fn generate_recorded_with_options(
+        &self,
+        plan: LlmInvocationPlan,
+        cancel: LlmCancellation,
+        sink: Arc<dyn LlmReceiptSink>,
+        options: LlmRecordedOptions,
+    ) -> futures::future::BoxFuture<'_, LlmCallResult<LlmResponse>> {
+        self.backend
+            .generate_recorded_with_options(plan, cancel, sink, options)
+    }
     pub fn generate_recorded(
         &self,
         plan: LlmInvocationPlan,

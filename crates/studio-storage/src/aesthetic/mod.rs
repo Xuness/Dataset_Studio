@@ -12,8 +12,10 @@ mod creation;
 mod decisions;
 mod dispatch;
 mod evidence;
+mod management;
 mod project;
 mod receipts;
+mod recovery_policy;
 mod regroup;
 mod sampling;
 mod writer;
@@ -99,6 +101,10 @@ impl EvaluationDb {
                 db.execute("INSERT INTO stages(id,name,state,created_at,config,config_hash,request_json,total) VALUES (?1,?2,'preparing',?3,?4,?5,?6,?7)",
                     params![id,config.request.name,now(),json,hash(&json),request,total as i64]).map_err(db_error)?;
                 sampling::initialize(db, &config, total)?;
+                if let Some(policy)=&config.request.execution_policy {
+                    let settings=AestheticExecutionSettings{revision:1,updated_at:now(),provider_revision:config.model.provider_revision,model_revision:config.model.model_revision,policy:policy.clone()};
+                    db.execute("UPDATE stages SET execution_settings=?2 WHERE id=?1",params![id,encode(&settings)?]).map_err(db_error)?;
+                }
             }
             read_stage(db, &id)
         })
@@ -162,7 +168,7 @@ impl EvaluationDb {
             let s = read_stage(db, &id)?;
             let next = studio_application::aesthetic::control_state(&s, &action)?;
             db.execute(
-                "UPDATE stages SET state=?2,error=NULL WHERE id=?1",
+                "UPDATE stages SET state=?2,error=NULL,failure_streak=CASE WHEN ?2='running' THEN 0 ELSE failure_streak END WHERE id=?1",
                 params![id, next],
             )
             .map_err(db_error)?;
@@ -178,7 +184,7 @@ impl EvaluationDb {
             db.execute("UPDATE batches SET state='outcome_unknown',error='执行中断，上游结果尚未确认' WHERE stage_id=?1 AND state='sent'",[&id]).map_err(db_error)?;
             db.execute("UPDATE stages SET unknown=(SELECT count(*) FROM batches WHERE stage_id=?1 AND state='outcome_unknown') WHERE id=?1",[&id]).map_err(db_error)?;
             let s = read_stage(db,&id)?;
-            let pending: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM batches WHERE stage_id=?1 AND state NOT IN ('accepted','superseded'))",[&id],|r|r.get(0)).map_err(db_error)?;
+            let pending: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM batches WHERE stage_id=?1 AND state NOT IN ('accepted','superseded','deferred'))",[&id],|r|r.get(0)).map_err(db_error)?;
             let next = studio_application::aesthetic::settled_state(&s, pending, error.is_some());
             db.execute("UPDATE stages SET state=?2,error=COALESCE(?3,error) WHERE id=?1",params![id,next,error]).map_err(db_error)?;
             read_stage(db,&id)
@@ -223,9 +229,19 @@ fn read_stage(db: &Connection, id: &str) -> Result<AestheticStage> {
     let mut stage = db.query_row("SELECT id,name,state,created_at,config,config_hash,total,frozen,eligible,attempts,accepted,invalid,unknown,protected,input_tokens,output_tokens,usage_unknown,error,comparable,excluded,unresolved FROM stages WHERE id=?1",[id],|r| {
         let config: String = r.get(4)?;
         let config = serde_json::from_str(&config).map_err(|e| rusqlite::Error::FromSqlConversionFailure(4,rusqlite::types::Type::Text,Box::new(e)))?;
-        Ok(AestheticStage { id:r.get(0)?,name:r.get(1)?,state:r.get(2)?,created_at:r.get(3)?,config,config_hash:r.get(5)?,total:crate::unsigned(r,6)?,frozen:crate::unsigned(r,7)?,eligible:crate::unsigned(r,8)?,attempts:crate::unsigned(r,9)?,accepted:crate::unsigned(r,10)?,invalid:crate::unsigned(r,11)?,unknown:crate::unsigned(r,12)?,protected:crate::unsigned(r,13)?,input_tokens:crate::unsigned(r,14)?,output_tokens:crate::unsigned(r,15)?,usage_unknown:crate::unsigned(r,16)?,error:r.get(17)?,comparable:crate::unsigned(r,18)?,excluded:crate::unsigned(r,19)?,unresolved:crate::unsigned(r,20)?, sampling:None })
+        Ok(AestheticStage { id:r.get(0)?,name:r.get(1)?,state:r.get(2)?,created_at:r.get(3)?,config,config_hash:r.get(5)?,total:crate::unsigned(r,6)?,frozen:crate::unsigned(r,7)?,eligible:crate::unsigned(r,8)?,attempts:crate::unsigned(r,9)?,accepted:crate::unsigned(r,10)?,invalid:crate::unsigned(r,11)?,unknown:crate::unsigned(r,12)?,protected:crate::unsigned(r,13)?,input_tokens:crate::unsigned(r,14)?,output_tokens:crate::unsigned(r,15)?,usage_unknown:crate::unsigned(r,16)?,error:r.get(17)?,comparable:crate::unsigned(r,18)?,excluded:crate::unsigned(r,19)?,unresolved:crate::unsigned(r,20)?, sampling:None,archived:false,execution_settings:None,progress:Default::default() })
     }).optional().map_err(db_error)?.ok_or_else(|| Error::new("NOT_FOUND","评审阶段不存在"))?;
     stage.sampling = sampling::status(db, id)?;
+    let (archived, settings): (bool, Option<String>) = db
+        .query_row(
+            "SELECT archived,execution_settings FROM stages WHERE id=?1",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .map_err(db_error)?;
+    stage.archived = archived;
+    stage.execution_settings = settings.map(decode).transpose()?;
+    stage.progress = management::progress(db, &stage)?;
     Ok(stage)
 }
 fn candidates(
@@ -233,7 +249,7 @@ fn candidates(
     tail: &str,
     parameters: impl rusqlite::Params,
 ) -> Result<Vec<AestheticCandidate>> {
-    let mut statement = db.prepare(&format!("SELECT ordinal,source_id,asset_id,rating,year,basis,content_version,bytes,exposures,protected,disposition,disposition_reason FROM candidates {tail}")).map_err(db_error)?;
+    let mut statement = db.prepare(&format!("SELECT ordinal,source_id,asset_id,rating,year,basis,content_version,bytes,exposures,protected,disposition,disposition_reason,blocked,blocked_batch FROM candidates {tail}")).map_err(db_error)?;
     statement
         .query_map(parameters, |r| {
             Ok(AestheticCandidate {
@@ -258,6 +274,8 @@ fn candidates(
                         )
                     })?,
                 disposition_reason: r.get(11)?,
+                blocked: r.get(12)?,
+                blocking_batch: r.get::<_, Option<i64>>(13)?.map(|v| v as u64),
             })
         })
         .map_err(db_error)?
@@ -275,6 +293,58 @@ fn read_batch(db: &Connection, id: &str, sequence: u64) -> Result<AestheticBatch
         .map_err(db_error)?;
     Ok(AestheticBatch {
         sequence,
+        resolution_reason: db
+            .query_row(
+                "SELECT disposition_reason FROM batches WHERE sequence=?1",
+                [sequence as i64],
+                |r| r.get(0),
+            )
+            .map_err(db_error)?,
+        stage_sequence: db
+            .query_row(
+                "SELECT stage_sequence FROM batches WHERE sequence=?1",
+                [sequence as i64],
+                |r| crate::unsigned(r, 0),
+            )
+            .map_err(db_error)?,
+        attempt_count: db
+            .query_row(
+                "SELECT COUNT(*) FROM attempts WHERE batch=?1",
+                [sequence as i64],
+                |r| r.get(0),
+            )
+            .map_err(db_error)?,
+        retry_at: db
+            .query_row(
+                "SELECT CAST(retry_at AS TEXT) FROM batches WHERE sequence=?1",
+                [sequence as i64],
+                |r| r.get(0),
+            )
+            .map_err(db_error)?,
+        recovery_deadline: db
+            .query_row(
+                "SELECT CAST(recovery_deadline AS TEXT) FROM batches WHERE sequence=?1",
+                [sequence as i64],
+                |r| r.get(0),
+            )
+            .map_err(db_error)?,
+        last_failure: db
+            .query_row("SELECT failure FROM attempts WHERE id=?1", [&row.3], |r| {
+                r.get::<_, Option<String>>(0)
+            })
+            .optional()
+            .map_err(db_error)?
+            .flatten()
+            .map(decode)
+            .transpose()?,
+        has_raw_receipt: db
+            .query_row(
+                "SELECT EXISTS(SELECT 1 FROM raw_receipts WHERE attempt_id=?1)",
+                [&row.3],
+                |r| r.get(0),
+            )
+            .map_err(db_error)?,
+        transfer: None,
         sampling: sampling_json.map(decode).transpose()?,
         parent_sequence: db
             .query_row(

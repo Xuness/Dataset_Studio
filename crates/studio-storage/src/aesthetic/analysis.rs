@@ -81,6 +81,12 @@ pub(super) fn ranking_page_sql(rating: bool) -> &'static str {
     }
 }
 impl EvaluationDb {
+    pub fn latest_stage_snapshot(&self, stage: &str) -> Result<Option<AestheticAnalysisJob>> {
+        let db = self.read()?;
+        read_stage(&db, stage)?;
+        let id:Option<String>=db.query_row("SELECT id FROM analysis_jobs WHERE json_extract(input_json,'$.stage_id')=?1 AND state='completed' AND json_extract(request_json,'$.spec.kind')='fit' ORDER BY created_at DESC,id DESC LIMIT 1",[stage],|r|r.get(0)).optional().map_err(db_error)?;
+        id.map(|id| job(&db, &id)).transpose()
+    }
     pub fn review_watermark(&self) -> Result<u64> {
         self.read()?
             .query_row("SELECT COALESCE(MAX(sequence),0) FROM reviews", [], |r| {
@@ -114,10 +120,10 @@ impl EvaluationDb {
                     }
                 }
                 AestheticAnalysisSpec::Compare{left,right}=>{ready(db,right)?;ready(db,left)?.input}
-                AestheticAnalysisSpec::Derive{snapshot_id,..}=>ready(db,snapshot_id)?.input,
+                AestheticAnalysisSpec::Derive{snapshot_id,..}|AestheticAnalysisSpec::Preview{snapshot_id,..}=>ready(db,snapshot_id)?.input,
             };
             input.review_watermark=db.query_row("SELECT COALESCE(MAX(sequence),0) FROM reviews",[],|r|crate::unsigned(r,0)).map_err(db_error)?;
-            if let AestheticAnalysisSpec::Derive{review_watermark:Some(watermark),..}=&request.spec {
+            if let AestheticAnalysisSpec::Derive{review_watermark:Some(watermark),..}|AestheticAnalysisSpec::Preview{review_watermark:Some(watermark),..}=&request.spec {
                 if *watermark>input.review_watermark{return Err(Error::invalid("复核水位不存在"));}
                 input.review_watermark = *watermark;
             }

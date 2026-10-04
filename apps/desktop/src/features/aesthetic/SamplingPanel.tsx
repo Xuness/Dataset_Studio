@@ -59,7 +59,7 @@ export function SamplingPanel({
   ].includes(stage.state);
   return (
     <details className="wb-fold" open>
-      <summary>覆盖与动态曝光</summary>
+      <summary>最近完成的采样诊断</summary>
       {s ? (
         <>
           <dl className="wb-property-list">
@@ -86,7 +86,7 @@ export function SamplingPanel({
             </dd>
             {s.round > 0 && (
               <>
-                <dt>基础覆盖</dt>
+                <dt>检查点基础覆盖</dt>
                 <dd>
                   {s.covered} / {s.eligible}
                 </dd>
@@ -96,7 +96,7 @@ export function SamplingPanel({
                     ? "调用预算或曝光上限"
                     : `${s.stable} / ${s.eligible}`}
                 </dd>
-                <dt>比较分量</dt>
+                <dt>检查点比较分量</dt>
                 <dd>{s.components}（各 Rating 独立）</dd>
                 <dt>
                   {s.policy.mode === "refine" ? "精度未确认" : "尚需评估"}
@@ -116,7 +116,7 @@ export function SamplingPanel({
             </dd>
           </dl>
           <p className="aesthetic-help">
-            诊断在整轮结束后更新。
+            以下为规划本轮时的检查点，证据水位之后的新结果尚未计入。当前执行进度见阶段顶部。
             {s.policy.mode === "refine"
               ? "先覆盖与连接，再按局部比较敏感度分配预算并保留抽查。达到预算或曝光上限会停靠待复核，不把敏感度当作置信区间。"
               : s.policy.mode === "refine_balanced"

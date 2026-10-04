@@ -2864,6 +2864,51 @@
         }
       }
     },
+    "/v1/projects/{project_id}/aesthetic/analysis/stages/{id}/latest-snapshot": {
+      "get": {
+        "tags": [
+          "aesthetic_analysis"
+        ],
+        "operationId": "aesthetic_latest_snapshot",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "type": "null"
+                    },
+                    {
+                      "$ref": "#/components/schemas/AestheticAnalysisJob"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/projects/{project_id}/aesthetic/backup": {
       "post": {
         "tags": [
@@ -3093,6 +3138,30 @@
               "type": "integer",
               "minimum": 0
             }
+          },
+          {
+            "name": "archived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -3185,6 +3254,54 @@
         }
       }
     },
+    "/v1/projects/{project_id}/aesthetic/stages/{id}/batch-actions": {
+      "post": {
+        "tags": [
+          "aesthetic"
+        ],
+        "operationId": "aesthetic_batch_action",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AestheticBatchAction"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AestheticBatchActionResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/projects/{project_id}/aesthetic/stages/{id}/batches": {
       "get": {
         "tags": [
@@ -3222,6 +3339,24 @@
             "required": false,
             "schema": {
               "type": "integer",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sequence",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
               "minimum": 0
             }
           }
@@ -3434,6 +3569,14 @@
             }
           },
           {
+            "name": "blocked",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
             "name": "disposition",
             "in": "query",
             "description": "active, needs_review, rejudge, or excluded; omitted returns all dispositions",
@@ -3592,6 +3735,102 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/AestheticControl"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AestheticStage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/aesthetic/stages/{id}/execution": {
+      "post": {
+        "tags": [
+          "aesthetic"
+        ],
+        "operationId": "aesthetic_configure_execution",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AestheticExecutionUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AestheticStage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/aesthetic/stages/{id}/metadata": {
+      "post": {
+        "tags": [
+          "aesthetic"
+        ],
+        "operationId": "aesthetic_stage_metadata",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AestheticStageMetadata"
               }
             }
           },
@@ -9312,6 +9551,36 @@
               "kind": {
                 "type": "string",
                 "enum": [
+                  "preview"
+                ]
+              },
+              "review_watermark": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "minimum": 0
+              },
+              "snapshot_id": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "snapshot_id",
+              "filter",
+              "kind"
+            ],
+            "properties": {
+              "filter": {
+                "$ref": "#/components/schemas/AestheticRankingFilter"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
                   "derive"
                 ]
               },
@@ -9377,6 +9646,44 @@
           {
             "type": "object",
             "required": [
+              "count",
+              "ranked_count",
+              "protected_added",
+              "boundary_tie_count",
+              "kind"
+            ],
+            "properties": {
+              "boundary_tie_count": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "count": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "preview"
+                ]
+              },
+              "protected_added": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              },
+              "ranked_count": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
               "collection_id",
               "count",
               "kind"
@@ -9416,6 +9723,16 @@
           },
           "created_at": {
             "type": "string"
+          },
+          "execution_settings": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AestheticExecutionSettings"
+              }
+            ]
           },
           "failure": {
             "oneOf": [
@@ -9490,13 +9807,21 @@
         "type": "object",
         "required": [
           "sequence",
+          "stage_sequence",
           "stage_id",
           "rating",
           "state",
           "members",
-          "replacement_sequences"
+          "replacement_sequences",
+          "attempt_count",
+          "has_raw_receipt"
         ],
         "properties": {
+          "attempt_count": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
           "attempt_id": {
             "type": [
               "string",
@@ -9507,6 +9832,19 @@
             "type": [
               "string",
               "null"
+            ]
+          },
+          "has_raw_receipt": {
+            "type": "boolean"
+          },
+          "last_failure": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LlmFailure"
+              }
             ]
           },
           "members": {
@@ -9536,6 +9874,12 @@
           "rating": {
             "type": "string"
           },
+          "recovery_deadline": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "replacement_sequences": {
             "type": "array",
             "items": {
@@ -9543,6 +9887,18 @@
               "format": "int64",
               "minimum": 0
             }
+          },
+          "resolution_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "retry_at": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "sampling": {
             "oneOf": [
@@ -9562,8 +9918,128 @@
           "stage_id": {
             "type": "string"
           },
+          "stage_sequence": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
           "state": {
             "type": "string"
+          },
+          "transfer": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AestheticTransfer"
+              }
+            ]
+          }
+        }
+      },
+      "AestheticBatchAction": {
+        "type": "object",
+        "required": [
+          "idempotency_key",
+          "action",
+          "batches",
+          "acknowledge_possible_charge",
+          "reason"
+        ],
+        "properties": {
+          "acknowledge_possible_charge": {
+            "type": "boolean"
+          },
+          "action": {
+            "type": "string",
+            "description": "retry, reparse, or defer. Reparse is handled by the engine."
+          },
+          "batches": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            },
+            "description": "Empty means all matching batches at the operation's frozen upper bound."
+          },
+          "idempotency_key": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AestheticBatchActionItem": {
+        "type": "object",
+        "required": [
+          "sequence",
+          "stage_sequence",
+          "state"
+        ],
+        "properties": {
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sequence": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "stage_sequence": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "state": {
+            "type": "string"
+          }
+        }
+      },
+      "AestheticBatchActionResult": {
+        "type": "object",
+        "required": [
+          "id",
+          "completed",
+          "processed",
+          "succeeded",
+          "failed",
+          "items"
+        ],
+        "properties": {
+          "completed": {
+            "type": "boolean"
+          },
+          "failed": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "id": {
+            "type": "string"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AestheticBatchActionItem"
+            },
+            "description": "Bounded results of the most recently processed page."
+          },
+          "processed": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "succeeded": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           }
         }
       },
@@ -9628,11 +10104,23 @@
           "bytes",
           "exposures",
           "protected",
-          "disposition"
+          "disposition",
+          "blocked"
         ],
         "properties": {
           "basis": {
             "type": "string"
+          },
+          "blocked": {
+            "type": "boolean"
+          },
+          "blocking_batch": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
           },
           "bytes": {
             "type": "integer",
@@ -9993,6 +10481,12 @@
           "concurrency"
         ],
         "properties": {
+          "budget_mode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "collection_id": {
             "type": "string"
           },
@@ -10000,6 +10494,16 @@
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          },
+          "execution_policy": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AestheticExecutionPolicy"
+              }
+            ]
           },
           "expected_input_version": {
             "type": [
@@ -10130,6 +10634,125 @@
             "type": "string"
           }
         }
+      },
+      "AestheticExecutionPolicy": {
+        "type": "object",
+        "required": [
+          "stream",
+          "concurrency",
+          "connect_timeout_ms",
+          "first_response_timeout_ms",
+          "idle_timeout_ms",
+          "request_timeout_ms",
+          "batch_timeout_ms",
+          "max_retries",
+          "retry_unknown",
+          "exhausted"
+        ],
+        "properties": {
+          "batch_timeout_ms": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Wall-clock recovery budget, starting at the first network dispatch.",
+            "minimum": 0
+          },
+          "concurrency": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "connect_timeout_ms": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "exhausted": {
+            "type": "string",
+            "description": "pause or defer; defer closes failed logical batches without accepting evidence."
+          },
+          "first_response_timeout_ms": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "idle_timeout_ms": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "max_retries": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "request_timeout_ms": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "retry_unknown": {
+            "type": "boolean"
+          },
+          "stream": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AestheticExecutionSettings": {
+        "type": "object",
+        "required": [
+          "revision",
+          "updated_at",
+          "provider_revision",
+          "model_revision",
+          "policy"
+        ],
+        "properties": {
+          "model_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "policy": {
+            "$ref": "#/components/schemas/AestheticExecutionPolicy"
+          },
+          "provider_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        }
+      },
+      "AestheticExecutionUpdate": {
+        "type": "object",
+        "required": [
+          "idempotency_key",
+          "expected_revision",
+          "policy"
+        ],
+        "properties": {
+          "expected_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "idempotency_key": {
+            "type": "string"
+          },
+          "policy": {
+            "$ref": "#/components/schemas/AestheticExecutionPolicy"
+          }
+        },
+        "additionalProperties": false
       },
       "AestheticExperiment": {
         "type": "object",
@@ -11334,13 +11957,18 @@
           "protected",
           "input_tokens",
           "output_tokens",
-          "usage_unknown"
+          "usage_unknown",
+          "archived",
+          "progress"
         ],
         "properties": {
           "accepted": {
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          },
+          "archived": {
+            "type": "boolean"
           },
           "attempts": {
             "type": "integer",
@@ -11377,6 +12005,16 @@
             "format": "int64",
             "minimum": 0
           },
+          "execution_settings": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AestheticExecutionSettings"
+              }
+            ]
+          },
           "frozen": {
             "type": "integer",
             "format": "int64",
@@ -11402,6 +12040,9 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          },
+          "progress": {
+            "$ref": "#/components/schemas/AestheticStageProgress"
           },
           "protected": {
             "type": "integer",
@@ -11443,6 +12084,101 @@
           }
         }
       },
+      "AestheticStageMetadata": {
+        "type": "object",
+        "required": [
+          "name",
+          "archived"
+        ],
+        "properties": {
+          "archived": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "AestheticStageProgress": {
+        "type": "object",
+        "required": [
+          "round_planned",
+          "round_unclaimed",
+          "round_accepted",
+          "preparing",
+          "in_flight",
+          "queued",
+          "retry_waiting",
+          "failed",
+          "deferred",
+          "blocked",
+          "covered",
+          "exposed_once"
+        ],
+        "properties": {
+          "blocked": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "covered": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "deferred": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "exposed_once": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "failed": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "in_flight": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "preparing": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "queued": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "retry_waiting": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "round_accepted": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "round_planned": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "round_unclaimed": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "AestheticStages": {
         "type": "object",
         "required": [
@@ -11456,6 +12192,35 @@
             }
           },
           "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "AestheticTransfer": {
+        "type": "object",
+        "required": [
+          "phase",
+          "received_bytes"
+        ],
+        "properties": {
+          "last_data_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "phase": {
+            "type": "string"
+          },
+          "received_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "started_at": {
             "type": [
               "string",
               "null"

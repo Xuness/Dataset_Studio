@@ -6,7 +6,8 @@ impl EvaluationDb {
         self.writer.submit(32*1024, move |db| {
             let stage=read_stage(db,&id)?;
             if stage.state!="running" || stage.attempts>=stage.call_limit() { return Ok(None); }
-            let queued: Option<u64>=db.query_row("SELECT sequence FROM batches WHERE stage_id=?1 AND state='queued' ORDER BY sequence LIMIT 1",[&id],|r|crate::unsigned(r,0)).optional().map_err(db_error)?;
+            super::recovery_policy::expire_retries(db,&stage)?;
+            let queued: Option<u64>=db.query_row("SELECT sequence FROM batches WHERE stage_id=?1 AND (state='queued' OR (state='retry_wait' AND retry_at<=?2)) ORDER BY sequence LIMIT 1",params![id,super::recovery_policy::clock_ms()],|r|crate::unsigned(r,0)).optional().map_err(db_error)?;
             if let Some(sequence)=queued {
                 db.execute("UPDATE batches SET state='preparing' WHERE sequence=?1",[sequence as i64]).map_err(db_error)?;
                 return read_batch(db,&id,sequence).map(Some);
@@ -71,7 +72,16 @@ impl EvaluationDb {
             if members.len()!=batch.members.len() || members.iter().zip(&batch.members).any(|(a,b)|a.label!=b.label || a.candidate.ordinal!=b.candidate.ordinal || a.image_sha256.as_ref().is_none_or(|h| h.len()!=64)) {
                 return Err(Error::invalid("发送图片映射与固定批次不一致"));
             }
-            db.execute("INSERT INTO attempts(id,batch,state,created_at,semantic_request_hash) VALUES (?1,?2,'sent',?3,?4)",params![attempt,sequence as i64,now(),semantic_request_hash]).map_err(db_error)?;
+            let timestamp=super::recovery_policy::clock_ms();
+            if batch.recovery_deadline.as_ref().and_then(|v|v.parse::<i64>().ok()).is_some_and(|v|v<=timestamp) {
+                db.execute("UPDATE batches SET state='retry_wait',retry_at=?2 WHERE sequence=?1",params![sequence as i64,timestamp]).map_err(db_error)?;
+                super::recovery_policy::expire_retries(db,&s)?;
+                return Ok(false);
+            }
+            if let Some(settings)=&s.execution_settings {
+                db.execute("UPDATE batches SET recovery_deadline=COALESCE(recovery_deadline,?2) WHERE sequence=?1",params![sequence as i64,timestamp.saturating_add(i64::from(settings.policy.batch_timeout_ms))]).map_err(db_error)?;
+            }
+            db.execute("INSERT INTO attempts(id,batch,state,created_at,semantic_request_hash,execution_settings) VALUES (?1,?2,'sent',?3,?4,?5)",params![attempt,sequence as i64,timestamp.to_string(),semantic_request_hash,s.execution_settings.as_ref().map(encode).transpose()?]).map_err(db_error)?;
             db.execute("UPDATE batches SET state='sent',attempt_id=?2,members=?3,error=NULL WHERE sequence=?1",params![sequence as i64,attempt,encode(&members)?]).map_err(db_error)?;
             db.execute("UPDATE stages SET attempts=attempts+1 WHERE id=?1",[&id]).map_err(db_error)?;
             Ok(true)
@@ -91,8 +101,8 @@ impl EvaluationDb {
             .map_err(db_error)?;
             for m in batch.members {
                 db.execute(
-                    "UPDATE candidates SET reserved=0,blocked=1 WHERE stage_id=?1 AND ordinal=?2",
-                    params![id, m.candidate.ordinal as i64],
+                    "UPDATE candidates SET reserved=0,blocked=1,blocked_batch=?3 WHERE stage_id=?1 AND ordinal=?2",
+                    params![id, m.candidate.ordinal as i64, sequence as i64],
                 )
                 .map_err(db_error)?;
             }
@@ -109,68 +119,25 @@ impl EvaluationDb {
             let next=if failure.outcome_unknown {"outcome_unknown"}else{"failed"};
             let changed=db.execute("UPDATE attempts SET state=?2,failure=?3 WHERE id=?1 AND state='sent'",params![attempt,next,json]).map_err(db_error)?;
             if changed==0 {return Ok(());}
-            db.execute("INSERT INTO receipt_parses(attempt_id,adapter_version,state,error,created_at) SELECT ?1,'native_json_v1','failed',?2,?3 WHERE EXISTS(SELECT 1 FROM raw_receipts WHERE attempt_id=?1)",params![attempt,json,now()]).map_err(db_error)?;
+            db.execute("INSERT INTO receipt_parses(attempt_id,adapter_version,state,error,created_at) SELECT ?1,json_extract(metadata,'$.adapter_version'),'failed',?2,?3 FROM raw_receipts WHERE attempt_id=?1",params![attempt,json,now()]).map_err(db_error)?;
             db.execute("UPDATE batches SET state=?2,error=?3 WHERE sequence=?1",params![sequence as i64,next,failure.message]).map_err(db_error)?;
-            db.execute("UPDATE stages SET unknown=unknown+?2 WHERE id=?1",params![id,failure.outcome_unknown as u32]).map_err(db_error)?;
-            for m in batch.members { db.execute("UPDATE candidates SET reserved=0,blocked=1 WHERE stage_id=?1 AND ordinal=?2",params![id,m.candidate.ordinal as i64]).map_err(db_error)?; }
+            db.execute("UPDATE stages SET unknown=unknown+?2,failure_streak=failure_streak+1 WHERE id=?1",params![id,failure.outcome_unknown as u32]).map_err(db_error)?;
+            for m in batch.members { db.execute("UPDATE candidates SET reserved=0,blocked=1,blocked_batch=?3 WHERE stage_id=?1 AND ordinal=?2",params![id,m.candidate.ordinal as i64,sequence as i64]).map_err(db_error)?; }
             Ok(())
         })
     }
     /// An explicit user operation; retries never create a second accepted observation.
     pub fn retry_batch(&self, id: &str, sequence: u64) -> Result<()> {
         let id = id.to_owned();
-        self.writer.submit(1024, move |db| {
-            let s = read_stage(db, &id)?;
+        self.writer.submit(4096, move |db| {
+            let stage = read_stage(db, &id)?;
             if !matches!(
-                s.state.as_str(),
+                stage.state.as_str(),
                 "paused" | "needs_attention" | "failed" | "ready"
             ) {
                 return Err(Error::new("REVISION_CONFLICT", "请先等待阶段暂停后重试"));
             }
-            if s.attempts >= s.call_limit() {
-                return Err(Error::invalid("调用预算已用尽"));
-            }
-            let batch = read_batch(db, &id, sequence)?;
-            if !matches!(
-                batch.state.as_str(),
-                "invalid" | "failed" | "outcome_unknown"
-            ) {
-                return Err(Error::invalid("此批次无需付费重试"));
-            }
-            let attempts: u64 = db
-                .query_row(
-                    "SELECT count(*) FROM attempts WHERE batch=?1",
-                    [sequence as i64],
-                    |r| crate::unsigned(r, 0),
-                )
-                .map_err(db_error)?;
-            if attempts >= 8 {
-                return Err(Error::invalid(
-                    "一个逻辑批次最多保留 8 次调用尝试，请创建新阶段",
-                ));
-            }
-            db.execute(
-                "UPDATE stages SET invalid=invalid-?2,unknown=unknown-?3 WHERE id=?1",
-                params![
-                    id,
-                    (batch.state == "invalid") as u32,
-                    (batch.state == "outcome_unknown") as u32
-                ],
-            )
-            .map_err(db_error)?;
-            db.execute(
-                "UPDATE batches SET state='queued',error=NULL WHERE sequence=?1",
-                [sequence as i64],
-            )
-            .map_err(db_error)?;
-            for m in batch.members {
-                db.execute(
-                    "UPDATE candidates SET reserved=1 WHERE stage_id=?1 AND ordinal=?2",
-                    params![id, m.candidate.ordinal as i64],
-                )
-                .map_err(db_error)?;
-            }
-            Ok(())
+            super::recovery_policy::retry_batch(db, &stage, sequence)
         })
     }
 }

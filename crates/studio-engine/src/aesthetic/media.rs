@@ -194,6 +194,8 @@ pub(super) fn freeze_page(
                 protected: false,
                 disposition: Default::default(),
                 disposition_reason: None,
+                blocked: false,
+                blocking_batch: None,
             });
         }
         index = end;
@@ -203,6 +205,14 @@ pub(super) fn freeze_page(
     for chunk in rows.chunks_mut(16) {
         let mut probe = AestheticBatch {
             sequence: 0,
+            stage_sequence: 0,
+            attempt_count: 0,
+            retry_at: None,
+            recovery_deadline: None,
+            resolution_reason: None,
+            last_failure: None,
+            has_raw_receipt: false,
+            transfer: None,
             parent_sequence: None,
             replacement_sequences: vec![],
             sampling: None,

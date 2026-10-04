@@ -457,7 +457,8 @@ async fn reviews(
     experiment,
     experiment_run,
     review_create,
-    reviews
+    reviews,
+    latest_snapshot
 ))]
 pub struct AestheticAnalysisApiDoc;
 pub(super) fn routes() -> axum::Router<AppState> {
@@ -467,6 +468,7 @@ pub(super) fn routes() -> axum::Router<AppState> {
         .route("/jobs/{id}/control", post(control))
         .route("/jobs/{id}/comparison", get(comparison))
         .route("/snapshots/{id}", get(snapshot))
+        .route("/stages/{id}/latest-snapshot", get(latest_snapshot))
         .route("/snapshots/{id}/rows", get(rows))
         .route("/snapshots/{id}/select", post(select))
         .route("/snapshots/{id}/candidates/{ordinal}", get(candidate))
@@ -475,4 +477,14 @@ pub(super) fn routes() -> axum::Router<AppState> {
         .route("/experiments/{id}", get(experiment))
         .route("/experiments/{id}/run", post(experiment_run))
         .route("/reviews", post(review_create))
+}
+
+#[utoipa::path(operation_id="aesthetic_latest_snapshot",get,path="/stages/{id}/latest-snapshot",params(("project_id"=String,Path),("id"=String,Path)),responses((status=200,body=Option<AestheticAnalysisJob>)))]
+async fn latest_snapshot(
+    State(s): State<AppState>,
+    Path((pid, id)): Path<(String, String)>,
+) -> ApiResult<Option<AestheticAnalysisJob>> {
+    Ok(Json(wire(
+        blocking(move || s.store.evaluation(&pid)?.latest_stage_snapshot(&id)).await?,
+    )?))
 }

@@ -1,7 +1,9 @@
 pub mod grouping;
 use std::collections::BTreeSet;
 use studio_domain::{Error, Result, aesthetic::*, llm::*};
+mod execution;
 mod lifecycle;
+pub use execution::*;
 pub mod sampling;
 pub use lifecycle::*;
 
@@ -16,6 +18,19 @@ pub trait AestheticRepository: Send + Sync {
 }
 
 pub fn validate_create(value: &AestheticCreate) -> Result<()> {
+    if let Some(policy) = &value.execution_policy {
+        validate_execution_policy(policy)?;
+        if policy.concurrency != value.concurrency {
+            return Err(Error::invalid("执行策略并发与阶段并发不一致"));
+        }
+    }
+    if value
+        .budget_mode
+        .as_ref()
+        .is_some_and(|v| !matches!(v.as_str(), "complete" | "trial"))
+    {
+        return Err(Error::invalid("预算方式必须为完整曝光或小预算试跑"));
+    }
     for id in [
         &value.idempotency_key,
         &value.collection_id,
@@ -166,6 +181,8 @@ mod tests {
                     protected: false,
                     disposition: Default::default(),
                     disposition_reason: None,
+                    blocked: false,
+                    blocking_batch: None,
                 },
                 image_sha256: None,
             })

@@ -53,9 +53,14 @@ export class AestheticClient {
       post({}),
     );
   }
-  stages(pid: string, after?: string, signal?: AbortSignal) {
+  stages(
+    pid: string,
+    after?: string,
+    signal?: AbortSignal,
+    options: { archived?: boolean; search?: string; state?: string } = {},
+  ) {
     return this.request<Schema["AestheticStages"]>(
-      `${root(pid)}/stages?${new URLSearchParams(after ? { after } : {})}`,
+      `${root(pid)}/stages?${new URLSearchParams({ ...(after ? { after } : {}), ...(options.archived ? { archived: "true" } : {}), ...(options.search ? { search: options.search } : {}), ...(options.state ? { state: options.state } : {}) })}`,
       { signal: signal ?? null },
     );
   }
@@ -84,6 +89,32 @@ export class AestheticClient {
       post(value),
     );
   }
+  configureExecution(
+    pid: string,
+    id: string,
+    value: Schema["AestheticExecutionUpdate"],
+  ) {
+    return this.request<Schema["AestheticStage"]>(
+      `${stage(pid, id)}/execution`,
+      post(value),
+    );
+  }
+  stageMetadata(
+    pid: string,
+    id: string,
+    value: Schema["AestheticStageMetadata"],
+  ) {
+    return this.request<Schema["AestheticStage"]>(
+      `${stage(pid, id)}/metadata`,
+      post(value),
+    );
+  }
+  batchAction(pid: string, id: string, value: Schema["AestheticBatchAction"]) {
+    return this.request<Schema["AestheticBatchActionResult"]>(
+      `${stage(pid, id)}/batch-actions`,
+      post(value),
+    );
+  }
   samplingDiagnostic(
     pid: string,
     id: string,
@@ -95,9 +126,15 @@ export class AestheticClient {
       { signal: signal ?? null },
     );
   }
-  batches(pid: string, id: string, after?: string, signal?: AbortSignal) {
+  batches(
+    pid: string,
+    id: string,
+    after?: string,
+    signal?: AbortSignal,
+    options: { state?: string; sequence?: number } = {},
+  ) {
     return this.request<Schema["AestheticBatches"]>(
-      `${stage(pid, id)}/batches?${new URLSearchParams(after ? { after } : {})}`,
+      `${stage(pid, id)}/batches?${new URLSearchParams({ ...(after ? { after } : {}), ...(options.state ? { state: options.state } : {}), ...(options.sequence ? { sequence: String(options.sequence) } : {}) })}`,
       { signal: signal ?? null },
     );
   }
@@ -108,11 +145,13 @@ export class AestheticClient {
     after?: string,
     signal?: AbortSignal,
     disposition?: Schema["AestheticDisposition"],
+    blocked = false,
   ) {
     const query = new URLSearchParams({
       protected: String(protectedOnly),
       ...(after ? { after } : {}),
       ...(disposition ? { disposition } : {}),
+      ...(blocked ? { blocked: "true" } : {}),
     });
     return this.request<Schema["AestheticCandidates"]>(
       `${stage(pid, id)}/candidates?${query}`,
