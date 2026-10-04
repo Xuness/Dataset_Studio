@@ -146,10 +146,16 @@ try {
   const inv = await engine.wait(
     "/v1/cache/projects/" + project.id + "?limit=127",
     (v) =>
-      v.members.length >= 6 &&
+      v.members.length >= 2 &&
       v.members.every((m) => m.estimated_bytes !== null),
   );
-  assert.equal(inv.ranked_indexes.length, 4);
+  assert.equal(inv.ranked_indexes.length, 0);
+  assert.ok(
+    fixed.every(
+      (entry) => !inv.members.some((m) => m.result_id === entry.result.id),
+    ),
+    "immutable Rating references do not create copied-member cache entries",
+  );
   const input = inv.members.find((m) => !m.cached && m.reference_count > 0);
   assert.ok(input);
   assert.equal(input.can_release, false);
@@ -208,7 +214,7 @@ try {
   );
   assert.equal((await metrics()).ranked_indexes, before.ranked_indexes);
   checks.push(
-    "G/S/Q/E reuse old members and indexes after real image insertion and metadata refresh; latest-source queries remain stale",
+    "G/S/Q/E keep immutable members without derived indexes after real image insertion and metadata refresh; latest-source queries remain stale",
   );
   const changed = await query(latestSpec);
   assert.equal(changed.cache.mode, "incremental");
@@ -272,7 +278,9 @@ try {
   ).opened_at;
   assert.ok((await inventory()).members.length);
   await sleep(10500);
-  const chosen = fixed[1].result.id;
+  // Retention controls apply to the materialized current-metadata cache.
+  // Frozen Rating recipes do not own a copied-member cache to evict.
+  const chosen = unchanged.id;
   await engine.api(cacheRoot + "/members/" + chosen + "/retention", "PUT", {
     tier: "temporary",
     fixed: true,
@@ -362,12 +370,9 @@ try {
   for (const c of [fixed[2], fixed[3]]) {
     const alias = await query(c.spec);
     assert.equal(alias.cache.mode, "reused");
-    // The explicitly released file may belong to either rating; other files survive.
-    const found = (await inventory()).ranked_indexes.some((r) =>
-      r.label.includes(c.spec.conditions[0].value.value[0].toUpperCase()),
-    );
-    await page(alias.id, found);
+    await page(alias.id, true);
   }
+  assert.equal((await inventory()).ranked_indexes.length, 0);
   await writeFile(
     resolve(run, "report.json"),
     JSON.stringify({ checks }, null, 2),

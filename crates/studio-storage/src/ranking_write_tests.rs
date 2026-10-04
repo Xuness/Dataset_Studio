@@ -1,7 +1,7 @@
 use super::*;
 use rusqlite::hooks::{AuthAction, AuthContext, Authorization};
 use std::sync::{Condvar, atomic::AtomicUsize, mpsc};
-use studio_application::ProjectRepository;
+use studio_application::{ManagementRepository, ProjectRepository};
 
 #[test]
 fn cancelling_scoped_job_capture_rolls_back_and_keeps_reads_available() {
@@ -106,7 +106,7 @@ fn cancelling_scoped_job_capture_rolls_back_and_keeps_reads_available() {
 }
 
 #[test]
-fn cancelling_after_a_saved_batch_rolls_back_members_and_does_not_block_readers() {
+fn cancelling_a_ranked_reference_before_commit_keeps_readers_and_retry_consistent() {
     let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/test-runs");
     fs::create_dir_all(&base).unwrap();
     let temp = tempfile::Builder::new()
@@ -198,9 +198,9 @@ fn cancelling_after_a_saved_batch_rolls_back_members_and_does_not_block_readers(
             if matches!(
                 context.action,
                 AuthAction::Insert {
-                    table_name: "collection_member_legacy"
+                    table_name: "ranking_memberships"
                 }
-            ) && inserts.fetch_add(1, Ordering::Relaxed) == 1
+            ) && inserts.fetch_add(1, Ordering::Relaxed) == 0
             {
                 arrived.send(()).unwrap();
                 let (lock, wake) = &*barrier;
@@ -243,8 +243,8 @@ fn cancelling_after_a_saved_batch_rolls_back_members_and_does_not_block_readers(
         .unwrap()
         .authorizer(None::<fn(AuthContext<'_>) -> Authorization>)
         .unwrap();
-    reached.expect("the test must cancel after at least one inserted batch");
-    assert_eq!(progress.completed, 512);
+    reached.expect("the test must cancel before the reference is committed");
+    assert_eq!(progress.completed, 0);
     assert!(
         before.is_empty(),
         "uncommitted collections must stay invisible to readers"
@@ -283,4 +283,128 @@ fn cancelling_after_a_saved_batch_rolls_back_members_and_does_not_block_readers(
         "late cancellation must preserve committed idempotency"
     );
     assert_eq!(store.collections(&pid).unwrap().len(), 1);
+    let scope = ScopeRef {
+        project_id: pid.clone(),
+        target: ScopeTarget::Workset {
+            collection_id: created.id.clone(),
+        },
+    };
+    let reader = handle.read().unwrap();
+    assert_eq!(
+        reader
+            .query_row("SELECT count(*) FROM collection_member_legacy", [], |r| r
+                .get::<_, i64>(
+                0
+            ))
+            .unwrap(),
+        0
+    );
+    assert_eq!(reader.query_row("SELECT count(*) FROM result_members WHERE result_id=(SELECT result_id FROM collection_bases WHERE collection_id=?1)", [&created.id], |r|r.get::<_,i64>(0)).unwrap(), 2048);
+    drop(reader);
+    let later = store
+        .browse_scope_keys(
+            &pid,
+            &scope,
+            Some(&AssetKey {
+                source_id: sid.clone(),
+                asset_id: format!("{:064x}", 1500),
+            }),
+            96,
+            false,
+        )
+        .unwrap();
+    assert_eq!(later.len(), 96);
+    assert_eq!(later[0].asset_id, format!("{:064x}", 1501));
+    let reverse = store
+        .browse_scope_keys(
+            &pid,
+            &scope,
+            Some(&AssetKey {
+                source_id: sid.clone(),
+                asset_id: format!("{:064x}", 1500),
+            }),
+            96,
+            true,
+        )
+        .unwrap();
+    assert_eq!(reverse[0].asset_id, format!("{:064x}", 1499));
+    let spec = QuerySpec {
+        version: 3,
+        source_ids: vec![sid.clone()],
+        conditions: vec![QueryCondition {
+            field: format!("project.{aid}.rating"),
+            operator: QueryOperator::Eq,
+            value: Some(QueryValue::Text("g".into())),
+        }],
+        observation_rule: ObservationRule::CurrentPost,
+        order: QueryOrder::AssetKeyAsc,
+        input_scope: Some(scope.clone()),
+    };
+    let versions = vec![QuerySourceVersion {
+        source_id: sid.clone(),
+        semantics_version: None,
+        catalog_revision: "fixture-1".into(),
+        analysis_sequence: None,
+        consistency: "fixture".into(),
+    }];
+    let first = store
+        .create_ranking_result(
+            &pid,
+            &spec,
+            None,
+            &versions,
+            Arc::new(AtomicBool::new(false)),
+        )
+        .unwrap()
+        .unwrap();
+    let alias = store
+        .create_ranking_result(
+            &pid,
+            &spec,
+            None,
+            &versions,
+            Arc::new(AtomicBool::new(false)),
+        )
+        .unwrap()
+        .unwrap();
+    assert_eq!(first.state, ResultState::Ready);
+    assert_eq!(first.count, Some(2048));
+    assert_eq!(alias.cache.mode, "reused");
+    let result_scope = |id: String| ScopeRef {
+        project_id: pid.clone(),
+        target: ScopeTarget::QueryResult { result_id: id },
+    };
+    assert_eq!(
+        store
+            .canonical_ranked_scope(&pid, &result_scope(first.id.clone()))
+            .unwrap(),
+        store
+            .canonical_ranked_scope(&pid, &result_scope(alias.id.clone()))
+            .unwrap()
+    );
+    store
+        .remove_object(&pid, ObjectKind::Workset, &created.id, 0)
+        .unwrap();
+    let after_removal = store
+        .browse_scope_keys(
+            &pid,
+            &result_scope(alias.id.clone()),
+            Some(&AssetKey {
+                source_id: sid.clone(),
+                asset_id: format!("{:064x}", 1500),
+            }),
+            96,
+            false,
+        )
+        .unwrap();
+    assert_eq!(
+        after_removal, later,
+        "fixed query membership survives removal of its original workset"
+    );
+    assert!(
+        store
+            .ranked_scope(&pid, &result_scope(alias.id))
+            .unwrap()
+            .is_some()
+    );
 }

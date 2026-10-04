@@ -95,6 +95,8 @@ Rust 测试位于 crates 内，`pnpm test` 同时执行 SDK 检查 [client-found
 
 ## 夹具与结果归档
 
+排名工作集性能入口为 [benchmark-ranked-worksets.mjs](benchmark-ranked-worksets.mjs)。传入 `--connection <engine.json> --project-id <项目 ID> --artifact-id <已发布排名成果 ID> --label <运行说明>`，使用实际开发引擎验证保存、冻结 Rating 筛选、五种排名分页、深位定位和自然帖子排序，并对照同来源的数据湖首屏。运行要求开发引擎与当前 Release 二进制一致，不改变资源设置。默认通过正常接口删除本轮创建的工作集和查询；`--keep-workset` 仅保留本轮完整范围工作集。它复用现有成果，不重新排名、不清除系统缓存；接口时间不包含缩略图解码。协议见 [ADR 0058](../docs/decisions/0058-fixed-ranking-membership-recipes.md)。
+
 数据库在线升级 P1 的规模实验与并发测试由 Rust 测试集维护，包含在 `pnpm check`。独立复跑命令、SQLite 版本与测量边界见 [P1 验收](../docs/verification/2026-09-26-online-upgrade-phase1.md)；存储或预览改动还需运行 `pnpm test:integration`。
 
 - [engine-fixture.mjs](engine-fixture.mjs)：独立引擎启动、请求、等待与停止。

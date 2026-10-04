@@ -43,6 +43,9 @@ mod presets;
 pub mod ranked_index;
 mod ranking;
 mod ranking_browse;
+mod ranking_members;
+mod ranking_memberships;
+pub mod ranking_projection;
 pub mod ranking_tables;
 mod recovery;
 mod registry;
@@ -223,9 +226,7 @@ impl SqliteStore {
     pub fn contains(&self, project_id: &str, keys: &[AssetKey]) -> Result<Vec<bool>> {
         let p = self.handle(project_id)?;
         let db = p.read()?;
-        keys.iter()
-            .map(|key| selection::contains(&db, key))
-            .collect()
+        selection::contains_many(&db, &p.project.directory, keys)
     }
     fn keys(
         &self,
@@ -245,18 +246,20 @@ impl SqliteStore {
         let (source, asset) = after
             .map(|a| (a.source_id.as_str(), a.asset_id.as_str()))
             .unwrap_or(("", ""));
-        let (sql, id) = match owner {
+        let (relation, id) = match owner {
             Some(("collection", id)) => (
-                "SELECT source_id,asset_id FROM collection_members WHERE collection_id=?1 AND (source_id,asset_id)>(?2,?3) ORDER BY source_id,asset_id LIMIT ?4",
+                "SELECT source_id,asset_id FROM collection_members WHERE collection_id=?1",
                 id,
             ),
             Some(("job", id)) => (
-                "SELECT source_id,asset_id FROM job_inputs WHERE job_id=?1 AND (source_id,asset_id)>(?2,?3) ORDER BY source_id,asset_id LIMIT ?4",
+                "SELECT source_id,asset_id FROM job_inputs WHERE job_id=?1",
                 id,
             ),
             _ => return selection::keys(&db, after, limit),
         };
-        let mut stmt = db.prepare(sql).map_err(db_error)?;
+        let mut stmt = db
+            .prepare(&browse_scopes::keyset_sql(relation, 2, 3, 4, false))
+            .map_err(db_error)?;
         stmt.query_map(
             params![id, source, asset, limit.clamp(1, 32768) as u32],
             |r| {

@@ -523,7 +523,7 @@ try {
   const db = new DatabaseSync(resolve(project.directory, "project.sqlite"), {
     readOnly: true,
   });
-  assert.equal(db.prepare("PRAGMA user_version").get().user_version, 13);
+  assert.equal(db.prepare("PRAGMA user_version").get().user_version, 14);
   const provenance = JSON.parse(
     db
       .prepare(

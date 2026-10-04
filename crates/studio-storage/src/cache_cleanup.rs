@@ -125,6 +125,28 @@ pub(super) fn pending(db: &Connection) -> Result<bool> {
 /// Removing an owner can expose a version-1 input that was already uncached.
 /// Queue metadata only; the worker rechecks all live and persistent references.
 pub(super) fn queue_unreferenced_inputs(db: &Connection) -> Result<()> {
+    // Recipe-backed internal results have no member pages to reclaim, but their
+    // artifact references must end with the final workset/selection/job owner.
+    // Public results retain their normal explicit lifetime.
+    let orphaned = {
+        let mut stmt=db.prepare("SELECT r.id FROM query_results r WHERE r.internal=1 AND r.storage_kind='ranking' AND r.status='ready' AND NOT EXISTS(SELECT 1 FROM result_references x WHERE x.result_id=r.id) ORDER BY r.id LIMIT 64").map_err(db_error)?;
+        stmt.query_map([], |r| r.get::<_, String>(0))
+            .map_err(db_error)?
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(db_error)?
+    };
+    for id in orphaned {
+        db.execute(
+            "UPDATE query_results SET status='released',count=NULL WHERE id=?1",
+            [&id],
+        )
+        .map_err(db_error)?;
+        db.execute(
+            "DELETE FROM artifact_references WHERE owner_kind='query_result' AND owner_id=?1",
+            [&id],
+        )
+        .map_err(db_error)?;
+    }
     let mut stmt = db.prepare("SELECT id FROM query_families f WHERE cached=0 AND fixed=0 AND stored_members>0 AND NOT EXISTS(SELECT 1 FROM query_results r JOIN result_references x ON x.result_id=r.id WHERE r.family_id=f.id) AND NOT EXISTS(SELECT 1 FROM query_results r WHERE r.family_id=f.id AND r.status IN ('queued','running')) ORDER BY id LIMIT 16").map_err(db_error)?;
     let ids = stmt
         .query_map([], |r| r.get::<_, String>(0))

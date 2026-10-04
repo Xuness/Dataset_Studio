@@ -22,7 +22,8 @@ pub(super) fn prune(db: &Connection, limit: u32) -> Result<()> {
         db,
         "id NOT IN (SELECT id FROM selection_history ORDER BY applied DESC,CASE WHEN applied=1 THEN -id ELSE id END LIMIT ?1)",
         limit,
-    )
+    )?;
+    crate::cache_cleanup::queue_unreferenced_inputs(db)
 }
 fn save_refs(db: &Connection, id: i64, phase: i32) -> Result<()> {
     for (kind, table, column) in [

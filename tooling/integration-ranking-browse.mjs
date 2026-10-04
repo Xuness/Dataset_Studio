@@ -66,12 +66,14 @@ function oracle(collection, order = "main", descending = false, resultId) {
   const direction = descending ? "DESC" : "ASC";
   const membership = resultId
     ? "EXISTS(SELECT 1 FROM project_state.result_members m WHERE m.result_id=? AND m.source_id=i.source_id AND m.asset_id=lower(hex(i.asset_id)))"
-    : "EXISTS(SELECT 1 FROM project_state.collection_members m WHERE m.collection_id=? AND m.source_id=i.source_id AND m.asset_id=lower(hex(i.asset_id)))";
+    : collection.id === small.id
+      ? "s.eligibility='eligible' AND s.main_rank IS NOT NULL AND s.main_rank<=5"
+      : "s.eligibility='eligible'";
   return database
     .prepare(
       `SELECT s.ordinal,s.rating,s.main_rank,s.rescue_rank,s.main_score,s.rescue_score,i.post_id,i.source_id,lower(hex(i.asset_id)) AS asset_id FROM scores s JOIN fixed_input.input_rows i USING(ordinal) WHERE ${membership} ORDER BY coalesce(s.rating,'z') ${direction},${position} ${direction},s.ordinal ${direction}`,
     )
-    .all(resultId ?? collection.id);
+    .all(...(resultId ? [resultId] : []));
 }
 async function page(target, options = {}) {
   let cursor = options.cursor;
@@ -738,7 +740,7 @@ try {
   assert.equal((await page(scope(full))).preparations, 0);
   assert.equal(
     (await engine.api("/v1/resources")).query_cache.ranked_indexes,
-    1,
+    0,
   );
   await engine.api(base + "/ranking-browse/lease", "POST", {
     scope: scope(full),
@@ -759,11 +761,11 @@ try {
     expectRows(rebuilt.items, oracle(full).slice(0, 13));
     assert.equal(
       (await engine.api("/v1/resources")).query_cache.ranked_index_builds,
-      beforeRebuild + attempt + 1,
+      beforeRebuild,
     );
   }
   checks.push(
-    "a live view survives temporary-cache clearing; released indexes rebuild immediately after repeated eviction",
+    "fixed ranking worksets remain directly readable after repeated cache clearing, without rebuilding indexes",
   );
 
   sparseResult = await engine.api(base + "/query-results", "POST", {
@@ -917,6 +919,209 @@ try {
   });
   checks.push(
     "110 pages and repeated old-page bookmarks cross the missing-rating gap without any scan or rebuild",
+  );
+
+  const frozenSpec = {
+    version: 3,
+    source_ids: [source.id],
+    observation_rule: "current_post",
+    order: "post_id_desc",
+    input_scope: scope(full),
+    conditions: [
+      {
+        field: `project.${artifact.id}.rating`,
+        operator: "in",
+        value: { type: "text_list", value: ["s", "e", "s"] },
+      },
+    ],
+  };
+  const frozen = await engine.api(base + "/query-results", "POST", {
+    spec: frozenSpec,
+  });
+  const alias = await engine.api(base + "/query-results", "POST", {
+    spec: frozenSpec,
+  });
+  assert.equal(frozen.state, "ready");
+  assert.equal(frozen.count, gapResult.count);
+  assert.equal(alias.cache.mode, "reused");
+  assert.equal(
+    database
+      .prepare(
+        "SELECT storage_kind FROM project_state.query_results WHERE id=?",
+      )
+      .get(frozen.id).storage_kind,
+    "ranking",
+  );
+  const frozenScope = {
+    project_id: project.id,
+    target: { kind: "query_result", result_id: frozen.id },
+  };
+  expectRows((await page(frozenScope)).items, gapExpected.slice(0, 13));
+  for (const order of [
+    "asset_key_asc",
+    "asset_key_desc",
+    "post_id_asc",
+    "post_id_desc",
+  ]) {
+    const read = (id, cursor) =>
+      engine.api(
+        base +
+          "/query-results/" +
+          id +
+          "/assets?order=" +
+          order +
+          "&limit=13" +
+          (cursor ? "&cursor=" + encodeURIComponent(cursor) : ""),
+      );
+    const projected = await read(frozen.id);
+    const materialized = await read(gapResult.id);
+    assert.deepEqual(
+      projected.page.items.map(identity),
+      materialized.page.items.map(identity),
+    );
+    assert.deepEqual(
+      (await read(frozen.id, projected.page.next_cursor)).page.items.map(
+        identity,
+      ),
+      (await read(gapResult.id, materialized.page.next_cursor)).page.items.map(
+        identity,
+      ),
+    );
+    await engine.expectError(
+      base +
+        "/query-results/" +
+        alias.id +
+        "/assets?order=" +
+        order +
+        "&cursor=" +
+        encodeURIComponent(projected.page.next_cursor),
+      "GET",
+      undefined,
+      "INVALID_INPUT",
+    );
+  }
+  const empty = await engine.api(base + "/query-results", "POST", {
+    spec: {
+      ...frozenSpec,
+      input_scope: frozenScope,
+      conditions: [
+        {
+          field: `project.${artifact.id}.rating`,
+          operator: "eq",
+          value: { type: "text", value: "g" },
+        },
+      ],
+    },
+  });
+  assert.equal(empty.state, "ready");
+  assert.equal(empty.count, 0);
+  const emptyPage = await page({
+    project_id: project.id,
+    target: { kind: "query_result", result_id: empty.id },
+  });
+  assert.deepEqual(emptyPage.items, []);
+  assert.equal(emptyPage.next_cursor, null);
+  checks.push(
+    "frozen multiple-Rating refinements are immediately ready, reuse members, preserve all natural orders and reject foreign cursors; conflicting refinements are empty",
+  );
+
+  const owner = await engine.api(
+    base + "/artifacts/" + artifact.id + "/ranking/worksets",
+    "POST",
+    {
+      idempotency_key: crypto.randomUUID(),
+      name: "引用生命周期",
+      filter: { eligibility: "eligible", top: 3, order: "main" },
+    },
+  );
+  let selected = await engine.api(base + "/selection/scope", "POST", {
+    expected_revision: (await engine.api(base + "/selection")).revision,
+    scope: scope(owner),
+    operation: "replace",
+  });
+  assert.equal(selected.count, 12);
+  assert.ok(selected.base_result);
+  assert.equal(
+    database.prepare("SELECT count(*) n FROM project_state.selection").get().n,
+    0,
+  );
+  const ownerPage = await page(scope(owner));
+  const ownerKeys = ownerPage.items.map((item) => item.key);
+  selected = await engine.api(base + "/selection", "PATCH", {
+    expected_revision: selected.revision,
+    add: [],
+    remove: [ownerKeys[0]],
+    clear: false,
+  });
+  assert.equal(selected.count, 11);
+  assert.equal(selected.excluded_count, 1);
+  const snapshot = await engine.api(base + "/collections", "POST", {
+    name: "稀疏排除的普通工作集",
+    scope: {
+      project_id: project.id,
+      target: { kind: "selection", revision: selected.revision },
+    },
+  });
+  const capturedJob = await engine.api(base + "/jobs", "POST", {
+    idempotency_key: crypto.randomUUID(),
+    scope: scope(snapshot),
+    delay_ms: 0,
+  });
+  assert.equal(capturedJob.total, 11);
+  assert.equal(
+    database
+      .prepare(
+        "SELECT count(*) n FROM project_state.collection_member_legacy WHERE collection_id IN (?,?)",
+      )
+      .get(owner.id, snapshot.id).n,
+    0,
+  );
+  assert.equal(
+    database
+      .prepare(
+        "SELECT count(*) n FROM project_state.job_input_legacy WHERE job_id=?",
+      )
+      .get(capturedJob.id).n,
+    0,
+  );
+  const ownerDetail = await engine.api(base + "/objects/workset/" + owner.id);
+  await engine.api(base + "/objects/workset/" + owner.id + "/actions", "POST", {
+    action: "remove",
+    expected_revision: ownerDetail.object.revision,
+  });
+  const flagsAfterDelete = await engine.api(
+    base + "/selection/members",
+    "POST",
+    { keys: ownerKeys },
+  );
+  assert.deepEqual(flagsAfterDelete.selected, [false, ...Array(11).fill(true)]);
+  assert.equal(
+    (await engine.api(base + "/ranking-browse?collection_id=" + snapshot.id))
+      .ranking,
+    null,
+  );
+  const completed = await engine.wait(
+    base + "/jobs",
+    (value) =>
+      value.items.some(
+        (item) =>
+          item.id === capturedJob.id &&
+          ["succeeded", "failed"].includes(item.status),
+      ),
+    30000,
+  );
+  assert.equal(
+    completed.items.find((item) => item.id === capturedJob.id).status,
+    "succeeded",
+  );
+  await engine.expectError(
+    base + "/query-results/" + selected.base_result + "/release",
+    "POST",
+    undefined,
+    "RESULT_IN_USE",
+  );
+  checks.push(
+    "ranked all-selection, sparse exclusion, ordinary workset and job share fixed members without copies and survive deletion of the original workset",
   );
 
   const ordinary = await engine.api(base + "/collections", "POST", {

@@ -1,5 +1,22 @@
 use crate::*;
 
+/// Split the tuple seek into disjoint index ranges. This also exposes both
+/// source and asset bounds to virtual fixed-member readers; a tuple expression
+/// alone only pushes its first column through SQLite's virtual-table planner.
+pub(crate) fn keyset_sql(
+    relation: &str,
+    source: usize,
+    asset: usize,
+    limit: usize,
+    descending: bool,
+) -> String {
+    let op = if descending { "<" } else { ">" };
+    let direction = if descending { "DESC" } else { "ASC" };
+    format!("SELECT source_id,asset_id FROM ({relation}) WHERE source_id=?{source} AND asset_id{op}?{asset}
+        UNION ALL SELECT source_id,asset_id FROM ({relation}) WHERE source_id{op}?{source}
+        ORDER BY source_id {direction},asset_id {direction} LIMIT ?{limit}")
+}
+
 impl SqliteStore {
     pub fn browse_scope_count(&self, pid: &str, scope: &ScopeRef) -> Result<u64> {
         let p = self.handle(pid)?;
@@ -25,9 +42,9 @@ impl SqliteStore {
         let (source, asset) = after
             .map(|k| (k.source_id.as_str(), k.asset_id.as_str()))
             .unwrap_or((end, end));
-        let op = if descending { "<" } else { ">" };
-        let direction = if descending { "DESC" } else { "ASC" };
-        let mut stmt = db.prepare(&format!("SELECT source_id,asset_id FROM ({}) WHERE (source_id,asset_id){op}(?1,?2) ORDER BY source_id {direction},asset_id {direction} LIMIT ?3", resolved.sql)).map_err(db_error)?;
+        let mut stmt = db
+            .prepare(&keyset_sql(&resolved.sql, 1, 2, 3, descending))
+            .map_err(db_error)?;
         stmt.query_map(params![source, asset, limit.clamp(1, 4097) as u32], |row| {
             Ok(AssetKey {
                 source_id: row.get(0)?,
@@ -50,6 +67,14 @@ impl SqliteStore {
         }
         let p = self.handle(pid)?;
         let db = p.read()?;
+        if let Some(recipe) = crate::ranking_memberships::resolve(&db, pid, scope)? {
+            let reader = crate::ranking_projection::RankingProjectionReader::open(
+                &p.project.directory,
+                &recipe,
+                Arc::new(AtomicBool::new(false)),
+            )?;
+            return keys.iter().map(|key| reader.contains_key(key)).collect();
+        }
         let resolved = scopes::resolve(&db, pid, scope)?;
         if matches!(scope.target, ScopeTarget::Selection { .. }) {
             return keys

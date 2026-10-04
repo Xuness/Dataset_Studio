@@ -23,6 +23,7 @@ export function queryCacheLabel(result: QueryResult) {
   if (result.state === "released")
     return "筛选缓存已结束，应用当前条件可重新计算。";
   if (result.state !== "ready") return "";
+  if (mode === "ranking") return "按已保存的排名直接读取 · 筛选范围已固定";
   const retention = result.cache.fixed
     ? "固定保留"
     : result.cache.tier === "long_term"

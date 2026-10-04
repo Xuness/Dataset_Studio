@@ -9,6 +9,38 @@ const SCHEMA:&str="CREATE TABLE IF NOT EXISTS owner(project_id TEXT PRIMARY KEY)
  CREATE TABLE IF NOT EXISTS members(dataset_id TEXT NOT NULL,source_id TEXT NOT NULL,asset_id TEXT NOT NULL,post_id INTEGER,PRIMARY KEY(dataset_id,source_id,asset_id)) WITHOUT ROWID;
  CREATE INDEX IF NOT EXISTS member_post_order ON members(dataset_id,post_id,source_id,asset_id);";
 
+/// A derived-index builder has the project attached as scope_db. Recreate the
+/// same read relations there: persistent compatibility views alone cannot see
+/// sealed member files or immutable ranking recipes.
+pub(crate) fn attach_scope_reader(db: &Connection, directory: &Path) -> Result<bool> {
+    let path = directory.join("members.sqlite");
+    if !path.is_file() {
+        return Ok(false);
+    }
+    db.execute(
+        "ATTACH DATABASE ?1 AS scope_members",
+        [crate::ranking_projection::readonly_uri(
+            &path.canonicalize().map_err(Error::io)?,
+        )?],
+    )
+    .map_err(db_error)?;
+    crate::ranking_members::load(db, directory)?;
+    db.execute_batch("CREATE TEMP VIEW scope_result_members AS
+      SELECT r.id AS result_id,m.source_id,m.asset_id FROM scope_db.query_results r JOIN scope_db.query_member_data m ON m.family_id=r.family_id
+        WHERE r.storage_kind='legacy' AND m.valid_from<=r.member_revision AND (m.valid_until IS NULL OR m.valid_until>r.member_revision)
+      UNION ALL SELECT r.id,m.source_id,m.asset_id FROM scope_db.query_results r JOIN scope_members.datasets d ON d.id=r.id AND d.state='sealed'
+        JOIN scope_members.members m ON m.dataset_id=d.id WHERE r.storage_kind='sealed' AND r.status='ready'
+      UNION ALL SELECT r.id,m.source_id,m.asset_id FROM scope_db.query_results r JOIN scope_db.ranking_memberships b ON b.result_id=r.id
+        JOIN ranking_members(b.recipe_json) m WHERE r.storage_kind='ranking' AND r.status='ready' AND m.matched=1;
+      CREATE TEMP VIEW scope_collection_members AS
+      SELECT * FROM scope_db.collection_member_legacy
+      UNION ALL SELECT b.collection_id,m.source_id,m.asset_id FROM scope_db.collection_bases b JOIN scope_result_members m ON m.result_id=b.result_id
+        WHERE NOT EXISTS(SELECT 1 FROM scope_db.collection_exclusions e WHERE e.collection_id=b.collection_id AND e.source_id=m.source_id AND e.asset_id=m.asset_id)
+      UNION ALL SELECT i.collection_id,i.source_id,i.asset_id FROM scope_db.collection_inclusions i
+        WHERE NOT EXISTS(SELECT 1 FROM scope_db.collection_bases b JOIN scope_result_members m ON m.result_id=b.result_id WHERE b.collection_id=i.collection_id AND m.source_id=i.source_id AND m.asset_id=i.asset_id);").map_err(db_error)?;
+    Ok(true)
+}
+
 pub(super) fn accounting(project: &Connection) -> Result<(u64, u64, u64)> {
     let Some(path) = project
         .path()
@@ -74,11 +106,14 @@ pub(super) fn attach(db: &Connection, directory: &Path) -> Result<()> {
     uri.set_query(Some("mode=ro"));
     db.execute("ATTACH DATABASE ?1 AS result_store", [uri.as_str()])
         .map_err(db_error)?;
+    crate::ranking_members::load(db, directory)?;
     db.execute_batch("CREATE TEMP VIEW result_members AS
       SELECT r.id AS result_id,m.source_id,m.asset_id FROM main.query_results r JOIN main.query_member_data m ON m.family_id=r.family_id
       WHERE r.storage_kind='legacy' AND m.valid_from<=r.member_revision AND (m.valid_until IS NULL OR m.valid_until>r.member_revision)
       UNION ALL SELECT r.id,m.source_id,m.asset_id FROM main.query_results r JOIN result_store.datasets d ON d.id=r.id AND d.state='sealed'
-      JOIN result_store.members m ON m.dataset_id=d.id WHERE r.storage_kind='sealed' AND r.status='ready';
+      JOIN result_store.members m ON m.dataset_id=d.id WHERE r.storage_kind='sealed' AND r.status='ready'
+      UNION ALL SELECT r.id,m.source_id,m.asset_id FROM main.query_results r JOIN main.ranking_memberships b ON b.result_id=r.id
+      JOIN ranking_members(b.recipe_json) m WHERE r.storage_kind='ranking' AND r.status='ready' AND m.matched=1;
       CREATE TEMP TRIGGER result_member_legacy_insert INSTEAD OF INSERT ON result_members BEGIN
         INSERT OR IGNORE INTO query_member_data(family_id,source_id,asset_id,valid_from)
           SELECT family_id,NEW.source_id,NEW.asset_id,member_revision FROM query_results WHERE id=NEW.result_id AND storage_kind='legacy';

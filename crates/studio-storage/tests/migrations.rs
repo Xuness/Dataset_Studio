@@ -50,6 +50,10 @@ fn v7_upgrade_preserves_relationships() {
 fn v11_upgrade_adds_creation_intents_without_changing_worksets() {
     upgrade_preserves_every_relationship(11);
 }
+#[test]
+fn v13_upgrade_adds_ranked_references_without_rewriting_existing_members() {
+    upgrade_preserves_every_relationship(13);
+}
 fn upgrade_preserves_every_relationship(from: u32) {
     let root = tempfile::tempdir().unwrap();
     let dir = root.path().join("中文旧项目");
@@ -150,6 +154,8 @@ fn upgrade_preserves_every_relationship(from: u32) {
         (9, include_str!("../src/schema_v9.sql")),
         (10, include_str!("../src/schema_v10.sql")),
         (11, include_str!("../src/schema_v11.sql")),
+        (12, include_str!("../src/schema_v12.sql")),
+        (13, include_str!("../src/schema_v13.sql")),
     ] {
         if from >= version {
             db.execute_batch(sql).unwrap();
@@ -218,7 +224,7 @@ fn upgrade_preserves_every_relationship(from: u32) {
         after
             .query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0))
             .unwrap(),
-        13
+        14
     );
     // Exact rows, including drafts, idempotency keys, event sequences and artifact references.
     if from >= 2 {

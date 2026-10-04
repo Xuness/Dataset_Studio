@@ -8,10 +8,7 @@ impl SqliteStore {
         let project = self.handle(pid)?;
         let db = project.read()?;
         let revision = read(&db)?.revision;
-        let selected = keys
-            .iter()
-            .map(|key| contains(&db, key))
-            .collect::<Result<Vec<_>>>()?;
+        let selected = contains_many(&db, &project.project.directory, keys)?;
         Ok((revision, selected))
     }
 }
@@ -43,11 +40,18 @@ pub(super) fn keys_ordered(
     let op = if descending { "<" } else { ">" };
     let direction = if descending { "DESC" } else { "ASC" };
     let mut stmt = db.prepare(&format!(
-        "SELECT source_id,asset_id FROM selection WHERE (source_id,asset_id){op}(?1,?2)
+        "SELECT source_id,asset_id FROM selection WHERE source_id=?1 AND asset_id{op}?2
+         UNION
+         SELECT source_id,asset_id FROM selection WHERE source_id{op}?1
          UNION
          SELECT m.source_id,m.asset_id FROM result_members m
          WHERE m.result_id=(SELECT result_id FROM selection_base WHERE singleton=1)
-         AND (m.source_id,m.asset_id){op}(?1,?2)
+         AND m.source_id=?1 AND m.asset_id{op}?2
+         AND NOT EXISTS(SELECT 1 FROM selection_exclusions e WHERE e.source_id=m.source_id AND e.asset_id=m.asset_id)
+         UNION
+         SELECT m.source_id,m.asset_id FROM result_members m
+         WHERE m.result_id=(SELECT result_id FROM selection_base WHERE singleton=1)
+         AND m.source_id{op}?1
          AND NOT EXISTS(SELECT 1 FROM selection_exclusions e WHERE e.source_id=m.source_id AND e.asset_id=m.asset_id)
          ORDER BY source_id {direction},asset_id {direction} LIMIT ?3",
     )).map_err(db_error)?;
@@ -91,6 +95,35 @@ pub(super) fn publish(db: &Connection) -> Result<Selection> {
 }
 pub(super) fn contains(db: &Connection, key: &AssetKey) -> Result<bool> {
     db.query_row("SELECT EXISTS(SELECT 1 FROM selection WHERE source_id=?1 AND asset_id=?2) OR (EXISTS(SELECT 1 FROM result_members m WHERE m.result_id=(SELECT result_id FROM selection_base WHERE singleton=1) AND m.source_id=?1 AND m.asset_id=?2) AND NOT EXISTS(SELECT 1 FROM selection_exclusions WHERE source_id=?1 AND asset_id=?2))",params![key.source_id,key.asset_id],|r|r.get(0)).map_err(db_error)
+}
+
+pub(super) fn contains_many(
+    db: &Connection,
+    directory: &Path,
+    keys: &[AssetKey],
+) -> Result<Vec<bool>> {
+    let raw: Option<String> = db.query_row("SELECT r.recipe_json FROM selection_base b JOIN ranking_memberships r ON r.result_id=b.result_id", [], |r|r.get(0)).optional().map_err(db_error)?;
+    let Some(raw) = raw else {
+        return keys.iter().map(|key| contains(db, key)).collect();
+    };
+    let recipe: crate::ranking_projection::RankingProjection =
+        serde_json::from_str(&raw).map_err(Error::io)?;
+    let reader = crate::ranking_projection::RankingProjectionReader::open(
+        directory,
+        &recipe,
+        Arc::new(AtomicBool::new(false)),
+    )?;
+    let mut explicit = db.prepare("SELECT EXISTS(SELECT 1 FROM selection WHERE source_id=?1 AND asset_id=?2),EXISTS(SELECT 1 FROM selection_exclusions WHERE source_id=?1 AND asset_id=?2)").map_err(db_error)?;
+    keys.iter()
+        .map(|key| {
+            let (included, excluded): (bool, bool) = explicit
+                .query_row(params![key.source_id, key.asset_id], |r| {
+                    Ok((r.get(0)?, r.get(1)?))
+                })
+                .map_err(db_error)?;
+            Ok(included || (!excluded && reader.contains_key(key)?))
+        })
+        .collect()
 }
 pub(super) fn change(
     store: &SqliteStore,

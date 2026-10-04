@@ -42,6 +42,17 @@ pub(super) async fn run(
             let spec = domain::QuerySpec::from(body.spec).normalize()?;
             let versions = s.queries.versions(&s.store, &pid, &spec)?;
             let read = read_permit(&s, domain::ReadClass::Index, &context)?;
+            if let Some(result) = s.store.create_ranking_result(
+                &pid,
+                &spec,
+                None,
+                &versions,
+                context.cancelled.clone(),
+            )? {
+                query_views::retain_created(&s, &pid, &result, true, &read)?;
+                s.queries.cache.recent(&pid, &result.id);
+                return Ok(result.into());
+            }
             validate_input(&s, &pid, &spec, &versions, &read)?;
             if versions
                 .iter()
@@ -190,6 +201,17 @@ pub(super) async fn build(
                 return Err(domain::Error::new("REVISION_CONFLICT", "查询定义已变化"));
             }
             let versions = s.queries.versions(&s.store, &pid, &query.spec)?;
+            if let Some(result) = s.store.create_ranking_result(
+                &pid,
+                &query.spec,
+                Some((&qid, query.revision)),
+                &versions,
+                read_context.cancelled.clone(),
+            )? {
+                query_views::retain_created(&s, &pid, &result, true, &_permit)?;
+                s.queries.cache.recent(&pid, &result.id);
+                return Ok(result.into());
+            }
             validate_input(&s, &pid, &query.spec, &versions, &_permit)?;
             if versions
                 .iter()
@@ -409,33 +431,109 @@ pub(super) async fn result_assets(
             };
             s.queries.validate_result(&s.store, &result, &_permit)?;
             let order = q.order.map(Into::into).unwrap_or(result.spec.order);
-            let after = q
-                .cursor
-                .map(|value| -> domain::Result<_> {
-                    if value.len() > 1024 {
+            let mut projected_next = None;
+            let page = if order.by_post() && s.store.query_storage_kind(&pid, &rid)? == "ranking" {
+                let signature = hex::encode(Sha256::digest(
+                    serde_json::to_vec(&(
+                        "ranking-post-view",
+                        &pid,
+                        &rid,
+                        order,
+                        &result.source_versions,
+                    ))
+                    .map_err(domain::Error::io)?,
+                ));
+                let revisions = result
+                    .source_versions
+                    .iter()
+                    .map(|v| (v.source_id.clone(), v.catalog_revision.clone()))
+                    .collect::<BTreeMap<_, _>>();
+                let mut cursor = if let Some(raw) = q.cursor {
+                    if raw.len() > 16384 {
                         return Err(domain::Error::invalid("结果游标过长"));
                     }
-                    let cursor: ResultCursor = URL_SAFE_NO_PAD
-                        .decode(value)
+                    let cursor: super::Cursor = URL_SAFE_NO_PAD
+                        .decode(raw)
                         .ok()
-                        .and_then(|b| serde_json::from_slice(&b).ok())
+                        .and_then(|v| serde_json::from_slice(&v).ok())
                         .ok_or_else(|| domain::Error::invalid("结果游标无效"))?;
-                    if cursor.project_id != pid || cursor.result_id != rid {
-                        return Err(domain::Error::invalid("游标不属于当前结果"));
+                    if cursor.scope != signature || cursor.revisions != revisions {
+                        return Err(domain::Error::invalid("结果游标不属于当前成员、版本或排序"));
                     }
-                    if cursor.order.unwrap_or(result.spec.order) != order {
-                        return Err(domain::Error::invalid("分页排序已变化，请返回第一页"));
+                    cursor
+                } else {
+                    super::Cursor {
+                        scope: signature,
+                        revisions,
+                        ..Default::default()
                     }
-                    Ok(cursor.after)
-                })
-                .transpose()?;
-            let page = s.store.result_page_ordered(
-                &pid,
-                &rid,
-                after.as_ref(),
-                q.limit.unwrap_or(48),
-                order,
-            )?;
+                };
+                let scope = domain::ScopeRef {
+                    project_id: pid.clone(),
+                    target: domain::ScopeTarget::QueryResult {
+                        result_id: rid.clone(),
+                    },
+                };
+                let page = scoped_browse::page(
+                    &s,
+                    &_permit,
+                    &pid,
+                    &scope,
+                    &mut cursor,
+                    order,
+                    q.limit.unwrap_or(48).clamp(1, 128),
+                )?
+                .ok_or_else(|| domain::Error::new("QUERY_UNSUPPORTED", "当前来源不支持帖子排序"))?;
+                let next = page.more.then(|| encode_cursor(&cursor)).transpose()?;
+                if page.preparing.is_some() {
+                    return Ok(ResultAssets {
+                        result_id: rid.clone(),
+                        count: result.count,
+                        page: AssetPage {
+                            items: Vec::new(),
+                            next_cursor: next,
+                            revision: rid,
+                            preparing: page.preparing,
+                            result_id: None,
+                            scan: page.scan,
+                            start_cursor: None,
+                        },
+                    });
+                }
+                projected_next = Some(next);
+                domain::ResultPage {
+                    keys: page.keys,
+                    next: None,
+                }
+            } else {
+                let after = q
+                    .cursor
+                    .map(|value| -> domain::Result<_> {
+                        if value.len() > 1024 {
+                            return Err(domain::Error::invalid("结果游标过长"));
+                        }
+                        let cursor: ResultCursor = URL_SAFE_NO_PAD
+                            .decode(value)
+                            .ok()
+                            .and_then(|b| serde_json::from_slice(&b).ok())
+                            .ok_or_else(|| domain::Error::invalid("结果游标无效"))?;
+                        if cursor.project_id != pid || cursor.result_id != rid {
+                            return Err(domain::Error::invalid("游标不属于当前结果"));
+                        }
+                        if cursor.order.unwrap_or(result.spec.order) != order {
+                            return Err(domain::Error::invalid("分页排序已变化，请返回第一页"));
+                        }
+                        Ok(cursor.after)
+                    })
+                    .transpose()?;
+                s.store.result_page_ordered(
+                    &pid,
+                    &rid,
+                    after.as_ref(),
+                    q.limit.unwrap_or(48),
+                    order,
+                )?
+            };
             let mut groups = BTreeMap::<String, Vec<domain::AssetKey>>::new();
             for key in &page.keys {
                 groups
@@ -509,19 +607,22 @@ pub(super) async fn result_assets(
                 &read_context,
                 &mut items,
             )?;
-            let next_cursor = page
-                .next
-                .map(|after| {
-                    serde_json::to_vec(&ResultCursor {
-                        project_id: pid,
-                        result_id: rid.clone(),
-                        after,
-                        order: Some(order),
+            let next_cursor = if let Some(next) = projected_next {
+                next
+            } else {
+                page.next
+                    .map(|after| {
+                        serde_json::to_vec(&ResultCursor {
+                            project_id: pid,
+                            result_id: rid.clone(),
+                            after,
+                            order: Some(order),
+                        })
+                        .map(|b| URL_SAFE_NO_PAD.encode(b))
+                        .map_err(domain::Error::io)
                     })
-                    .map(|b| URL_SAFE_NO_PAD.encode(b))
-                    .map_err(domain::Error::io)
-                })
-                .transpose()?;
+                    .transpose()?
+            };
             Ok(ResultAssets {
                 result_id: rid.clone(),
                 count: result.count,

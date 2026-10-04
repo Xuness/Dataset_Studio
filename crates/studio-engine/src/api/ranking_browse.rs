@@ -2,7 +2,79 @@ use super::*;
 use std::{cmp::Ordering, collections::HashSet};
 use studio_application::read_cancelled;
 use studio_storage::ranked_index::{RankedIndex, RankedIndexMeta, RankedIndexPlan};
+use studio_storage::ranking_projection::RankingProjectionReader;
 use studio_storage::ranking_tables::{RankingInputTable, RankingPosition, RankingResultTable};
+
+trait RankingOrderReader {
+    fn page(
+        &self,
+        order: domain::RankingOrder,
+        descending: bool,
+        after: Option<&RankingPosition>,
+        limit: usize,
+    ) -> domain::Result<Vec<RankingPosition>>;
+    fn locate(
+        &self,
+        post: i64,
+        order: domain::RankingOrder,
+        descending: bool,
+    ) -> domain::Result<Option<RankingPosition>>;
+    fn locate_rank(
+        &self,
+        rank: u64,
+        rating: &str,
+        order: domain::RankingOrder,
+        descending: bool,
+    ) -> domain::Result<Option<RankingPosition>>;
+    fn locate_position(
+        &self,
+        position: u64,
+        order: domain::RankingOrder,
+        descending: bool,
+    ) -> domain::Result<Option<RankingPosition>>;
+}
+macro_rules! ranking_order_reader {
+    ($reader:ty) => {
+        impl RankingOrderReader for $reader {
+            fn page(
+                &self,
+                order: domain::RankingOrder,
+                descending: bool,
+                after: Option<&RankingPosition>,
+                limit: usize,
+            ) -> domain::Result<Vec<RankingPosition>> {
+                <$reader>::page(self, order, descending, after, limit)
+            }
+            fn locate(
+                &self,
+                post: i64,
+                order: domain::RankingOrder,
+                descending: bool,
+            ) -> domain::Result<Option<RankingPosition>> {
+                <$reader>::locate(self, post, order, descending)
+            }
+            fn locate_rank(
+                &self,
+                rank: u64,
+                rating: &str,
+                order: domain::RankingOrder,
+                descending: bool,
+            ) -> domain::Result<Option<RankingPosition>> {
+                <$reader>::locate_rank(self, rank, rating, order, descending)
+            }
+            fn locate_position(
+                &self,
+                position: u64,
+                order: domain::RankingOrder,
+                descending: bool,
+            ) -> domain::Result<Option<RankingPosition>> {
+                <$reader>::locate_position(self, position, order, descending)
+            }
+        }
+    };
+}
+ranking_order_reader!(RankedIndex);
+ranking_order_reader!(RankingProjectionReader);
 
 #[derive(Deserialize)]
 pub(super) struct InfoQuery {
@@ -319,28 +391,43 @@ impl Browse<'_> {
             start_cursor,
         })
     }
-    fn run(&self, mut cursor: Cursor, index: &RankedIndex) -> domain::Result<AssetPage> {
+    fn run(
+        &self,
+        mut cursor: Cursor,
+        index: &impl RankingOrderReader,
+    ) -> domain::Result<AssetPage> {
         read_cancelled(&self.read.cancelled)?;
         if let Some(anchor) = &self.rank {
-            let position = if let Some(rating) = &anchor.rating {
-                index.locate_rank(anchor.rank, rating, self.order, self.descending)?
-            } else {
-                index.locate_position(anchor.rank, self.order, self.descending)?
-            }
-            .ok_or_else(|| {
-                domain::Error::new(
-                    "RANK_POSITION_NOT_FOUND",
-                    if let Some(rating) = &anchor.rating {
-                        format!(
-                            "当前范围中没有 {} 分级的第 {} 名，该原始名次可能已被筛选排除",
-                            rating.to_uppercase(),
-                            anchor.rank
-                        )
+            let position =
+                if let Some(position) = self.state.ranking_reads.anchors.get(&self.signature) {
+                    position
+                } else {
+                    let position = if let Some(rating) = &anchor.rating {
+                        index.locate_rank(anchor.rank, rating, self.order, self.descending)?
                     } else {
-                        format!("总榜位置超出当前范围，请输入 1 至 {}", self.basis.count)
-                    },
-                )
-            })?;
+                        index.locate_position(anchor.rank, self.order, self.descending)?
+                    };
+                    read_cancelled(&self.read.cancelled)?;
+                    self.state
+                        .ranking_reads
+                        .anchors
+                        .insert(self.signature.clone(), position.clone());
+                    position
+                }
+                .ok_or_else(|| {
+                    domain::Error::new(
+                        "RANK_POSITION_NOT_FOUND",
+                        if let Some(rating) = &anchor.rating {
+                            format!(
+                                "当前范围中没有 {} 分级的第 {} 名，该原始名次可能已被筛选排除",
+                                rating.to_uppercase(),
+                                anchor.rank
+                            )
+                        } else {
+                            format!("总榜位置超出当前范围，请输入 1 至 {}", self.basis.count)
+                        },
+                    )
+                })?;
             if matches!(cursor.state, Phase::SeekRank) {
                 cursor.start = Some(position.ordinal);
                 cursor.state = Phase::Browse {
@@ -516,12 +603,15 @@ pub(super) async fn assets(
                 }
             };
             read_cancelled(&read.cancelled)?;
-            s.queries.ranked_indexes.adopt(&plan, |old| {
-                Ok(old.version == plan.meta.version
-                    && old.count == plan.meta.count
-                    && s.store.canonical_ranked_scope(&pid, &old.scope)? == plan.meta.scope
-                    && key_for(&old.scope)? == old.key)
-            })?;
+            let projection = s.store.ranking_projection(&pid, &scope)?;
+            if projection.is_none() {
+                s.queries.ranked_indexes.adopt(&plan, |old| {
+                    Ok(old.version == plan.meta.version
+                        && old.count == plan.meta.count
+                        && s.store.canonical_ranked_scope(&pid, &old.scope)? == plan.meta.scope
+                        && key_for(&old.scope)? == old.key)
+                })?;
+            }
             let browse = Browse {
                 state: &s,
                 pid: &pid,
@@ -541,6 +631,16 @@ pub(super) async fn assets(
             browse.table.cancel_reads(read.cancelled.clone())?;
             browse.validate(&cursor)?;
             read_cancelled(&read.cancelled)?;
+            if let Some(projection) = projection {
+                let reader = RankingProjectionReader::open(
+                    &s.store.directory(&pid)?,
+                    &projection,
+                    read.cancelled.clone(),
+                )?;
+                let result = browse.run(cursor, &reader);
+                read_cancelled(&read.cancelled)?;
+                return result;
+            }
             if let Some(index) = s
                 .queries
                 .ranked_indexes

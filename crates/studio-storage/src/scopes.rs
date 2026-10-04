@@ -160,12 +160,30 @@ impl ScopeRepository for SqliteStore {
         // Self-selection operations must read the original relation before any mutation.
         // A TEMP table is disk-backed and dropped in this transaction; no frontend ID list.
         tx.execute_batch("DROP TABLE IF EXISTS temp.scope_members; CREATE TEMP TABLE scope_members(source_id TEXT,asset_id TEXT,PRIMARY KEY(source_id,asset_id)) WITHOUT ROWID;").map_err(db_error)?;
-        if operation == ScopeOperation::Replace
-            && let ScopeTarget::QueryResult { result_id } = &scope.target
-        {
+        let base = if operation == ScopeOperation::Replace {
+            match &scope.target {
+                ScopeTarget::QueryResult { result_id } => Some(result_id.clone()),
+                ScopeTarget::Workset { collection_id } => tx
+                    .query_row(
+                        "SELECT result_id FROM collection_bases WHERE collection_id=?1",
+                        [collection_id],
+                        |r| r.get::<_, String>(0),
+                    )
+                    .optional()
+                    .map_err(db_error)?,
+                _ => None,
+            }
+        } else {
+            None
+        };
+        if let Some(result_id) = base {
             selection::clear(&tx)?;
-            tx.execute("INSERT INTO selection_base VALUES (1,?1)", [result_id])
+            tx.execute("INSERT INTO selection_base VALUES (1,?1)", [&result_id])
                 .map_err(db_error)?;
+            if let ScopeTarget::Workset { collection_id } = &scope.target {
+                tx.execute("INSERT INTO selection SELECT source_id,asset_id FROM collection_inclusions WHERE collection_id=?1", [collection_id]).map_err(db_error)?;
+                tx.execute("INSERT INTO selection_exclusions SELECT source_id,asset_id FROM collection_exclusions WHERE collection_id=?1", [collection_id]).map_err(db_error)?;
+            }
         } else {
             tx.execute(
                 &format!("INSERT INTO temp.scope_members {}", resolved.sql),

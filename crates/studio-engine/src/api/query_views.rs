@@ -118,7 +118,7 @@ pub(super) fn retain_created(
     read: &SourceRead,
 ) -> domain::Result<()> {
     if let Err(error) = retain(s, pid, result, permanent, read) {
-        if result.cache.mode == "view" {
+        if result.state == domain::ResultState::Ready {
             s.store.release_result(pid, &result.id)?;
         } else {
             s.store.cancel_result(pid, &result.id)?;

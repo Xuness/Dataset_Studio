@@ -281,21 +281,16 @@ impl QueryRepository for SqliteStore {
             return post_page(&db, id, after, limit, order);
         }
         let desc = order.descending();
+        let end = if desc { "\u{10ffff}" } else { "" };
         let (source, asset) = after
             .map(|k| (k.source_id.as_str(), k.asset_id.as_str()))
-            .unwrap_or(("", ""));
-        let condition = if after.is_some() {
-            format!(
-                " AND (source_id,asset_id){}(?2,?3)",
-                if desc { "<" } else { ">" }
-            )
-        } else {
-            String::new()
-        };
-        let sql = format!(
-            "SELECT source_id,asset_id FROM result_members WHERE result_id=?1{condition} ORDER BY source_id {},asset_id {} LIMIT ?4",
-            if desc { "DESC" } else { "ASC" },
-            if desc { "DESC" } else { "ASC" }
+            .unwrap_or((end, end));
+        let sql = crate::browse_scopes::keyset_sql(
+            "SELECT source_id,asset_id FROM result_members WHERE result_id=?1",
+            2,
+            3,
+            4,
+            desc,
         );
         let limit = limit.clamp(1, 128);
         let mut stmt = db.prepare(&sql).map_err(db_error)?;
@@ -680,6 +675,22 @@ impl SqliteStore {
         let p = self.handle(pid)?;
         let db = p.read()?;
         let scope = validate_input(&db, pid, spec)?.expect("project scope validated");
+        if let Some(input) = &spec.input_scope
+            && let Some(recipe) = crate::ranking_memberships::resolve(&db, pid, input)?
+        {
+            let reader = crate::ranking_projection::RankingProjectionReader::open(
+                &p.project.directory,
+                &recipe,
+                Arc::new(AtomicBool::new(false)),
+            )?;
+            let mut kept = Vec::new();
+            for key in keys {
+                if reader.contains_key(key)? {
+                    kept.push(key.clone());
+                }
+            }
+            return Ok(kept);
+        }
         let mut stmt = db
             .prepare(&format!(
                 "SELECT 1 FROM ({}) WHERE source_id=?1 AND asset_id=?2 LIMIT 1",

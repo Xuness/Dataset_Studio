@@ -140,11 +140,31 @@ impl RankedIndex {
             }
         }))
         .map_err(db_error)?;
+        let attached_members = crate::result_store::attach_scope_reader(
+            &db,
+            plan.project
+                .parent()
+                .ok_or_else(|| Error::invalid("项目路径无效"))?,
+        )?;
         let (relation, column, id) = match &plan.meta.scope.target {
-            ScopeTarget::Workset { collection_id } => {
-                ("collection_members", "collection_id", collection_id)
-            }
-            ScopeTarget::QueryResult { result_id } => ("result_members", "result_id", result_id),
+            ScopeTarget::Workset { collection_id } => (
+                if attached_members {
+                    "scope_collection_members"
+                } else {
+                    "scope_db.collection_members"
+                },
+                "collection_id",
+                collection_id,
+            ),
+            ScopeTarget::QueryResult { result_id } => (
+                if attached_members {
+                    "scope_result_members"
+                } else {
+                    "scope_db.result_members"
+                },
+                "result_id",
+                result_id,
+            ),
             _ => return Err(Error::invalid("该范围不支持排名索引")),
         };
         progress.phase.store(1, Ordering::Release);
@@ -154,7 +174,7 @@ impl RankedIndex {
             ""
         };
         let sql = format!(
-            "INSERT INTO members SELECT i.ordinal,coalesce(s.rating,'z'),coalesce(s.main_rank,9223372036854775807),coalesce(s.rescue_rank,9223372036854775807),i.post_id{extra_columns} FROM scope_db.{relation} m CROSS JOIN fixed_input.input_rows i INDEXED BY input_identity CROSS JOIN fixed_scores.scores s WHERE m.{column}=?1 AND i.source_id=m.source_id AND i.asset_id=unhex(m.asset_id) AND s.ordinal=i.ordinal"
+            "INSERT INTO members SELECT i.ordinal,coalesce(s.rating,'z'),coalesce(s.main_rank,9223372036854775807),coalesce(s.rescue_rank,9223372036854775807),i.post_id{extra_columns} FROM {relation} m CROSS JOIN fixed_input.input_rows i INDEXED BY input_identity CROSS JOIN fixed_scores.scores s WHERE m.{column}=?1 AND i.source_id=m.source_id AND i.asset_id=unhex(m.asset_id) AND s.ordinal=i.ordinal"
         );
         let outcome = (|| {
             let copied = db.execute(&sql, [id]).map_err(build_error)? as u64;
@@ -163,6 +183,9 @@ impl RankedIndex {
                     "ARTIFACT_INVALID",
                     "固定成员与原排名输入不一致，未发布排名索引",
                 ));
+            }
+            if attached_members {
+                db.execute_batch("DROP VIEW scope_collection_members; DROP VIEW scope_result_members; DETACH DATABASE scope_members;").map_err(db_error)?;
             }
             db.execute_batch("DETACH DATABASE scope_db; DETACH DATABASE fixed_input; DETACH DATABASE fixed_scores;").map_err(db_error)?;
             db.execute_batch("CREATE TABLE rank_positions(order_name TEXT NOT NULL,sequence INTEGER NOT NULL,ordinal INTEGER NOT NULL,PRIMARY KEY(order_name,sequence)) WITHOUT ROWID;").map_err(build_error)?;

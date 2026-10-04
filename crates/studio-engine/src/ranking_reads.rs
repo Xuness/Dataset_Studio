@@ -27,11 +27,9 @@ impl<T: Clone> BoundedCache<T> {
         *used = Instant::now();
         Some(value.clone())
     }
-    #[cfg(test)]
     pub fn insert(&self, key: String, value: T) {
         self.insert_if(key, value, |_, _| true);
     }
-    #[cfg(test)]
     pub fn insert_if(&self, key: String, value: T, replace: impl FnOnce(&T, &T) -> bool) {
         let Ok(mut entries) = self.entries.lock() else {
             return;
@@ -84,11 +82,13 @@ pub struct CountProgress {
 }
 pub struct RankingReadCache {
     pub counts: BoundedCache<Arc<Mutex<CountProgress>>>,
+    pub anchors: BoundedCache<Option<studio_storage::ranking_tables::RankingPosition>>,
 }
 impl Default for RankingReadCache {
     fn default() -> Self {
         Self {
             counts: BoundedCache::new(64),
+            anchors: BoundedCache::new(128),
         }
     }
 }

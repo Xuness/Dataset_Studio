@@ -33,6 +33,31 @@ impl SqliteStore {
         let project = self.handle(pid)?;
         let db = project.read()?;
         let index_scope = canonical(&db, scope)?;
+        if crate::ranking_memberships::has_presentation(&db, scope)?
+            && let Some(recipe) = crate::ranking_memberships::resolve(&db, pid, scope)?
+        {
+            let artifact = artifacts::read(&db, pid, &recipe.artifact_id)?;
+            if artifact.state != ArtifactState::Ready || artifact.kind != RANKING_KIND {
+                return Err(Error::new("ARTIFACT_NOT_READY", "固定排名成果不可用"));
+            }
+            return Ok(Some(RankedScope {
+                current_rating_filter: false,
+                view_key: format!(
+                    "ranked:{}",
+                    hex::encode(Sha256::digest(
+                        serde_json::to_vec(&(&recipe.workset_id, recipe.fingerprint()?))
+                            .map_err(Error::io)?
+                    ))
+                ),
+                index_scope,
+                schema_version: artifact.schema_version,
+                workset_id: recipe.workset_id,
+                artifact_id: recipe.artifact_id,
+                artifact_name: artifact.name,
+                count: recipe.count,
+                saved_filter: recipe.filter,
+            }));
+        }
         let mut view_spec = None;
         let mut target = scope.target.clone();
         let mut count = None;

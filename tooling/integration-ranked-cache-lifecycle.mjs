@@ -4,7 +4,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { DatabaseSync } from "node:sqlite";
 import { performance } from "node:perf_hooks";
 import { EngineFixture, sleep } from "./engine-fixture.mjs";
@@ -299,15 +299,32 @@ try {
   const revisionDb = new DatabaseSync(
     resolve(project.directory, "project.sqlite"),
   );
+  const rankingFiles = JSON.parse(
+    revisionDb
+      .prepare("SELECT files_json FROM artifacts WHERE id=?")
+      .get(original.artifact).files_json,
+  );
+  for (const [alias, suffix] of [
+    ["oracle_scores", ".ranking.sqlite"],
+    ["oracle_input", ".ranking-input.sqlite"],
+  ]) {
+    const file = rankingFiles.find((f) => f.path.endsWith(suffix));
+    assert.ok(file);
+    revisionDb
+      .prepare(`ATTACH DATABASE ? AS ${alias}`)
+      .run(
+        pathToFileURL(resolve(project.directory, file.path)).href + "?mode=ro",
+      );
+  }
   revisionDb.exec("PRAGMA busy_timeout=3000; BEGIN IMMEDIATE");
   const parent = revisionDb
     .prepare("SELECT family_id FROM query_results WHERE id=?")
     .get(changed.id).family_id;
   const replacement = revisionDb
     .prepare(
-      "SELECT m.source_id,m.asset_id FROM collection_members m WHERE collection_id=? AND NOT EXISTS(SELECT 1 FROM result_members r WHERE r.result_id=? AND r.source_id=m.source_id AND r.asset_id=m.asset_id) LIMIT 1",
+      "SELECT i.source_id,lower(hex(i.asset_id)) AS asset_id FROM oracle_scores.scores s JOIN oracle_input.input_rows i ON i.ordinal=s.ordinal WHERE s.eligibility='eligible' AND NOT EXISTS(SELECT 1 FROM result_members r WHERE r.result_id=? AND r.source_id=i.source_id AND r.asset_id=lower(hex(i.asset_id))) LIMIT 1",
     )
-    .get(original.spec.input_scope.target.collection_id, original.first.id);
+    .get(original.first.id);
   revisionDb
     .prepare(
       "UPDATE query_member_data SET valid_until=2 WHERE family_id=? AND asset_id=? AND valid_until IS NULL",

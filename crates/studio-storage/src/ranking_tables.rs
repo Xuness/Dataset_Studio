@@ -942,29 +942,7 @@ impl RankingResultTable {
             .map_err(db_error)
     }
     pub fn known_count(&self, filter: &RankingFilter) -> Result<Option<u64>> {
-        filter.validate()?;
-        let summary = self.meta::<RankingSummary>("summary")?;
-        if filter.route.is_some() || filter.missing_only || filter.selected_only {
-            return Ok(None);
-        }
-        if filter.top.is_none() && filter.eligibility == Some(RankingEligibility::Eligible) {
-            let eligible = summary
-                .ratings
-                .iter()
-                .filter(|r| filter.rating.as_ref().is_none_or(|v| v == &r.rating));
-            return Ok(Some(eligible.map(|r| r.eligible).sum()));
-        }
-        if filter.top.is_none() && filter.rating.is_none() {
-            return Ok(Some(match &filter.eligibility {
-                None => summary.input_count,
-                Some(value) => summary
-                    .eligibility_counts
-                    .get(&enum_text(value)?)
-                    .copied()
-                    .unwrap_or(0),
-            }));
-        }
-        Ok(None)
+        known_summary_count(&self.meta::<RankingSummary>("summary")?, filter)
     }
     pub fn count_scan(&self, filter: &RankingFilter, from: u64, total: u64) -> Result<(u64, u64)> {
         if from > total || total > i64::MAX as u64 {
@@ -1020,6 +998,65 @@ impl RankingResultTable {
             .map_err(db_error)
     }
 }
+pub(crate) fn known_summary_count(
+    summary: &RankingSummary,
+    filter: &RankingFilter,
+) -> Result<Option<u64>> {
+    filter.validate()?;
+    if filter.top.is_none()
+        && !filter.missing_only
+        && filter
+            .eligibility
+            .is_none_or(|e| e == RankingEligibility::Eligible)
+        && summary.eligibility_counts.values().sum::<u64>() == summary.input_count
+    {
+        let route = match filter.route {
+            Some(RankingRoute::Main) => Some(0),
+            Some(RankingRoute::Rescue) => Some(1),
+            Some(RankingRoute::Audit) => Some(2),
+            _ => None,
+        };
+        if route.is_some() || (filter.route.is_none() && filter.selected_only) {
+            return Ok(Some(
+                summary
+                    .ratings
+                    .iter()
+                    .filter(|r| filter.rating.as_ref().is_none_or(|v| v == &r.rating))
+                    .map(|r| {
+                        route
+                            .map(|i| r.selected[i])
+                            .unwrap_or_else(|| r.selected.iter().sum())
+                    })
+                    .sum(),
+            ));
+        }
+    }
+    if filter.route.is_some() || filter.missing_only || filter.selected_only {
+        return Ok(None);
+    }
+    if filter.top.is_none() && filter.eligibility == Some(RankingEligibility::Eligible) {
+        return Ok(Some(
+            summary
+                .ratings
+                .iter()
+                .filter(|r| filter.rating.as_ref().is_none_or(|v| v == &r.rating))
+                .map(|r| r.eligible)
+                .sum(),
+        ));
+    }
+    if filter.top.is_none() && filter.rating.is_none() {
+        return Ok(Some(match &filter.eligibility {
+            None => summary.input_count,
+            Some(value) => summary
+                .eligibility_counts
+                .get(&enum_text(value)?)
+                .copied()
+                .unwrap_or(0),
+        }));
+    }
+    Ok(None)
+}
+
 pub(crate) fn filter_sql(f: &RankingFilter) -> Result<(String, Vec<SqlValue>)> {
     f.validate()?;
     let mut clauses = vec!["1=1".to_owned()];
@@ -1211,6 +1248,24 @@ mod tests {
             })
             .collect::<Vec<_>>();
         table.append(&rows).unwrap();
+        // Published summaries include exact route counts. Keep the fixture's
+        // summary complete so both metadata counts and SQL counts are exercised.
+        for part in &mut summary.ratings {
+            for row in rows
+                .iter()
+                .filter(|row| row.rating.as_deref() == Some(part.rating.as_str()))
+            {
+                let index = match row.selected_route {
+                    RankingRoute::Main => Some(0),
+                    RankingRoute::Rescue => Some(1),
+                    RankingRoute::Audit => Some(2),
+                    _ => None,
+                };
+                if let Some(index) = index {
+                    part.selected[index] += 1;
+                }
+            }
+        }
         table.finish(&summary).unwrap();
         for order in [
             RankingOrder::Main,

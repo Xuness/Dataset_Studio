@@ -46,6 +46,14 @@ impl SqliteStore {
         }
         let p = self.handle(pid)?;
         let db = p.read()?;
+        if let Some(recipe) = crate::ranking_memberships::resolve(&db, pid, scope)? {
+            if recipe.count == 0 {
+                return Ok(Vec::new());
+            }
+            if recipe.source_ids.len() == 1 {
+                return Ok(recipe.source_ids);
+            }
+        }
         let resolved = scopes::resolve(&db, pid, scope)?;
         if resolved.count == 0 {
             return Ok(Vec::new());

@@ -100,12 +100,13 @@ impl RankingQuery {
                     .into_iter()
                     .map(|n| first.input.key(n))
                     .collect::<Result<Vec<_>>>()?;
-                processed += keys.len() as u64;
+                let batch_processed = keys.len() as u64;
+                processed += batch_processed;
                 let keys = keys
                     .into_iter()
                     .filter(|k| k.source_id == source)
                     .collect::<Vec<_>>();
-                sink(&keys, processed)?;
+                sink(&keys, batch_processed)?;
             }
         }
         Ok(processed)

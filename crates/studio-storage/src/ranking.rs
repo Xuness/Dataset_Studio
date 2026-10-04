@@ -228,76 +228,65 @@ impl SqliteStore {
                 return Err(Error::invalid("排名文件不在本项目成果目录"));
             }
         }
-        let uri = |path: &Path| -> String {
-            let text = path.to_string_lossy();
-            let path = text
-                .strip_prefix("\\\\?\\")
-                .unwrap_or(&text)
-                .replace('\\', "/");
-            format!(
-                "file:{}?mode=ro",
-                path.replace('%', "%25")
-                    .replace('?', "%3F")
-                    .replace('#', "%23")
-            )
-        };
         let scores = ranking_tables::RankingResultTable::open(table)?;
         scores.cancel_reads(cancelled.clone())?;
-        let expected = scores.known_count(filter)?;
-        operation.update(0, expected);
-        db.execute("ATTACH DATABASE ?1 AS ranking_input", [uri(input)])
-            .map_err(db_error)?;
-        let flag = cancelled.clone();
-        if let Err(error) = db.progress_handler(1000, Some(move || flag.load(Ordering::Acquire))) {
-            let _ = db.execute_batch("DETACH DATABASE ranking_input;");
-            return operation.finish(Err(db_error(error)));
-        }
+        operation.update(0, scores.known_count(filter)?);
         let result = (|| {
-            let tx = db.project_transaction().map_err(db_error)?;
-            let id = new_id();
-            tx.execute(
-                "INSERT INTO collections VALUES (?1,?2,0)",
-                params![id, name],
-            )
-            .map_err(db_error)?;
-            let mut count = 0u64;
-            let mut after = None;
-            loop {
-                studio_application::read_cancelled(&cancelled)?;
-                let page = scores.browse_scan(filter, filter.order, false, after.as_ref(), 512)?;
-                let mut values = vec![rusqlite::types::Value::Text(id.clone())];
-                for (row, matches) in page.rows {
-                    after = Some(ranking_tables::RankingPosition::for_scores(
-                        &row,
-                        filter.order,
-                    ));
-                    if matches {
-                        values.push(rusqlite::types::Value::Integer(row.ordinal as i64));
-                    }
-                }
-                if values.len() > 1 {
-                    let placeholders = (2..=values.len())
-                        .map(|n| format!("?{n}"))
-                        .collect::<Vec<_>>()
-                        .join(",");
-                    count += tx.execute(&format!("INSERT INTO collection_member_legacy SELECT ?1,source_id,lower(hex(asset_id)) FROM ranking_input.input_rows WHERE ordinal IN ({placeholders}) ORDER BY source_id,asset_id"),rusqlite::params_from_iter(values)).map_err(db_error)? as u64;
-                }
-                operation.update(count, expected);
-                if !page.more {
-                    break;
-                }
-            }
+            let count = scores.filtered_count(filter)?;
+            studio_application::read_cancelled(&cancelled)?;
             if count == 0 {
                 return Err(Error::invalid("当前排名过滤结果为空"));
             }
-            if expected.is_some_and(|expected| expected != count) {
-                return Err(Error::new("ARTIFACT_INVALID", "排名成员与已验证摘要不一致"));
-            }
+            let tx = db.project_transaction().map_err(db_error)?;
+            let id = new_id();
+            let recipe = crate::ranking_memberships::create_recipe(
+                &tx,
+                &p.project.directory,
+                aid,
+                &id,
+                filter,
+                (input, table),
+                count,
+            )?;
+            let versions: Option<String> = tx
+                .query_row(
+                    "SELECT versions_json FROM job_runs WHERE job_id=?1",
+                    [&artifact.job_id],
+                    |r| r.get(0),
+                )
+                .optional()
+                .map_err(db_error)?;
+            let versions = versions
+                .map(|raw| serde_json::from_str::<Vec<QuerySourceVersion>>(&raw).map_err(Error::io))
+                .transpose()?
+                .unwrap_or_default();
+            let spec = QuerySpec {
+                version: 3,
+                source_ids: recipe.source_ids.clone(),
+                conditions: Vec::new(),
+                observation_rule: ObservationRule::CurrentPost,
+                order: QueryOrder::AssetKeyAsc,
+                input_scope: None,
+            };
+            let base = crate::ranking_memberships::insert_result(
+                &tx, pid, &recipe, &spec, &versions, None, true,
+            )?;
             tx.execute(
-                "UPDATE collections SET count=?2 WHERE id=?1",
-                params![id, count as i64],
+                "INSERT INTO collections VALUES (?1,?2,?3)",
+                params![id, name, count as i64],
             )
             .map_err(db_error)?;
+            tx.execute(
+                "INSERT INTO collection_bases VALUES (?1,?2)",
+                params![id, base.id],
+            )
+            .map_err(db_error)?;
+            tx.execute(
+                "INSERT INTO result_references VALUES ('collection',?1,?2)",
+                params![id, base.id],
+            )
+            .map_err(db_error)?;
+            operation.update(count, Some(count));
             let provenance = serde_json::json!({"version":2,"ranking_artifact":aid,"filter":filter,"input_scope":artifact.provenance.input_scope});
             tx.execute(
                 "INSERT INTO collection_scopes VALUES (?1,?2,?3)",
@@ -329,16 +318,6 @@ impl SqliteStore {
                 count,
             })
         })();
-        let cleared = db
-            .progress_handler(0, None::<fn() -> bool>)
-            .map_err(db_error);
-        let detached = db
-            .execute_batch("DETACH DATABASE ranking_input;")
-            .map_err(db_error);
-        operation.finish(result.and_then(|collection| {
-            cleared?;
-            detached?;
-            Ok(collection)
-        }))
+        operation.finish(result)
     }
 }

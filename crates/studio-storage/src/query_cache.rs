@@ -379,17 +379,19 @@ impl SqliteStore {
         let p = self.handle(pid)?;
         let db = p.read()?;
         query::ready_result(&db, pid, rid)?;
-        let direction = if order.descending() { "DESC" } else { "ASC" };
-        let op = if order.descending() { "<" } else { ">" };
+        let end = if order.descending() { "\u{10ffff}" } else { "" };
         let (source, asset) = after
             .map(|k| (k.source_id.as_str(), k.asset_id.as_str()))
-            .unwrap_or(("", ""));
-        let condition = if after.is_some() {
-            format!(" AND (source_id,asset_id){op}(?2,?3)")
-        } else {
-            String::new()
-        };
-        let mut stmt=db.prepare(&format!("SELECT source_id,asset_id FROM result_members WHERE result_id=?1{condition} ORDER BY source_id {direction},asset_id {direction} LIMIT ?4")).map_err(db_error)?;
+            .unwrap_or((end, end));
+        let mut stmt = db
+            .prepare(&crate::browse_scopes::keyset_sql(
+                "SELECT source_id,asset_id FROM result_members WHERE result_id=?1",
+                2,
+                3,
+                4,
+                order.descending(),
+            ))
+            .map_err(db_error)?;
         let limit = limit.clamp(1, 128);
         let mut keys = stmt
             .query_map(params![rid, source, asset, (limit + 1) as i64], |r| {
