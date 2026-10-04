@@ -39,6 +39,9 @@ const checks = [],
   screenshots = [],
   browseRequests = [];
 let browser, page, vite, base, artifact;
+let expireNextCursor = false,
+  expiredCursors = 0;
+const expiredCursorTokens = new Set();
 // Four-member neighbour prefetch is independent of refreshing the displayed page.
 const displayedPageReads = () =>
   browseRequests.filter((request) => request.limit > 4).length;
@@ -315,14 +318,34 @@ try {
   );
   await context.route(engine.connection.endpoint + "/**", async (route) => {
     const request = route.request();
+    let body = request.postData(),
+      expired = false;
     if (
       request.method() === "POST" &&
       request.url().endsWith("/ranking-browse/assets")
-    )
-      browseRequests.push(JSON.parse(request.postData()));
+    ) {
+      const args = JSON.parse(body);
+      browseRequests.push(args);
+      if (!args.cursor) expiredCursorTokens.clear();
+      if (expireNextCursor && args.cursor && args.limit > 4) {
+        expireNextCursor = false;
+        expiredCursorTokens.add(args.cursor);
+        expiredCursors++;
+      }
+      if (expiredCursorTokens.has(args.cursor)) {
+        expired = true;
+        const cursor = JSON.parse(
+          Buffer.from(args.cursor, "base64url").toString("utf8"),
+        );
+        cursor.signature = "previous-display-order";
+        args.cursor = Buffer.from(JSON.stringify(cursor)).toString("base64url");
+        body = JSON.stringify(args);
+      }
+    }
     const headers = { ...request.headers() };
     delete headers.host;
     delete headers.origin;
+    delete headers["content-length"];
     const cors = {
       "access-control-allow-origin": url,
       "access-control-allow-methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
@@ -335,8 +358,11 @@ try {
     const response = await fetch(request.url(), {
       method: request.method(),
       headers,
-      ...(request.postData() ? { body: request.postData() } : {}),
+      ...(body ? { body } : {}),
     });
+    if (expired) {
+      assert.equal(response.status, 400);
+    }
     await route.fulfill({
       status: response.status,
       headers: { ...Object.fromEntries(response.headers), ...cors },
@@ -396,10 +422,33 @@ try {
   checks.push(
     "page-size changes retain the saved ranking and display the correct first members",
   );
+  expireNextCursor = true;
+  await page
+    .locator(".browser-view")
+    .getByRole("button", { name: "下一页", exact: true })
+    .click();
+  await expect.poll(() => expiredCursors).toBe(1);
+  await expect(
+    page.getByText("范围已更新，已返回第一页。", { exact: true }),
+  ).toBeVisible();
+  await visible(main.slice(0, 48));
+  checks.push(
+    "a cursor from an older display-order revision is rejected and the browser returns to the first page automatically",
+  );
   await openBrowserPanel(page, "定位");
   await page.getByLabel("起点排名", { exact: true }).fill("70");
   await page.getByLabel("起点排名", { exact: true }).press("Enter");
   await visible(main.slice(69, 117));
+  expireNextCursor = true;
+  await page.getByLabel("每页数量").selectOption("12");
+  await expect.poll(() => expiredCursors).toBe(2);
+  await visible(main.slice(69, 81));
+  await expect(page.getByLabel("起点排名", { exact: true })).toHaveValue("70");
+  await page.getByLabel("每页数量").selectOption("48");
+  await visible(main.slice(69, 117));
+  checks.push(
+    "an expired saved starting cursor is resolved again while preserving its numeric anchor on the first page",
+  );
   await page
     .locator(".browser-view")
     .getByRole("button", { name: "下一页", exact: true })

@@ -203,35 +203,55 @@ function BrowserContent({
     queryFn: async ({ signal }) => {
       if (ranked.infoError) throw ranked.infoError;
       if (ranked.active && ranked.target) {
+        const target = ranked.target;
         const pending =
           preparation.current?.key === requestKey
             ? preparation.current.page
             : null;
         const continuation =
           pending?.next_cursor ?? cursor ?? ranked.settings.startCursor;
-        const page = await client.ranking.browseAssets(
-          projectId,
-          {
-            scope: ranked.target,
-            ...(ranked.settings.sort !== "saved" &&
-            ranked.settings.sort !== "off"
-              ? { order: ranked.settings.sort }
-              : {}),
-            descending: ranked.settings.descending,
-            ...(ranked.settings.startPostId
-              ? { start_post_id: ranked.settings.startPostId }
-              : {}),
-            ...(ranked.settings.startRank
-              ? {
-                  start_rank: ranked.settings.startRank,
-                  start_rating: ranked.settings.startRating ?? null,
-                }
-              : {}),
-            ...(continuation ? { cursor: continuation } : {}),
-            limit: pageSize,
-          },
-          signal,
-        );
+        const readRanking = (next: string | null | undefined) =>
+          client.ranking.browseAssets(
+            projectId,
+            {
+              scope: target,
+              ...(ranked.settings.sort !== "saved" &&
+              ranked.settings.sort !== "off"
+                ? { order: ranked.settings.sort }
+                : {}),
+              descending: ranked.settings.descending,
+              ...(ranked.settings.startPostId
+                ? { start_post_id: ranked.settings.startPostId }
+                : {}),
+              ...(ranked.settings.startRank
+                ? {
+                    start_rank: ranked.settings.startRank,
+                    start_rating: ranked.settings.startRating ?? null,
+                  }
+                : {}),
+              ...(next ? { cursor: next } : {}),
+              limit: pageSize,
+            },
+            signal,
+          );
+        let page: AssetPage;
+        try {
+          page = await readRanking(continuation);
+        } catch (error) {
+          if (
+            cursor ||
+            pending ||
+            !ranked.settings.startCursor ||
+            !error ||
+            typeof error !== "object" ||
+            !("code" in error) ||
+            error.code !== "INVALID_INPUT"
+          )
+            throw error;
+          // A saved first-page anchor can outlive the server's display order.
+          // Resolve its original ID/rank again, then remember the new cursor.
+          page = await readRanking(null);
+        }
         if (!signal.aborted)
           preparation.current = page.preparing
             ? { key: requestKey, page }
@@ -555,12 +575,17 @@ function BrowserContent({
       )
     ) {
       restoreCheck.current = null;
+      preparation.current = null;
+      void queryCache.invalidateQueries({
+        queryKey: ["project", projectId, "assets", scopeKey],
+        refetchType: "none",
+      });
       setHistory(initialHistory());
       setScrollTop(0);
       savedScroll.current = 0;
       setNotice("范围已更新，已返回第一页。");
     }
-  }, [query.error, cursor]);
+  }, [query.error, cursor, queryCache, projectId, scopeKey]);
   useLayoutEffect(() => {
     if (view !== "grid" || !query.data) return;
     if (scrollRef.current) scrollRef.current.scrollTop = savedScroll.current;

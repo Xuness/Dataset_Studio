@@ -407,45 +407,63 @@ impl RankingProjectionReader {
         let op = if descending { "<" } else { ">" };
         let limit = limit.clamp(1, 129);
         let mut rows = Vec::new();
-        for group in self.groups(descending)? {
-            let label = group.as_deref().unwrap_or("z");
-            if after.is_some_and(|p| {
-                if descending {
-                    label > p.group.as_str()
-                } else {
-                    label < p.group.as_str()
-                }
-            }) {
+        let groups = self.groups(descending)?;
+        for unranked in [false, true] {
+            if unranked && order == RankingOrder::Input {
+                break;
+            }
+            if !unranked && after.is_some_and(|p| p.position == i64::MAX) {
                 continue;
             }
-            let matching = after.filter(|p| p.group == label);
-            // Seek within a tie before moving to the next rank. Ineligible rows
-            // can share the sentinel rank by the millions.
-            for same_rank in [true, false] {
-                if same_rank && matching.is_none() {
+            let after = after.filter(|p| (p.position == i64::MAX) == unranked);
+            for group in &groups {
+                let label = group.as_deref().unwrap_or("z");
+                if after.is_some_and(|p| {
+                    if descending {
+                        label > p.group.as_str()
+                    } else {
+                        label < p.group.as_str()
+                    }
+                }) {
                     continue;
                 }
-                let (predicate, mut values) = self.predicate()?;
-                let mut clauses = vec![predicate, self.group_sql(&group, &mut values)];
-                if let Some(p) = matching {
-                    values.push(Value::Integer(p.position));
-                    let rank = values.len();
-                    if same_rank {
-                        values.push(Value::Integer(p.ordinal as i64));
-                        clauses.push(format!("{column}=?{rank} AND ordinal{op}?{}", values.len()));
-                    } else {
-                        clauses.push(format!("{column}{op}?{rank}"));
+                let matching = after.filter(|p| p.group == label);
+                // Seek within a tie before moving to the next rank. Ineligible rows
+                // can share the sentinel rank by the millions.
+                for same_rank in [true, false] {
+                    if same_rank && matching.is_none() {
+                        continue;
                     }
-                }
-                values.push(Value::Integer((limit - rows.len()) as i64));
-                let ordering = if same_rank {
-                    format!("ordinal {direction}")
-                } else {
-                    format!("{column} {direction},ordinal {direction}")
-                };
-                rows.extend(self.read_positions(&format!("SELECT rating,{column},ordinal FROM scores INDEXED BY {index} WHERE {} ORDER BY {ordering} LIMIT ?{}",clauses.join(" AND "),values.len()),values)?);
-                if rows.len() == limit {
-                    return Ok(rows);
+                    let (predicate, mut values) = self.predicate()?;
+                    let mut clauses = vec![
+                        predicate,
+                        self.group_sql(group, &mut values),
+                        format!(
+                            "{column}{}9223372036854775807",
+                            if unranked { "=" } else { "<" }
+                        ),
+                    ];
+                    if let Some(p) = matching {
+                        values.push(Value::Integer(p.position));
+                        let rank = values.len();
+                        if same_rank {
+                            values.push(Value::Integer(p.ordinal as i64));
+                            clauses
+                                .push(format!("{column}=?{rank} AND ordinal{op}?{}", values.len()));
+                        } else {
+                            clauses.push(format!("{column}{op}?{rank}"));
+                        }
+                    }
+                    values.push(Value::Integer((limit - rows.len()) as i64));
+                    let ordering = if same_rank {
+                        format!("ordinal {direction}")
+                    } else {
+                        format!("{column} {direction},ordinal {direction}")
+                    };
+                    rows.extend(self.read_positions(&format!("SELECT rating,{column},ordinal FROM scores INDEXED BY {index} WHERE {} ORDER BY {ordering} LIMIT ?{}",clauses.join(" AND "),values.len()),values)?);
+                    if rows.len() == limit {
+                        return Ok(rows);
+                    }
                 }
             }
         }
@@ -478,7 +496,7 @@ impl RankingProjectionReader {
         let arg = values.len();
         let column = self.column(order);
         let direction = if descending { "DESC" } else { "ASC" };
-        Ok(self.read_positions(&format!("SELECT rating,{column},ordinal FROM scores WHERE ordinal IN (SELECT ordinal FROM fixed_input.input_rows WHERE post_id=?{arg}) AND ({predicate}) ORDER BY coalesce(rating,'z') {direction},{column} {direction},ordinal {direction} LIMIT 1"),values)?.pop())
+        Ok(self.read_positions(&format!("SELECT rating,{column},ordinal FROM scores WHERE ordinal IN (SELECT ordinal FROM fixed_input.input_rows WHERE post_id=?{arg}) AND ({predicate}) ORDER BY ({column}=9223372036854775807),coalesce(rating,'z') {direction},{column} {direction},ordinal {direction} LIMIT 1"),values)?.pop())
     }
     /// Counted seeks avoid a large OFFSET and remain correct for sparse saved
     /// predicates. Rank and ordinal ranges are each at most the input size.
@@ -491,48 +509,83 @@ impl RankingProjectionReader {
         if position == 0 || position > self.projection.count {
             return Ok(None);
         }
-        let mut remaining = if descending {
-            self.projection.count - position + 1
-        } else {
-            position
-        };
+        let mut remaining = position;
         let column = self.column(order);
         let index = self.index(order);
-        let groups = self.groups(false)?;
-        let single_group = groups.len() == 1;
-        for group in groups {
-            let (predicate, mut values) = self.predicate()?;
-            let group_sql = self.group_sql(&group, &mut values);
-            let base = format!("({predicate}) AND {group_sql}");
-            let count = if single_group {
-                self.projection.count
-            } else {
-                self.db
-                    .query_row(
-                        &format!("SELECT count(*) FROM scores INDEXED BY {index} WHERE {base}"),
-                        rusqlite::params_from_iter(values.clone()),
-                        |r| unsigned(r, 0),
-                    )
-                    .map_err(db_error)?
-            };
-            if remaining > count {
-                remaining -= count;
-                continue;
+        let groups = self.groups(descending)?;
+        let mut single_ranked_count = 0;
+        for unranked in [false, true] {
+            if unranked && order == RankingOrder::Input {
+                break;
             }
-            let mut low = 0i64;
-            let mut high = self.input_count as i64;
-            let ranked=self.db.query_row(&format!("SELECT count(*) FROM scores INDEXED BY {index} WHERE {base} AND {column}<9223372036854775807"),rusqlite::params_from_iter(values.clone()),|r|unsigned(r,0)).map_err(db_error)?;
-            let rank = if remaining > ranked {
-                remaining -= ranked;
-                i64::MAX
-            } else {
+            for group in &groups {
+                let (predicate, mut values) = self.predicate()?;
+                let group_sql = self.group_sql(group, &mut values);
+                let rank_bound = if unranked { "=" } else { "<" };
+                let base = format!(
+                    "({predicate}) AND {group_sql} AND {column}{rank_bound}9223372036854775807"
+                );
+                let count = if groups.len() == 1 && order == RankingOrder::Input {
+                    self.projection.count
+                } else if groups.len() == 1 && unranked {
+                    self.projection
+                        .count
+                        .checked_sub(single_ranked_count)
+                        .ok_or_else(|| Error::invalid("固定排名成员数量不一致"))?
+                } else {
+                    self.db
+                        .query_row(
+                            &format!("SELECT count(*) FROM scores INDEXED BY {index} WHERE {base}"),
+                            rusqlite::params_from_iter(values.clone()),
+                            |r| unsigned(r, 0),
+                        )
+                        .map_err(db_error)?
+                };
+                if groups.len() == 1 && !unranked {
+                    single_ranked_count = count;
+                }
+                if remaining > count {
+                    remaining -= count;
+                    continue;
+                }
+                if descending {
+                    remaining = count - remaining + 1;
+                }
+                let mut low = 0i64;
+                let mut high = self.input_count as i64;
+                let rank = if unranked {
+                    i64::MAX
+                } else {
+                    while low < high {
+                        let middle = low + (high - low) / 2;
+                        let mut args = values.clone();
+                        args.push(Value::Integer(low));
+                        let lower = args.len();
+                        args.push(Value::Integer(middle));
+                        let n=self.db.query_row(&format!("SELECT count(*) FROM scores INDEXED BY {index} WHERE {base} AND {column}>=?{lower} AND {column}<=?{}",args.len()),rusqlite::params_from_iter(args),|r|unsigned(r,0)).map_err(db_error)?;
+                        if n >= remaining {
+                            high = middle;
+                        } else {
+                            low = middle + 1;
+                            remaining -= n;
+                        }
+                    }
+                    low
+                };
+                values.push(Value::Integer(rank));
+                let base = format!("{base} AND {column}=?{}", values.len());
+                if remaining == 1 {
+                    return Ok(self.read_positions(&format!("SELECT rating,{column},ordinal FROM scores INDEXED BY {index} WHERE {base} ORDER BY ordinal LIMIT 1"),values)?.pop());
+                }
+                low = 0;
+                high = self.input_count.saturating_sub(1) as i64;
                 while low < high {
                     let middle = low + (high - low) / 2;
                     let mut args = values.clone();
                     args.push(Value::Integer(low));
                     let lower = args.len();
                     args.push(Value::Integer(middle));
-                    let n=self.db.query_row(&format!("SELECT count(*) FROM scores INDEXED BY {index} WHERE {base} AND {column}>=?{lower} AND {column}<=?{}",args.len()),rusqlite::params_from_iter(args),|r|unsigned(r,0)).map_err(db_error)?;
+                    let n=self.db.query_row(&format!("SELECT count(*) FROM scores INDEXED BY {index} WHERE {base} AND ordinal>=?{lower} AND ordinal<=?{}",args.len()),rusqlite::params_from_iter(args),|r|unsigned(r,0)).map_err(db_error)?;
                     if n >= remaining {
                         high = middle;
                     } else {
@@ -540,31 +593,8 @@ impl RankingProjectionReader {
                         remaining -= n;
                     }
                 }
-                low
-            };
-            values.push(Value::Integer(rank));
-            let base = format!("{base} AND {column}=?{}", values.len());
-            if remaining == 1 {
-                return Ok(self.read_positions(&format!("SELECT rating,{column},ordinal FROM scores INDEXED BY {index} WHERE {base} ORDER BY ordinal LIMIT 1"),values)?.pop());
-            }
-            low = 0;
-            high = self.input_count.saturating_sub(1) as i64;
-            while low < high {
-                let middle = low + (high - low) / 2;
-                let mut args = values.clone();
-                args.push(Value::Integer(low));
-                let lower = args.len();
-                args.push(Value::Integer(middle));
-                let n=self.db.query_row(&format!("SELECT count(*) FROM scores INDEXED BY {index} WHERE {base} AND ordinal>=?{lower} AND ordinal<=?{}",args.len()),rusqlite::params_from_iter(args),|r|unsigned(r,0)).map_err(db_error)?;
-                if n >= remaining {
-                    high = middle;
-                } else {
-                    low = middle + 1;
-                    remaining -= n;
-                }
-            }
-            values.push(Value::Integer(low));
-            return Ok(self
+                values.push(Value::Integer(low));
+                return Ok(self
                 .read_positions(
                     &format!(
                         "SELECT rating,{column},ordinal FROM scores WHERE {base} AND ordinal=?{}",
@@ -573,6 +603,7 @@ impl RankingProjectionReader {
                     values,
                 )?
                 .pop());
+            }
         }
         Ok(None)
     }

@@ -214,6 +214,13 @@ fn shared_material_pages_match_independent_membership_in_every_order_and_directi
                 if descending {
                     expected.reverse();
                 }
+                // Stable partition after applying direction: every ranked
+                // image precedes every missing rank across Rating boundaries.
+                expected.sort_by_key(|row| rank(row, order).is_none());
+                let ranked_count = expected
+                    .iter()
+                    .filter(|row| rank(row, order).is_some())
+                    .count() as u64;
                 let expected = expected.iter().map(|r| r.ordinal).collect::<Vec<_>>();
                 let mut after = None;
                 let mut actual = Vec::new();
@@ -230,7 +237,7 @@ fn shared_material_pages_match_independent_membership_in_every_order_and_directi
                     );
                 }
                 assert_eq!(actual, expected, "case {case} {order:?} {descending}");
-                for position in [1, 17, 129, recipe.count]
+                for position in [1, 17, 129, ranked_count, ranked_count + 1, recipe.count]
                     .into_iter()
                     .filter(|n| *n > 0 && *n <= recipe.count)
                 {

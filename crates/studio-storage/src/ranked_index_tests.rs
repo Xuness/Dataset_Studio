@@ -172,7 +172,7 @@ fn sparse_late_pages_and_large_ties_use_bounded_index_work_and_survive_reopen() 
 fn numeric_anchors_use_bounded_work_across_sparse_groups_and_bookmark_edges() {
     let (tmp, plan) = fixture();
     let db = Connection::open(&plan.scores).unwrap();
-    db.execute_batch("UPDATE scores SET rating=CASE WHEN ordinal<257 THEN 'e' WHEN ordinal<32769 THEN 'g' ELSE 's' END,main_rank=ordinal,rescue_rank=CASE WHEN ordinal%16=0 THEN NULL ELSE ordinal END;").unwrap();
+    db.execute_batch("UPDATE scores SET rating=CASE WHEN ordinal=1 THEN '' WHEN ordinal<257 THEN 'e' WHEN ordinal<32769 THEN 'g' ELSE 's' END,main_rank=CASE WHEN ordinal=1 THEN NULL ELSE ordinal END,rescue_rank=CASE WHEN ordinal%16=0 OR ordinal=1 THEN NULL ELSE ordinal END;").unwrap();
     drop(db);
     let output = tmp.path().join("positions.sqlite");
     let cancel = Arc::new(AtomicBool::new(false));
@@ -207,19 +207,21 @@ fn numeric_anchors_use_bounded_work_across_sparse_groups_and_bookmark_edges() {
     ] {
         let column = match order {
             RankingOrder::Rescue => "rescue_rank",
-            _ => "ordinal",
+            RankingOrder::Input => "ordinal",
+            _ => "main_rank",
         };
-        let expected: Vec<u64> = index
+        for descending in [false, true] {
+            let direction = if descending { "DESC" } else { "ASC" };
+            let expected: Vec<u64> = index
             .db
             .prepare(&format!(
-                "SELECT ordinal FROM members ORDER BY rating,{column},ordinal"
+                "SELECT ordinal FROM members ORDER BY ({column}=9223372036854775807),rating {direction},{column} {direction},ordinal {direction}"
             ))
             .unwrap()
             .query_map([], |r| unsigned(r, 0))
             .unwrap()
             .collect::<std::result::Result<_, _>>()
             .unwrap();
-        for descending in [false, true] {
             for target in [
                 1, 2, 32, 33, 127, 128, 129, 130, 4096, 4097, 8191, 8192, 8193,
             ] {
@@ -228,11 +230,7 @@ fn numeric_anchors_use_bounded_work_across_sparse_groups_and_bookmark_edges() {
                     .locate_position(target, order, descending)
                     .unwrap()
                     .unwrap();
-                let n = if descending {
-                    expected.len() - target as usize
-                } else {
-                    target as usize - 1
-                };
+                let n = target as usize - 1;
                 assert_eq!(found.ordinal, expected[n]);
                 assert!(
                     steps.load(Ordering::Relaxed) < 10000,
@@ -276,6 +274,18 @@ fn numeric_anchors_use_bounded_work_across_sparse_groups_and_bookmark_edges() {
             .is_none()
     );
     drop(index);
+    let db = Connection::open(&output).unwrap();
+    db.execute("DELETE FROM meta WHERE key='display_order'", [])
+        .unwrap();
+    drop(db);
+    assert!(RankedIndex::open(&output, &plan.meta, cancel.clone()).is_err());
+    let db = Connection::open(&output).unwrap();
+    db.execute(
+        "INSERT INTO meta VALUES('display_order',?1)",
+        [DISPLAY_ORDER_VERSION.to_string()],
+    )
+    .unwrap();
+    drop(db);
     // Old derived caches are rebuildable, while their original scores are untouched.
     let db = Connection::open(&output).unwrap();
     db.execute_batch("DROP TABLE rank_positions; DELETE FROM meta WHERE key='position_stride';")

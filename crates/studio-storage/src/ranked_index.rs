@@ -3,6 +3,7 @@ use crate::{db_error, unsigned};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 use std::{
+    collections::BTreeMap,
     path::{Path, PathBuf},
     sync::{
         Arc,
@@ -18,6 +19,7 @@ mod tests;
 // One bookmark per page-sized block keeps random positioning bounded even in
 // sparse scopes, without a second dense copy of every ranking order.
 const POSITION_STRIDE: u64 = 128;
+pub const DISPLAY_ORDER_VERSION: u32 = 2;
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct RankedIndexMeta {
@@ -42,6 +44,7 @@ pub struct RankedIndexProgress {
 pub struct RankedIndex {
     db: Connection,
     pub meta: RankedIndexMeta,
+    ranked_counts: BTreeMap<String, u64>,
 }
 fn uri(path: &Path) -> String {
     let text = path.to_string_lossy();
@@ -197,6 +200,7 @@ impl RankedIndex {
             if plan.meta.version >= 2 {
                 orders.extend([RankingOrder::Direct, RankingOrder::Fused]);
             }
+            let mut ranked_counts = BTreeMap::new();
             for (index, order) in orders.into_iter().enumerate() {
                 read_cancelled(&cancelled)?;
                 progress.phase.store(2 + index as u8 * 2, Ordering::Release);
@@ -213,7 +217,22 @@ impl RankedIndex {
                     "CREATE INDEX post_{name} ON members(post_id,{keys}) WHERE post_id IS NOT NULL;"
                 ))
                 .map_err(build_error)?;
-                db.execute(&format!("INSERT INTO rank_positions SELECT ?1,sequence,ordinal FROM (SELECT row_number() OVER (ORDER BY {keys}) AS sequence,ordinal FROM members INDEXED BY ordered_{name}) WHERE (sequence-1)%{POSITION_STRIDE}=0"), [name]).map_err(build_error)?;
+                let ranked = if order == RankingOrder::Input {
+                    plan.meta.count
+                } else {
+                    db.query_row(&format!("SELECT count(*) FROM members INDEXED BY ordered_{name} WHERE {column}<9223372036854775807"),[],|r|unsigned(r,0)).map_err(build_error)?
+                };
+                ranked_counts.insert(name.to_string(), ranked);
+                // Each half streams its existing ordering index. No global
+                // expression sort or extra dense membership table is needed.
+                for (count, offset, bound) in
+                    [(ranked, 0, "<"), (plan.meta.count - ranked, ranked, "=")]
+                {
+                    if count == 0 {
+                        continue;
+                    }
+                    db.execute(&format!("INSERT INTO rank_positions SELECT ?1,sequence,ordinal FROM (SELECT row_number() OVER (ORDER BY {keys})+{offset} AS sequence,ordinal FROM members INDEXED BY ordered_{name} WHERE {column}{bound}9223372036854775807) WHERE (sequence-1)%{POSITION_STRIDE}=0"), [name]).map_err(build_error)?;
+                }
             }
             read_cancelled(&cancelled)?;
             progress.phase.store(12, Ordering::Release);
@@ -225,6 +244,16 @@ impl RankedIndex {
             db.execute(
                 "INSERT INTO meta VALUES ('position_stride',?1)",
                 [POSITION_STRIDE.to_string()],
+            )
+            .map_err(db_error)?;
+            db.execute(
+                "INSERT INTO meta VALUES('display_order',?1)",
+                [DISPLAY_ORDER_VERSION.to_string()],
+            )
+            .map_err(db_error)?;
+            db.execute(
+                "INSERT INTO meta VALUES('ranked_counts',?1)",
+                [serde_json::to_string(&ranked_counts).map_err(Error::io)?],
             )
             .map_err(db_error)?;
             Ok(())
@@ -262,6 +291,38 @@ impl RankedIndex {
         if stride != POSITION_STRIDE.to_string() {
             return Err(invalid());
         }
+        let display: String = db
+            .query_row(
+                "SELECT value FROM meta WHERE key='display_order'",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(|_| invalid())?;
+        if display != DISPLAY_ORDER_VERSION.to_string() {
+            return Err(invalid());
+        }
+        let counts: String = db
+            .query_row(
+                "SELECT value FROM meta WHERE key='ranked_counts'",
+                [],
+                |r| r.get(0),
+            )
+            .map_err(|_| invalid())?;
+        let ranked_counts: BTreeMap<String, u64> =
+            serde_json::from_str(&counts).map_err(|_| invalid())?;
+        let names = if meta.version >= 2 {
+            &["main", "rescue", "input", "direct", "fused"][..]
+        } else {
+            &["main", "rescue", "input"][..]
+        };
+        if names.iter().any(|name| {
+            ranked_counts
+                .get(*name)
+                .is_none_or(|count| *count > meta.count)
+        }) || ranked_counts.get("input") != Some(&meta.count)
+        {
+            return Err(invalid());
+        }
         db.prepare("SELECT ordinal FROM rank_positions WHERE order_name=?1 AND sequence=?2")
             .map_err(|_| invalid())?;
         let indices:i64=db.query_row("SELECT count(*) FROM sqlite_schema WHERE type='index' AND name IN ('ordered_main','ordered_rescue','ordered_input','post_main','post_rescue','post_input')",[],|r|r.get(0)).map_err(|_|invalid())?;
@@ -274,7 +335,11 @@ impl RankedIndex {
                 return Err(invalid());
             }
         }
-        Ok(Self { db, meta })
+        Ok(Self {
+            db,
+            meta,
+            ranked_counts,
+        })
     }
     pub fn metadata(path: &Path) -> Result<RankedIndexMeta> {
         let db = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)
@@ -322,7 +387,7 @@ impl RankedIndex {
         };
         let (name, column) = order_parts(order);
         let direction = if descending { "DESC" } else { "ASC" };
-        self.db.query_row(&format!("SELECT rating,{column},ordinal FROM members INDEXED BY post_{name} WHERE post_id=?1 ORDER BY rating {direction},{column} {direction},ordinal {direction} LIMIT 1"), [post], |r| Ok(RankingPosition { group:r.get(0)?, position:r.get(1)?, ordinal:unsigned(r,2)? })).optional().map_err(|_|invalid())
+        self.db.query_row(&format!("SELECT rating,{column},ordinal FROM members INDEXED BY post_{name} WHERE post_id=?1 ORDER BY ({column}=9223372036854775807),rating {direction},{column} {direction},ordinal {direction} LIMIT 1"), [post], |r| Ok(RankingPosition { group:r.get(0)?, position:r.get(1)?, ordinal:unsigned(r,2)? })).optional().map_err(|_|invalid())
     }
     /// Exact original rank in one frozen Rating, restricted to fixed members.
     pub fn locate_rank(
@@ -357,11 +422,6 @@ impl RankedIndex {
         if position == 0 || position > self.meta.count {
             return Ok(None);
         }
-        let position = if descending {
-            self.meta.count - position + 1
-        } else {
-            position
-        };
         let order = if self.meta.version < 2
             && matches!(order, RankingOrder::Direct | RankingOrder::Fused)
         {
@@ -370,6 +430,16 @@ impl RankedIndex {
             order
         };
         let (name, column) = order_parts(order);
+        let ranked = self.ranked_counts[name];
+        let position = if descending {
+            if position <= ranked {
+                ranked - position + 1
+            } else {
+                self.meta.count - (position - ranked) + 1
+            }
+        } else {
+            position
+        };
         let sequence = (position - 1) / POSITION_STRIDE * POSITION_STRIDE + 1;
         let start = self.db.query_row(&format!("SELECT m.rating,m.{column},m.ordinal FROM rank_positions p JOIN members m ON m.ordinal=p.ordinal WHERE p.order_name=?1 AND p.sequence=?2"), params![name, sequence as i64], |r| Ok(RankingPosition { group:r.get(0)?, position:r.get(1)?, ordinal:unsigned(r,2)? })).map_err(|_|invalid())?;
         let remaining = (position - sequence) as usize;
@@ -399,33 +469,87 @@ impl RankedIndex {
         let (name, column) = order_parts(order);
         let direction = if descending { "DESC" } else { "ASC" };
         let op = if descending { "<" } else { ">" };
-        let mut groups = vec!["e", "g", "q", "s", "z"];
+        let mut groups = Vec::<String>::new();
+        loop {
+            let group: Option<String> = if let Some(after) = groups.last() {
+                self.db.query_row("SELECT rating FROM members INDEXED BY ordered_input WHERE rating>?1 ORDER BY rating LIMIT 1",[after],|r|r.get(0))
+            } else {
+                self.db.query_row("SELECT rating FROM members INDEXED BY ordered_input ORDER BY rating LIMIT 1",[],|r|r.get(0))
+            }.optional().map_err(|_|invalid())?;
+            let Some(group) = group else {
+                break;
+            };
+            if groups.len() >= 64 || group.len() > 128 {
+                return Err(invalid());
+            }
+            groups.push(group);
+        }
         if descending {
             groups.reverse();
         }
         let mut rows = Vec::new();
         let limit = limit.clamp(1, 129);
-        for group in groups {
-            if after.is_some_and(|p| {
-                if descending {
-                    group > p.group.as_str()
-                } else {
-                    group < p.group.as_str()
-                }
-            }) {
+        for unranked in [false, true] {
+            if unranked && order == RankingOrder::Input {
+                break;
+            }
+            if !unranked && after.is_some_and(|p| p.position == i64::MAX) {
                 continue;
             }
-            let matching_group = after.filter(|p| p.group == group);
-            // Split equality and strict-rank seek so large tie/null-rank groups
-            // also start at the ordinal, instead of filtering a long prefix.
-            if let Some(p) = matching_group {
-                let mut stmt = self.db.prepare(&format!("SELECT rating,{column},ordinal FROM members INDEXED BY ordered_{name} WHERE rating=?1 AND {column}=?2 AND ordinal{op}?3 ORDER BY ordinal {direction} LIMIT ?4")).map_err(|_|invalid())?;
+            let after = after.filter(|p| (p.position == i64::MAX) == unranked);
+            let rank_bound = if unranked { "=" } else { "<" };
+            for group in &groups {
+                if after.is_some_and(|p| {
+                    if descending {
+                        group.as_str() > p.group.as_str()
+                    } else {
+                        group.as_str() < p.group.as_str()
+                    }
+                }) {
+                    continue;
+                }
+                let matching_group = after.filter(|p| &p.group == group);
+                // Split equality and strict-rank seek so large tie/null-rank groups
+                // also start at the ordinal, instead of filtering a long prefix.
+                if let Some(p) = matching_group {
+                    let mut stmt = self.db.prepare(&format!("SELECT rating,{column},ordinal FROM members INDEXED BY ordered_{name} WHERE rating=?1 AND {column}=?2 AND ordinal{op}?3 ORDER BY ordinal {direction} LIMIT ?4")).map_err(|_|invalid())?;
+                    let values = stmt
+                        .query_map(
+                            params![
+                                group,
+                                p.position,
+                                p.ordinal as i64,
+                                (limit - rows.len()) as i64
+                            ],
+                            |r| {
+                                Ok(RankingPosition {
+                                    group: r.get(0)?,
+                                    position: r.get(1)?,
+                                    ordinal: unsigned(r, 2)?,
+                                })
+                            },
+                        )
+                        .map_err(|_| invalid())?;
+                    rows.extend(
+                        values
+                            .collect::<std::result::Result<Vec<_>, _>>()
+                            .map_err(|_| invalid())?,
+                    );
+                    if rows.len() == limit {
+                        break;
+                    }
+                }
+                let predicate = if matching_group.is_some() {
+                    format!(" AND {column}{op}?2")
+                } else {
+                    " AND ?2 IS NULL".into()
+                };
+                let mut stmt = self.db.prepare(&format!("SELECT rating,{column},ordinal FROM members INDEXED BY ordered_{name} WHERE rating=?1{predicate} AND {column}{rank_bound}9223372036854775807 ORDER BY {column} {direction},ordinal {direction} LIMIT ?3")).map_err(|_|invalid())?;
                 let values = stmt
                     .query_map(
                         params![
                             group,
-                            p.position,
-                            p.ordinal as i64,
+                            matching_group.map(|p| p.position),
                             (limit - rows.len()) as i64
                         ],
                         |r| {
@@ -446,33 +570,6 @@ impl RankedIndex {
                     break;
                 }
             }
-            let predicate = if matching_group.is_some() {
-                format!(" AND {column}{op}?2")
-            } else {
-                " AND ?2 IS NULL".into()
-            };
-            let mut stmt = self.db.prepare(&format!("SELECT rating,{column},ordinal FROM members INDEXED BY ordered_{name} WHERE rating=?1{predicate} ORDER BY {column} {direction},ordinal {direction} LIMIT ?3")).map_err(|_|invalid())?;
-            let values = stmt
-                .query_map(
-                    params![
-                        group,
-                        matching_group.map(|p| p.position),
-                        (limit - rows.len()) as i64
-                    ],
-                    |r| {
-                        Ok(RankingPosition {
-                            group: r.get(0)?,
-                            position: r.get(1)?,
-                            ordinal: unsigned(r, 2)?,
-                        })
-                    },
-                )
-                .map_err(|_| invalid())?;
-            rows.extend(
-                values
-                    .collect::<std::result::Result<Vec<_>, _>>()
-                    .map_err(|_| invalid())?,
-            );
             if rows.len() == limit {
                 break;
             }

@@ -1,7 +1,9 @@
 use super::*;
 use std::{cmp::Ordering, collections::HashSet};
 use studio_application::read_cancelled;
-use studio_storage::ranked_index::{RankedIndex, RankedIndexMeta, RankedIndexPlan};
+use studio_storage::ranked_index::{
+    DISPLAY_ORDER_VERSION, RankedIndex, RankedIndexMeta, RankedIndexPlan,
+};
 use studio_storage::ranking_projection::RankingProjectionReader;
 use studio_storage::ranking_tables::{RankingInputTable, RankingPosition, RankingResultTable};
 
@@ -287,7 +289,7 @@ impl Browse<'_> {
                 }
                 if let Some(after) = after {
                     let expected = self.position(after.ordinal)?;
-                    if expected.compare(after, false) != Ordering::Equal {
+                    if expected.compare_ranked(after, false) != Ordering::Equal {
                         return Err(domain::Error::invalid("排名游标次序不一致"));
                     }
                 }
@@ -295,13 +297,11 @@ impl Browse<'_> {
                 for ordinal in pending {
                     self.validate_member(*ordinal)?;
                     let position = self.position(*ordinal)?;
-                    if previous
-                        .as_ref()
-                        .is_some_and(|p| p.compare(&position, self.descending) != Ordering::Less)
-                        || after.as_ref().is_none_or(|p| {
-                            position.compare(p, self.descending) == Ordering::Greater
-                        })
-                    {
+                    if previous.as_ref().is_some_and(|p| {
+                        p.compare_ranked(&position, self.descending) != Ordering::Less
+                    }) || after.as_ref().is_none_or(|p| {
+                        position.compare_ranked(p, self.descending) == Ordering::Greater
+                    }) {
                         return Err(domain::Error::invalid("排名缓冲次序不一致"));
                     }
                     previous = Some(position);
@@ -521,7 +521,7 @@ pub(super) async fn assets(
                 .ok_or_else(|| domain::Error::new("ARTIFACT_INVALID", "排名输入数量缺失"))?;
             let mut signature = hex::encode(Sha256::digest(
                 serde_json::to_vec(&(
-                    1,
+                    DISPLAY_ORDER_VERSION,
                     &pid,
                     &basis.index_scope,
                     &basis.workset_id,
@@ -538,8 +538,7 @@ pub(super) async fn assets(
                 ))
                 .map_err(domain::Error::io)?,
             ));
-            // Preserve old ID/unanchored cursors; bind only new rank cursors to
-            // their numeric target and Rating as well as the existing view.
+            // Bind numeric anchors to the same display-order revision as pages.
             if let Some(rank) = &rank {
                 signature = hex::encode(Sha256::digest(
                     serde_json::to_vec(&(&signature, rank)).map_err(domain::Error::io)?,
@@ -548,6 +547,7 @@ pub(super) async fn assets(
             let key_for = |scope: &domain::ScopeRef| -> domain::Result<String> {
                 Ok(hex::encode(Sha256::digest(
                     serde_json::to_vec(&(
+                        DISPLAY_ORDER_VERSION,
                         artifact.schema_version,
                         scope,
                         &basis.workset_id,

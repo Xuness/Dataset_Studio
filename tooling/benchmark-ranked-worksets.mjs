@@ -183,7 +183,7 @@ function expected(rating, order = "main", descending = false) {
   const direction = descending ? "DESC" : "ASC";
   return scores
     .prepare(
-      `SELECT ordinal FROM scores WHERE rating=? ORDER BY ${column} ${direction},ordinal ${direction} LIMIT 48`,
+      `SELECT ordinal FROM scores WHERE rating=? ORDER BY (${column}=9223372036854775807),${column} ${direction},ordinal ${direction} LIMIT 48`,
     )
     .all(rating)
     .map((r) => r.ordinal);

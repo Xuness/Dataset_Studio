@@ -46,6 +46,7 @@ let database,
   base,
   artifact,
   full,
+  mixed,
   small,
   source,
   sparseResult,
@@ -64,14 +65,18 @@ function oracle(collection, order = "main", descending = false, resultId) {
       ? "s.ordinal"
       : `coalesce(s.${order}_rank,9223372036854775807)`;
   const direction = descending ? "DESC" : "ASC";
+  const unranked =
+    order === "input" ? "" : `(${position}=9223372036854775807),`;
   const membership = resultId
     ? "EXISTS(SELECT 1 FROM project_state.result_members m WHERE m.result_id=? AND m.source_id=i.source_id AND m.asset_id=lower(hex(i.asset_id)))"
     : collection.id === small.id
       ? "s.eligibility='eligible' AND s.main_rank IS NOT NULL AND s.main_rank<=5"
-      : "s.eligibility='eligible'";
+      : collection.id === mixed?.id
+        ? "1=1"
+        : "s.eligibility='eligible'";
   return database
     .prepare(
-      `SELECT s.ordinal,s.rating,s.main_rank,s.rescue_rank,s.main_score,s.rescue_score,i.post_id,i.source_id,lower(hex(i.asset_id)) AS asset_id FROM scores s JOIN fixed_input.input_rows i USING(ordinal) WHERE ${membership} ORDER BY coalesce(s.rating,'z') ${direction},${position} ${direction},s.ordinal ${direction}`,
+      `SELECT s.ordinal,s.rating,s.main_rank,s.rescue_rank,s.main_score,s.rescue_score,i.post_id,i.source_id,lower(hex(i.asset_id)) AS asset_id FROM scores s JOIN fixed_input.input_rows i USING(ordinal) WHERE ${membership} ORDER BY ${unranked}coalesce(s.rating,'z') ${direction},${position} ${direction},s.ordinal ${direction}`,
     )
     .all(...(resultId ? [resultId] : []));
 }
@@ -243,6 +248,95 @@ try {
   }
   checks.push(
     "large worksets paginate in both directions for saved, main, rescue and input order",
+  );
+
+  mixed = await engine.api(
+    base + "/artifacts/" + artifact.id + "/ranking/worksets",
+    "POST",
+    {
+      idempotency_key: crypto.randomUUID(),
+      name: "已排名与未排名",
+      filter: { order: "main" },
+    },
+  );
+  const derivedMixed = await engine.api(base + "/query-results", "POST", {
+    spec: {
+      version: 3,
+      source_ids: [source.id],
+      observation_rule: "current_post",
+      order: "asset_key_asc",
+      input_scope: scope(mixed),
+      conditions: [
+        {
+          field: "stored.bytes",
+          operator: "gte",
+          value: { type: "integer", value: "1" },
+        },
+      ],
+    },
+  });
+  const readyMixed = await engine.wait(
+    base + "/query-results/" + derivedMixed.id,
+    (r) => ["ready", "failed"].includes(r.state),
+    60000,
+  );
+  assert.equal(readyMixed.state, "ready");
+  const derivedScope = {
+    project_id: project.id,
+    target: { kind: "query_result", result_id: readyMixed.id },
+  };
+  for (const [target, resultId] of [
+    [scope(mixed), undefined],
+    [derivedScope, readyMixed.id],
+  ]) {
+    for (const order of ["main", "rescue"]) {
+      for (const descending of [false, true]) {
+        const expected = oracle(mixed, order, descending, resultId);
+        const boundary = expected.findIndex(
+          (row) => row[order + "_rank"] === null,
+        );
+        assert.ok(
+          boundary > 13 && boundary < expected.length,
+          "fixture must contain both ranked and unranked members",
+        );
+        assert.ok(
+          expected
+            .slice(boundary)
+            .every((row) => row[order + "_rank"] === null),
+        );
+        expectRows(
+          (await page(target, { order, descending })).items,
+          expected.slice(0, 13),
+        );
+        const firstTail = await page(target, {
+          order,
+          descending,
+          start_rank: String(boundary),
+          limit: 1,
+        });
+        expectRows(firstTail.items, expected.slice(boundary - 1, boundary));
+        assert.ok(firstTail.next_cursor);
+        const tail = await page(target, {
+          order,
+          descending,
+          start_rank: String(boundary),
+          cursor: firstTail.next_cursor,
+        });
+        expectRows(tail.items, expected.slice(boundary, boundary + 13));
+        const missing = expected.slice(boundary).find((row) => row.post_id > 0);
+        if (missing) {
+          const located = await page(target, {
+            order,
+            descending,
+            start_post_id: String(missing.post_id),
+          });
+          assert.equal(located.items[0].ranking.ordinal, missing.ordinal);
+        }
+      }
+    }
+  }
+  checks.push(
+    "direct and materialized ranking scopes put all unranked images last in both directions, including cross-boundary pagination and numeric/post anchors",
   );
 
   let rankBookmark;

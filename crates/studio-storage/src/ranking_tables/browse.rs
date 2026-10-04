@@ -126,6 +126,14 @@ impl RankingInputTable {
 }
 
 impl RankingPosition {
+    /// Workset display keeps missing ranks after every ranked member, even
+    /// when Rating, rank and ordinal are traversed in descending order.
+    pub fn compare_ranked(&self, other: &Self, descending: bool) -> Ordering {
+        (self.position == i64::MAX)
+            .cmp(&(other.position == i64::MAX))
+            .then_with(|| self.compare(other, descending))
+    }
+
     pub fn for_scores(scores: &RankingScores, order: RankingOrder) -> Self {
         let value = match order {
             RankingOrder::Main => scores.main_rank,
