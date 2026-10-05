@@ -2,13 +2,28 @@
 
 以下命令均从仓库根目录运行。日常启动、所需环境及数据目录见[仓库说明](../README.md)，架构与历史验收见[文档导航](../docs/README.md)。
 
+## 日常验证范围
+
+本页是工具索引，不是每次开发都要执行的清单。默认按修改文件、行为及直接依赖选最小检查集；相关检查通过即停止，后续只因代码改动、失败或具体疑点补跑。
+
+| 改动 | 优先检查 |
+| --- | --- |
+| 文档、文案、简单样式 | 内容、链接或相关界面；不运行后端测试 |
+| 前端逻辑 | `pnpm typecheck`、修改文件的 `pnpm exec eslint <文件>`；导入关系变化再运行 `node tooling/boundaries.mjs`，必要时选对应 UI 脚本 |
+| Rust 模块 | `pnpm test:rust -p <crate> <过滤器>`；按需对受影响 crate 运行格式/Clippy 检查 |
+| Python 服务 | `pnpm test:lake tests/<文件>.py`，支持节点 ID 和 `-k <过滤器>`；路径相对 `services/lake-worker` |
+| HTTP/SDK、任务或存储链路 | `pnpm test:integration <套件名...>`，仅选相关链路；公共 DTO/路由变化先 `pnpm contracts` |
+| 开发脚本 | 修改文件的语法/Lint 检查及一条相关执行路径 |
+
+跨模块影响广泛或明确要求完整验收时才使用 `pnpm check:full`、`pnpm test:integration:all`；CI 保留这两个完整入口。普通开发不重复安装依赖、生成契约或构建 Release；前端构建按打包、资源、依赖变化决定。已经由完整入口覆盖且代码未再改变的检查不重复执行。历史计划中的阶段验收要求以 [AGENTS.md](../AGENTS.md) 的当前规则为准。
+
 数据湖存储维护：`node tooling/lake-storage.mjs` 提供 `build / verify / compare / release / activate / cleanup / handoff / retire`。构建不需要旧生产者索引；`handoff` 和 `retire` 默认预览，`--apply` 才提交交接或回收。`cleanup` 只清理本工具未启用的准备库并先归档小型证据。操作约束与命令示例见 [0050](../docs/decisions/0050-archive-rebuild-and-producer-retirement.md)。
 
-Pixiv 后端：`node tooling/source-collections.mjs` 调用同一个采集服务；`node tooling/integration-collections.mjs` 使用离线夹具验证 HTTP/SDK、来源读取和任务控制，已加入 `pnpm test:integration`。`node tooling/validate-pixiv-public.mjs --author 10109777 --output '<isolated output>'` 是显式联网的小样本验证，不属于自动测试。`lake-storage build --site pixiv` 支持只靠归档重建在线 3。参数、会话边界和使用例见[采集接入说明](../docs/architecture/source-collections.md)。
+Pixiv 后端：`node tooling/source-collections.mjs` 调用同一个采集服务；`pnpm test:integration collections` 使用离线夹具验证 HTTP/SDK、来源读取和任务控制。`node tooling/validate-pixiv-public.mjs --author 10109777 --output '<isolated output>'` 是显式联网的小样本验证，不属于自动测试。`lake-storage build --site pixiv` 支持只靠归档重建在线 3。参数、会话边界和使用例见[采集接入说明](../docs/architecture/source-collections.md)。
 
 Pixiv 归档规模验证：使用项目 Python 执行 `tooling/benchmark-pixiv-archive.py --output '<new child of .local/test-runs>' --works 10000 100000`。合成详情、媒体清单和共用小 PNG，验证生产组批 writer、发布与独立重建；不访问源站，不代表完整调度器或大图下载吞吐。结果和边界见[审查修复验收](../docs/verification/2026-10-03-pixiv-review-upgrade.md)。
 
-三站更新服务已纳入 `services/lake-worker`，运行源码随引擎打包，不需要另一个 Store 仓库。先运行 `pwsh -File tooling/setup-lake-worker.ps1 -Dev` 安装本项目的 Python 依赖，也可用 `STUDIO_LAKE_TEST_PYTHON` 指定已有环境。`pnpm test:lake` 覆盖编码、归档和恢复；`node tooling/integration-lake-updates.mjs` 验证内置运行器与 HTTP/SDK；`pnpm test:lake-ui` 验证真实界面和命名策略预设。夹具仅使用 `.local/test-runs/` 隔离湖，无正式 API 抓取。标准 `pnpm check` 已包括 Python 服务测试，完整集成入口包括更新 HTTP 回归。在线读取回归另见 `node tooling/integration-online.mjs`。
+三站更新服务已纳入 `services/lake-worker`，运行源码随引擎打包，不需要另一个 Store 仓库。首次运行 `pwsh -File tooling/setup-lake-worker.ps1 -Dev` 安装本项目的 Python 依赖，也可用 `STUDIO_LAKE_TEST_PYTHON` 指定已有环境。`pnpm test:lake <文件或过滤器>` 覆盖相关编码、归档或恢复行为；`pnpm test:integration lake-updates` 验证内置运行器与 HTTP/SDK；`pnpm test:lake-ui` 验证真实界面和命名策略预设。按变更范围选择，不默认连续执行。夹具仅使用 `.local/test-runs/` 隔离湖，无正式 API 抓取。完整 Python 服务测试属于 `pnpm check:full`。在线读取回归用 `pnpm test:integration online`。
 
 三站更新工作台：`node tooling/smoke-lake-updates-ui.mjs`，使用本项目的 Python 环境与本机 Edge，端口 1453。脚本创建隔离真实在线湖、控制库和项目，验证范围冻结、跨项目/重启、三湖提交、计划、凭据及不同窗口尺寸；不会使用正式凭据或调用源站 API。
 
@@ -16,11 +31,11 @@ Pixiv 归档规模验证：使用项目 Python 执行 `tooling/benchmark-pixiv-a
 
 脚本使用自身位置定位仓库根目录，统一保留在 tooling 顶层。测试源码和夹具生成器随 Git 保存；运行产生的数据、截图和日志使用 `.local/`。
 
-在线湖验收：`node tooling/integration-online.mjs`，已包含在 `pnpm test:integration`。默认使用 `setup-lake-worker.ps1 -Dev` 安装的项目 Python（DuckDB、APSW、pytz），也可用 `PYTHON` 显式指定。它也验证查询视图并发创建、分页重试、发布后续页、重启和过期。`node tooling/smoke-online-ui.mjs <online-fixture-directory>` 检查分页视图和保存工作集；`node tooling/verify-online-lakes.mjs <lake-paths.json>` 对正式湖做有界只读抽样。路径 JSON 是含 site/index/media 的数组，不随仓库保存本机数据。协议与边界见 [P2/P3 验收](../docs/verification/2026-09-26-online-upgrade-p23.md)及 [R1 查询可靠性验收](../docs/verification/2026-09-29-astra-r1-query-reliability.md)。
+在线湖验收：`pnpm test:integration online`。默认使用 `setup-lake-worker.ps1 -Dev` 安装的项目 Python（DuckDB、APSW、pytz），也可用 `PYTHON` 显式指定。它也验证查询视图并发创建、分页重试、发布后续页、重启和过期。`node tooling/smoke-online-ui.mjs <online-fixture-directory>` 检查分页视图和保存工作集；`node tooling/verify-online-lakes.mjs <lake-paths.json>` 对正式湖做有界只读抽样。路径 JSON 是含 site/index/media 的数组，不随仓库保存本机数据。协议与边界见 [P2/P3 验收](../docs/verification/2026-09-26-online-upgrade-p23.md)及 [R1 查询可靠性验收](../docs/verification/2026-09-29-astra-r1-query-reliability.md)。
 
 ## 环境与常用命令
 
-工作台前端验收：先运行 `node tooling/integration-aesthetic-analysis.mjs` 和 `node tooling/integration-aesthetic.mjs`，再将各自成功的 `.local/test-runs/` 目录传给 `node tooling/smoke-workbench-ui.mjs <analysis-fixture>` 与 `node tooling/smoke-aesthetic-ui.mjs <evaluation-fixture>`。前者使用端口 1447，后者使用 1439；均只操作隔离合成项目。`ui-workbench.mjs` 提供功能标签/菜单的共享测试导航。 `ui-ranking-reading.mjs` 扩展工作台检查：缩略图密度、键盘跨页、大图缩放平移、滚动恢复、逐图复核草稿、丢失响应后同键重试、固定保护队列和真实离线快照对照。
+工作台前端验收：按受影响功能选择 `node tooling/smoke-workbench-ui.mjs <analysis-fixture>` 或 `node tooling/smoke-aesthetic-ui.mjs <evaluation-fixture>`。后端未变且夹具仍有效时复用已有隔离项目；需要新夹具时运行对应的 `pnpm test:integration aesthetic-analysis` 或 `pnpm test:integration aesthetic`。前者使用端口 1447，后者使用 1439；均只操作隔离合成项目。`ui-workbench.mjs` 提供功能标签/菜单的共享测试导航。`ui-ranking-reading.mjs` 扩展工作台检查：缩略图密度、键盘跨页、大图缩放平移、滚动恢复、逐图复核草稿、丢失响应后同键重试、固定保护队列和真实离线快照对照。
 
 浏览布局回归集成在 `node tooling/smoke-ranking-browse-ui.mjs` 中，由 `ui-browser-layout.mjs` 验证。首要基准为 2560×1440、100% 缩放，另覆盖任务栏可用高度、150% 远程缩放和较小窗口；实际发送滚轮事件，检查右侧标签、草稿随停靠/隐藏/刷新恢复、筛选输入可达、图片滚动、查询侧栏、分页及全局底栏边界。业务回归同时验证 Rating 和 Tag 包含/排除筛选。
 
@@ -34,8 +49,13 @@ Windows 开发环境需要 PowerShell 7、Node.js 22.12 或更新版本、pnpm 1
 | `pnpm dev` / `pnpm dev:web`               | 已准备依赖后的桌面 / 浏览器开发环境                              |
 | `pnpm engine:stop`                        | 结束当前开发引擎                                                 |
 | `pnpm contracts` / `pnpm contracts:check` | 生成公开契约 / 核对契约漂移                                      |
-| `pnpm check`                              | 类型、lint、依赖边界、契约、Rust 格式与 Clippy、Rust 和 SDK 测试 |
-| `pnpm test:integration`                   | 20 组隔离引擎集成脚本                                            |
+| `pnpm check`                              | 轻量类型、Lint、依赖边界和 Rust 格式；无引擎构建或后端测试 |
+| `pnpm check:full`                         | 完整静态检查、契约、Clippy、Rust/SDK 与 Python 测试 |
+| `pnpm test:rust -p <crate> <过滤器>`       | 指定 Rust crate 或用例 |
+| `pnpm test:lake tests/<文件>.py -k <过滤器>` | 指定 Python 文件或用例；无参数时运行完整服务测试 |
+| `pnpm test:integration <套件名...>`        | 只运行指定集成；`--list` 列出名称，`--dry-run` 预览范围 |
+| `pnpm test:integration:all`                | 完整 28 组集成，包含千万行容量专项 |
+| `pnpm test:capacity`                      | 美学恢复回归及千万行容量专项 |
 | `pnpm test:launcher`                      | Windows 启动器与引擎进程管理回归                                 |
 | `pnpm test:clipboard`                     | Windows 原生剪贴板及 Win+V 历史验证，会写入系统剪贴板            |
 | `pnpm build`                              | 验证前端构建，不生成安装包                                       |
@@ -51,9 +71,9 @@ Windows 开发环境需要 PowerShell 7、Node.js 22.12 或更新版本、pnpm 1
 
 ## 自动检查与隔离集成
 
-Rust 测试位于 crates 内，`pnpm test` 同时执行 SDK 检查 [client-foundations.mjs](client-foundations.mjs) 和 [client-media.mjs](client-media.mjs)。启动器检查为 [test-engine-process.mjs](test-engine-process.mjs) 和 [test-launcher.mjs](test-launcher.mjs)。
+Rust 测试位于 crates 内，日常用 `pnpm test:rust -p <crate> <过滤器>`。`pnpm test` 保留全部 Rust/SDK 测试，用于完整验收；SDK 变更可直接选择 [client-foundations.mjs](client-foundations.mjs) 或 [client-media.mjs](client-media.mjs)。启动器检查为 [test-engine-process.mjs](test-engine-process.mjs) 和 [test-launcher.mjs](test-launcher.mjs)。
 
-`pnpm test:integration` 按 package.json 中的顺序执行以下脚本，使用独立引擎与合成数据：
+`pnpm test:integration ranking-browse` 仅运行排名浏览；`pnpm test:integration llm system-prompts` 运行指定的两组。无参数或名称错误时停止并提示，不会意外跑全套。[test-integration.mjs](test-integration.mjs) 维护名称及完整运行顺序，执行前为普通套件准备一次对应引擎；`--dry-run` 不构建、不启动引擎。下表索引主要脚本，均使用独立引擎与合成数据：
 
 | 范围                       | 脚本                                                                                                                                                                                                                                                                                                                                                                                                       |
 | -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -64,7 +84,7 @@ Rust 测试位于 crates 内，`pnpm test` 同时执行 SDK 检查 [client-found
 | LLM 与系统指令             | [integration-llm.mjs](integration-llm.mjs)、[integration-system-prompts.mjs](integration-system-prompts.mjs)                                                                                                                                                                                                                                                                                               |
 | 美学评审与离线统计         | [integration-aesthetic.mjs](integration-aesthetic.mjs)、[integration-aesthetic-analysis.mjs](integration-aesthetic-analysis.mjs)                                                                                                                                                                                                                                                                           |
 
-另外包括 [integration-aesthetic-recovery.mjs](integration-aesthetic-recovery.mjs)：R0/R1 创建中断、存储故障、发送屏障、候选处置、冻结模板、请求 ID 和真实百万行容量准入。该脚本显式构建 Debug `test-faults` 引擎，通过隔离文件注入故障，结束后恢复普通构建；不调用商业供应商，不证明百万图片吞吐。
+另外包括 [integration-aesthetic-recovery.mjs](integration-aesthetic-recovery.mjs)：默认验证 R0/R1 创建中断、存储故障、发送屏障、候选处置、冻结模板和请求 ID。真实 10,000,000 / 10,000,001 行容量准入由 `pnpm test:capacity` 显式启用，也包含在 `pnpm test:integration:all` 中；普通运行报告明确标记容量检查 `not_run`。该脚本自行构建 Debug `test-faults` 引擎，通过隔离文件注入故障，结束后恢复普通构建；不调用商业供应商，不证明百万图片吞吐。
 
 普通夹具引擎默认使用 Debug；需要验证已有 Release 产物时可设置 `STUDIO_ENGINE_PROFILE=release`。单独执行集成脚本前，应先准备 DuckDB 和相应引擎构建。
 
@@ -97,7 +117,7 @@ Rust 测试位于 crates 内，`pnpm test` 同时执行 SDK 检查 [client-found
 
 排名工作集性能入口为 [benchmark-ranked-worksets.mjs](benchmark-ranked-worksets.mjs)。传入 `--connection <engine.json> --project-id <项目 ID> --artifact-id <已发布排名成果 ID> --label <运行说明>`，使用实际开发引擎验证保存、冻结 Rating 筛选、五种排名分页、深位定位和自然帖子排序，并对照同来源的数据湖首屏。运行要求开发引擎与当前 Release 二进制一致，不改变资源设置。默认通过正常接口删除本轮创建的工作集和查询；`--keep-workset` 仅保留本轮完整范围工作集。它复用现有成果，不重新排名、不清除系统缓存；接口时间不包含缩略图解码。协议见 [ADR 0058](../docs/decisions/0058-fixed-ranking-membership-recipes.md)。
 
-数据库在线升级 P1 的规模实验与并发测试由 Rust 测试集维护，包含在 `pnpm check`。独立复跑命令、SQLite 版本与测量边界见 [P1 验收](../docs/verification/2026-09-26-online-upgrade-phase1.md)；存储或预览改动还需运行 `pnpm test:integration`。
+数据库在线升级 P1 的规模实验与并发测试由 Rust 测试集维护，包含在 `pnpm check:full`。独立复跑命令、SQLite 版本与测量边界见 [P1 验收](../docs/verification/2026-09-26-online-upgrade-phase1.md)；日常存储或预览改动只选择相关 Rust 用例及受影响集成，不自动运行全套。
 
 - [engine-fixture.mjs](engine-fixture.mjs)：独立引擎启动、请求、等待与停止。
 - [client-fixture.mjs](client-fixture.mjs)：测试使用的 SDK 装载。
@@ -105,13 +125,13 @@ Rust 测试位于 crates 内，`pnpm test` 同时执行 SDK 检查 [client-found
 - [ui-fixture.py](ui-fixture.py)、[query-fixture-update.py](query-fixture-update.py)：生成与推进隔离 UI / 查询数据湖。
 - [ranking-fixture.py](ranking-fixture.py)、[ranking-fixture-update.py](ranking-fixture-update.py)：生成有界排名数据湖及追加模拟更新。
 
-运行产物统一保存在 `.local/test-runs/`，命令日志放在 `.local/logs/`。需要长期保留的验收摘要、日志和截图归档到 `.local/reports/` 后，再按明确范围清理本次临时文件与空目录。仓库内的历史验收摘要放在 `docs/verification/`，本机证据位置用普通文本注明。
+运行产物统一保存在 `.local/test-runs/`，命令日志放在 `.local/logs/`。阶段收尾时一次性清理本轮明确拥有的临时文件和空目录；只将必要报告或失败日志留在 `.local/reports/`，普通测试不额外制作压缩包、哈希清单和审计报告。需要长期保存的阶段验收摘要放在 `docs/verification/`，本机证据位置用普通文本注明。
 
 `.local/dev/` 保存实际项目、成果、注册表和凭据，不能作为测试输出整体清理。夹具脚本的目录校验用于约束隔离运行位置，调用时也应明确指定本次测试目录。
 
 ## 评审 R2 验证
 
-- [integration-aesthetic-transport.mjs](integration-aesthetic-transport.mjs)：大图请求预算、逐图身份核对、原始/部分/超限回执、本地重解析、坏图预检、项目恢复和成果摘要。已加入 pnpm test:integration，全程使用本机模拟供应商。
+- [integration-aesthetic-transport.mjs](integration-aesthetic-transport.mjs)：大图请求预算、逐图身份核对、原始/部分/超限回执、本地重解析、坏图预检、项目恢复和成果摘要。用 `pnpm test:integration aesthetic-transport` 选择，全程使用本机模拟供应商。
 - [probe-aesthetic-workset.mjs](probe-aesthetic-workset.mjs)：最多 512 张指定真实图片的隔离传输验证。参数依次为元数据审计 JSON、应用数据目录、System Prompt 名称。审计文件包含 collection_name、project_id、summary.errors 和 rows[].key；只读应用注册表及真实图片，评审状态写入独立测试项目，服务端仅监听 loopback，不调用商业 API。此入口不验证模型审美质量。
 
 项目恢复使用公开 SDK 的 aesthetic.recoveryPackage(projectId) 和 aesthetic.restore(packageDirectory, destination)。后者要求同身份项目已关闭、目标目录不存在；验证成功后显式 openProject(destination)。旧的 aesthetic.backup 仍只备份评审账本。外部数据湖和凭据不在恢复包内。
@@ -138,11 +158,13 @@ Rust 测试位于 crates 内，`pnpm test` 同时执行 SDK 检查 [client-found
 - [smoke-lake-updates-ui.mjs](smoke-lake-updates-ui.mjs)：现包含设置页的解释器错误/成功验证和数据湖迁移错误/成功操作，使用真实本地引擎与内置 worker。
 - [lake-load-fixture.py](lake-load-fixture.py) 与 [verify-lake-combined-load.mjs](verify-lake-combined-load.mjs)：显式、非默认的大规模组合验收。先以 `<.local/test-runs/astra-load-唯一编号> prepare <来源清单.json>` 创建完整在线索引副本及选定媒体包，再把该目录传给 Node 验收入口。来源清单包含 kind、index_root、media_root；SQLite 源连接只读，更新和评审分别使用记录样本与 loopback mock。副本是负载镜像，缺少未选中的归档媒体，不能用于正式恢复。此测试可能占用上百 GB，结束后归档指标和日志，再清理专用目录。
 
-- [integration-multibooru.mjs](integration-multibooru.mjs)：三站点隔离 fixture、预检/登记、身份、标签、原始 schema、缓存和重启；已加入 `pnpm test:integration`。
+- [integration-multibooru.mjs](integration-multibooru.mjs)：三站点隔离 fixture、预检/登记、身份、标签、原始 schema、缓存和重启；用 `pnpm test:integration multibooru` 选择。
 - [multibooru-fixture.py](multibooru-fixture.py)：用标准库和仓库 DuckDB 运行库构建小型三站点夹具，不依赖真实湖或网络。
 - [smoke-multibooru-ui.mjs](smoke-multibooru-ui.mjs)：参数为上述集成生成的 `multibooru-*` 目录，在独立应用与 Edge 无头浏览器中验收连续添加三个湖、多湖查询编辑/恢复/缓存、共同字段、精确标签、旧草稿迁移，以及无关来源离线时的工作集筛选；只对指定测试夹具临时模拟离线并恢复。
 - [verify-multibooru.mjs](verify-multibooru.mjs)：显式传入 JSON 样本清单才读取真实湖；每湖最多 64 个记录、8 个预览。每项声明索引/图片根目录、library_id、generation 以及样本身份、原始 JSON/schema 摘要、标签和尺寸。只写独立测试应用及报告；首次会按需构建完整的应用身份/排序索引，未进行全湖媒体扫描。
 
 实现和验证边界见 [ADR 0035](../docs/decisions/0035-source-registry-and-dispatch.md)及[验收记录](../docs/verification/2026-09-26-multibooru.md)。
 
-美学评审执行与恢复：`node tooling/integration-aesthetic-execution.mjs` 使用本地模拟供应商验证 SSE/JSON 回执、分层超时、有限重试、同轮隔离、暂停/恢复及精确筛选预览，已纳入 `pnpm test:integration`。`node tooling/smoke-aesthetic-execution-ui.mjs <successful run>` 复用其隔离项目验证工作台并保存截图，不启动模型调用。设计与边界见 [0059](../docs/decisions/0059-aesthetic-streaming-and-recovery.md)。
+美学评审执行与恢复：`pnpm test:integration aesthetic-execution` 使用本地模拟供应商验证 SSE/JSON 回执、分层超时、有限重试、同轮隔离、暂停/恢复及精确筛选预览。`node tooling/smoke-aesthetic-execution-ui.mjs <successful run>` 复用其隔离项目验证工作台并保存截图，不启动模型调用。设计与边界见 [0059](../docs/decisions/0059-aesthetic-streaming-and-recovery.md)。
+
+OpenRouter 缓存专项：`pnpm test:integration aesthetic-cache`，使用 16 张合成图和 2 次本地模拟调用，验证阶段会话、冻结配置重关联及缓存费用汇总；不访问真实模型。

@@ -4,6 +4,8 @@ import { mkdir } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
+const args = process.argv.slice(2);
+if (args[0] === "--") args.shift();
 const python = lakeWorkerPython(root);
 if (!python)
   throw new Error(
@@ -21,6 +23,7 @@ const child = spawn(
     "no:cacheprovider",
     "--basetemp",
     resolve(run, "pytest"),
+    ...args,
   ],
   {
     cwd: resolve(root, "services/lake-worker"),

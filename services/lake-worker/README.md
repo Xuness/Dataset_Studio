@@ -142,4 +142,4 @@ PNG 元数据兼容解码与下载后的资源准入共用同一模块：仅对�
 
 IEND 后附加数据在 16 MiB 累积预算内完整保留为处理详情，解码只使用 PNG 主体。未结束的 ICC 压缩流只有在块 CRC 正确、完整配置大小及标签范围通过检查且 LittleCMS 可读取时才兼容处理；原块与动作保留，原图/动画输出不裁剪。详见 [ADR 0051](../../docs/decisions/0051-png-trailing-data-and-complete-icc.md)。
 
-`pnpm test:lake`、`node tooling/integration-lake-updates.mjs`、`pnpm test:lake-ui`。优先使用 `.local/runtime/lake-worker`，也可指定 `STUDIO_LAKE_TEST_PYTHON`，不再使用 `STUDIO_LAKE_TEST_STORE`。夹具和证据只写入 `.local/`；测试不访问真实站点，不创建正式计划。
+按修改范围选择 pytest 文件或用例，例如 `pnpm test:lake tests/test_png_compat.py -k metadata_crc`；参数相对本服务目录。只有需要完整服务回归时才执行不带过滤的 `pnpm test:lake`。涉及 HTTP/SDK 的更新行为用 `pnpm test:integration lake-updates`，工作台交互变化按需用 `pnpm test:lake-ui`，不默认连续运行三套。优先使用 `.local/runtime/lake-worker`，也可指定 `STUDIO_LAKE_TEST_PYTHON`，不再使用 `STUDIO_LAKE_TEST_STORE`。夹具和证据只写入 `.local/`；测试不访问真实站点，不创建正式计划。

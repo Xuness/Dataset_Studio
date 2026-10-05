@@ -24,7 +24,6 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pwsh -File tooling/setup-duckdb.ps1
       - run: pwsh -File tooling/setup-lake-worker.ps1 -Dev
-      - run: node tooling/prepare-sidecar.mjs
-      - run: pnpm check
-      - run: pnpm test:integration
+      - run: pnpm check:full
+      - run: pnpm test:integration:all
       - run: pnpm build:web

@@ -155,7 +155,7 @@ node tooling/lake-storage.mjs verify --output '<preparation>'
 
 构建时可传 `--reference-index '<online>'` 固定参考水位，再执行 `compare`。`release` 释放比较租约；`cleanup --evidence '<separate evidence>'` 回收未启用的准备库。`activate` 仅用于没有冲突指针的明确恢复位置，不能替换现有项目正在引用的代次。搬盘使用已有位置迁移协议。
 
-离线回归：`pnpm check`、`pnpm test:integration`；单独 HTTP/SDK 回归为 `node tooling/integration-collections.mjs`。真实公开小样本入口为 `node tooling/validate-pixiv-public.mjs --author 10109777 --output '<isolated output>'`，会访问 Pixiv、保存作者目录，并有限下载两个作品。此入口应显式运行，不包含在自动测试中。它不验证登录、R-18 可见性、关系大规模扩展或持续吞吐。
+离线回归按改动选择具体文件，例如 `pnpm test:lake tests/test_collection_discovery.py`；HTTP/SDK 回归用 `pnpm test:integration collections`，不默认执行所有来源与排名套件。前端改动按需执行轻量 `pnpm check`。真实公开小样本入口为 `node tooling/validate-pixiv-public.mjs --author 10109777 --output '<isolated output>'`，会访问 Pixiv、保存作者目录，并有限下载两个作品。此入口应显式运行，不包含在自动测试中。它不验证登录、R-18 可见性、关系大规模扩展或持续吞吐。
 
 界面回归为 `node tooling/smoke-pixiv-ui.mjs`：合成归档、真实界面与引擎，验证浏览、筛选、新湖／任务／计划、凭据保护和搬盘入口，不访问 Pixiv。旧三湖界面回归继续使用 `node tooling/smoke-lake-updates-ui.mjs`。
 

@@ -4,6 +4,8 @@
 
 本目录保存工程说明、设计依据和验收摘要。计划与历史记录中的版本、日期和“当前”均对应文档当时的基线；判断现状时，以仓库说明、最新模块接入文档和后续架构决策为准。
 
+日常验证遵循 [AGENTS.md](../AGENTS.md) 的最小范围规则。历史计划中的完整验收清单不要求后续每次开发重跑；旧记录中的 `pnpm check` / `pnpm test:integration` 全量范围，现由 `pnpm check:full` / `pnpm test:integration:all` 提供。
+
 ## 当前模块接入
 
 2026-09-29 项目审查：[Astra 审查本机复核](verification/2026-09-29-astra-review-validation.md)、[并发与生命周期修复阶段](plans/astra-review-remediation-2026-09-29.md)。R1 查询修复见[许可与分页决定](decisions/0045-query-admission-and-merge-progress.md)及[阶段验收](verification/2026-09-29-astra-r1-query-reliability.md)。R1–R4 已完成，F6/G1 协议见 [0047](decisions/0047-lake-runtime-and-location-recovery.md)，最终边界与实测见[收尾验收](verification/2026-09-29-astra-r3-r4-closeout.md)。

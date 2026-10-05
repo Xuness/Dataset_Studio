@@ -15,6 +15,10 @@ import { clientFixture } from "./client-fixture.mjs";
 import { network } from "./llm-fixture.mjs";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
+const args = process.argv.slice(2);
+if (args.some((arg) => arg !== "--capacity"))
+  throw new Error("仅支持 --capacity（启用千万行容量专项）。");
+const runCapacityCheck = args.includes("--capacity");
 const stamp = Date.now();
 const run = resolve(root, ".local/test-runs/aesthetic-recovery-" + stamp);
 const faults = resolve(run, "faults");
@@ -654,109 +658,113 @@ try {
     "writer thread exit is distinct from queue pressure, other ledgers remain usable, shutdown finishes and uncommitted outcome becomes unknown without a new call",
   );
 
-  // Seed a real immutable ten-million-member workset while the fixture engine is stopped.
-  const capacityRequest = request(other);
-  const oldPreview = await client.aesthetic.preflight(
-    other.id,
-    capacityRequest,
-  );
-  client.dispose();
-  await engine.stop();
-  const capacityDb = new DatabaseSync(
-    resolve(other.directory, "project.sqlite"),
-  );
-  const bigId = randomUUID();
-  try {
-    capacityDb.exec("PRAGMA journal_mode=WAL; BEGIN IMMEDIATE");
-    capacityDb
-      .prepare(
-        "INSERT INTO collections(id,name,count) VALUES (?,'capacity fixture',10000000)",
-      )
-      .run(bigId);
-    capacityDb
-      .prepare(
-        "WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<10000000) INSERT INTO collection_members(collection_id,source_id,asset_id) SELECT ?,?,printf('%064x',x) FROM n",
-      )
-      .run(bigId, other.source.id);
-    capacityDb.exec("COMMIT");
-  } finally {
-    capacityDb.close();
+  // The expensive membership boundary is opt-in; the ordinary recovery path
+  // above keeps its real engine, SQLite and fault-injection coverage.
+  if (runCapacityCheck) {
+    // Seed a real immutable ten-million-member workset while the fixture engine is stopped.
+    const capacityRequest = request(other);
+    const oldPreview = await client.aesthetic.preflight(
+      other.id,
+      capacityRequest,
+    );
+    client.dispose();
+    await engine.stop();
+    const capacityDb = new DatabaseSync(
+      resolve(other.directory, "project.sqlite"),
+    );
+    const bigId = randomUUID();
+    try {
+      capacityDb.exec("PRAGMA journal_mode=WAL; BEGIN IMMEDIATE");
+      capacityDb
+        .prepare(
+          "INSERT INTO collections(id,name,count) VALUES (?,'capacity fixture',10000000)",
+        )
+        .run(bigId);
+      capacityDb
+        .prepare(
+          "WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<10000000) INSERT INTO collection_members(collection_id,source_id,asset_id) SELECT ?,?,printf('%064x',x) FROM n",
+        )
+        .run(bigId, other.source.id);
+      capacityDb.exec("COMMIT");
+    } finally {
+      capacityDb.close();
+    }
+    await start();
+    const bigRequest = request(other, { collection_id: bigId });
+    const admitted = await client.aesthetic.preflight(other.id, bigRequest);
+    assert.equal(admitted.total, 10000000);
+    assert.equal(admitted.admitted, true);
+    assert.equal(admitted.capabilities.max_stage_candidates, 10000000);
+    for (const mode of ["balanced", "adaptive", "refine", "refine_balanced"]) {
+      const preview = await client.aesthetic.preflight(other.id, {
+        ...bigRequest,
+        sampling: {
+          mode,
+          min_exposures: bigRequest.exposures,
+          max_exposures: 8,
+          rank_tolerance: 0.1,
+          seed: 17,
+        },
+      });
+      assert.equal(preview.total, 10000000);
+      assert.equal(preview.admitted, true, mode);
+    }
+    client.dispose();
+    await engine.stop();
+    const changed = new DatabaseSync(resolve(other.directory, "project.sqlite"));
+    try {
+      changed.exec("BEGIN IMMEDIATE");
+      changed
+        .prepare(
+          "INSERT INTO collection_members VALUES (?,?,printf('%064x',10000001))",
+        )
+        .run(bigId, other.source.id);
+      changed
+        .prepare("UPDATE collections SET count=10000001 WHERE id=?")
+        .run(bigId);
+      // Source location metadata participates in the smaller workset's preflight token.
+      const row = changed
+        .prepare("SELECT json FROM sources WHERE id=?")
+        .get(other.source.id);
+      const sourceValue = JSON.parse(row.json);
+      sourceValue.name = "changed source descriptor";
+      changed
+        .prepare("UPDATE sources SET json=? WHERE id=?")
+        .run(JSON.stringify(sourceValue), other.source.id);
+      changed.exec("COMMIT");
+    } finally {
+      changed.close();
+    }
+    await start();
+    const capacityCalls = mock.calls.length;
+    const denied = await client.aesthetic.preflight(other.id, bigRequest);
+    assert.equal(denied.total, 10000001);
+    assert.equal(denied.rejection_code, "EVALUATION_CAPACITY_EXCEEDED");
+    await assert.rejects(
+      () => client.aesthetic.create(other.id, bigRequest),
+      (e) => e.code === "EVALUATION_CAPACITY_EXCEEDED",
+    );
+    await assert.rejects(
+      () =>
+        client.aesthetic.create(other.id, {
+          ...capacityRequest,
+          expected_input_version: oldPreview.input_version,
+        }),
+      (e) => e.code === "EVALUATION_INPUT_CHANGED",
+    );
+    assert.equal(mock.calls.length, capacityCalls);
+    readDb(other, "project.sqlite", (db) =>
+      assert.equal(
+        db
+          .prepare("SELECT count(*) AS n FROM evaluation_stage_refs WHERE id=?")
+          .get(bigRequest.idempotency_key).n,
+        0,
+      ),
+    );
+    checks.push(
+      "real 10000000/10000001 SQLite membership admission, authoritative create rejection before ledger registration or paid calls, and stale preflight input rejection",
+    );
   }
-  await start();
-  const bigRequest = request(other, { collection_id: bigId });
-  const admitted = await client.aesthetic.preflight(other.id, bigRequest);
-  assert.equal(admitted.total, 10000000);
-  assert.equal(admitted.admitted, true);
-  assert.equal(admitted.capabilities.max_stage_candidates, 10000000);
-  for (const mode of ["balanced", "adaptive", "refine", "refine_balanced"]) {
-    const preview = await client.aesthetic.preflight(other.id, {
-      ...bigRequest,
-      sampling: {
-        mode,
-        min_exposures: bigRequest.exposures,
-        max_exposures: 8,
-        rank_tolerance: 0.1,
-        seed: 17,
-      },
-    });
-    assert.equal(preview.total, 10000000);
-    assert.equal(preview.admitted, true, mode);
-  }
-  client.dispose();
-  await engine.stop();
-  const changed = new DatabaseSync(resolve(other.directory, "project.sqlite"));
-  try {
-    changed.exec("BEGIN IMMEDIATE");
-    changed
-      .prepare(
-        "INSERT INTO collection_members VALUES (?,?,printf('%064x',10000001))",
-      )
-      .run(bigId, other.source.id);
-    changed
-      .prepare("UPDATE collections SET count=10000001 WHERE id=?")
-      .run(bigId);
-    // Source location metadata participates in the smaller workset's preflight token.
-    const row = changed
-      .prepare("SELECT json FROM sources WHERE id=?")
-      .get(other.source.id);
-    const sourceValue = JSON.parse(row.json);
-    sourceValue.name = "changed source descriptor";
-    changed
-      .prepare("UPDATE sources SET json=? WHERE id=?")
-      .run(JSON.stringify(sourceValue), other.source.id);
-    changed.exec("COMMIT");
-  } finally {
-    changed.close();
-  }
-  await start();
-  const capacityCalls = mock.calls.length;
-  const denied = await client.aesthetic.preflight(other.id, bigRequest);
-  assert.equal(denied.total, 10000001);
-  assert.equal(denied.rejection_code, "EVALUATION_CAPACITY_EXCEEDED");
-  await assert.rejects(
-    () => client.aesthetic.create(other.id, bigRequest),
-    (e) => e.code === "EVALUATION_CAPACITY_EXCEEDED",
-  );
-  await assert.rejects(
-    () =>
-      client.aesthetic.create(other.id, {
-        ...capacityRequest,
-        expected_input_version: oldPreview.input_version,
-      }),
-    (e) => e.code === "EVALUATION_INPUT_CHANGED",
-  );
-  assert.equal(mock.calls.length, capacityCalls);
-  readDb(other, "project.sqlite", (db) =>
-    assert.equal(
-      db
-        .prepare("SELECT count(*) AS n FROM evaluation_stage_refs WHERE id=?")
-        .get(bigRequest.idempotency_key).n,
-      0,
-    ),
-  );
-  checks.push(
-    "real 10000000/10000001 SQLite membership admission, authoritative create rejection before ledger registration or paid calls, and stale preflight input rejection",
-  );
 
   for (const p of projects)
     readDb(p, "evaluation.sqlite", (db) => {
@@ -777,6 +785,7 @@ try {
       {
         passed: true,
         checks,
+        capacity_check: runCapacityCheck ? "passed" : "not_run",
         mock_calls: mock.calls.length,
         native_request_bytes: mock.calls.map((v) => v.bytes),
         limits: { max_stage_candidates: 10000000, recovery_deadline_ms: 10000 },
@@ -791,6 +800,7 @@ try {
     JSON.stringify({
       passed: true,
       checks: checks.length,
+      capacity_check: runCapacityCheck ? "passed" : "not_run",
       report: resolve(run, "report.json"),
     }),
   );

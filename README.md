@@ -93,7 +93,7 @@ Yandere/Gelbooru 使用相同的读取协议与独立的库身份。元数据中
 - 总缓存默认 64 GiB，可配置至 1024 GiB；初始长期预算 48 GiB、临时 8 GiB，并保留原缩略图预算。长期默认不按时间过期，临时默认最后使用后 24 小时清理，或选择仅本次项目会话。调整类别不复制成员；固定、正在查看和项目引用保护优先于普通清理，因此实际占用可能暂时超过预算。
 - `.local/engine-binaries/`：开发引擎的可重建二进制快照，避免运行中的 EXE 阻止增量链接。
 - `.local/logs/`：构建、检查和临时命令日志；启动依赖检查写入其中的 startup-install-日期时间-进程ID.log。
-- `.local/test-runs/`：自动测试及一次性验证的隔离运行目录。完成后将需要保留的报告、截图归档到 `.local/reports/`，再逐级清理夹具与缓存。
+- `.local/test-runs/`：自动测试及一次性验证的隔离运行目录。阶段结束时一次性清理本轮夹具与缓存，只将必要报告或失败日志保留到 `.local/reports/`。
 - 数据湖解释器故障和搬盘恢复见[运行环境与位置迁移协议](docs/decisions/0047-lake-runtime-and-location-recovery.md)。设置 → 数据湖 API 可更换解释器；受更新服务管理的湖须先准备迁移，再搬动文件并验证新位置，统一切换所有项目与更新器。
 - `.local/dev/engine.log`：与开发运行环境一起保存的引擎日志。
 
@@ -111,23 +111,26 @@ Yandere/Gelbooru 使用相同的读取协议与独立的库身份。元数据中
 
 ## 开发与检查
 
+日常开发按改动范围选择最小检查集，相关检查通过后停止。下面是可选入口，不是每次都要执行的连续步骤；纯文档、文案或简单样式修改不运行后端测试。首次环境准备使用上面的开发启动器。
+
 ```powershell
-pnpm install --frozen-lockfile
-pwsh -File tooling/setup-duckdb.ps1
-node tooling/prepare-sidecar.mjs
-pnpm contracts
 pnpm check
-pnpm test:integration
-pnpm build
+pnpm test:rust -p studio-storage query_cache::publication
+pnpm test:lake tests/test_png_compat.py -k metadata_crc
+pnpm test:integration ranking-browse
 ```
 
-`pnpm build` 只构建前端资产用于验证。默认脚本不生成发布版或安装包。
+`pnpm check` 仅检查类型、Lint/导入边界及 Rust 格式，不编译引擎或运行后端测试；更小的修改可只检查相关文件。公共 DTO/路由变更才需要 `pnpm contracts`。集成入口按指定套件准备一次引擎，无参数会提示选择套件；名称见 `pnpm test:integration --list`，`--dry-run` 只显示执行范围。Python 入口支持 pytest 文件、节点和 `-k` 过滤。
+
+完整验收使用 `pnpm check:full` 和 `pnpm test:integration:all`，保留在 CI 或确有跨模块风险的阶段执行。完整集成包含千万行容量专项；单独验证该边界用 `pnpm test:capacity`。普通美学恢复测试不生成千万行夹具。失败修复后优先重跑受影响用例，未改动且已通过的检查不重复执行。详细选择规则见 [AGENTS.md](AGENTS.md) 和[工具导航](tooling/README.md)。
+
+`pnpm build` 只构建前端资产，按打包、资源或依赖变更的需要执行；日常小修改不额外构建 Release 或安装包。
 
 Windows 原生剪贴板验收为 `pnpm test:clipboard`，要求已开启系统剪贴板历史。它使用独立 WebView2 窗口复制测试文字，并核对当前剪贴板和 Win+V 历史；不连接项目或使用日常 WebView 配置。结果写入 `.local/test-runs/clipboard-*`，不纳入默认测试以免普通检查改动系统剪贴板。
 
 接口以 Rust DTO 和 Utoipa 定义为准。生成的 OpenAPI 和 TypeScript 类型纳入 Git，CI 重新生成后检查漂移。前端功能通过 SDK 调用引擎，原生目录选择由应用层注入。
 
-测试覆盖旧项目升级、只读元数据、范围与结果、算子注册和固定字段、成果发布恢复、草稿冲突、读取公平性和取消、持久缓存与引用隔离。`test:integration` 包含 20 组独立引擎脚本，覆盖增量查询、分层预算、每日分级更新、真实 SDK 会话重连、MetaRecall 排名、有界范围排序、对象管理、撤销和排名起点浏览。夹具默认使用 Debug，引擎已构建时可用 `STUDIO_ENGINE_PROFILE=release` 验证优化产物。界面检查包括 `node tooling/smoke-ranking-ui.mjs`、`node tooling/smoke-management-ui.mjs` 和 `node tooling/smoke-ranking-browse-ui.mjs`，使用独立引擎与无头 Edge 上下文；真实有界元数据检查为 `tooling/verify-ranking.mjs`。可选的原生设置窗口检查为 `node tooling/smoke-settings-ui.mjs`，先关闭现有开发窗口与前端服务；它只使用独立的合成图片与项目。
+测试覆盖旧项目升级、只读元数据、范围与结果、算子注册和固定字段、成果发布恢复、草稿冲突、读取公平性和取消、持久缓存与引用隔离。集成入口可选择 28 组独立引擎脚本，覆盖增量查询、分层预算、每日分级更新、真实 SDK 会话重连、MetaRecall 排名、有界范围排序、对象管理、撤销和排名起点浏览。夹具默认使用 Debug；确需验证优化产物时可用 `STUDIO_ENGINE_PROFILE=release`。界面检查按受影响功能选择 `node tooling/smoke-ranking-ui.mjs`、`node tooling/smoke-management-ui.mjs` 或 `node tooling/smoke-ranking-browse-ui.mjs` 等入口，使用独立引擎与无头 Edge 上下文；真实有界元数据检查为 `tooling/verify-ranking.mjs`。可选的原生设置窗口检查为 `node tooling/smoke-settings-ui.mjs`，先关闭现有开发窗口与前端服务；它只使用独立的合成图片与项目。
 
 真实数据湖可使用 `node tooling/verify-metadata.mjs --index-root <索引根目录> --media-root <图片湖根目录> --asset <SHA256>` 做有界验证，最多传入 8 个 `--asset`。脚本使用隔离运行目录与真实引擎 API，报告写入 `.local/test-runs/metadata-verification-*`。
 
