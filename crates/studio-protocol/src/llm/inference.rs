@@ -186,6 +186,10 @@ pub struct LlmUsage {
     pub total_tokens: Option<u64>,
     pub cached_input_tokens: Option<u64>,
     pub reasoning_tokens: Option<u64>,
+    pub cache_write_tokens: Option<u64>,
+    pub cost_usd: Option<f64>,
+    pub upstream_provider: Option<String>,
+    pub service_tier: Option<String>,
 }
 impl From<domain::LlmUsage> for LlmUsage {
     fn from(v: domain::LlmUsage) -> Self {
@@ -195,6 +199,10 @@ impl From<domain::LlmUsage> for LlmUsage {
             total_tokens: v.total_tokens,
             cached_input_tokens: v.cached_input_tokens,
             reasoning_tokens: v.reasoning_tokens,
+            cache_write_tokens: v.cache_write_tokens,
+            cost_usd: v.cost_usd,
+            upstream_provider: v.upstream_provider,
+            service_tier: v.service_tier,
         }
     }
 }
@@ -206,6 +214,10 @@ impl From<LlmUsage> for domain::LlmUsage {
             total_tokens: v.total_tokens,
             cached_input_tokens: v.cached_input_tokens,
             reasoning_tokens: v.reasoning_tokens,
+            cache_write_tokens: v.cache_write_tokens,
+            cost_usd: v.cost_usd,
+            upstream_provider: v.upstream_provider,
+            service_tier: v.service_tier,
         }
     }
 }

@@ -419,6 +419,14 @@ export function BatchDetail({
                 <summary>完整调用记录</summary>
                 <pre>{JSON.stringify(a, null, 2)}</pre>
               </details>
+              {a.receipt && (
+                <p className="aesthetic-help">
+                  缓存读取 {a.receipt.usage.cached_input_tokens ?? "未知"} /
+                  写入 {a.receipt.usage.cache_write_tokens ?? "未知"} tokens
+                  {` · 费用 ${a.receipt.usage.cost_usd != null ? `$${a.receipt.usage.cost_usd.toFixed(6)}` : "未知"}`}
+                  {` · 上游 ${a.receipt.usage.upstream_provider ?? "未知"} · 实际层级 ${a.receipt.usage.service_tier ?? "未知"}`}
+                </p>
+              )}
             </article>
           ))}
         </div>

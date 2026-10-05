@@ -151,7 +151,7 @@ pub fn create(state: &AppState, pid: &str, request: AestheticCreate) -> Result<A
             "预检后输入版本已变化，请重新预检",
         ));
     }
-    let plan = state.llm.prepare(LlmInvocationRequest {
+    let mut plan = state.llm.prepare(LlmInvocationRequest {
         invocation_id: request.idempotency_key.clone(),
         model_id: request.model_id.clone(),
         expected_model_revision: None,
@@ -169,6 +169,19 @@ pub fn create(state: &AppState, pid: &str, request: AestheticCreate) -> Result<A
         }],
         tools: vec![],
     })?;
+    if plan.snapshot.provider_kind == LlmProviderKind::Openrouter
+        && plan
+            .snapshot
+            .parameters
+            .get("openrouter.cache_affinity")
+            .and_then(serde_json::Value::as_bool)
+            == Some(true)
+    {
+        plan.snapshot
+            .parameters
+            .entry("openrouter.session_id".into())
+            .or_insert_with(|| serde_json::json!(format!("aesthetic-{}", request.idempotency_key)));
+    }
     let caps = capabilities();
     let max_request_bytes = u64::from(request.max_request_mib.unwrap_or(32)) << 20;
     let mut frozen_execution = execution(input_version);

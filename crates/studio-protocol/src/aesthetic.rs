@@ -230,6 +230,7 @@ pub struct AestheticStage {
     pub input_tokens: u64,
     pub output_tokens: u64,
     pub usage_unknown: u64,
+    pub usage_summary: AestheticUsageSummary,
     pub error: Option<String>,
     pub sampling: Option<AestheticSamplingStatus>,
     pub archived: bool,
@@ -259,11 +260,39 @@ impl From<domain::AestheticStage> for AestheticStage {
             input_tokens: v.input_tokens,
             output_tokens: v.output_tokens,
             usage_unknown: v.usage_unknown,
+            usage_summary: v.usage_summary.into(),
             error: v.error,
             sampling: v.sampling.map(Into::into),
             archived: v.archived,
             execution_settings: v.execution_settings.map(Into::into),
             progress: v.progress.into(),
+        }
+    }
+}
+#[derive(Serialize, ToSchema)]
+pub struct AestheticUsageSummary {
+    pub recorded_requests: u64,
+    pub cache_observed_requests: u64,
+    pub cache_hit_requests: u64,
+    pub cached_input_tokens: u64,
+    pub cache_observed_input_tokens: u64,
+    pub cache_write_observed_requests: u64,
+    pub cache_write_tokens: u64,
+    pub cost_observed_requests: u64,
+    pub cost_usd: f64,
+}
+impl From<domain::AestheticUsageSummary> for AestheticUsageSummary {
+    fn from(v: domain::AestheticUsageSummary) -> Self {
+        Self {
+            recorded_requests: v.recorded_requests,
+            cache_observed_requests: v.cache_observed_requests,
+            cache_hit_requests: v.cache_hit_requests,
+            cached_input_tokens: v.cached_input_tokens,
+            cache_observed_input_tokens: v.cache_observed_input_tokens,
+            cache_write_observed_requests: v.cache_write_observed_requests,
+            cache_write_tokens: v.cache_write_tokens,
+            cost_observed_requests: v.cost_observed_requests,
+            cost_usd: v.cost_usd,
         }
     }
 }

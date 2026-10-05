@@ -4000,6 +4000,7 @@ export interface components {
             unknown: number;
             /** Format: int64 */
             unresolved: number;
+            usage_summary: components["schemas"]["AestheticUsageSummary"];
             /** Format: int64 */
             usage_unknown: number;
         };
@@ -4047,6 +4048,26 @@ export interface components {
         AestheticUnjudgeable: {
             id: string;
             reason: string;
+        };
+        AestheticUsageSummary: {
+            /** Format: int64 */
+            cache_hit_requests: number;
+            /** Format: int64 */
+            cache_observed_input_tokens: number;
+            /** Format: int64 */
+            cache_observed_requests: number;
+            /** Format: int64 */
+            cache_write_observed_requests: number;
+            /** Format: int64 */
+            cache_write_tokens: number;
+            /** Format: int64 */
+            cached_input_tokens: number;
+            /** Format: int64 */
+            cost_observed_requests: number;
+            /** Format: double */
+            cost_usd: number;
+            /** Format: int64 */
+            recorded_requests: number;
         };
         AestheticValidity: {
             groups: components["schemas"]["AestheticRatingValidity"][];
@@ -5835,15 +5856,21 @@ export interface components {
         };
         LlmUsage: {
             /** Format: int64 */
+            cache_write_tokens?: number | null;
+            /** Format: int64 */
             cached_input_tokens?: number | null;
+            /** Format: double */
+            cost_usd?: number | null;
             /** Format: int64 */
             input_tokens?: number | null;
             /** Format: int64 */
             output_tokens?: number | null;
             /** Format: int64 */
             reasoning_tokens?: number | null;
+            service_tier?: string | null;
             /** Format: int64 */
             total_tokens?: number | null;
+            upstream_provider?: string | null;
         };
         ManagedJob: {
             job: components["schemas"]["Job"];

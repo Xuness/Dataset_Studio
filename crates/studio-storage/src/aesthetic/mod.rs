@@ -18,6 +18,7 @@ mod receipts;
 mod recovery_policy;
 mod regroup;
 mod sampling;
+mod usage;
 mod writer;
 pub(crate) use project::{recover, reference_reason};
 #[cfg(test)]
@@ -229,18 +230,19 @@ fn read_stage(db: &Connection, id: &str) -> Result<AestheticStage> {
     let mut stage = db.query_row("SELECT id,name,state,created_at,config,config_hash,total,frozen,eligible,attempts,accepted,invalid,unknown,protected,input_tokens,output_tokens,usage_unknown,error,comparable,excluded,unresolved FROM stages WHERE id=?1",[id],|r| {
         let config: String = r.get(4)?;
         let config = serde_json::from_str(&config).map_err(|e| rusqlite::Error::FromSqlConversionFailure(4,rusqlite::types::Type::Text,Box::new(e)))?;
-        Ok(AestheticStage { id:r.get(0)?,name:r.get(1)?,state:r.get(2)?,created_at:r.get(3)?,config,config_hash:r.get(5)?,total:crate::unsigned(r,6)?,frozen:crate::unsigned(r,7)?,eligible:crate::unsigned(r,8)?,attempts:crate::unsigned(r,9)?,accepted:crate::unsigned(r,10)?,invalid:crate::unsigned(r,11)?,unknown:crate::unsigned(r,12)?,protected:crate::unsigned(r,13)?,input_tokens:crate::unsigned(r,14)?,output_tokens:crate::unsigned(r,15)?,usage_unknown:crate::unsigned(r,16)?,error:r.get(17)?,comparable:crate::unsigned(r,18)?,excluded:crate::unsigned(r,19)?,unresolved:crate::unsigned(r,20)?, sampling:None,archived:false,execution_settings:None,progress:Default::default() })
+        Ok(AestheticStage { id:r.get(0)?,name:r.get(1)?,state:r.get(2)?,created_at:r.get(3)?,config,config_hash:r.get(5)?,total:crate::unsigned(r,6)?,frozen:crate::unsigned(r,7)?,eligible:crate::unsigned(r,8)?,attempts:crate::unsigned(r,9)?,accepted:crate::unsigned(r,10)?,invalid:crate::unsigned(r,11)?,unknown:crate::unsigned(r,12)?,protected:crate::unsigned(r,13)?,input_tokens:crate::unsigned(r,14)?,output_tokens:crate::unsigned(r,15)?,usage_unknown:crate::unsigned(r,16)?,error:r.get(17)?,comparable:crate::unsigned(r,18)?,excluded:crate::unsigned(r,19)?,unresolved:crate::unsigned(r,20)?, sampling:None,archived:false,execution_settings:None,progress:Default::default(),usage_summary:Default::default() })
     }).optional().map_err(db_error)?.ok_or_else(|| Error::new("NOT_FOUND","评审阶段不存在"))?;
     stage.sampling = sampling::status(db, id)?;
-    let (archived, settings): (bool, Option<String>) = db
+    let (archived, settings, usage): (bool, Option<String>, String) = db
         .query_row(
-            "SELECT archived,execution_settings FROM stages WHERE id=?1",
+            "SELECT archived,execution_settings,usage_summary FROM stages WHERE id=?1",
             [id],
-            |r| Ok((r.get(0)?, r.get(1)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )
         .map_err(db_error)?;
     stage.archived = archived;
     stage.execution_settings = settings.map(decode).transpose()?;
+    stage.usage_summary = decode(usage)?;
     stage.progress = management::progress(db, &stage)?;
     Ok(stage)
 }

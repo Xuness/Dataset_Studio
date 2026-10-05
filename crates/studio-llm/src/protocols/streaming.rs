@@ -41,7 +41,7 @@ impl Collector {
         }
     }
     fn chat_event(&mut self, value: &Value) -> LlmCallResult<Vec<LlmEvent>> {
-        for key in ["id", "model", "usage"] {
+        for key in ["id", "model", "usage", "provider", "service_tier"] {
             if !value[key].is_null() {
                 self.chat[key] = value[key].clone();
             }

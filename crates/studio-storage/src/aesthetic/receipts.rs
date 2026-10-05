@@ -67,6 +67,7 @@ impl EvaluationDb {
             if matches!(state.as_str(),"running"|"preparing"|"pausing"|"cancelling") {return Err(Error::new("REVISION_CONFLICT","阶段正在执行"));}
             let (old,state):(Option<String>,String)=db.query_row("SELECT a.receipt,b.state FROM attempts a JOIN batches b ON b.sequence=a.batch WHERE a.id=?1",[&attempt],|r|Ok((r.get(0)?,r.get(1)?))).map_err(db_error)?;
             let old_usage=old.as_ref().map(|s|decode::<AestheticReceipt>(s.clone())).transpose()?.map(|r|r.usage);
+            usage::replace(db, &stage, old_usage.as_ref(), &receipt.usage)?;
             if let Some(old)=old {db.execute("INSERT INTO receipt_parses(attempt_id,adapter_version,state,normalized,created_at) VALUES(?1,'historical','previous_normalization',?2,?3)",params![attempt,old,now()]).map_err(db_error)?;}
             db.execute("INSERT INTO receipt_parses(attempt_id,adapter_version,state,normalized,created_at) SELECT ?1,COALESCE((SELECT json_extract(metadata,'$.adapter_version') FROM raw_receipts WHERE attempt_id=?1),'native_json_v1'),'decoded',?2,?3",params![attempt,json,now()]).map_err(db_error)?;
             let bound=|v:Option<u64>|v.unwrap_or(0).min(i64::MAX as u64) as i64;

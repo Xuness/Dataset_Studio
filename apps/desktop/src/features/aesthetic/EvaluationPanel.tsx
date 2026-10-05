@@ -26,6 +26,7 @@ import { ExecutionSettingsDialog } from "./ExecutionSettings.js";
 import { BatchRecoveryDialog } from "./BatchRecoveryDialog.js";
 import { FitDialog } from "./AnalysisActions.js";
 import { aestheticTime } from "./analysisPresentation.js";
+import { UsageSummary } from "./UsageSummary.js";
 
 const evaluationLayout: WorkbenchLayout = {
   panels: {
@@ -658,8 +659,11 @@ export default function EvaluationPanel(
                     已知用量：输入 {selected.input_tokens.toLocaleString()} /
                     输出 {selected.output_tokens.toLocaleString()} tokens；
                     {selected.usage_unknown}{" "}
-                    份返回缺少完整用量。费用尚未折算，结果不明的请求也可能已计费。目标曝光次数不代表排名已经稳定。
+                    份返回缺少完整用量。目标曝光次数不代表排名已经稳定。
                   </p>
+                  {selected.usage_summary && (
+                    <UsageSummary value={selected.usage_summary} />
+                  )}
                 </div>
               </WorkbenchPanelPortal>
               {selected.error && (

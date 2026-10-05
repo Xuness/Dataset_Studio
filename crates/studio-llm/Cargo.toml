@@ -7,6 +7,7 @@ publish.workspace = true
 studio-domain = { path = "../studio-domain" }
 studio-application = { path = "../studio-application" }
 serde_json.workspace = true
+sha2.workspace = true
 reqwest.workspace = true
 tokio.workspace = true
 futures.workspace = true

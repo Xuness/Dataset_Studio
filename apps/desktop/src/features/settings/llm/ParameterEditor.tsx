@@ -6,6 +6,7 @@ const groups: Record<string, string> = {
   reasoning: "推理",
   tools: "工具调用",
   routing: "上游路由",
+  caching: "提示词缓存",
   advanced: "高级参数",
 };
 export function ParameterEditor({

@@ -107,6 +107,60 @@ try {
     );
   }
   const { p, m } = saved[0];
+  const routerProvider = saved.find(
+    ({ p }) => p.config.kind === "openrouter",
+  ).p;
+  const cachedModel = await createModel(
+    routerProvider,
+    "openai_chat",
+    "google/gemini-cache-fixture",
+    {
+      "openrouter.cache_strategy": "system",
+      "openrouter.cache_affinity": true,
+      service_tier: "flex",
+      "openrouter.provider": {
+        only: ["google-ai-studio/flex"],
+        allow_fallbacks: true,
+      },
+    },
+  );
+  const cacheRequest = (text) => ({
+    ...request(cachedModel),
+    messages: [
+      {
+        role: "system",
+        content: [{ type: "text", text: "Fixed rubric for image evaluation" }],
+      },
+      { role: "user", content: [{ type: "text", text }] },
+    ],
+  });
+  const cachePreview = await client.llm.prepare(cacheRequest("first"));
+  const cachePreview2 = await client.llm.prepare(cacheRequest("second"));
+  assert.equal(
+    cachePreview.native_request.session_id,
+    cachePreview2.native_request.session_id,
+  );
+  assert.deepEqual(cachePreview.native_request.provider.only, [
+    "google-ai-studio/flex",
+  ]);
+  assert.equal(
+    cachePreview.native_request.messages[0].content[0].cache_control.type,
+    "ephemeral",
+  );
+  const cacheJson = await client.llm.generate(cacheRequest("first"));
+  const cacheEvents = [];
+  for await (const event of client.llm.stream(cacheRequest("second")))
+    cacheEvents.push(event);
+  assert.equal(cacheEvents.at(-1).type, "completed");
+  assert.deepEqual(cacheEvents.at(-1).response.usage, cacheJson.usage);
+  assert.equal(cacheJson.usage.cached_input_tokens, 5);
+  assert.equal(cacheJson.usage.cache_write_tokens, 0);
+  assert.equal(cacheJson.usage.cost_usd, 0.0000123);
+  assert.equal(cacheJson.usage.upstream_provider, "Google AI Studio");
+  assert.equal(cacheJson.usage.service_tier, "flex");
+  checks.push(
+    "OpenRouter fixed-prefix affinity, explicit system boundary, strict Flex and JSON/SSE usage parity",
+  );
   const omittedStore = await client.llm.prepare(request(m, { store: null }));
   assert.equal("store" in omittedStore.snapshot.parameters, false);
   assert.equal("store" in omittedStore.native_request, false);

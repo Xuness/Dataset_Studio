@@ -319,6 +319,20 @@ impl LlmService {
         if parameters.get("tool_choice").is_some_and(|v| v != "none") && request.tools.is_empty() {
             return Err(Error::invalid("工具选择需要工具声明"));
         }
+        if provider.config.kind == LlmProviderKind::Openrouter
+            && parameters
+                .get("openrouter.cache_affinity")
+                .and_then(serde_json::Value::as_bool)
+                == Some(true)
+            && parameters
+                .get("openrouter.provider")
+                .and_then(|p| p.get("order"))
+                .and_then(serde_json::Value::as_array)
+                .is_some_and(|order| !order.is_empty())
+        {
+            warnings
+                .push("手动上游 order 优先于缓存粘性路由；可使用 only 限定端点并移除 order".into());
+        }
         let snapshot = LlmInvocationSnapshot {
             schema_version: LLM_SCHEMA_VERSION,
             invocation_id: request.invocation_id,

@@ -11958,6 +11958,7 @@
           "input_tokens",
           "output_tokens",
           "usage_unknown",
+          "usage_summary",
           "archived",
           "progress"
         ],
@@ -12076,6 +12077,9 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          },
+          "usage_summary": {
+            "$ref": "#/components/schemas/AestheticUsageSummary"
           },
           "usage_unknown": {
             "type": "integer",
@@ -12240,6 +12244,66 @@
           },
           "reason": {
             "type": "string"
+          }
+        }
+      },
+      "AestheticUsageSummary": {
+        "type": "object",
+        "required": [
+          "recorded_requests",
+          "cache_observed_requests",
+          "cache_hit_requests",
+          "cached_input_tokens",
+          "cache_observed_input_tokens",
+          "cache_write_observed_requests",
+          "cache_write_tokens",
+          "cost_observed_requests",
+          "cost_usd"
+        ],
+        "properties": {
+          "cache_hit_requests": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "cache_observed_input_tokens": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "cache_observed_requests": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "cache_write_observed_requests": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "cache_write_tokens": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "cached_input_tokens": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "cost_observed_requests": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "cost_usd": {
+            "type": "number",
+            "format": "double"
+          },
+          "recorded_requests": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           }
         }
       },
@@ -19012,6 +19076,14 @@
       "LlmUsage": {
         "type": "object",
         "properties": {
+          "cache_write_tokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
           "cached_input_tokens": {
             "type": [
               "integer",
@@ -19019,6 +19091,13 @@
             ],
             "format": "int64",
             "minimum": 0
+          },
+          "cost_usd": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
           },
           "input_tokens": {
             "type": [
@@ -19044,6 +19123,12 @@
             "format": "int64",
             "minimum": 0
           },
+          "service_tier": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "total_tokens": {
             "type": [
               "integer",
@@ -19051,6 +19136,12 @@
             ],
             "format": "int64",
             "minimum": 0
+          },
+          "upstream_provider": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "additionalProperties": false

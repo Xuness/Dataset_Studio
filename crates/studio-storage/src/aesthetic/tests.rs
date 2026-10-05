@@ -5,6 +5,7 @@ mod execution;
 mod recovery;
 mod sampling;
 mod transport;
+mod usage;
 
 fn fixture(count: u64) -> (tempfile::TempDir, EvaluationDb, String) {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/test-runs");

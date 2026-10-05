@@ -36,6 +36,15 @@ pub(super) fn prepare(
             stage.config.model.model_revision,
             stage.config.model.provider_revision,
         ));
+    // Explicitly omit newly added model defaults when replaying a frozen stage.
+    let model = state.llm.repository.model(&stage.config.model.model_id)?;
+    let mut overrides: LlmParameters = model
+        .config
+        .parameters
+        .keys()
+        .map(|key| (key.clone(), serde_json::Value::Null))
+        .collect();
+    overrides.extend(stage.config.model.parameters.clone());
     let plan = state.llm.prepare(LlmInvocationRequest {
         invocation_id,
         model_id: stage.config.model.model_id.clone(),
@@ -45,7 +54,7 @@ pub(super) fn prepare(
         expected_preset_revision: None,
         system_prompt_id: None,
         expected_system_prompt_revision: None,
-        overrides: stage.config.model.parameters.clone(),
+        overrides,
         messages: messages.clone(),
         tools: stage.config.model.tools.clone(),
     })?;

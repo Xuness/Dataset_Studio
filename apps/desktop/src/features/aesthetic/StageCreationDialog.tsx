@@ -21,6 +21,12 @@ type Pending = {
   attempted: boolean;
   rejected?: boolean;
 };
+function copiedParameters(stage: Schema["AestheticStage"]) {
+  const parameters = { ...stage.config.model.parameters };
+  if (parameters["openrouter.session_id"] === `aesthetic-${stage.id}`)
+    delete parameters["openrouter.session_id"];
+  return parameters;
+}
 const initial = {
   name: "美学评审",
   collectionId: "",
@@ -117,7 +123,7 @@ export function StageCreationDialog({
           maxRequestMiB: sourceStage.config.max_request_bytes / 1048576,
           executionPolicy:
             sourceStage.execution_settings?.policy ?? defaultExecutionPolicy,
-          overrides: sourceStage.config.model.parameters ?? {},
+          overrides: copiedParameters(sourceStage),
           budgetTouched: true,
         }
       : initial,

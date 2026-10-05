@@ -219,6 +219,8 @@ pub fn parameter_specs(protocol: LlmProtocol, kind: LlmProviderKind) -> Vec<LlmP
             &["disabled", "auto"],
             "默认不主动截断输入",
         );
+    }
+    if protocol == LlmProtocol::OpenaiResponses || kind == LlmProviderKind::Openrouter {
         add(
             "service_tier",
             "服务等级",
@@ -227,7 +229,7 @@ pub fn parameter_specs(protocol: LlmProtocol, kind: LlmProviderKind) -> Vec<LlmP
             None,
             None,
             &["auto", "default", "flex", "priority"],
-            "由账号与模型决定是否支持",
+            "OpenRouter 的 flex 使用严格限制：上游路由 only 需填写具体 /flex 端点；无可用容量时返回错误，不转普通价",
         );
     }
     if protocol == LlmProtocol::Gemini || kind == LlmProviderKind::Openrouter {
@@ -310,6 +312,36 @@ pub fn parameter_specs(protocol: LlmProtocol, kind: LlmProviderKind) -> Vec<LlmP
     }
     if kind == LlmProviderKind::Openrouter {
         add(
+            "openrouter.cache_strategy",
+            "提示词缓存策略",
+            "string",
+            "caching",
+            None,
+            None,
+            &["implicit", "system"],
+            "implicit 保留上游自动缓存；system 为 Gemini/Claude 的完整 System 指令添加显式缓存标记。须达到模型最低缓存长度，会产生写入或存储费用；变化的图片不加入显式缓存",
+        );
+        add(
+            "openrouter.cache_affinity",
+            "固定提示词路由",
+            "boolean",
+            "caching",
+            None,
+            None,
+            &[],
+            "开启后生成稳定 session ID，美学评审按阶段固定。可减少图片变化引起的端点切换；手动 provider.order 会优先于粘性路由，建议用 only 限定可用端点",
+        );
+        add(
+            "openrouter.session_id",
+            "自定义缓存会话",
+            "string",
+            "caching",
+            None,
+            None,
+            &[],
+            "可选，最多 256 字符。覆盖自动生成的会话 ID；只影响路由及日志分组，不共享消息历史",
+        );
+        add(
             "openrouter.provider",
             "上游路由",
             "object",
@@ -388,6 +420,13 @@ pub fn validate_parameters(values: &LlmParameters, specs: &[LlmParameterSpec]) -
             .ok_or_else(|| Error::invalid(format!("协议未定义参数：{key}")))?;
         if value.is_null() {
             continue;
+        }
+        if key == "openrouter.session_id"
+            && value.as_str().is_none_or(|s| {
+                s.trim().is_empty() || s.chars().count() > 256 || s.chars().any(char::is_control)
+            })
+        {
+            return Err(Error::invalid("缓存会话 ID 须为 1–256 个非控制字符"));
         }
         if spec.support == LlmSupport::Unsupported {
             return Err(Error::invalid(format!("模型明确不支持参数：{key}")));

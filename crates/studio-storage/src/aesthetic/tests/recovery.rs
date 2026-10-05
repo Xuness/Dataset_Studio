@@ -73,7 +73,7 @@ fn disposition_queue_seeks_sparse_candidates_and_v3_migration_preserves_evidence
             DROP TRIGGER sampling_queue_counts_insert; DROP TRIGGER sampling_queue_counts_delete; DROP TRIGGER sampling_queue_counts_claim;
             DROP INDEX stage_recent; DROP INDEX analysis_stage_latest; DROP INDEX batch_local_number; DROP INDEX batch_retry_due; DROP INDEX batch_sampling_round; DROP INDEX candidate_blocked;
             DROP TABLE batch_state_counts; DROP TABLE batch_round_counts; DROP TABLE exposure_counts; DROP TABLE execution_updates; DROP TABLE batch_actions;
-            ALTER TABLE stages DROP COLUMN archived; ALTER TABLE stages DROP COLUMN execution_settings; ALTER TABLE stages DROP COLUMN failure_streak; ALTER TABLE stages DROP COLUMN next_batch_number;
+            ALTER TABLE stages DROP COLUMN usage_summary; ALTER TABLE stages DROP COLUMN archived; ALTER TABLE stages DROP COLUMN execution_settings; ALTER TABLE stages DROP COLUMN failure_streak; ALTER TABLE stages DROP COLUMN next_batch_number;
             ALTER TABLE batches DROP COLUMN stage_sequence; ALTER TABLE batches DROP COLUMN retry_at; ALTER TABLE batches DROP COLUMN recovery_deadline; ALTER TABLE batches DROP COLUMN recovery_attempt_base; ALTER TABLE batches DROP COLUMN disposition_reason;
             ALTER TABLE candidates DROP COLUMN blocked_batch; ALTER TABLE attempts DROP COLUMN execution_settings;").unwrap();
         target
@@ -92,7 +92,7 @@ fn disposition_queue_seeks_sparse_candidates_and_v3_migration_preserves_evidence
             .unwrap()
             .pragma_query_value(None, "user_version", |r| r.get::<_, u32>(0))
             .unwrap(),
-        8
+        9
     );
     let backup = std::fs::read_dir(legacy.join(".backups"))
         .unwrap()
@@ -368,7 +368,7 @@ fn v1_and_v2_ledgers_migrate_paid_history_and_abstentions_with_durable_backups()
                 .unwrap()
                 .pragma_query_value(None, "user_version", |r| r.get::<_, u32>(0))
                 .unwrap(),
-            8
+            9
         );
         let backup = std::fs::read_dir(legacy.join(".backups"))
             .unwrap()

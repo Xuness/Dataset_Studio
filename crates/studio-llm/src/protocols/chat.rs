@@ -85,7 +85,7 @@ pub(super) fn encode(plan: &LlmInvocationPlan, stream: bool) -> Result<Value> {
         body["tools"] = Value::Array(s.tools.iter().map(|t| json!({"type":"function","function":{"name":t.name,"description":t.description,"parameters":t.parameters,"strict":t.strict}})).collect());
     }
     if s.provider_kind == LlmProviderKind::Openrouter {
-        crate::providers::openrouter::apply(&mut body, &s.parameters)?;
+        crate::providers::openrouter::apply(&mut body, s)?;
     }
     Ok(body)
 }

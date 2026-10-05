@@ -99,7 +99,20 @@ export async function llmFixture() {
         prompt_tokens: 7,
         completion_tokens: 3,
         total_tokens: 10,
+        ...(model === "google/gemini-cache-fixture"
+          ? {
+              prompt_tokens_details: {
+                cached_tokens: 5,
+                cache_write_tokens: 0,
+              },
+              cost: 0.0000123,
+            }
+          : {}),
       };
+      const route =
+        model === "google/gemini-cache-fixture"
+          ? { provider: "Google AI Studio", service_tier: "flex" }
+          : {};
       const complete = isGemini
         ? {
             responseId: "g-response",
@@ -133,6 +146,7 @@ export async function llmFixture() {
             }
           : {
               id: "c-response",
+              ...route,
               model,
               choices: [
                 {
@@ -160,6 +174,7 @@ export async function llmFixture() {
           : [
               {
                 id: "c-response",
+                ...route,
                 model,
                 choices: [{ index: 0, delta: { content: "你好 " } }],
               },

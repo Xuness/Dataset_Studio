@@ -45,3 +45,22 @@ fn protocol_extensions_and_conflicts_are_not_lost() {
     assert!(!responses.iter().any(|s| s.key == "seed"));
     assert!(resolve_parameters(&[&parameters(json!({"top_logprobs":4}))], &chat).is_err());
 }
+
+#[test]
+fn openrouter_cache_parameters_are_scoped_and_session_ids_are_bounded() {
+    let router = parameter_specs(LlmProtocol::OpenaiChat, LlmProviderKind::Openrouter);
+    assert!(validate_parameters(&parameters(json!({"openrouter.cache_affinity":true,"openrouter.cache_strategy":"system","service_tier":"flex"})), &router).is_ok());
+    for id in [String::new(), "x".repeat(257), "line\nbreak".into()] {
+        assert!(
+            validate_parameters(&parameters(json!({"openrouter.session_id":id})), &router).is_err()
+        );
+    }
+    let direct = parameter_specs(LlmProtocol::OpenaiChat, LlmProviderKind::OpenaiCompatible);
+    assert!(
+        validate_parameters(
+            &parameters(json!({"openrouter.cache_strategy":"implicit"})),
+            &direct
+        )
+        .is_err()
+    );
+}

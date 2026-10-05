@@ -83,6 +83,8 @@ pub struct AestheticStage {
     pub input_tokens: u64,
     pub output_tokens: u64,
     pub usage_unknown: u64,
+    #[serde(default)]
+    pub usage_summary: AestheticUsageSummary,
     pub error: Option<String>,
     #[serde(default)]
     pub sampling: Option<AestheticSamplingStatus>,
@@ -92,6 +94,21 @@ pub struct AestheticStage {
     pub execution_settings: Option<AestheticExecutionSettings>,
     #[serde(default)]
     pub progress: AestheticStageProgress,
+}
+
+/// Incremental receipt totals. Coverage counters keep missing upstream metrics distinct from zero.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct AestheticUsageSummary {
+    pub recorded_requests: u64,
+    pub cache_observed_requests: u64,
+    pub cache_hit_requests: u64,
+    pub cached_input_tokens: u64,
+    pub cache_observed_input_tokens: u64,
+    pub cache_write_observed_requests: u64,
+    pub cache_write_tokens: u64,
+    pub cost_observed_requests: u64,
+    pub cost_usd: f64,
 }
 
 impl AestheticStage {

@@ -27,6 +27,7 @@ export function ProbePanel({
     [text, setText] = useState(""),
     [error, setError] = useState<unknown>(null),
     [result, setResult] = useState<Schema["LlmResponse"] | null>(null);
+  const [prefixProbe, setPrefixProbe] = useState(false);
   const controller = useRef<AbortController | null>(null);
   useEffect(() => () => controller.current?.abort(), []);
   const prompts = useQuery(systemPromptsQuery(client));
@@ -35,6 +36,7 @@ export function ProbePanel({
     setText("");
     setResult(null);
     setError(null);
+    setPrefixProbe(false);
   }
   function input(): LlmInvocationInput {
     const prompt = prompts.data?.items.find((p) => p.id === promptId);
@@ -70,18 +72,36 @@ export function ProbePanel({
       controller.current = null;
     }
   }
-  async function run() {
+  async function run(prefixOnly = false) {
     const cancel = new AbortController();
     controller.current = cancel;
     setBusy(true);
     setText("");
     setError(null);
     setResult(null);
+    setPrefixProbe(prefixOnly);
+    if (prefixOnly) setPrepared(null);
     try {
-      for await (const event of client.llm.stream(
-        prepared?.input ?? input(),
-        cancel.signal,
-      )) {
+      const request = {
+        ...(prefixOnly ? input() : (prepared?.input ?? input())),
+      };
+      if (prefixOnly) {
+        request.messages = [
+          { role: "user", content: [{ type: "text", text: "Reply with OK." }] },
+        ];
+        request.overrides = {
+          max_output_tokens: 64,
+          ...(provider.config.kind === "openrouter"
+            ? {
+                "openrouter.cache_strategy": "implicit",
+                stream_usage: true,
+              }
+            : {}),
+        };
+      } else if (provider.config.kind === "openrouter") {
+        request.overrides = { ...request.overrides, stream_usage: true };
+      }
+      for await (const event of client.llm.stream(request, cancel.signal)) {
         if (event.type === "delta" && event.kind === "text")
           setText((t) => t + event.text);
         if (event.type === "completed") setResult(event.response);
@@ -166,6 +186,19 @@ export function ProbePanel({
         >
           发送测试请求
         </Button>
+        {provider.config.kind === "openrouter" && (
+          <Button
+            disabled={
+              busy ||
+              !promptId ||
+              !model.config.enabled ||
+              !provider.config.enabled
+            }
+            onClick={() => void run(true)}
+          >
+            测量 System 输入（1 次调用）
+          </Button>
+        )}
         {busy && (
           <Button onClick={() => controller.current?.abort()}>
             取消测试请求
@@ -191,6 +224,20 @@ export function ProbePanel({
               .map((o) => o.finish_reason ?? "未知结束原因")
               .join("、")}
           </p>
+          <p className="settings-note">
+            缓存读取 {result.usage.cached_input_tokens ?? "未知"} / 写入{" "}
+            {result.usage.cache_write_tokens ?? "未知"} Token
+            {` · 费用 ${result.usage.cost_usd != null ? `$${result.usage.cost_usd.toFixed(6)}` : "未知"}`}
+            {` · 上游 ${result.usage.upstream_provider ?? "未知"} · 实际层级 ${result.usage.service_tier ?? "未知"}`}
+          </p>
+          {prefixProbe && (
+            <p className="settings-note">
+              本次仅发送所选 System Prompt 和测试短句，最多输出 64
+              tokens，使用隐式缓存。 输入 {result.usage.input_tokens ?? "未知"}{" "}
+              tokens 为上游实测值，包含短句和消息封装，可用于核对 System
+              缓存最低长度；不是纯 System 的精确分词数。
+            </p>
+          )}
           <details>
             <summary>本次消息、参数与能力提示</summary>
             <pre>

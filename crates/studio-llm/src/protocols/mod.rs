@@ -75,6 +75,7 @@ pub(super) fn usage(v: &Value, gemini: bool) -> LlmUsage {
             total_tokens: get("/totalTokenCount"),
             cached_input_tokens: get("/cachedContentTokenCount"),
             reasoning_tokens: get("/thoughtsTokenCount"),
+            ..Default::default()
         }
     } else {
         LlmUsage {
@@ -85,6 +86,13 @@ pub(super) fn usage(v: &Value, gemini: bool) -> LlmUsage {
                 .or(get("/prompt_tokens_details/cached_tokens")),
             reasoning_tokens: get("/output_tokens_details/reasoning_tokens")
                 .or(get("/completion_tokens_details/reasoning_tokens")),
+            cache_write_tokens: get("/input_tokens_details/cache_write_tokens")
+                .or(get("/prompt_tokens_details/cache_write_tokens")),
+            cost_usd: v
+                .get("cost")
+                .and_then(Value::as_f64)
+                .filter(|v| v.is_finite() && *v >= 0.0),
+            ..Default::default()
         }
     }
 }
@@ -94,13 +102,16 @@ pub(super) fn base_response(
     outputs: Vec<LlmOutput>,
     gemini: bool,
 ) -> LlmResponse {
+    let mut usage = usage(&v[if gemini { "usageMetadata" } else { "usage" }], gemini);
+    usage.upstream_provider = string(v, "provider");
+    usage.service_tier = string(v, "service_tier");
     LlmResponse {
         snapshot: plan.snapshot.clone(),
         provider_request_id: None,
         response_id: string(v, "id").or_else(|| string(v, "responseId")),
         model: string(v, "model").or_else(|| string(v, "modelVersion")),
         outputs,
-        usage: usage(&v[if gemini { "usageMetadata" } else { "usage" }], gemini),
+        usage,
     }
 }
 pub(super) fn function_arguments(v: &Value) -> LlmCallResult<Value> {

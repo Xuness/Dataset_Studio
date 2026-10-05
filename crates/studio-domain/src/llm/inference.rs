@@ -111,6 +111,11 @@ pub struct LlmUsage {
     pub total_tokens: Option<u64>,
     pub cached_input_tokens: Option<u64>,
     pub reasoning_tokens: Option<u64>,
+    pub cache_write_tokens: Option<u64>,
+    /// Amount reported by the gateway, in USD; absent is unknown, not free.
+    pub cost_usd: Option<f64>,
+    pub upstream_provider: Option<String>,
+    pub service_tier: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
