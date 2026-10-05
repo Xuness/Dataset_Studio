@@ -240,6 +240,7 @@ export default function ArtifactPanel(context: ModuleContext) {
                 </button>
                 <MoreMenu
                   label={a.name}
+                  contextMenu
                   items={[
                     {
                       label: "管理与引用关系",

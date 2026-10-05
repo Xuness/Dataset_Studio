@@ -162,7 +162,7 @@
 .settings-number > span {
   width: 35px;
 }
-.settings-page input:not([type="checkbox"]),
+.settings-page input:not([type="checkbox"]):not([type="radio"]),
 .settings-page select {
   min-height: 33px;
   padding: 5px 8px;
@@ -175,11 +175,8 @@
 }
 .settings-page input:focus,
 .settings-page select:focus {
-  outline: 1px solid #8bacce;
-  border-color: #8bacce;
-}
-.settings-page input[type="checkbox"] {
-  accent-color: #91b0cf;
+  outline: 1px solid var(--accent-soft);
+  border-color: var(--accent-soft);
 }
 .settings-note {
   margin: 12px 0 0;

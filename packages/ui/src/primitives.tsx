@@ -1,6 +1,6 @@
 import { useEffect, useRef, useId } from "react";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
-import { X } from "lucide-react";
+import { RotateCcw, X } from "lucide-react";
 export function Button({
   className = "",
   ...props
@@ -24,18 +24,45 @@ export function EmptyState({
     </div>
   );
 }
+/** A labelled property. `onReset` shows the editor reset arrow; pass it only
+ * while the value differs from its default. */
 export function Field({
   label,
   children,
+  onReset,
 }: {
   label: string;
   children: ReactNode;
+  onReset?: (() => void) | undefined;
 }) {
   return (
-    <label className="field">
+    <label className={"field" + (onReset ? " field-changed" : "")}>
       <span>{label}</span>
       {children}
+      {onReset && <ResetButton label={label} onReset={onReset} />}
     </label>
+  );
+}
+export function ResetButton({
+  label,
+  onReset,
+}: {
+  label: string;
+  onReset: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="field-reset"
+      title="重置为默认值"
+      aria-label={"将" + label + "重置为默认值"}
+      onClick={(event) => {
+        event.preventDefault();
+        onReset();
+      }}
+    >
+      <RotateCcw size={12} />
+    </button>
   );
 }
 export function Dialog({

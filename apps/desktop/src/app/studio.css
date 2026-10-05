@@ -1111,14 +1111,7 @@
 }
 
 .online-dot.offline {
-  background: #d3ac77;
-}
-
-.asset-scroll,
-.tasks-scroll,
-.project-tree {
-  scrollbar-width: thin;
-  scrollbar-color: #555 #252525;
+  background: var(--warning-text);
 }
 
 /* 0.5 desktop layout, primary resolution 2560 × 1440. */
@@ -1153,7 +1146,8 @@
 }
 .titlebar .menu-popup {
   top: 36px;
-  width: 235px;
+  width: max-content;
+  min-width: 235px;
   z-index: 100;
 }
 .titlebar .menu-popup button {
@@ -1161,7 +1155,7 @@
   font-size: 13px;
 }
 .menu-check {
-  display: inline-block;
+  display: inline-flex;
   flex: 0 0 16px;
   color: #b9d8f2;
 }

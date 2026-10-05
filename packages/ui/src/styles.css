@@ -20,6 +20,25 @@
   --accent-blue: #26bbff;
   --accent-green: #8bc24a;
   --accent-folder: #b68f55;
+  /* Neutral ladder between the role colours above. */
+  --panel-alt: #292929;
+  --hover: #424242;
+  --line-strong: #4a4a4a;
+  --line-control: #555555;
+  --text-disabled: #6c6c6c;
+  --text-secondary: #aaaaaa;
+  --text-strong: #dddddd;
+  /* Tinted roles: selection, warning, success, danger. */
+  --accent-soft: #7aa8d6;
+  --accent-text: #b4d2ee;
+  --warning-bg: #3a3029;
+  --warning-line: #7a6248;
+  --warning-text: #e0bc85;
+  --success-bg: #303a32;
+  --success-text: #a8c9a6;
+  --danger-bg: #483531;
+  --danger-line: #806058;
+  --danger-text: #ebc7bc;
   --radius: 2px;
   font-family: "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
   font-size: 13px;
@@ -544,4 +563,426 @@ button:hover:not(:disabled) {
 }
 .danger-text {
   color: #f1a3a0 !important;
+
+/* Menus share one row anatomy: check column, label, accelerator. */
+.object-popover {
+  width: max-content;
+  min-width: 212px;
+  max-width: 320px;
+}
+.menu-entry {
+  display: contents;
+}
+.menu-separator {
+  flex-shrink: 0;
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--line-strong);
+}
+.menu-label {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+}
+.menu-shortcut {
+  margin-left: 24px;
+  font: inherit;
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.object-popover .menu-check {
+  display: inline-flex;
+  flex: 0 0 14px;
+  color: var(--accent-blue);
+}
+
+/* Editor-styled replacement for native title tooltips (TooltipLayer). */
+.wb-tooltip {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  max-width: 360px;
+  padding: 5px 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--recessed);
+  color: var(--text-strong);
+  box-shadow: 0 4px 14px #0009;
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+}
+
+/* Thin editor scrollbars that brighten while their area is hovered. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+*:hover {
+  scrollbar-color: var(--text-disabled) transparent;
+}
+
+/* Editor combo boxes. Customizable select keeps native semantics and
+   keyboard handling while the field and its list follow the editor style;
+   runtimes without base-select keep the native list. */
+@supports (appearance: base-select) {
+  select,
+  ::picker(select) {
+    appearance: base-select;
+  }
+  select {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    min-height: 26px;
+    padding: 3px 8px;
+    background: var(--field);
+    border: 1px solid var(--line);
+    color: var(--text);
+    white-space: nowrap;
+    cursor: default;
+  }
+  select:hover:not(:disabled) {
+    border-color: var(--line-strong);
+  }
+  select:open {
+    border-color: var(--accent);
+  }
+  select > button {
+    min-width: 0;
+    overflow: hidden;
+  }
+  select::picker-icon {
+    content: "";
+    width: 0;
+    height: 0;
+    margin-left: auto;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 5px solid var(--muted);
+    transition: rotate 0.12s;
+  }
+  select:open::picker-icon {
+    rotate: 180deg;
+  }
+  select:disabled {
+    opacity: 0.45;
+  }
+  ::picker(select) {
+    margin: 2px 0;
+    padding: 4px 0;
+    min-width: anchor-size(width);
+    max-height: min(420px, 60vh);
+    background: var(--panel);
+    border: 1px solid var(--line-strong);
+    border-radius: var(--radius);
+    box-shadow: 0 6px 22px #0009;
+    color: var(--text);
+  }
+  option {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-height: 24px;
+    padding: 4px 12px 4px 8px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  option::checkmark {
+    content: "";
+    flex: 0 0 auto;
+    width: 7px;
+    height: 3px;
+    border-left: 2px solid var(--accent-blue);
+    border-bottom: 2px solid var(--accent-blue);
+    transform: translateY(-2px) rotate(-45deg);
+  }
+  option:not(:checked)::checkmark {
+    visibility: hidden;
+  }
+  option:hover,
+  option:focus-visible {
+    background: var(--line-strong);
+    color: #fff;
+    outline: 0;
+  }
+  option:checked {
+    color: #fff;
+  }
+  option:disabled {
+    color: var(--text-disabled);
+    background: transparent;
+  }
+  optgroup {
+    padding: 2px 0;
+  }
+  optgroup legend {
+    padding: 5px 10px 3px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+}
+
+/* Editor check boxes and radio buttons. */
+input[type="checkbox"],
+input[type="radio"] {
+  appearance: none;
+  display: inline-grid;
+  place-content: center;
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+  min-width: 14px;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  background: var(--field);
+  border: 1px solid var(--line-control);
+  border-radius: 2px;
+  vertical-align: middle;
+  cursor: default;
+}
+input[type="radio"] {
+  border-radius: 50%;
+}
+input[type="checkbox"]:hover:not(:disabled),
+input[type="radio"]:hover:not(:disabled) {
+  border-color: #808080;
+}
+input[type="checkbox"]:checked,
+input[type="checkbox"]:indeterminate {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+input[type="checkbox"]:checked::before {
+  content: "";
+  width: 8px;
+  height: 4px;
+  border-left: 2px solid #fff;
+  border-bottom: 2px solid #fff;
+  transform: translateY(-1px) rotate(-45deg);
+}
+input[type="checkbox"]:indeterminate::before {
+  content: "";
+  width: 8px;
+  height: 2px;
+  background: #fff;
+}
+input[type="radio"]:checked {
+  border-color: var(--accent);
+}
+input[type="radio"]:checked::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent-blue);
+}
+input[type="checkbox"]:disabled,
+input[type="radio"]:disabled {
+  opacity: 0.4;
+}
+input[type="checkbox"]:focus-visible,
+input[type="radio"]:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Number fields scrub by dragging (installNumberScrub) instead of spinners. */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  appearance: none;
+  margin: 0;
+}
+input[type="number"]:not(:focus):not(:disabled):not([readonly]) {
+  cursor: ew-resize;
+}
+input[type="number"].wb-scrub-active {
+  border-color: var(--accent) !important;
+  color: #fff;
+}
+.wb-scrubbing,
+.wb-scrubbing * {
+  cursor: ew-resize !important;
+  user-select: none;
+}
+
+/* Property rows (details-panel style): name column, value, reset arrow. */
+.property-splitter {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--property-split, 200px) - 3px);
+  width: 6px;
+  cursor: col-resize;
+  touch-action: none;
+}
+.property-splitter::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 1px;
+}
+.property-splitter:hover::after,
+.property-splitter:focus-visible::after {
+  background: var(--accent);
+}
+.property-splitter:focus-visible {
+  outline: 0;
+}
+.field-reset {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  margin-left: auto;
+  padding: 0;
+  border-radius: 2px;
+  color: var(--warning-text);
+}
+.field-reset:hover:not(:disabled) {
+  color: #f0c878;
+}
+.property-matrix {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.property-matrix th,
+.property-matrix td {
+  padding: 3px 8px 3px 0;
+  border-bottom: 1px solid var(--recessed);
+  text-align: left;
+  font-weight: 400;
+}
+.property-matrix thead th {
+  color: var(--muted);
+  font-size: 11px;
+}
+.property-matrix th:first-child {
+  width: var(--property-split, 200px);
+  padding-left: 16px;
+  color: var(--text-secondary);
+}
+.property-matrix tbody tr:hover {
+  background: var(--panel-alt);
+}
+.property-matrix input {
+  width: 100%;
+  max-width: 120px;
+}
+.property-matrix-reset {
+  width: 28px;
+}
+
+/* Notifications above the status bar (NotificationStack). */
+.wb-notices {
+  position: fixed;
+  right: 12px;
+  bottom: 36px;
+  z-index: 1500;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: min(360px, calc(100vw - 24px));
+}
+.wb-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 9px 6px 9px 11px;
+  background: var(--panel);
+  border: 1px solid var(--hover);
+  border-left: 3px solid var(--notice-tone, var(--accent));
+  border-radius: var(--radius);
+  box-shadow: 0 6px 22px #000a;
+  animation: wb-notice-in 0.16s ease-out;
+}
+.wb-notice[data-tone="success"] {
+  --notice-tone: var(--accent-green);
+}
+.wb-notice[data-tone="error"] {
+  --notice-tone: var(--danger);
+}
+.wb-notice-icon {
+  flex-shrink: 0;
+  margin-top: 1px;
+  color: var(--notice-tone, var(--accent));
+}
+.wb-notice-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  min-width: 0;
+  font-size: 12px;
+}
+.wb-notice-body > strong {
+  color: var(--text-strong);
+  font-weight: 600;
+}
+.wb-notice-body > span {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.wb-notice-action {
+  margin-top: 3px;
+  padding: 0;
+  color: var(--accent-blue);
+  font-size: 12px;
+}
+.wb-notice-action:hover:not(:disabled) {
+  background: none;
+  text-decoration: underline;
+}
+.wb-notice .icon-button {
+  width: 22px;
+  height: 22px;
+}
+@keyframes wb-notice-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wb-notice {
+    animation: none;
+  }
+}
+
+/* Data tables: zebra rows, hover row and resizable columns
+   (installColumnResize). Zero-specificity so feature styles still win. */
+:where(table:not(.property-matrix)) > tbody > tr:nth-child(even) {
+  background: #ffffff05;
+}
+:where(table:not(.property-matrix)) > tbody > tr:hover {
+  background: #ffffff0d;
+}
+:where(table:not(.property-matrix) > thead th) {
+  position: relative;
+}
+:where(table:not(.property-matrix) > thead th)::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+}
+:where(table:not(.property-matrix) > thead th):hover::after {
+  box-shadow: inset -1px 0 var(--line-control);
+}
+.wb-col-resizing,
+.wb-col-resizing * {
+  cursor: col-resize !important;
+  user-select: none;
+}
 }

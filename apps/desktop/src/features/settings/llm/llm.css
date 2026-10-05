@@ -16,7 +16,7 @@
   padding: 0;
   min-width: 0;
 }
-.llm-editor input:not([type="checkbox"]),
+.llm-editor input:not([type="checkbox"]):not([type="radio"]),
 .llm-editor select,
 .llm-editor textarea {
   width: 100%;

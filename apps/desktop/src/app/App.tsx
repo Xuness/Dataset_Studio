@@ -33,6 +33,9 @@ import {
   Search,
   Undo2,
   Redo2,
+  Filter,
+  LocateFixed,
+  SlidersHorizontal,
 } from "lucide-react";
 import {
   Button,
@@ -46,10 +49,15 @@ import {
   ErrorDetails,
   isJobActive,
   MoreMenu,
+  WorkbenchStatusTarget,
+  NotificationStack,
+  jobPresentation,
+  browseScopeIdentity,
 } from "@studio/ui";
 import { EditorTabs } from "./EditorTabs.js";
-import type { WorkbenchLayout } from "@studio/ui";
+import type { Notice, WorkbenchLayout } from "@studio/ui";
 import { MenuBar } from "./MenuBar.js";
+import type { MenuItems } from "./MenuBar.js";
 import type { ModuleContext, BrowseScope } from "@studio/ui";
 import type {
   Project,
@@ -120,6 +128,7 @@ const studioWorkbenchDefaults: WorkbenchLayout = {
 };
 export function App() {
   const [closeError, setCloseError] = useState("");
+  const [statusHost, setStatusHost] = useState<HTMLElement | null>(null);
   const cache = useQueryClient();
   const engine = useQuery({
     queryKey: ["engine"],
@@ -172,11 +181,12 @@ export function App() {
       </div>
     );
   return (
-    <>
+    <WorkbenchStatusTarget.Provider value={statusHost}>
       <Studio
         key={engine.data.connection.instance_id}
         client={engine.data}
         onReconnect={reconnect}
+        onStatusHost={setStatusHost}
       />
       {closeError && (
         <div className="error-banner" role="alert">
@@ -184,15 +194,17 @@ export function App() {
           <button onClick={() => setCloseError("")}>关闭提示</button>
         </div>
       )}
-    </>
+    </WorkbenchStatusTarget.Provider>
   );
 }
 function Studio({
   client,
   onReconnect,
+  onStatusHost,
 }: {
   client: StudioClient;
   onReconnect: () => void;
+  onStatusHost: (host: HTMLElement | null) => void;
 }) {
   const queryClient = useQueryClient();
   const application = useLakePreference(
@@ -406,6 +418,59 @@ function Studio({
       query.state.data?.items.some(isJobActive) ? 2000 : 5000,
     refetchIntervalInBackground: true,
   });
+  const [notices, setNotices] = useState<Notice[]>([]);
+  const jobStatuses = useRef({
+    projectId: "",
+    statuses: new Map<string, string>(),
+  });
+  useEffect(() => {
+    const items = jobs.data?.items;
+    if (!items) return;
+    const seen = jobStatuses.current;
+    // The first page of a project only seeds state: notify on transitions
+    // observed in this session, never for jobs that finished earlier.
+    const seeding = seen.projectId !== currentId;
+    if (seeding) seen.statuses = new Map();
+    seen.projectId = currentId;
+    const finished: Notice[] = [];
+    for (const job of items) {
+      const previous = seen.statuses.get(job.id);
+      seen.statuses.set(job.id, job.status);
+      if (
+        seeding ||
+        !previous ||
+        !isJobActive({ status: previous }) ||
+        isJobActive(job)
+      )
+        continue;
+      const p = jobPresentation(job);
+      finished.push({
+        id: job.id + ":" + job.status,
+        tone: p.succeeded
+          ? "success"
+          : job.status === "failed"
+            ? "error"
+            : "info",
+        title: p.title,
+        detail: p.succeeded ? p.count : p.detail,
+        action: {
+          label: "查看任务",
+          run: () => {
+            setTaskFocus(job.id);
+            setTasksVisible(true);
+          },
+        },
+      });
+    }
+    if (finished.length)
+      setNotices((old) =>
+        [
+          ...old.filter((n) => !finished.some((f) => f.id === n.id)),
+          ...finished,
+        ].slice(-4),
+      );
+  }, [jobs.data, currentId]);
+  useEffect(() => setNotices([]), [currentId]);
   const queryModel = useProjectQueries(client, currentId);
   const activeResultId = view.scope.kind === "result" ? view.scope.id : "";
   const activeResult = useQuery({
@@ -446,8 +511,51 @@ function Studio({
       return { kind: "selection", id: "selection" };
     return { kind: "project", id: currentId };
   }
+  // Back/forward history of browse scopes, kept per project for this session.
+  const scopeTrail = useRef({
+    projectId: "",
+    navigating: false,
+    back: [] as BrowseScope[],
+    forward: [] as BrowseScope[],
+  });
+  const [, setTrailRevision] = useState(0);
+  if (scopeTrail.current.projectId !== currentId)
+    scopeTrail.current = {
+      projectId: currentId,
+      navigating: false,
+      back: [],
+      forward: [],
+    };
+  const sameScope = (a: BrowseScope, b: BrowseScope) =>
+    JSON.stringify(browseScopeIdentity(a)) ===
+    JSON.stringify(browseScopeIdentity(b));
+  function stepScope(direction: "back" | "forward") {
+    const trail = scopeTrail.current;
+    const next = trail[direction].pop();
+    if (!next || !workspace.editable) return;
+    (direction === "back" ? trail.forward : trail.back).push(
+      workspace.value.scope,
+    );
+    trail.navigating = true;
+    try {
+      updateView({ scope: next });
+    } finally {
+      trail.navigating = false;
+    }
+    setTrailRevision((n) => n + 1);
+  }
   function updateView(update: Partial<ViewState>) {
     if (!workspace.editable) return;
+    const trail = scopeTrail.current;
+    if (
+      update.scope &&
+      !trail.navigating &&
+      !sameScope(update.scope, workspace.value.scope)
+    ) {
+      trail.back = [...trail.back, workspace.value.scope].slice(-50);
+      trail.forward = [];
+      setTrailRevision((n) => n + 1);
+    }
     if (update.focus)
       queryClient.setQueryData(
         ["project", currentId, "asset", update.focus.key],
@@ -974,6 +1082,12 @@ function Studio({
       },
       thumbnailSize: layout.value.thumbnailSize,
       onThumbnailSize: (thumbnailSize) => layout.update({ thumbnailSize }),
+      navigation: {
+        back: scopeTrail.current.back.length ? () => stepScope("back") : null,
+        forward: scopeTrail.current.forward.length
+          ? () => stepScope("forward")
+          : null,
+      },
     },
     onResult: (result, name) => {
       if (currentIdRef.current === result.project_id)
@@ -1046,29 +1160,113 @@ function Studio({
   ].filter(
     (id) => moduleViews.get(id)?.kind === "view" && id !== "core.resources",
   );
-  function closeView(id: string) {
-    if (id === "app.lakes") {
+  function closeView(ids: string | string[]) {
+    const closing = new Set(typeof ids === "string" ? [ids] : ids);
+    if (closing.delete("app.lakes"))
       application.controller.set({ open: false, active: false });
-      return;
-    }
-    if (!workspace.editable) return;
+    if (!closing.size || !workspace.editable) return;
     workspace.controller?.set((value) => {
-      const remaining = openViews.filter((viewId) => viewId !== id);
+      const remaining = openViews.filter((viewId) => !closing.has(viewId));
       if (!remaining.length) remaining.push("core.browser");
       return {
         ...value,
         openViews: remaining,
-        moduleId:
-          value.moduleId === id
-            ? remaining[remaining.length - 1]!
-            : value.moduleId,
+        moduleId: closing.has(value.moduleId)
+          ? remaining[remaining.length - 1]!
+          : value.moduleId,
       };
     });
   }
-  const menus: Record<
-    string,
-    { label: string; action: () => void; disabled?: boolean }[]
-  > = {
+  const tabOrder = [
+    ...(project ? openViews : []),
+    ...(application.value.open ? ["app.lakes"] : []),
+  ];
+  const activeTab = lakesActive ? "app.lakes" : workspace.value.moduleId;
+  const projectWorkbenchShown =
+    !!project && !lakesActive && !activeSurface?.ownsWorkbench;
+  function resetStudioLayout() {
+    studioWorkbench.reset();
+    layout.update({ projectsVisible: true, propertiesVisible: true });
+  }
+  function refreshProject() {
+    void queryClient.invalidateQueries({ queryKey: ["project", currentId] });
+  }
+  const shortcuts = useRef<(event: KeyboardEvent) => void>(() => {});
+  shortcuts.current = (event) => {
+    const key = event.key.toLowerCase();
+    const ctrl = (event.ctrlKey || event.metaKey) && !event.altKey;
+    // F5 / Ctrl+R would reload the WebView and drop unsaved editor state.
+    if (key === "f5" || (ctrl && !event.shiftKey && key === "r")) {
+      event.preventDefault();
+      if (project && !lakesActive && !document.querySelector("dialog[open]"))
+        refreshProject();
+      return;
+    }
+    if (
+      event.altKey &&
+      !event.ctrlKey &&
+      (event.key === "ArrowLeft" || event.key === "ArrowRight") &&
+      browsing &&
+      !(event.target as Element | null)?.closest?.(
+        "input,textarea,select,[contenteditable=true]",
+      )
+    ) {
+      event.preventDefault();
+      stepScope(event.key === "ArrowLeft" ? "back" : "forward");
+      return;
+    }
+    if (!ctrl || event.defaultPrevented || event.isComposing) return;
+    if (document.querySelector("dialog[open],[aria-modal=true]")) return;
+    if (key === "tab" && tabOrder.length > 1) {
+      event.preventDefault();
+      const index = tabOrder.indexOf(activeTab);
+      activateView(
+        tabOrder[
+          (index + (event.shiftKey ? -1 : 1) + tabOrder.length) %
+            tabOrder.length
+        ]!,
+      );
+    } else if (key === "w" && !event.shiftKey && tabOrder.length) {
+      event.preventDefault();
+      closeView(activeTab);
+    } else if (
+      key === " " &&
+      project &&
+      !(event.target as Element | null)?.closest?.(
+        "input,textarea,select,[contenteditable=true]",
+      )
+    ) {
+      event.preventDefault();
+      setResourcesOpen((v) => !v);
+    }
+  };
+  const browsing =
+    !!project && !lakesActive && workspace.value.moduleId === "core.browser";
+  const mouseHistory = useRef<(event: MouseEvent) => void>(() => {});
+  mouseHistory.current = (event) => {
+    // Mouse back/forward buttons step through browse scopes; elsewhere they
+    // must not navigate the WebView itself.
+    if (event.button !== 3 && event.button !== 4) return;
+    event.preventDefault();
+    if (browsing && !document.querySelector("dialog[open]"))
+      stepScope(event.button === 3 ? "back" : "forward");
+  };
+  useEffect(() => {
+    const keyboard = (event: KeyboardEvent) => shortcuts.current(event);
+    const mouse = (event: MouseEvent) => mouseHistory.current(event);
+    const block = (event: MouseEvent) => {
+      if (event.button === 3 || event.button === 4) event.preventDefault();
+    };
+    document.addEventListener("keydown", keyboard);
+    document.addEventListener("mouseup", mouse);
+    document.addEventListener("mousedown", block);
+    return () => {
+      document.removeEventListener("keydown", keyboard);
+      document.removeEventListener("mouseup", mouse);
+      document.removeEventListener("mousedown", block);
+    };
+  }, []);
+  const menus: MenuItems = {
     项目: [
       { label: "新建项目…", action: () => setDialog("new") },
       { label: "打开项目…", action: () => setDialog("open") },
@@ -1076,6 +1274,7 @@ function Studio({
         label: "添加数据湖…",
         action: () => setDialog("source"),
         disabled: !project,
+        separator: true,
       },
       {
         label: "项目管理…",
@@ -1097,21 +1296,25 @@ function Studio({
         label: "关闭当前项目",
         action: () => void session.close(),
         disabled: !project,
+        separator: true,
       },
     ],
     编辑: [
       {
-        label: "撤销选择（Ctrl+Z）",
+        label: "撤销选择",
+        shortcut: "Ctrl+Z",
         action: () => restoreSelection("undo"),
         disabled: lakesActive || busy || !selectionHistory.data?.undo_steps,
       },
       {
-        label: "重做选择（Ctrl+Y）",
+        label: "重做选择",
+        shortcut: "Ctrl+Y",
         action: () => restoreSelection("redo"),
         disabled: lakesActive || busy || !selectionHistory.data?.redo_steps,
       },
       {
         label: "清除当前选择",
+        separator: true,
         action: clearSelection,
         disabled: lakesActive || !selected,
       },
@@ -1134,16 +1337,16 @@ function Studio({
       },
       {
         label: "刷新当前项目",
-        action: () =>
-          void queryClient.invalidateQueries({
-            queryKey: ["project", currentId],
-          }),
-        disabled: !project,
+        shortcut: "F5",
+        separator: true,
+        action: refreshProject,
+        disabled: !project || lakesActive,
       },
     ],
     工具: [
       { label: "数据湖", action: () => openLakes() },
-      ...modules.entries().map((entry) => ({
+      ...modules.entries().map((entry, index) => ({
+        separator: index === 0,
         label: entry.label,
         action: () => modules.execute(entry.command, moduleContext),
         disabled: !project || !workspace.editable,
@@ -1152,23 +1355,57 @@ function Studio({
     窗口: [
       {
         label: "项目资源抽屉",
+        shortcut: "Ctrl+Space",
+        checked: resourcesOpen,
         action: () => setResourcesOpen((v) => !v),
         disabled: !project,
       },
-      ...(!lakesActive && !activeSurface?.ownsWorkbench
+      ...(projectWorkbenchShown
         ? [
-            { label: "项目面板", action: () => setProjectsVisible((v) => !v) },
+            {
+              label: "项目面板",
+              checked: projectsVisible,
+              action: () => setProjectsVisible((v) => !v),
+            },
             {
               label: "属性面板",
+              checked: propertiesVisible,
               action: () => setPropertiesVisible((v) => !v),
             },
           ]
         : []),
       {
         label: "项目任务",
+        checked: tasksVisible,
         action: () => setTasksVisible((v) => !v),
         disabled: !project,
       },
+      {
+        label: "下一个标签",
+        shortcut: "Ctrl+Tab",
+        separator: true,
+        action: () =>
+          activateView(
+            tabOrder[(tabOrder.indexOf(activeTab) + 1) % tabOrder.length]!,
+          ),
+        disabled: tabOrder.length < 2,
+      },
+      {
+        label: "关闭当前标签",
+        shortcut: "Ctrl+W",
+        action: () => closeView(activeTab),
+        disabled: !tabOrder.length,
+      },
+      ...(projectWorkbenchShown
+        ? [
+            {
+              label: "恢复默认布局",
+              separator: true,
+              disabled: !studioWorkbench.editable,
+              action: resetStudioLayout,
+            },
+          ]
+        : []),
     ],
     设置: settingsPages.map(({ id, title }) => ({
       label: title + "…",
@@ -1247,7 +1484,7 @@ function Studio({
           </button>
         )}
         <DetachedSources
-          key={currentId}
+          key={"detached:" + currentId}
           client={client}
           projectId={currentId}
           onManage={openManagement}
@@ -1266,7 +1503,7 @@ function Studio({
           </button>
         </div>
         <WorksetTree
-          key={currentId}
+          key={"worksets:" + currentId}
           client={client}
           projectId={currentId}
           activeId={view.scope.kind === "collection" ? view.scope.id : null}
@@ -1283,6 +1520,7 @@ function Studio({
           <strong>{project.name}</strong>
           <MoreMenu
             label="项目"
+            contextMenu
             items={[
               {
                 label: "项目管理与备注",
@@ -1447,25 +1685,31 @@ function Studio({
   ) : null;
   return (
     <div className="studio-app">
-      <MenuBar
-        menus={menus}
-        busy={busy}
-        title={project?.name ?? "Dataset Studio"}
-      />
-      <DraftStatus controller={application.controller} quiet />
-      {(project || application.value.open) && (
-        <EditorTabs
-          open={[
-            ...(project ? openViews : []),
-            ...(application.value.open ? ["app.lakes"] : []),
-          ]}
-          active={lakesActive ? "app.lakes" : workspace.value.moduleId}
-          projectAvailable={!!project}
-          disabled={!workspace.editable}
-          onOpen={activateView}
-          onClose={closeView}
+      <div className="app-header">
+        <div className="app-brand" data-tauri-drag-region>
+          <Brand size={40} />
+        </div>
+        <MenuBar
+          menus={menus}
+          busy={busy}
+          title={project?.name ?? "Dataset Studio"}
+          brand={false}
         />
-      )}
+        <DraftStatus controller={application.controller} quiet />
+        {(project || application.value.open) && (
+          <EditorTabs
+            open={[
+              ...(project ? openViews : []),
+              ...(application.value.open ? ["app.lakes"] : []),
+            ]}
+            active={lakesActive ? "app.lakes" : workspace.value.moduleId}
+            projectAvailable={!!project}
+            disabled={!workspace.editable}
+            onOpen={activateView}
+            onClose={closeView}
+          />
+        )}
+      </div>
       {project &&
         !lakesActive &&
         workspace.value.moduleId === "core.browser" && (
@@ -1661,12 +1905,18 @@ function Studio({
                 });
               }}
               panels={[
-                { id: "project", title: "项目", content: projectPanel },
+                {
+                  id: "project",
+                  title: "项目",
+                  icon: <Layers size={13} />,
+                  content: projectPanel,
+                },
                 ...(!activeSurface?.ownsInspector
                   ? [
                       {
                         id: "inspector",
                         title: "检查器",
+                        icon: <SlidersHorizontal size={13} />,
                         content: propertiesPanel,
                       },
                     ]
@@ -1676,12 +1926,14 @@ function Studio({
                       {
                         id: "browser.filters",
                         title: "筛选",
+                        icon: <Filter size={13} />,
                         portal: true,
                         defaultPosition: "right" as const,
                       },
                       {
                         id: "browser.locate",
                         title: "定位",
+                        icon: <LocateFixed size={13} />,
                         portal: true,
                         defaultPosition: "right" as const,
                       },
@@ -1692,6 +1944,7 @@ function Studio({
                               {
                                 id,
                                 title: id === "core.query" ? "项目查询" : id,
+                                icon: <Search size={13} />,
                                 content: (
                                   <Suspense
                                     fallback={
@@ -1713,21 +1966,9 @@ function Studio({
               ]}
               disabled={!studioWorkbench.editable}
               status={
-                <>
-                  <span>{project.name}</span>
-                  <WorkbenchPreferences
-                    state={{
-                      ...studioWorkbench,
-                      reset: () => {
-                        studioWorkbench.reset();
-                        layout.update({
-                          projectsVisible: true,
-                          propertiesVisible: true,
-                        });
-                      },
-                    }}
-                  />
-                </>
+                <WorkbenchPreferences
+                  state={{ ...studioWorkbench, reset: resetStudioLayout }}
+                />
               }
             >
               {mainContent}
@@ -1782,6 +2023,10 @@ function Studio({
           </button>
         </div>
       )}
+      <NotificationStack
+        notices={notices}
+        onDismiss={(id) => setNotices((old) => old.filter((n) => n.id !== id))}
+      />
       <footer className="status-bar">
         {project && (
           <button
@@ -1825,7 +2070,7 @@ function Studio({
             </span>
           </>
         )}
-        <span className="grow" />
+        <span className="status-workbench" ref={onStatusHost} />
         <LakeActivity
           onPreparations={() => openLakes(undefined, undefined, "preparations")}
           status={lakeStatus.data}
@@ -1907,6 +2152,7 @@ function SourceRow({
       </button>
       <MoreMenu
         label={source.name}
+        contextMenu
         items={[
           ...(source.kind !== "demo"
             ? [{ label: "管理此数据湖更新", action: onUpdates }]

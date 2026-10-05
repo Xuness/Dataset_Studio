@@ -155,7 +155,8 @@
   background: var(--title);
   border-color: var(--line);
 }
-.studio-app input:not([type="range"]):not([type="checkbox"]),
+.studio-app
+  input:not([type="range"]):not([type="checkbox"]):not([type="radio"]),
 .studio-app select,
 .studio-app textarea {
   background: var(--field);
@@ -532,6 +533,177 @@
   }
   .studio-app .query-panel .query-run-row > select {
     width: 100%;
+/* Workbenches render their status into the single global status bar. */
+.status-workbench {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  gap: 8px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.status-workbench .wb-status-content {
+  flex: 1;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+}
+.status-workbench .wb-status-content > span:not(.grow) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.status-workbench .wb-status-content > .grow {
+  display: none;
+}
+.status-workbench .draft-status {
+  padding: 0;
+}
+.status-workbench .icon-button {
+  width: 22px;
+  height: 22px;
+}
+.status-workbench .wb-restore-panel {
+  gap: 4px;
+  color: var(--muted);
+}
+.status-workbench .wb-restore-panel:hover:not(:disabled) {
+  color: var(--text);
+}
+/* The logo spans the menu and editor-tab rows; the project name sits at the
+   right of the title bar beside the window controls. */
+.app-header {
+  position: relative;
+  flex-shrink: 0;
+  --brand-width: 54px;
+}
+.app-brand {
+  position: absolute;
+  z-index: 101;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--brand-width);
+  background: var(--title);
+}
+.app-header:not(:has(.editor-tabs)) .app-brand img {
+  width: 26px;
+  height: 26px;
+}
+.app-header .titlebar,
+.app-header .editor-tabs {
+  padding-left: var(--brand-width);
+}
+.titlebar-drag {
+  justify-content: flex-end;
+  padding-right: 6px;
+  color: var(--text);
+}
+/* A WorkbenchDialog hosted in a dock panel (WorkbenchDialogMode "panel"). */
+.wb-dialog.wb-dialog-panel {
+  width: auto;
+  height: 100%;
+  max-height: none;
+  overflow: auto;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.wb-dialog-panel .wb-dialog-body {
+  padding: 10px;
+}
+.wb-dialog-panel .wb-field-list > label {
+  grid-template-columns: minmax(96px, 38%) minmax(0, 1fr);
+}
+/* Content-browser style path bar for the browse scope. */
+.scope-trail {
+  display: flex;
+  align-items: center;
+  flex: 0 1 auto;
+  gap: 2px;
+  min-width: 0;
+  height: 24px;
+  padding: 0 3px;
+  overflow: hidden;
+  background: var(--field);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--muted);
+}
+.scope-crumb,
+.scope-crumb-group {
+  padding: 1px 6px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.scope-crumb {
+  border-radius: 2px;
+  color: var(--text);
+}
+button.scope-crumb:hover:not(:disabled) {
+  background: var(--panel-raised);
+}
+.scope-crumb.current {
+  overflow: hidden;
+  color: #fff;
+  text-overflow: ellipsis;
+}
+/* Thumbnail tiles: selection box on demand and a source colour strip. */
+.studio-app .asset-check {
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+.studio-app .asset-thumb:hover .asset-check,
+.studio-app .asset-thumb:focus-within .asset-check,
+.studio-app .asset-card.focused .asset-check,
+.studio-app .asset-card.selected .asset-check {
+  opacity: 1;
+}
+.studio-app .asset-thumb {
+  box-shadow: inset 0 -2px 0 var(--source-tone, transparent);
+}
+.studio-app .asset-card.focused .asset-thumb {
+  box-shadow:
+    inset 0 -2px 0 var(--source-tone, transparent),
+    0 0 0 1px var(--accent);
+}
+/* One toolbar button form across editors (slim toolbar): flat, no border,
+   filled on hover; primary actions keep the accent fill. */
+.studio-app
+  :is(
+    .wb-toolbar,
+    .content-bar,
+    .browser-options,
+    .ranking-header,
+    .ranking-tabs,
+    .scope-actions
+  )
+  .button:not(.primary) {
+  min-height: 26px;
+  padding: 3px 9px;
+  background: transparent;
+  border-color: transparent;
+  color: var(--text);
+  font-size: 12px;
+}
+.studio-app
+  :is(
+    .wb-toolbar,
+    .content-bar,
+    .browser-options,
+    .ranking-header,
+    .ranking-tabs,
+    .scope-actions
+  )
+  .button:not(.primary):hover:not(:disabled) {
+  background: var(--panel-raised);
+  color: #fff;
+}
     min-width: 0;
   }
   .studio-app .query-panel .query-result-row {

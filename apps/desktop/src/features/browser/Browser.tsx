@@ -2,6 +2,8 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import {
+  ArrowLeft,
+  ArrowRight,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -28,8 +30,16 @@ import {
   normalizeBrowseScopeKey,
   WorkbenchPanelPortal,
   useWorkbenchPanels,
+  ContextMenu,
+  contextMenuAt,
+  useClipboardWriter,
 } from "@studio/ui";
-import type { ModuleContext, BrowseScope, BrowseViewProps } from "@studio/ui";
+import type {
+  ModuleContext,
+  BrowseScope,
+  BrowseViewProps,
+  ContextMenuState,
+} from "@studio/ui";
 import { assetIdentity } from "@studio/client";
 import type { StudioClient } from "@studio/client";
 import type {
@@ -47,6 +57,20 @@ import {
 } from "./rankingBrowse.js";
 import type { RankingBrowseState } from "./rankingBrowse.js";
 export type Scope = BrowseScope;
+const sourceTones = [
+  "#4f9bea",
+  "#8bc24a",
+  "#d99a45",
+  "#b77bd6",
+  "#45b8b8",
+  "#d9666f",
+];
+/** A stable colour per source lake for the thumbnail strip. */
+function sourceTone(sourceId: string) {
+  let hash = 0;
+  for (const char of sourceId) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  return sourceTones[hash % sourceTones.length];
+}
 export interface BrowserProps extends BrowseViewProps {
   client: StudioClient;
   projectId: string;
@@ -151,6 +175,7 @@ function BrowserContent({
   onRefreshed,
   ranked,
   postOrderAllowed = true,
+  navigation,
 }: BrowserProps & { ranked: RankingBrowseState }) {
   const [pageSize, setPageSize] = useState(position?.pageSize ?? 48);
   const queryCache = useQueryClient();
@@ -167,6 +192,29 @@ function BrowserContent({
     restoreHistory(position, scopeKey),
   );
   const [notice, setNotice] = useState("");
+  const [cardMenu, setCardMenu] = useState<ContextMenuState | null>(null);
+  const thumbnailZoom = useRef({ size: thumbnailSize, set: onThumbnailSize });
+  thumbnailZoom.current = { size: thumbnailSize, set: onThumbnailSize };
+  useEffect(() => {
+    // Ctrl+wheel resizes thumbnails instead of zooming the whole WebView.
+    const wheel = (event: WheelEvent) => {
+      if (
+        !event.ctrlKey ||
+        !(event.target as Element).closest?.(".asset-scroll")
+      )
+        return;
+      event.preventDefault();
+      const { size, set } = thumbnailZoom.current;
+      const next = Math.max(
+        128,
+        Math.min(320, size + (event.deltaY < 0 ? 16 : -16)),
+      );
+      if (next !== size) set(next);
+    };
+    document.addEventListener("wheel", wheel, { passive: false });
+    return () => document.removeEventListener("wheel", wheel);
+  }, []);
+  const writeClipboard = useClipboardWriter();
   const [pendingFocus, setPendingFocus] = useState<"first" | "last" | null>(
     null,
   );
@@ -837,10 +885,61 @@ function BrowserContent({
       }}
     >
       <div className="content-bar">
-        <span title={scope.kind === "all" ? "全部项目数据" : scope.name}>
-          {scope.kind === "all" ? "全部项目数据" : scope.name}
-        </span>
-        <span className="subtle">浏览范围</span>
+        <button
+          type="button"
+          className="icon-button"
+          title="后退（Alt+←）"
+          disabled={!navigation?.back}
+          onClick={() => navigation?.back?.()}
+        >
+          <ArrowLeft size={15} />
+        </button>
+        <button
+          type="button"
+          className="icon-button"
+          title="前进（Alt+→）"
+          disabled={!navigation?.forward}
+          onClick={() => navigation?.forward?.()}
+        >
+          <ArrowRight size={15} />
+        </button>
+        <nav className="scope-trail" aria-label="浏览范围">
+          {scope.kind === "all" ? (
+            <span className="scope-crumb current">全部项目数据</span>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="scope-crumb"
+                onClick={() => onScope({ kind: "all" })}
+              >
+                全部项目数据
+              </button>
+              <ChevronRight size={12} aria-hidden="true" />
+              {scope.kind !== "selection" && (
+                <>
+                  <span className="scope-crumb-group">
+                    {
+                      {
+                        source: "数据湖",
+                        collection: "工作集",
+                        result: "查询结果",
+                      }[scope.kind]
+                    }
+                  </span>
+                  <ChevronRight size={12} aria-hidden="true" />
+                </>
+              )}
+              <span
+                className="scope-crumb current"
+                title={scope.name}
+                aria-current="location"
+              >
+                {scope.name}
+              </span>
+            </>
+          )}
+        </nav>
         <span className="grow" />
         {(scope.kind === "result" || scope.kind === "collection") && (
           <div className="scope-actions">
@@ -1236,9 +1335,49 @@ function BrowserContent({
                   (asset.selected ? "selected " : "") +
                   (focusIndex === index ? "focused" : "")
                 }
+                style={
+                  {
+                    "--source-tone": sourceTone(asset.key.source_id),
+                  } as CSSProperties
+                }
               >
                 <div
                   className="asset-thumb"
+                  onContextMenu={(e) => {
+                    onFocus(asset);
+                    setCardMenu(
+                      contextMenuAt(e, assetTitle(asset), [
+                        {
+                          label: "单图查看",
+                          shortcut: "Enter",
+                          action: () => {
+                            onFocus(asset);
+                            setView("image");
+                          },
+                        },
+                        {
+                          label: asset.selected ? "取消选择" : "选择",
+                          shortcut: "Space",
+                          disabled: busy,
+                          action: () => selectAt(asset, index, false),
+                        },
+                        {
+                          label: "在检查器中查看属性",
+                          separator: true,
+                          action: () => onInspect(asset),
+                        },
+                        {
+                          label: "复制图像身份",
+                          action: () =>
+                            void writeClipboard({
+                              text: asset.key.asset_id,
+                            }).catch(() =>
+                              setNotice("未能写入剪贴板，可在检查器中复制。"),
+                            ),
+                        },
+                      ]),
+                    );
+                  }}
                   tabIndex={
                     focusIndex === index || (focusIndex < 0 && index === 0)
                       ? 0
@@ -1364,6 +1503,7 @@ function BrowserContent({
           </div>
         </div>
       )}
+      <ContextMenu state={cardMenu} onClose={() => setCardMenu(null)} />
       <div className="paging">
         {view === "grid" ? (
           <>

@@ -70,6 +70,8 @@ export type BrowseViewProps = {
   onPosition: (position: BrowserPosition) => void;
   thumbnailSize: number;
   onThumbnailSize: (size: number) => void;
+  /** Scope history for back/forward; null when that direction is empty. */
+  navigation?: { back: (() => void) | null; forward: (() => void) | null };
 };
 export type ModuleContext = {
   client: StudioClient;

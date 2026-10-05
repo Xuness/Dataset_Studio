@@ -1,5 +1,15 @@
+import { v2Defaults } from "./v2.js";
 import type { V2Parameters } from "./v2.js";
-import { Button, Field } from "@studio/ui";
+import { Button, Field, ResetButton } from "@studio/ui";
+
+const ratings = ["g", "s", "q", "e"] as const;
+const profileFields = [
+  ["time_up", "时间上浮"],
+  ["time_down", "时间下调"],
+  ["vote_weight", "负票权重"],
+  ["era_weight", "年代榜权重"],
+] as const;
+const base = v2Defaults();
 
 export function RankingV2Config({
   value: p,
@@ -13,6 +23,17 @@ export function RankingV2Config({
   function field<K extends keyof V2Parameters>(key: K, value: V2Parameters[K]) {
     onChange({ ...p, [key]: value });
   }
+  const reset = (
+    key:
+      | "feather_days"
+      | "minimum_effective"
+      | "comic_penalty"
+      | "keep_per_mille"
+      | "direct_rescue"
+      | "era_rescue"
+      | "audit",
+  ) => (p[key] !== base[key] ? () => field(key, base[key]) : undefined);
+  const profileOf = (r: string) => p.profiles[r] ?? base.profiles[r]!;
   const numberField = (
     key: "feather_days" | "minimum_effective" | "comic_penalty",
     label: string,
@@ -20,7 +41,7 @@ export function RankingV2Config({
     max: number,
     step = 1,
   ) => (
-    <Field key={key} label={label}>
+    <Field key={key} label={label} onReset={reset(key)}>
       <input
         aria-label={label}
         type="number"
@@ -41,46 +62,73 @@ export function RankingV2Config({
             首版只使用元数据。年代相对榜尚未经过 Bridge 视觉校准，融合权重为 0
             时使用直算榜、为 1 时使用年代相对榜。
           </p>
-          <div className="ranking-v2-profiles">
-            {["g", "s", "q", "e"].map((r) => {
-              const profile = p.profiles[r] ?? {
-                time_up: 0.3,
-                time_down: 0,
-                vote_weight: 0.08,
-                era_weight: 0.3,
-              };
-              return (
-                <fieldset className="ranking-v2-profile" key={r}>
-                  <legend>{r.toUpperCase()}</legend>
-                  {(
-                    [
-                      ["time_up", "时间上浮"],
-                      ["time_down", "时间下调"],
-                      ["vote_weight", "负票权重"],
-                      ["era_weight", "年代榜权重"],
-                    ] as const
-                  ).map(([key, label]) => (
-                    <Field key={key} label={label}>
-                      <input
-                        aria-label={r.toUpperCase() + " " + label}
-                        type="number"
-                        min={0}
-                        max={1}
-                        step={0.01}
-                        value={profile[key]}
-                        onChange={(e) =>
-                          field("profiles", {
-                            ...p.profiles,
-                            [r]: { ...profile, [key]: Number(e.target.value) },
-                          })
-                        }
-                      />
-                    </Field>
-                  ))}
-                </fieldset>
-              );
-            })}
-          </div>
+          <table className="property-matrix">
+            <thead>
+              <tr>
+                <th scope="col">分级参数</th>
+                {ratings.map((r) => (
+                  <th scope="col" key={r}>
+                    {r.toUpperCase()}
+                  </th>
+                ))}
+                <td />
+              </tr>
+            </thead>
+            <tbody>
+              {profileFields.map(([key, label]) => {
+                const changed = ratings.some(
+                  (r) => profileOf(r)[key] !== base.profiles[r]![key],
+                );
+                return (
+                  <tr key={key} className={changed ? "field-changed" : ""}>
+                    <th scope="row">{label}</th>
+                    {ratings.map((r) => (
+                      <td key={r}>
+                        <input
+                          aria-label={r.toUpperCase() + " " + label}
+                          type="number"
+                          min={0}
+                          max={1}
+                          step={0.01}
+                          value={profileOf(r)[key]}
+                          onChange={(e) =>
+                            field("profiles", {
+                              ...p.profiles,
+                              [r]: {
+                                ...profileOf(r),
+                                [key]: Number(e.target.value),
+                              },
+                            })
+                          }
+                        />
+                      </td>
+                    ))}
+                    <td className="property-matrix-reset">
+                      {changed && (
+                        <ResetButton
+                          label={label}
+                          onReset={() =>
+                            field("profiles", {
+                              ...p.profiles,
+                              ...Object.fromEntries(
+                                ratings.map((r) => [
+                                  r,
+                                  {
+                                    ...profileOf(r),
+                                    [key]: base.profiles[r]![key],
+                                  },
+                                ]),
+                              ),
+                            })
+                          }
+                        />
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
           <p className="ranking-hint">
             直算分使用 G、C
             的有限双向修正；两榜在同一分级总体内统一为百分位，再计算融合分。
@@ -121,7 +169,7 @@ export function RankingV2Config({
                   ["audit", "剩余池随机审计"],
                 ] as const
               ).map(([key, label]) => (
-                <Field key={key} label={label}>
+                <Field key={key} label={label} onReset={reset(key)}>
                   <input
                     aria-label={label + "（%）"}
                     type="number"

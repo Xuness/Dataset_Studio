@@ -1,5 +1,12 @@
-export { Button, EmptyState, Dialog, Field } from "./primitives.js";
-export { ClipboardProvider } from "./ClipboardProvider.js";
+export {
+  Button,
+  EmptyState,
+  Dialog,
+  Field,
+  ResetButton,
+} from "./primitives.js";
+export { PropertySplitter } from "./PropertySplitter.js";
+export { ClipboardProvider, useClipboardWriter } from "./ClipboardProvider.js";
 export { writeBrowserClipboard } from "./clipboard.js";
 export type { ClipboardContent, ClipboardWriter } from "./clipboard.js";
 export { useDraft, DraftStatus } from "./drafts.js";
@@ -51,8 +58,13 @@ export type {
   BrowserHistory,
   RankedBrowseSettings,
 } from "./modules.js";
-export { MoreMenu } from "./MoreMenu.js";
-export type { MoreMenuItem } from "./MoreMenu.js";
+export { MoreMenu, ContextMenu, contextMenuAt } from "./MoreMenu.js";
+export type { MoreMenuItem, ContextMenuState } from "./MoreMenu.js";
+export { TooltipLayer } from "./Tooltip.js";
+export { NotificationStack } from "./Notifications.js";
+export type { Notice } from "./Notifications.js";
+export { installNumberScrub } from "./numberScrub.js";
+export { installColumnResize } from "./columnResize.js";
 export {
   browseScopeIdentity,
   normalizeBrowseScopeKey,
@@ -62,6 +74,7 @@ export {
   WorkbenchPanelPortal,
   useWorkbenchPanels,
   WorkbenchPreferences,
+  WorkbenchStatusTarget,
   useWorkbenchLayout,
   defaultWorkbenchLayout,
 } from "./Workbench.js";
@@ -70,7 +83,7 @@ export type {
   WorkbenchPanel,
   DockPosition,
 } from "./Workbench.js";
-export { WorkbenchDialog } from "./WorkbenchDialog.js";
+export { WorkbenchDialog, WorkbenchDialogMode } from "./WorkbenchDialog.js";
 
 export {
   parseTagInput,

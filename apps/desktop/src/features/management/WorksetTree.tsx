@@ -67,6 +67,7 @@ export function WorksetTree({
           </button>
           <MoreMenu
             label={item.name}
+            contextMenu
             items={[
               { label: "管理与来源详情", action: () => onManage(item) },
               {

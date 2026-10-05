@@ -3,7 +3,7 @@ import { v2Defaults } from "./v2.js";
 import type { V2Parameters } from "./v2.js";
 import type { FormEvent, ReactNode } from "react";
 import type { RankingParameters } from "@studio/contracts";
-import { Button, Field } from "@studio/ui";
+import { Button, Field, PropertySplitter } from "@studio/ui";
 import type { ModuleScopeOption } from "@studio/ui";
 import { ScopePicker } from "../scopes/ScopePicker.js";
 import { defaults } from "./types.js";
@@ -48,9 +48,16 @@ export function RankingConfig({
   ) {
     onChange({ ...p, [key]: value });
   }
+  /** Reset action while a scalar parameter differs from its default. */
+  function reset<K extends keyof RankingParameters>(key: K) {
+    return p[key] !== defaults[key]
+      ? () => field(key, defaults[key])
+      : undefined;
+  }
   return (
     <form id={id} className="ranking-config" onSubmit={onSubmit}>
       <fieldset disabled={disabled} className="ranking-config-fields">
+        <PropertySplitter id="ranking-config" initial={180} />
         <Section title="输入与输出">
           <Field label="筛选方案">
             <select
@@ -68,7 +75,7 @@ export function RankingConfig({
             </select>
           </Field>
           <ScopePicker options={options} value={scopeId} onChange={onScope} />
-          <Field label="同图重复帖热度">
+          <Field label="同图重复帖热度" onReset={reset("duplicate_heat")}>
             <select
               aria-label="同图重复帖热度"
               value={p.duplicate_heat ?? "legacy"}
@@ -235,7 +242,19 @@ export function RankingConfig({
           <Section title="通道名额">
             <div className="ranking-quota-fields">
               {["主通道", "补救通道", "随机审计"].map((label, i) => (
-                <Field label={label} key={label}>
+                <Field
+                  label={label}
+                  key={label}
+                  onReset={
+                    p.quotas[i] !== defaults.quotas[i]
+                      ? () => {
+                          const quotas = [...p.quotas];
+                          quotas[i] = defaults.quotas[i]!;
+                          field("quotas", quotas);
+                        }
+                      : undefined
+                  }
+                >
                   <input
                     aria-label={label + "（%）"}
                     type="number"
@@ -278,7 +297,7 @@ export function RankingConfig({
                     !p.v2 || (key !== "time_weight" && key !== "vote_weight"),
                 )
                 .map(([key, label]) => (
-                  <Field key={key} label={label}>
+                  <Field key={key} label={label} onReset={reset(key)}>
                     <input
                       aria-label={label}
                       type="number"
@@ -291,7 +310,7 @@ export function RankingConfig({
                   </Field>
                 ))}
             </div>
-            <Field label="邻域样本下限">
+            <Field label="邻域样本下限" onReset={reset("cohort_minimum")}>
               <input
                 aria-label="邻域最低有效数量"
                 type="number"
@@ -304,7 +323,7 @@ export function RankingConfig({
                 }
               />
             </Field>
-            <Field label="随机种子">
+            <Field label="随机种子" onReset={reset("seed")}>
               <input
                 aria-label="随机种子"
                 type="text"

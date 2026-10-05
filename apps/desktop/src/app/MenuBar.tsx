@@ -1,20 +1,32 @@
-import { useEffect, useRef, useState } from "react";
-import { Minus, Square, Copy, X } from "lucide-react";
+import { Fragment, useEffect, useRef, useState } from "react";
+import { Check, Minus, Square, Copy, X } from "lucide-react";
 import { Brand, ErrorDetails } from "@studio/ui";
 import { nativeWindow, watchWindow, windowAction } from "../platform/window.js";
 
 export type MenuItems = Record<
   string,
-  { label: string; action: () => void; disabled?: boolean; checked?: boolean }[]
+  {
+    label: string;
+    action: () => void;
+    disabled?: boolean;
+    checked?: boolean;
+    /** Display-only accelerator text. */
+    shortcut?: string;
+    /** Draw a divider before this item. */
+    separator?: boolean;
+  }[]
 >;
 export function MenuBar({
   menus = {},
   busy = false,
   title = "Dataset Studio",
+  brand = true,
 }: {
   menus?: MenuItems;
   busy?: boolean;
   title?: string;
+  /** False when the shell draws a larger logo spanning the tab row. */
+  brand?: boolean;
 }) {
   const [open, setOpen] = useState<string | null>(null);
   const [state, setState] = useState({ maximized: false, focused: true });
@@ -98,7 +110,7 @@ export function MenuBar({
           "menu-bar titlebar " + (!state.focused ? "window-inactive" : "")
         }
       >
-        <Brand size={25} />
+        {brand && <Brand size={25} />}
         <nav className="application-menu" aria-label="应用菜单" role="menubar">
           {names.map((name, index) => (
             <div className="menu-anchor" key={name}>
@@ -190,21 +202,33 @@ export function MenuBar({
                     if (e.key === "Tab") setOpen(null);
                   }}
                 >
-                  {menus[name]?.map((item) => (
-                    <button
-                      role="menuitem"
-                      key={item.label}
-                      disabled={busy || item.disabled}
-                      onClick={() => {
-                        item.action();
-                        setOpen(null);
-                      }}
-                    >
-                      <span className="menu-check">
-                        {item.checked ? "✓" : ""}
-                      </span>
-                      {item.label}
-                    </button>
+                  {menus[name]?.map((item, itemIndex) => (
+                    <Fragment key={item.label}>
+                      {item.separator && itemIndex > 0 && (
+                        <div className="menu-separator" role="separator" />
+                      )}
+                      <button
+                        role={
+                          item.checked === undefined
+                            ? "menuitem"
+                            : "menuitemcheckbox"
+                        }
+                        aria-checked={item.checked}
+                        disabled={busy || item.disabled}
+                        onClick={() => {
+                          item.action();
+                          setOpen(null);
+                        }}
+                      >
+                        <span className="menu-check">
+                          {item.checked && <Check size={13} />}
+                        </span>
+                        <span className="menu-label">{item.label}</span>
+                        {item.shortcut && (
+                          <kbd className="menu-shortcut">{item.shortcut}</kbd>
+                        )}
+                      </button>
+                    </Fragment>
                   ))}
                 </div>
               )}

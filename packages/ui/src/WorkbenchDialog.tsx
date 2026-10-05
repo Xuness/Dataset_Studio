@@ -1,7 +1,42 @@
-import { useEffect, useRef } from "react";
+import { createContext, useContext, useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 import { X } from "lucide-react";
+
+/**
+ * "panel" renders the next WorkbenchDialog inline, for a host that places it
+ * in a dock panel; dialogs nested inside it are modal again.
+ */
+export const WorkbenchDialogMode = createContext<"modal" | "panel">("modal");
+
 export function WorkbenchDialog({
+  title,
+  onClose,
+  children,
+}: {
+  title: string;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  const mode = useContext(WorkbenchDialogMode);
+  return mode === "panel" ? (
+    <section
+      className="wb-dialog wb-dialog-panel"
+      role="dialog"
+      aria-modal="false"
+      aria-label={title}
+    >
+      <WorkbenchDialogMode.Provider value="modal">
+        <div className="wb-dialog-body">{children}</div>
+      </WorkbenchDialogMode.Provider>
+    </section>
+  ) : (
+    <ModalDialog title={title} onClose={onClose}>
+      {children}
+    </ModalDialog>
+  );
+}
+
+function ModalDialog({
   title,
   onClose,
   children,

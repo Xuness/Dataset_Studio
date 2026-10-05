@@ -93,18 +93,111 @@
   overflow-x: auto;
   scrollbar-width: thin;
 }
-.wb-panel-tabs > button {
-  padding: 4px 10px;
-  white-space: nowrap;
-  color: var(--muted);
-  border-radius: 4px 4px 0 0;
-  font-size: 12px;
+/* Dock tabs: icon, title and their own close button, draggable to dock. */
+.wb-panel-tab {
+  position: relative;
+  display: flex;
+  align-items: center;
   min-height: 27px;
+  border-radius: 4px 4px 0 0;
+  color: var(--muted);
+  user-select: none;
 }
-.wb-panel-tabs > button[aria-selected="true"] {
+.wb-panel-tab[data-active="true"] {
   background: var(--panel);
   color: var(--text);
-  box-shadow: none;
+}
+.wb-panel-tab:not([data-active="true"]):hover {
+  background: var(--recessed);
+  color: #d0d0d0;
+}
+.wb-panel-tab > button[role="tab"] {
+  justify-content: flex-start;
+  gap: 6px;
+  min-height: 27px;
+  padding: 4px 4px 4px 10px;
+  color: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.wb-panel-tab > button[role="tab"]:hover:not(:disabled) {
+  background: transparent;
+}
+.wb-tab-icon {
+  display: inline-flex;
+  color: var(--text-secondary);
+}
+.wb-panel-tab[data-active="true"] .wb-tab-icon {
+  color: var(--accent-blue);
+}
+.wb-tab-close {
+  width: 18px;
+  height: 18px;
+  margin-right: 4px;
+  padding: 0;
+  border-radius: 2px;
+  opacity: 0;
+}
+.wb-panel-tab[data-active="true"] .wb-tab-close,
+.wb-panel-tab:hover .wb-tab-close,
+.wb-tab-close:focus-visible {
+  opacity: 1;
+}
+.wb-panel-tab[data-dragging] {
+  opacity: 0.4;
+}
+.wb-panel-tab[data-drop-before]::before {
+  content: "";
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: -2px;
+  width: 2px;
+  background: var(--accent);
+}
+.wb-body {
+  position: relative;
+}
+.wb-body[data-dragging],
+.wb-body[data-dragging] * {
+  cursor: grabbing !important;
+}
+.wb-dock-preview {
+  position: absolute;
+  z-index: 20;
+  border: 2px solid var(--accent);
+  background: #0070e02e;
+  pointer-events: none;
+}
+.wb-dock-preview[data-position="left"] {
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  width: min(var(--wb-left), 28%);
+}
+.wb-dock-preview[data-position="right"] {
+  top: 4px;
+  right: 4px;
+  bottom: 4px;
+  width: min(var(--wb-right), 32%);
+}
+.wb-dock-preview[data-position="bottom"] {
+  right: 4px;
+  bottom: 4px;
+  left: 4px;
+  height: min(var(--wb-bottom), 45%);
+}
+.wb-drag-ghost {
+  position: fixed;
+  z-index: 3000;
+  padding: 3px 9px;
+  border: 1px solid var(--accent);
+  border-radius: 2px;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 12px;
+  box-shadow: 0 4px 14px #0009;
+  pointer-events: none;
 }
 .wb-panel-content {
   flex: 1;
@@ -312,10 +405,6 @@
 }
 .wb-panel-header {
   position: relative;
-}
-.wb-panel-tabs > button {
-  min-width: 60px;
-  justify-content: flex-start;
 }
 .wb-zone:focus-within > .wb-panel-header:before {
   content: "";

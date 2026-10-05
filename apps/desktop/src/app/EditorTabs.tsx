@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   X,
   Images,
@@ -6,7 +7,8 @@ import {
   Archive,
   Database,
 } from "lucide-react";
-import { MoreMenu } from "@studio/ui";
+import { ContextMenu, MoreMenu, contextMenuAt } from "@studio/ui";
+import type { ContextMenuState } from "@studio/ui";
 const views = [
   { id: "app.lakes", title: "数据湖", Icon: Database },
   { id: "core.browser", title: "资料浏览", Icon: Images },
@@ -25,24 +27,55 @@ export function EditorTabs({
   open: string[];
   active: string;
   onOpen: (id: string) => void;
-  onClose: (id: string) => void;
+  onClose: (ids: string | string[]) => void;
   disabled: boolean;
   projectAvailable?: boolean;
 }) {
+  const [menu, setMenu] = useState<ContextMenuState | null>(null);
+  const shown = open.filter((id) => views.some((v) => v.id === id));
   return (
     <nav className="editor-tabs" aria-label="工作标签">
       <div className="editor-tab-list">
-        {open.map((id) => {
-          const view = views.find((v) => v.id === id);
-          if (!view) return null;
+        {shown.map((id, index) => {
+          const view = views.find((v) => v.id === id)!;
+          const locked = id !== "app.lakes" && disabled;
           return (
             <div
               key={id}
               className={"editor-tab" + (active === id ? " active" : "")}
+              onContextMenu={(event) =>
+                setMenu(
+                  contextMenuAt(event, view.title, [
+                    {
+                      label: "关闭",
+                      ...(active === id ? { shortcut: "Ctrl+W" } : {}),
+                      disabled: locked,
+                      action: () => onClose(id),
+                    },
+                    {
+                      label: "关闭其他标签",
+                      disabled: disabled || shown.length < 2,
+                      action: () => onClose(shown.filter((v) => v !== id)),
+                    },
+                    {
+                      label: "关闭右侧标签",
+                      disabled: disabled || index === shown.length - 1,
+                      action: () => onClose(shown.slice(index + 1)),
+                    },
+                  ]),
+                )
+              }
+              onAuxClick={(event) => {
+                // Middle click closes, as in editor and browser tab strips.
+                if (event.button === 1 && !locked) {
+                  event.preventDefault();
+                  onClose(id);
+                }
+              }}
             >
               <button
                 type="button"
-                disabled={id !== "app.lakes" && disabled}
+                disabled={locked}
                 aria-pressed={active === id}
                 onClick={() => onOpen(id)}
               >
@@ -52,8 +85,9 @@ export function EditorTabs({
               <button
                 type="button"
                 className="editor-tab-close"
-                disabled={id !== "app.lakes" && disabled}
+                disabled={locked}
                 aria-label={"关闭" + view.title + "标签"}
+                title={active === id ? "关闭（Ctrl+W）" : "关闭"}
                 onClick={() => onClose(id)}
               >
                 <X size={12} />
@@ -70,6 +104,7 @@ export function EditorTabs({
           disabled: view.id !== "app.lakes" && (!projectAvailable || disabled),
         }))}
       />
+      <ContextMenu state={menu} onClose={() => setMenu(null)} />
     </nav>
   );
 }

@@ -84,7 +84,7 @@
   font-size: 12px;
   min-width: 0;
 }
-.query-panel input:not([type="checkbox"]),
+.query-panel input:not([type="checkbox"]):not([type="radio"]),
 .query-definition-row select {
   width: 100%;
 }

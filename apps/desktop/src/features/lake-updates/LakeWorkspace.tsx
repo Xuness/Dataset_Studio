@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { Database, Plus, RefreshCw } from "lucide-react";
 import {
@@ -9,6 +9,7 @@ import {
   WorkbenchDialog,
   WorkbenchPreferences,
   useWorkbenchLayout,
+  WorkbenchDialogMode,
 } from "@studio/ui";
 import type { ApplicationModuleContext, WorkbenchLayout } from "@studio/ui";
 import type { Schema } from "@studio/contracts";
@@ -113,7 +114,39 @@ export default function LakeWorkspace({
   const [after, setAfter] = useState<string[]>([""]),
     [filter, setFilter] = useState("");
   const [compose, setCompose] = useState(false),
-    [preset, setPreset] = useState<CollectionDefinition | undefined>(undefined);
+    [preset, setPreset] = useState<CollectionDefinition | undefined>(undefined),
+    [composeKey, setComposeKey] = useState(0);
+  // Width to restore when the composer closes, if it widened the column.
+  const widened = useRef<{ from: number; to: number } | null>(null);
+  /** The composer is a dock panel, so the task list stays usable beside it. */
+  function openComposer(spec?: CollectionDefinition) {
+    setPreset(spec);
+    setCompose(true);
+    setComposeKey((k) => k + 1);
+    layout.update((old) => {
+      const saved = old.panels.composer;
+      const position = saved && saved !== "hidden" ? saved : "right";
+      const widen = position === "right" && old.rightWidth < 460;
+      if (widen && !widened.current)
+        widened.current = { from: old.rightWidth, to: 460 };
+      return {
+        ...old,
+        panels: { ...old.panels, composer: position },
+        active: { ...old.active, [position]: "composer" },
+        ...(widen ? { rightWidth: 460 } : {}),
+      };
+    });
+  }
+  useEffect(() => {
+    const restore = widened.current;
+    if (compose || !restore) return;
+    widened.current = null;
+    layout.update((old) =>
+      old.rightWidth === restore.to
+        ? { ...old, rightWidth: restore.from }
+        : old,
+    );
+  }, [compose]);
   const [register, setRegister] = useState(false),
     [pipelineSettings, setPipelineSettings] = useState(false);
   const [error, setError] = useState<unknown>(null),
@@ -224,8 +257,7 @@ export default function LakeWorkspace({
     }
   }
   function recheck(spec: CollectionDefinition) {
-    setPreset(spec);
-    setCompose(true);
+    openComposer(spec);
   }
   function chooseJob(id: string, family: Family) {
     select({ view: "jobs", jobId: id, family, scheduleId: "" });
@@ -314,8 +346,22 @@ export default function LakeWorkspace({
       ) : null}
       <Workbench
         title="数据湖工作台"
-        layout={layout.value}
-        onLayout={layout.update}
+        layout={{
+          ...layout.value,
+          panels: {
+            ...layout.value.panels,
+            composer: compose
+              ? layout.value.panels.composer &&
+                layout.value.panels.composer !== "hidden"
+                ? layout.value.panels.composer
+                : "right"
+              : "hidden",
+          },
+        }}
+        onLayout={(next) => {
+          layout.update(next);
+          if (compose && next.panels.composer === "hidden") setCompose(false);
+        }}
         disabled={!layout.editable}
         toolbar={
           <>
@@ -323,8 +369,7 @@ export default function LakeWorkspace({
               className="primary"
               disabled={!configured || !lakes.length}
               onClick={() => {
-                setPreset(undefined);
-                setCompose(true);
+                openComposer();
               }}
             >
               <Plus size={14} />
@@ -458,6 +503,42 @@ export default function LakeWorkspace({
             ),
           },
           { id: "details", title: "详情", content: detail },
+          ...(compose
+            ? [
+                {
+                  id: "composer",
+                  title: "新建更新",
+                  icon: <Plus size={13} />,
+                  defaultPosition: "right" as const,
+                  content: (
+                    <WorkbenchDialogMode.Provider value="panel">
+                      <NewUpdateComposer
+                        key={composeKey}
+                        client={client}
+                        lakes={lakes}
+                        initialLake={v.lakeId}
+                        preset={preset}
+                        capabilities={capabilities.data?.items ?? []}
+                        onClose={() => setCompose(false)}
+                        onCreated={(id, kind, family) => {
+                          select(
+                            kind === "job"
+                              ? { view: "jobs", jobId: id, family, lakeId: "" }
+                              : {
+                                  view: "schedules",
+                                  scheduleId: id,
+                                  family,
+                                  lakeId: "",
+                                },
+                          );
+                          setAfter([""]);
+                        }}
+                      />
+                    </WorkbenchDialogMode.Provider>
+                  ),
+                },
+              ]
+            : []),
         ]}
         status={
           <>
@@ -483,8 +564,7 @@ export default function LakeWorkspace({
                 project={project}
                 lakes={oldLakes}
                 onUse={() => {
-                  setPreset(undefined);
-                  setCompose(true);
+                  openComposer();
                 }}
               />
             )
@@ -681,24 +761,6 @@ export default function LakeWorkspace({
             <CollectionPipelineSettings client={client} />
           </div>
         </WorkbenchDialog>
-      )}
-      {compose && (
-        <NewUpdateComposer
-          client={client}
-          lakes={lakes}
-          initialLake={v.lakeId}
-          preset={preset}
-          capabilities={capabilities.data?.items ?? []}
-          onClose={() => setCompose(false)}
-          onCreated={(id, kind, family) => {
-            select(
-              kind === "job"
-                ? { view: "jobs", jobId: id, family, lakeId: "" }
-                : { view: "schedules", scheduleId: id, family, lakeId: "" },
-            );
-            setAfter([""]);
-          }}
-        />
       )}
       {register && (
         <WorkbenchDialog
