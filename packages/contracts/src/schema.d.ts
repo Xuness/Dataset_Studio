@@ -2719,6 +2719,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/resources/aesthetic": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["configure_aesthetic"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/resources/cache": {
         parameters: {
             query?: never;
@@ -3565,6 +3581,15 @@ export interface components {
         AestheticDisposition: "active" | "needs_review" | "rejudge" | "excluded";
         /** @enum {string} */
         AestheticDispositionAction: "rejudge" | "exclude";
+        /** @description Engine-wide aesthetic execution limits shared by every project. */
+        AestheticEngineStatus: {
+            /** Format: int32 */
+            max_running_stages: number;
+            /** Format: int32 */
+            max_running_stages_limit: number;
+            /** Format: int32 */
+            running_stages: number;
+        };
         AestheticEstimator: {
             /** Format: int32 */
             iterations: number;
@@ -3598,16 +3623,31 @@ export interface components {
             connect_timeout_ms: number;
             /** @description pause or defer; defer closes failed logical batches without accepting evidence. */
             exhausted: string;
+            /**
+             * Format: int32
+             * @description Consecutive failed network attempts that halt dispatch; absent uses concurrency clamped to 4–32.
+             */
+            failure_halt_threshold?: number | null;
             /** Format: int32 */
             first_response_timeout_ms: number;
             /** Format: int32 */
             idle_timeout_ms: number;
             /** Format: int32 */
             max_retries: number;
+            /**
+             * Format: int32
+             * @description Per-stage request preparation memory budget; absent uses 512 MiB.
+             */
+            memory_budget_mib?: number | null;
             /** Format: int32 */
             request_timeout_ms: number;
             retry_unknown: boolean;
             stream: boolean;
+            /**
+             * Format: int64
+             * @description Request admission pacing by serialized body bytes; 0 disables pacing, absent uses 3.5 MB/s.
+             */
+            upload_bytes_per_second?: number | null;
         };
         AestheticExecutionSettings: {
             /** Format: int64 */
@@ -6801,6 +6841,7 @@ export interface components {
             resident_bytes: string;
         };
         ReadServiceStatus: {
+            aesthetic: components["schemas"]["AestheticEngineStatus"];
             cache: components["schemas"]["PreviewCacheStatus"];
             online_sqlite: components["schemas"]["OnlineSqliteStatus"];
             previews: components["schemas"]["PreviewActivity"];
@@ -7045,6 +7086,10 @@ export interface components {
             /** Format: int64 */
             revision: number;
             selected: boolean[];
+        };
+        SetAestheticEngine: {
+            /** Format: int32 */
+            max_running_stages: number;
         };
         SetCacheQuota: {
             /** Format: int32 */
@@ -11918,6 +11963,29 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ReadServiceStatus"];
+                };
+            };
+        };
+    };
+    configure_aesthetic: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetAestheticEngine"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AestheticEngineStatus"];
                 };
             };
         };

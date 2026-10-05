@@ -108,7 +108,7 @@ export function ConnectionEditor({
                 ["connect_timeout_ms", "连接超时（毫秒）", 100, 120000],
                 ["request_timeout_ms", "调用总时限（毫秒）", 100, 3600000],
                 ["idle_timeout_ms", "响应空闲超时（毫秒）", 100, 600000],
-                ["max_concurrency", "最大并发", 1, 32],
+                ["max_concurrency", "最大并发", 1, 1024],
                 ["min_interval_ms", "请求最小间隔（毫秒）", 0, 60000],
                 ["rate_limit_retries", "429 最大重试次数", 0, 3],
               ] as const

@@ -47,11 +47,11 @@ pub fn validate_create(value: &AestheticCreate) -> Result<()> {
         return Err(Error::invalid("请求体预算须为 8–48 MiB"));
     }
     if !(1..=32).contains(&value.exposures)
-        || !(1..=32).contains(&value.concurrency)
+        || !(1..=AESTHETIC_MAX_CONCURRENCY).contains(&value.concurrency)
         || !(1..=10_000_000).contains(&value.max_calls)
     {
         return Err(Error::invalid(
-            "曝光次数 1–32，并发 1–32，调用上限 1–10000000",
+            "曝光次数 1–32，并发 1–1024，调用上限 1–10000000",
         ));
     }
     if value

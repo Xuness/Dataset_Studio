@@ -18,6 +18,15 @@ pub struct AestheticExecutionPolicy {
     pub retry_unknown: bool,
     /// pause or defer; defer closes failed logical batches without accepting evidence.
     pub exhausted: String,
+    /// Per-stage request preparation memory budget; absent uses 512 MiB.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_budget_mib: Option<u32>,
+    /// Request admission pacing by serialized body bytes; 0 disables pacing, absent uses 3.5 MB/s.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upload_bytes_per_second: Option<u64>,
+    /// Consecutive failed network attempts that halt dispatch; absent uses concurrency clamped to 4–32.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure_halt_threshold: Option<u32>,
 }
 impl Default for AestheticExecutionPolicy {
     fn default() -> Self {
@@ -32,6 +41,9 @@ impl Default for AestheticExecutionPolicy {
             max_retries: 2,
             retry_unknown: false,
             exhausted: "pause".into(),
+            memory_budget_mib: None,
+            upload_bytes_per_second: None,
+            failure_halt_threshold: None,
         }
     }
 }
@@ -128,6 +140,9 @@ impl From<domain::AestheticExecutionPolicy> for AestheticExecutionPolicy {
             max_retries: v.max_retries,
             retry_unknown: v.retry_unknown,
             exhausted: v.exhausted,
+            memory_budget_mib: v.memory_budget_mib,
+            upload_bytes_per_second: v.upload_bytes_per_second,
+            failure_halt_threshold: v.failure_halt_threshold,
         }
     }
 }
@@ -145,6 +160,9 @@ impl From<AestheticExecutionPolicy> for domain::AestheticExecutionPolicy {
             max_retries: v.max_retries,
             retry_unknown: v.retry_unknown,
             exhausted: v.exhausted,
+            memory_budget_mib: v.memory_budget_mib,
+            upload_bytes_per_second: v.upload_bytes_per_second,
+            failure_halt_threshold: v.failure_halt_threshold,
         }
     }
 }

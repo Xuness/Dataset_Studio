@@ -95,6 +95,18 @@ pub struct ReadServiceStatus {
     pub online_sqlite: OnlineSqliteStatus,
     pub query_limits: QueryResourceLimits,
     pub query_cache: QueryCacheStatus,
+    pub aesthetic: AestheticEngineStatus,
+}
+/// Engine-wide aesthetic execution limits shared by every project.
+#[derive(Serialize, ToSchema)]
+pub struct AestheticEngineStatus {
+    pub running_stages: u32,
+    pub max_running_stages: u32,
+    pub max_running_stages_limit: u32,
+}
+#[derive(Deserialize, ToSchema)]
+pub struct SetAestheticEngine {
+    pub max_running_stages: u32,
 }
 #[derive(Serialize, ToSchema)]
 pub struct OnlineSqliteStatus {

@@ -36,7 +36,11 @@ pub(super) struct Writer {
     queue: Arc<(Mutex<Queue>, Condvar)>,
     thread: Option<JoinHandle<()>>,
     pub stats: Arc<Mutex<QueueStats>>,
+    /// Signalled with `stats` whenever queued bytes are released.
+    space: Arc<Condvar>,
 }
+/// Paid outcomes wait this long for queue space before reporting backpressure.
+const OUTCOME_QUEUE_WAIT: std::time::Duration = std::time::Duration::from_secs(30);
 impl Writer {
     pub fn open(path: &Path) -> Result<Self> {
         if path.exists() {
@@ -187,6 +191,8 @@ impl Writer {
         let worker_queue = queue.clone();
         let stats = Arc::new(Mutex::new(QueueStats::default()));
         let shared = stats.clone();
+        let space = Arc::new(Condvar::new());
+        let released = space.clone();
         let thread = std::thread::Builder::new()
             .name("aesthetic-writer".into())
             .spawn(move || {
@@ -247,6 +253,7 @@ impl Writer {
                                 stats.critical_bytes.saturating_sub(command.bytes);
                         }
                     }
+                    released.notify_all();
                     // Successful acknowledgement is sent only after the durable commit.
                     let _ = command.reply.send(result);
                     if fatal {
@@ -260,6 +267,7 @@ impl Writer {
                             stats.bytes = 0;
                             stats.critical_bytes = 0;
                         }
+                        released.notify_all();
                         break;
                     }
                 }
@@ -270,6 +278,7 @@ impl Writer {
             queue,
             thread: Some(thread),
             stats,
+            space,
         })
     }
     pub fn queue_metrics(&self) -> Result<(u64, u64, u64, u64)> {
@@ -305,11 +314,63 @@ impl Writer {
         operation: impl FnOnce(&rusqlite::Transaction<'_>) -> Result<T> + Send + 'static,
     ) -> Result<T> {
         let bytes = bytes.max(1024);
+        if bytes > 32 << 20 {
+            return Err(Error::new("EVALUATION_BUSY", "评审写入字节队列已满"));
+        }
+        let (reply, receive) = mpsc::sync_channel(1);
+        let mut command = Some(Command {
+            bytes,
+            queued_at: std::time::Instant::now(),
+            reply,
+            operation: Box::new(move |db| operation(db).map(|v| Box::new(v) as Value)),
+            point,
+            key: key.into(),
+        });
+        // Bursts of paid outcomes wait for the writer instead of closing dispatch admission.
+        // Dispatch commits are excluded: they run under the admission lock, one at a time.
+        let deadline = std::time::Instant::now() + OUTCOME_QUEUE_WAIT;
+        loop {
+            match self.enqueue(&mut command, bytes, point) {
+                Err(error)
+                    if error.code == "EVALUATION_BUSY"
+                        && waits_for_space(point)
+                        && std::time::Instant::now() < deadline =>
+                {
+                    let stats = self.stats.lock().map_err(lock_error)?;
+                    let _ = self
+                        .space
+                        .wait_timeout(stats, std::time::Duration::from_millis(50))
+                        .map_err(lock_error)?;
+                }
+                result => {
+                    result?;
+                    break;
+                }
+            }
+        }
+        let result = match receive.recv() {
+            Ok(value) => value?,
+            Err(_) => {
+                self.stats.lock().map_err(lock_error)?.bytes = 0;
+                return Err(Error::new("EVALUATION_WRITER_EXITED", "评审写入线程已退出"));
+            }
+        };
+        result
+            .downcast::<T>()
+            .map(|v| *v)
+            .map_err(|_| Error::new("INTERNAL_ERROR", "评审写入返回类型无效"))
+    }
+    /// Reserves queue bytes and enqueues; the command is taken only on success.
+    fn enqueue(
+        &self,
+        command: &mut Option<Command>,
+        bytes: usize,
+        point: &'static str,
+    ) -> Result<()> {
         {
             let mut stats = self.stats.lock().map_err(lock_error)?;
             let normal = stats.bytes.saturating_sub(stats.critical_bytes);
-            if bytes > 32 << 20
-                || stats.bytes.saturating_add(bytes) > 128 << 20
+            if stats.bytes.saturating_add(bytes) > 128 << 20
                 || (!critical(point) && normal.saturating_add(bytes) > 64 << 20)
                 || (critical(point) && stats.critical_bytes.saturating_add(bytes) > 64 << 20)
             {
@@ -321,15 +382,6 @@ impl Writer {
             }
             stats.peak = stats.peak.max(stats.bytes);
         }
-        let (reply, receive) = mpsc::sync_channel(1);
-        let command = Command {
-            bytes,
-            queued_at: std::time::Instant::now(),
-            reply,
-            operation: Box::new(move |db| operation(db).map(|v| Box::new(v) as Value)),
-            point,
-            key: key.into(),
-        };
         {
             let (lock, wake) = &*self.queue;
             let mut queue = lock.lock().map_err(lock_error)?;
@@ -354,20 +406,13 @@ impl Writer {
                 }
                 return Err(Error::new("EVALUATION_BUSY", "评审写入队列已满"));
             }
+            let Some(command) = command.take() else {
+                return Err(Error::new("INTERNAL_ERROR", "评审写入命令已提交"));
+            };
             target.push_back(command);
             wake.notify_one();
         }
-        let result = match receive.recv() {
-            Ok(value) => value?,
-            Err(_) => {
-                self.stats.lock().map_err(lock_error)?.bytes = 0;
-                return Err(Error::new("EVALUATION_WRITER_EXITED", "评审写入线程已退出"));
-            }
-        };
-        result
-            .downcast::<T>()
-            .map(|v| *v)
-            .map_err(|_| Error::new("INTERNAL_ERROR", "评审写入返回类型无效"))
+        Ok(())
     }
 }
 impl Drop for Writer {
@@ -376,12 +421,16 @@ impl Drop for Writer {
             q.closed = true;
             self.queue.1.notify_all();
         }
+        self.space.notify_all();
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
     }
 }
 
+fn waits_for_space(point: &str) -> bool {
+    critical(point) && point != "dispatch"
+}
 fn critical(point: &str) -> bool {
     matches!(
         point,
@@ -456,6 +505,55 @@ mod tests {
         assert_eq!(order.len(), 11);
         assert_eq!(order[0], "receipt");
         assert!(order.iter().position(|v| *v == "projection").unwrap() <= 8);
+        assert_eq!(writer.stats.lock().unwrap().bytes, 0);
+    }
+    #[test]
+    fn paid_outcomes_wait_for_queue_space_but_dispatch_does_not() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/test-runs");
+        std::fs::create_dir_all(&root).unwrap();
+        let dir = tempfile::Builder::new()
+            .prefix("writer-backpressure-")
+            .tempdir_in(root)
+            .unwrap();
+        let writer = Arc::new(Writer::open(&dir.path().join("evaluation.sqlite")).unwrap());
+        let (started, ready) = mpsc::sync_channel(1);
+        let (release, held) = mpsc::sync_channel(1);
+        let w = writer.clone();
+        let first = std::thread::spawn(move || {
+            w.submit(1024, move |_| {
+                started.send(()).unwrap();
+                held.recv().unwrap();
+                Ok(())
+            })
+            .unwrap()
+        });
+        ready.recv().unwrap();
+        let mut threads = Vec::new();
+        for _ in 0..64 {
+            let w = writer.clone();
+            threads.push(std::thread::spawn(move || {
+                w.submit_named(1024, "raw_receipt", "", |_| Ok(()))
+            }));
+        }
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while writer.queue.0.lock().unwrap().critical.len() < 64 {
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        let error = writer
+            .submit_named(1024, "dispatch", "", |_| Ok(()))
+            .unwrap_err();
+        assert_eq!(error.code, "EVALUATION_BUSY");
+        let w = writer.clone();
+        let waiting = std::thread::spawn(move || w.submit_named(1024, "failure", "", |_| Ok(())));
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        assert!(!waiting.is_finished());
+        release.send(()).unwrap();
+        first.join().unwrap();
+        waiting.join().unwrap().unwrap();
+        for thread in threads {
+            thread.join().unwrap().unwrap();
+        }
         assert_eq!(writer.stats.lock().unwrap().bytes, 0);
     }
 }

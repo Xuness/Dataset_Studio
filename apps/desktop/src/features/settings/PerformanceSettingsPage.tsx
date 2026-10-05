@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Button, ErrorDetails } from "@studio/ui";
 import type { SettingsPageProps } from "./types.js";
@@ -22,6 +23,14 @@ export function PerformanceSettingsPage({
     queryFn: ({ signal }) => client.resources.status(signal),
     refetchInterval: 2000,
   });
+  const [stagesDraft, setStagesDraft] = useState<string | null>(null);
+  const aesthetic = resources.data?.aesthetic;
+  const stages = stagesDraft ?? String(aesthetic?.max_running_stages ?? "");
+  const stagesValid =
+    !!aesthetic &&
+    /^\d+$/.test(stages) &&
+    Number(stages) >= 1 &&
+    Number(stages) <= aesthetic.max_running_stages_limit;
   const value =
     memoryDraft ??
     String(Number(data.query_limits.query_memory_bytes) / 1073741824);
@@ -90,6 +99,66 @@ export function PerformanceSettingsPage({
               disabled={busy || memoryDraft === null || !valid}
             >
               保存性能设置
+            </Button>
+          </div>
+        </section>
+      </form>
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (stagesDraft !== null && stagesValid && !busy)
+            void action(async () => {
+              await client.resources.configureAesthetic(Number(stages));
+              setStagesDraft(null);
+              await resources.refetch();
+            }, "评审执行设置已保存，将用于之后启动的阶段。");
+        }}
+      >
+        <section className="settings-section">
+          <h4>美学评审</h4>
+          <div className="settings-control-row">
+            <div>
+              <label htmlFor="settings-aesthetic-stages">
+                同时运行的评审阶段
+              </label>
+              <p>
+                所有项目合计。已在运行的阶段不受影响；每个阶段的并发、内存和上传速率在阶段执行设置中调整。
+              </p>
+            </div>
+            <div className="settings-number">
+              <input
+                id="settings-aesthetic-stages"
+                aria-label="同时运行的评审阶段"
+                disabled={busy || !aesthetic}
+                type="number"
+                min={1}
+                max={aesthetic?.max_running_stages_limit ?? 32}
+                value={stages}
+                onChange={(e) => setStagesDraft(e.target.value)}
+              />
+              <span>个</span>
+            </div>
+          </div>
+          {aesthetic && (
+            <p className="settings-note">
+              当前运行 {aesthetic.running_stages}{" "}
+              个。各阶段内存预算分别计算，同时运行的阶段越多，合计内存占用越高。
+            </p>
+          )}
+          <div className="settings-page-actions">
+            <Button
+              type="button"
+              disabled={busy || stagesDraft === null}
+              onClick={() => setStagesDraft(null)}
+            >
+              撤销修改
+            </Button>
+            <Button
+              type="submit"
+              className="primary"
+              disabled={busy || stagesDraft === null || !stagesValid}
+            >
+              保存评审设置
             </Button>
           </div>
         </section>

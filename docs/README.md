@@ -186,3 +186,5 @@ Pixiv：[结果隔离与有界组批](decisions/0055-pixiv-receipts-and-bounded-
 新增文档请按目录职责归档，并维护本导航或所属模块导航。移动文件时同步修改相对链接和正文中的仓库路径；本机证据位置使用普通文本并说明其本机范围，避免把本机路径作为远端可用链接。
 
 OpenRouter 提示词缓存与计费观测：[缓存策略、严格 Flex 和回执统计](decisions/0060-openrouter-prompt-caching.md)。
+
+评审阶段资源限制：[按阶段内存预算、在途降额与写入背压](decisions/0061-aesthetic-stage-resource-limits.md)。

@@ -204,7 +204,9 @@ async fn serve(root: PathBuf, port: u16, cache_dir: Option<PathBuf>) -> Result<(
     previews
         .cache
         .set_quota(u64::from(queries.cache.config()?.preview_mib) << 20)?;
-    let aesthetic = Arc::new(aesthetic::Runner::default());
+    let aesthetic = Arc::new(aesthetic::Runner::open(
+        root.join("aesthetic-settings.json"),
+    )?);
     let aesthetic_analysis = Arc::new(aesthetic::analysis::Runner::default());
     use studio_application::lake_updates::LakeUpdateBackend;
     let lake_updates = Arc::new(lake_updates::Backend::new(root.clone()));

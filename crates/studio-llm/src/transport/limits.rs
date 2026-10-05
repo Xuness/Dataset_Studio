@@ -25,7 +25,8 @@ impl Default for Limits {
     fn default() -> Self {
         Self {
             gates: Mutex::new(HashMap::new()),
-            pending: Arc::new(Semaphore::new(128)),
+            // Covers 32 running aesthetic stages at their 1024-request ceiling.
+            pending: Arc::new(Semaphore::new(32 * 1024)),
         }
     }
 }

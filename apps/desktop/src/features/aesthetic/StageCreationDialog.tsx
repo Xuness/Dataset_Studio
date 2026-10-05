@@ -14,6 +14,7 @@ import {
   ExecutionPolicyFields,
   validPolicy,
 } from "./ExecutionSettings.js";
+import { ConnectionLimits } from "./ConnectionLimits.js";
 
 type Pending = {
   request: Schema["AestheticCreate"];
@@ -433,7 +434,7 @@ export function StageCreationDialog({
                   ["rankTolerance", "位次变化阈值（百分点）", 25],
                   ["samplingSeed", "采样种子", 4294967295],
                   ["maxCalls", "调用次数上限", 10000000],
-                  ["concurrency", "请求并发上限", 32],
+                  ["concurrency", "请求并发上限", 1024],
                 ] as const
               )
                 .filter(
@@ -517,15 +518,27 @@ export function StageCreationDialog({
           </label>
           <details className="wb-fold">
             <summary>
-              传输与异常恢复 ·{" "}
-              {value.executionPolicy.stream ? "流式" : "非流式"} · 单次{" "}
+              资源、传输与异常恢复 · 内存{" "}
+              {value.executionPolicy.memory_budget_mib ??
+                defaultExecutionPolicy.memory_budget_mib}{" "}
+              MiB · {value.executionPolicy.stream ? "流式" : "非流式"} · 单次{" "}
               {value.executionPolicy.request_timeout_ms / 1000} 秒
             </summary>
             <ExecutionPolicyFields
               policy={value.executionPolicy}
+              maxRequestMiB={value.maxRequestMiB}
+              concurrency={value.concurrency}
               showConcurrency={false}
               disabled={!editable}
               onChange={(executionPolicy) => edit({ executionPolicy })}
+            />
+            <ConnectionLimits
+              context={context}
+              providerId={
+                models.data?.find((m) => m.id === value.modelId)?.provider_id
+              }
+              concurrency={value.concurrency}
+              disabled={!editable}
             />
           </details>
           <button type="submit" disabled={!editable}>

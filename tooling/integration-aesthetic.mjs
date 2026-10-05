@@ -489,7 +489,8 @@ try {
   const metrics = await client.aesthetic.metrics(project.id);
   assert.equal(metrics.active_requests, 0);
   assert.equal(metrics.reserved_request_bytes, 0);
-  assert.ok(metrics.peak_request_bytes <= 512 * 1048576);
+  // Memory budgets are per stage; at most 8 stages run with the legacy 512 MiB default.
+  assert.ok(metrics.peak_request_bytes <= 8 * 512 * 1048576);
   assert.ok(metrics.peak_write_bytes <= 64 * 1048576);
   checks.push(
     "consistent WAL backup, retained paid evidence, bounded request and writer reservations, released permits",

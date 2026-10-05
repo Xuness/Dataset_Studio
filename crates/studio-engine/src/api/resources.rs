@@ -42,6 +42,7 @@ pub(super) async fn status(State(s): State<AppState>) -> ApiResult<ReadServiceSt
         },
         query_limits: query_limits(&s)?,
         query_cache,
+        aesthetic: aesthetic_status(&s),
         previews: PreviewActivity {
             shared: m.shared,
             queued: m.queued,
@@ -141,6 +142,27 @@ pub(super) fn query_limits(s: &AppState) -> domain::Result<QueryResourceLimits> 
         temporary_disk_bytes: domain::QUERY_TEMP_BYTES.to_string(),
         result_staging_disk_bytes: domain::QUERY_STAGE_BYTES.to_string(),
     })
+}
+fn aesthetic_status(s: &AppState) -> AestheticEngineStatus {
+    let (running_stages, max_running_stages) = s.aesthetic.stage_limits();
+    AestheticEngineStatus {
+        running_stages,
+        max_running_stages,
+        max_running_stages_limit: domain::aesthetic::AESTHETIC_MAX_RUNNING_STAGES,
+    }
+}
+#[utoipa::path(put,path="/v1/resources/aesthetic",request_body=SetAestheticEngine,responses((status=200,body=AestheticEngineStatus)))]
+pub(super) async fn configure_aesthetic(
+    State(s): State<AppState>,
+    Body(body): Body<SetAestheticEngine>,
+) -> ApiResult<AestheticEngineStatus> {
+    Ok(Json(
+        blocking(move || {
+            s.aesthetic.configure(body.max_running_stages)?;
+            Ok(aesthetic_status(&s))
+        })
+        .await?,
+    ))
 }
 #[utoipa::path(put,path="/v1/resources/query",request_body=SetQueryMemory,responses((status=200,body=QueryResourceLimits)))]
 pub(super) async fn configure_query(

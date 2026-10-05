@@ -146,8 +146,8 @@ impl EvaluationDb {
             if stage_failure(&failure) {return Ok("halt".into());}
             let stage=read_stage(db,&id)?;
             let streak:u32=db.query_row("SELECT failure_streak FROM stages WHERE id=?1",[&id],|r|r.get(0)).map_err(db_error)?;
-            let concurrency=stage.execution_settings.as_ref().map_or(stage.config.request.concurrency,|s|s.policy.concurrency);
-            if streak>=concurrency.max(4) {return Ok("halt".into());}
+            let threshold=stage.execution_settings.as_ref().map_or_else(||studio_domain::aesthetic::default_failure_halt_threshold(stage.config.request.concurrency),|s|s.policy.failure_halt_threshold());
+            if streak>=threshold {return Ok("halt".into());}
             let Some(settings)=&stage.execution_settings else {return Ok("unresolved".into());};
             let p=&settings.policy;
             if !retryable_failure(&failure,p) {return Ok("unresolved".into());}

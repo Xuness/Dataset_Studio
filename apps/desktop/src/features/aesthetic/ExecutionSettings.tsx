@@ -8,6 +8,7 @@ import {
   WorkbenchDialog,
 } from "@studio/ui";
 import type { ModuleContext } from "@studio/ui";
+import { ConnectionLimits } from "./ConnectionLimits.js";
 
 export type ExecutionPolicy = Schema["AestheticExecutionPolicy"];
 export const defaultExecutionPolicy: ExecutionPolicy = {
@@ -21,7 +22,23 @@ export const defaultExecutionPolicy: ExecutionPolicy = {
   max_retries: 2,
   retry_unknown: false,
   exhausted: "pause",
+  memory_budget_mib: 512,
+  upload_bytes_per_second: 3500000,
 };
+/**
+ * Mirrors the engine's per-request reservation: 6 × (body + 64 KiB) + 64 MiB while
+ * preparing, then 2.5 × body + 1 MiB + 64 MiB once the request is sent.
+ */
+export function requestReservationMiB(maxRequestMiB: number) {
+  return {
+    preparing: Math.ceil(6 * (maxRequestMiB + 1 / 16) + 64),
+    inFlight: Math.ceil(2.5 * maxRequestMiB + 1 + 64),
+  };
+}
+/** Engine default when a stage leaves the threshold unset. */
+export function defaultFailureHaltThreshold(concurrency: number) {
+  return Math.min(32, Math.max(4, concurrency));
+}
 export function validPolicy(value: unknown): value is ExecutionPolicy {
   if (!value || typeof value !== "object") return false;
   const p = value as ExecutionPolicy;
@@ -44,13 +61,30 @@ export function ExecutionPolicyFields({
   policy,
   disabled,
   onChange,
+  maxRequestMiB,
+  concurrency = policy.concurrency,
   showConcurrency = true,
 }: {
   policy: ExecutionPolicy;
   disabled: boolean;
   onChange: (value: ExecutionPolicy) => void;
+  maxRequestMiB: number;
+  concurrency?: number;
   showConcurrency?: boolean;
 }) {
+  const memory =
+    policy.memory_budget_mib ?? defaultExecutionPolicy.memory_budget_mib!;
+  const upload =
+    policy.upload_bytes_per_second ??
+    defaultExecutionPolicy.upload_bytes_per_second!;
+  const perRequest = requestReservationMiB(maxRequestMiB);
+  // One request may still be preparing while the others wait for their responses.
+  const capacity =
+    memory < perRequest.preparing
+      ? 0
+      : Math.floor((memory - perRequest.preparing) / perRequest.inFlight) + 1;
+  const needed =
+    perRequest.preparing + Math.max(0, concurrency - 1) * perRequest.inFlight;
   return (
     <div className="wb-field-list execution-policy-fields">
       <label>
@@ -75,7 +109,7 @@ export function ExecutionPolicyFields({
             required
             type="number"
             min={1}
-            max={32}
+            max={1024}
             value={policy.concurrency}
             disabled={disabled}
             onChange={(e) =>
@@ -84,6 +118,60 @@ export function ExecutionPolicyFields({
           />
         </label>
       )}
+      <label>
+        阶段内存预算（MiB）
+        <input
+          aria-label="阶段内存预算（MiB）"
+          required
+          type="number"
+          min={256}
+          max={1048576}
+          step={1}
+          value={memory}
+          disabled={disabled}
+          onChange={(e) =>
+            onChange({ ...policy, memory_budget_mib: Number(e.target.value) })
+          }
+        />
+      </label>
+      <p
+        className={
+          capacity < concurrency ? "aesthetic-notice" : "aesthetic-help"
+        }
+      >
+        准备请求时按 6 × 请求体 + 64 MiB 预留内存，发出后降为 2.5 × 请求体 + 65
+        MiB（64 MiB 用于接收和保存最多 16 MiB 的响应）。以每批 {maxRequestMiB}{" "}
+        MiB 请求体估算，准备时约 {perRequest.preparing} MiB、在途约{" "}
+        {perRequest.inFlight} MiB，当前预算最坏情况约可同时保持 {capacity}{" "}
+        个请求，图片较小时更多
+        {capacity < concurrency &&
+          `；要稳定达到并发 ${concurrency}，约需 ${needed.toLocaleString()} MiB`}
+        。预算按阶段计算，同时运行的阶段各自占用。
+      </p>
+      <label>
+        上传速率上限（MB/s，0 为不限速）
+        <input
+          aria-label="上传速率上限（MB/s）"
+          required
+          type="number"
+          min={0}
+          max={10000}
+          step={0.1}
+          value={upload / 1e6}
+          disabled={disabled}
+          onChange={(e) =>
+            onChange({
+              ...policy,
+              upload_bytes_per_second: Math.round(Number(e.target.value) * 1e6),
+            })
+          }
+        />
+      </label>
+      <p className="aesthetic-help">
+        按请求体字节数错开派发，所有运行中的阶段共用一条上传队列。
+        {upload > 0 &&
+          `以每批 ${maxRequestMiB} MiB 计，每秒最多派发约 ${(upload / (maxRequestMiB * 1048576)).toFixed(2)} 个请求。`}
+      </p>
       {(
         [
           ["connect_timeout_ms", "连接超时（秒）", 120],
@@ -115,6 +203,31 @@ export function ExecutionPolicyFields({
       ))}
       <p className="aesthetic-help">
         本地排队不占单次请求时限。首包可为保活心跳；每次收到数据重置空闲计时，单次总时限始终不重置。批次恢复总时限包含退避、后续排队和暂停；明确手动重试会开启新窗口。
+      </p>
+      <label>
+        连续失败停止阈值
+        <input
+          aria-label="连续失败停止阈值"
+          type="number"
+          min={1}
+          max={1024}
+          step={1}
+          placeholder={`自动：${defaultFailureHaltThreshold(concurrency)}`}
+          value={policy.failure_halt_threshold ?? ""}
+          disabled={disabled}
+          onChange={(e) => {
+            const next = { ...policy };
+            if (e.target.value === "") delete next.failure_halt_threshold;
+            else next.failure_halt_threshold = Number(e.target.value);
+            onChange(next);
+          }}
+        />
+      </label>
+      <p className="aesthetic-help">
+        每次已发送的请求失败（含自动重试）计 1
+        次，收到有效结果或重新开始评审时清零；达到阈值后停止派发新请求，在途请求照常收尾。留空时取并发数，限定在
+        4–32 之间（当前 {defaultFailureHaltThreshold(concurrency)}
+        ）。认证失败、配置错误、余额不足等问题不计次，立即停止。
       </p>
       <label>
         每批自动重试上限
@@ -276,10 +389,17 @@ export function ExecutionSettingsDialog({
       >
         <ExecutionPolicyFields
           policy={draft.value.policy}
+          maxRequestMiB={stage.config.max_request_bytes / 1048576}
           disabled={busy || !draft.editable || !!draft.value.pending}
           onChange={(policy) =>
             draft.controller.set((old) => ({ ...old, policy }))
           }
+        />
+        <ConnectionLimits
+          context={context}
+          providerId={stage.config.model.provider_id}
+          concurrency={draft.value.policy.concurrency}
+          disabled={busy || !draft.editable || !!draft.value.pending}
         />
         <p>
           保存时关联当前连接版本，并核对模型、端点和冻结评审标准。已保存的证据继续保留；保存后仍需点击“开始评审”；已有异常批次请先批量加入重试队列。

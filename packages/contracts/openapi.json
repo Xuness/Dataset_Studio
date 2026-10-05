@@ -8060,6 +8060,36 @@
         }
       }
     },
+    "/v1/resources/aesthetic": {
+      "put": {
+        "tags": [
+          "resources"
+        ],
+        "operationId": "configure_aesthetic",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetAestheticEngine"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AestheticEngineStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/resources/cache": {
       "put": {
         "tags": [
@@ -10577,6 +10607,32 @@
           "exclude"
         ]
       },
+      "AestheticEngineStatus": {
+        "type": "object",
+        "description": "Engine-wide aesthetic execution limits shared by every project.",
+        "required": [
+          "running_stages",
+          "max_running_stages",
+          "max_running_stages_limit"
+        ],
+        "properties": {
+          "max_running_stages": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "max_running_stages_limit": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "running_stages": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
       "AestheticEstimator": {
         "type": "object",
         "required": [
@@ -10670,6 +10726,15 @@
             "type": "string",
             "description": "pause or defer; defer closes failed logical batches without accepting evidence."
           },
+          "failure_halt_threshold": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Consecutive failed network attempts that halt dispatch; absent uses concurrency clamped to 4–32.",
+            "minimum": 0
+          },
           "first_response_timeout_ms": {
             "type": "integer",
             "format": "int32",
@@ -10685,6 +10750,15 @@
             "format": "int32",
             "minimum": 0
           },
+          "memory_budget_mib": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "Per-stage request preparation memory budget; absent uses 512 MiB.",
+            "minimum": 0
+          },
           "request_timeout_ms": {
             "type": "integer",
             "format": "int32",
@@ -10695,6 +10769,15 @@
           },
           "stream": {
             "type": "boolean"
+          },
+          "upload_bytes_per_second": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Request admission pacing by serialized body bytes; 0 disables pacing, absent uses 3.5 MB/s.",
+            "minimum": 0
           }
         },
         "additionalProperties": false
@@ -22880,9 +22963,13 @@
           "previews",
           "online_sqlite",
           "query_limits",
-          "query_cache"
+          "query_cache",
+          "aesthetic"
         ],
         "properties": {
+          "aesthetic": {
+            "$ref": "#/components/schemas/AestheticEngineStatus"
+          },
           "cache": {
             "$ref": "#/components/schemas/PreviewCacheStatus"
           },
@@ -23850,6 +23937,19 @@
             "items": {
               "type": "boolean"
             }
+          }
+        }
+      },
+      "SetAestheticEngine": {
+        "type": "object",
+        "required": [
+          "max_running_stages"
+        ],
+        "properties": {
+          "max_running_stages": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
           }
         }
       },

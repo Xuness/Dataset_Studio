@@ -1,6 +1,14 @@
 //! Mutable execution policy is separate from the frozen aesthetic evidence standard.
 use serde::{Deserialize, Serialize};
 
+pub const AESTHETIC_MAX_CONCURRENCY: u32 = 1024;
+/// Applied when a stage predates per-stage resource limits.
+pub const AESTHETIC_DEFAULT_MEMORY_BUDGET_MIB: u32 = 512;
+pub const AESTHETIC_DEFAULT_UPLOAD_BYTES_PER_SECOND: u64 = 3_500_000;
+/// Engine-wide limit on stages executing at once, across all projects.
+pub const AESTHETIC_DEFAULT_RUNNING_STAGES: u32 = 8;
+pub const AESTHETIC_MAX_RUNNING_STAGES: u32 = 32;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct AestheticExecutionPolicy {
@@ -16,6 +24,36 @@ pub struct AestheticExecutionPolicy {
     pub retry_unknown: bool,
     /// pause or defer; defer closes failed logical batches without accepting evidence.
     pub exhausted: String,
+    /// Per-stage request preparation memory budget. Absent on legacy stages.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub memory_budget_mib: Option<u32>,
+    /// Request admission pacing by serialized body bytes; 0 disables pacing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upload_bytes_per_second: Option<u64>,
+    /// Consecutive failed network attempts that halt dispatch; absent follows concurrency.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub failure_halt_threshold: Option<u32>,
+}
+impl AestheticExecutionPolicy {
+    pub fn memory_budget_bytes(&self) -> u64 {
+        u64::from(
+            self.memory_budget_mib
+                .unwrap_or(AESTHETIC_DEFAULT_MEMORY_BUDGET_MIB),
+        ) << 20
+    }
+    pub fn upload_rate(&self) -> u64 {
+        self.upload_bytes_per_second
+            .unwrap_or(AESTHETIC_DEFAULT_UPLOAD_BYTES_PER_SECOND)
+    }
+    pub fn failure_halt_threshold(&self) -> u32 {
+        self.failure_halt_threshold
+            .unwrap_or_else(|| default_failure_halt_threshold(self.concurrency))
+    }
+}
+/// One in-flight wave may fail together without halting; capped so a high concurrency
+/// does not keep dispatching into a failing endpoint. Equals the legacy rule up to 32.
+pub fn default_failure_halt_threshold(concurrency: u32) -> u32 {
+    concurrency.clamp(4, 32)
 }
 impl Default for AestheticExecutionPolicy {
     fn default() -> Self {
@@ -30,6 +68,9 @@ impl Default for AestheticExecutionPolicy {
             max_retries: 2,
             retry_unknown: false,
             exhausted: "pause".into(),
+            memory_budget_mib: None,
+            upload_bytes_per_second: None,
+            failure_halt_threshold: None,
         }
     }
 }

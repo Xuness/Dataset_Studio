@@ -5,7 +5,7 @@ use std::{
     path::PathBuf,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering},
     },
     time::{Duration, Instant},
 };
@@ -26,29 +26,76 @@ pub use creation::{create, preflight};
 pub use execution::{check_execution, configure_execution};
 pub use receipts::reparse_batch;
 
-fn request_reservation_kib(stage: &AestheticStage, batch: &AestheticBatch) -> Result<u32> {
+fn stage_policy(stage: &AestheticStage) -> AestheticExecutionPolicy {
+    stage.execution_settings.as_ref().map_or_else(
+        || AestheticExecutionPolicy {
+            concurrency: stage.config.request.concurrency,
+            ..Default::default()
+        },
+        |s| s.policy.clone(),
+    )
+}
+fn configuration_bytes(stage: &AestheticStage) -> Result<u64> {
+    Ok(serde_json::to_vec(&stage.config).map_err(Error::io)?.len() as u64)
+}
+fn request_reservation_kib(
+    stage: &AestheticStage,
+    batch: &AestheticBatch,
+    budget_bytes: u64,
+) -> Result<u32> {
     let images = batch
         .members
         .iter()
         .filter(|m| m.candidate.bytes <= stage.config.max_image_bytes)
         .map(|m| m.candidate.bytes.div_ceil(3) * 4)
         .sum::<u64>();
-    let configuration = serde_json::to_vec(&stage.config).map_err(Error::io)?.len() as u64;
+    let configuration = configuration_bytes(stage)?;
     // Admit preparation too: an oversized parent is encoded before it can be split.
     let bytes = images
         .saturating_add(configuration)
         .saturating_add(65536)
         .saturating_mul(6)
         .saturating_add(64 << 20);
-    if bytes > 512 << 20 {
+    if bytes > budget_bytes {
         return Err(Error::new(
             "EVALUATION_CAPACITY_EXCEEDED",
-            "此批准备内存超过共享预算，尚未发送",
+            format!(
+                "此批准备内存约 {} MiB，超过阶段内存预算 {} MiB，尚未发送",
+                bytes.div_ceil(1 << 20),
+                budget_bytes >> 20
+            ),
         ));
     }
     Ok(bytes.div_ceil(1024) as u32)
 }
-const UPLOAD_BYTES_PER_SECOND: u64 = 3_500_000;
+/// A received outcome may be held as the receipt, its persistence copies and the
+/// decoded result at once; this is the same allowance admitted with preparation.
+const RESPONSE_ALLOWANCE: u64 = 4 * LLM_RECEIPT_LIMIT as u64;
+/// Reservation kept once the body is serialized and the send is committed. The request
+/// side is then only the plan's messages and the body bytes (2 x body), kept with a 25%
+/// margin. The caller never grows a reservation, so this only releases memory.
+fn in_flight_reservation_kib(stage: &AestheticStage, body_bytes: u64) -> Result<u32> {
+    let bytes = body_bytes
+        .saturating_mul(5)
+        .div_ceil(2)
+        .saturating_add(configuration_bytes(stage)?)
+        .saturating_add(1 << 20)
+        .saturating_add(RESPONSE_ALLOWANCE);
+    Ok(bytes.div_ceil(1024).min(u64::from(u32::MAX)) as u32)
+}
+#[derive(serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EngineSettings {
+    max_running_stages: u32,
+}
+fn validate_running_stages(value: u32) -> Result<u32> {
+    if !(1..=AESTHETIC_MAX_RUNNING_STAGES).contains(&value) {
+        return Err(Error::invalid(format!(
+            "同时运行的评审阶段须为 1–{AESTHETIC_MAX_RUNNING_STAGES}"
+        )));
+    }
+    Ok(value)
+}
 #[derive(Clone)]
 struct Control {
     cancel: LlmCancellation,
@@ -57,10 +104,11 @@ struct Control {
 }
 pub struct Runner {
     active: Mutex<HashMap<(String, String), Control>>,
-    requests: Arc<Semaphore>,
-    bytes: Arc<Semaphore>,
+    settings: Option<PathBuf>,
+    max_stages: AtomicUsize,
     planners: Arc<Semaphore>,
     upload: tokio::sync::Mutex<Instant>,
+    upload_rate: AtomicU64,
     active_requests: AtomicU64,
     reserved: AtomicU64,
     peak: AtomicU64,
@@ -72,10 +120,11 @@ impl Default for Runner {
     fn default() -> Self {
         Self {
             active: Default::default(),
-            requests: Arc::new(Semaphore::new(32)),
-            bytes: Arc::new(Semaphore::new(512 * 1024)),
+            settings: None,
+            max_stages: AtomicUsize::new(AESTHETIC_DEFAULT_RUNNING_STAGES as usize),
             planners: Arc::new(Semaphore::new(1)),
             upload: tokio::sync::Mutex::new(Instant::now()),
+            upload_rate: AtomicU64::new(AESTHETIC_DEFAULT_UPLOAD_BYTES_PER_SECOND),
             active_requests: AtomicU64::new(0),
             reserved: AtomicU64::new(0),
             peak: AtomicU64::new(0),
@@ -89,6 +138,49 @@ async fn work<T: Send + 'static>(f: impl FnOnce() -> Result<T> + Send + 'static)
     tokio::task::spawn_blocking(f).await.map_err(Error::io)?
 }
 impl Runner {
+    /// Engine-wide settings shared by every project; absent file keeps the defaults.
+    pub fn open(path: PathBuf) -> Result<Self> {
+        let max = match std::fs::read(&path) {
+            Ok(bytes) => validate_running_stages(
+                serde_json::from_slice::<EngineSettings>(&bytes)
+                    .map_err(Error::io)?
+                    .max_running_stages,
+            )?,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => AESTHETIC_DEFAULT_RUNNING_STAGES,
+            Err(e) => return Err(Error::io(e)),
+        };
+        Ok(Self {
+            settings: Some(path),
+            max_stages: AtomicUsize::new(max as usize),
+            ..Default::default()
+        })
+    }
+    /// Applies to later starts; stages already running are never stopped.
+    pub fn configure(&self, max_running_stages: u32) -> Result<()> {
+        let max = validate_running_stages(max_running_stages)?;
+        // Hold the stage table so a concurrent start observes either limit consistently.
+        let _active = self
+            .active
+            .lock()
+            .map_err(|_| Error::io("评审执行器锁不可用"))?;
+        if let Some(path) = &self.settings {
+            studio_storage::atomic_json(
+                path,
+                &EngineSettings {
+                    max_running_stages: max,
+                },
+            )?;
+        }
+        self.max_stages.store(max as usize, Ordering::Relaxed);
+        Ok(())
+    }
+    pub fn stage_limits(&self) -> (u32, u32) {
+        let running = self.active.lock().map_or(0, |a| a.len());
+        (
+            running as u32,
+            self.max_stages.load(Ordering::Relaxed) as u32,
+        )
+    }
     pub fn transfer(&self, pid: &str, stage: &str, sequence: u64) -> Option<AestheticTransfer> {
         self.transfers
             .lock()
@@ -107,7 +199,7 @@ impl Runner {
             active_requests: self.active_requests.load(Ordering::Relaxed),
             reserved_request_bytes: self.reserved.load(Ordering::Relaxed),
             peak_request_bytes: self.peak.load(Ordering::Relaxed),
-            upload_budget_bytes_per_second: UPLOAD_BYTES_PER_SECOND,
+            upload_budget_bytes_per_second: self.upload_rate.load(Ordering::Relaxed),
             uploaded_body_bytes: self.uploaded.load(Ordering::Relaxed),
             ..Default::default()
         })
@@ -160,8 +252,12 @@ impl Runner {
             if active.contains_key(&(pid.clone(), id.clone())) {
                 return Err(Error::new("REVISION_CONFLICT", "阶段已在执行"));
             }
-            if active.len() >= 8 {
-                return Err(Error::new("EVALUATION_BUSY", "最多同时执行 8 个评审阶段"));
+            let max = self.max_stages.load(Ordering::Relaxed);
+            if active.len() >= max {
+                return Err(Error::new(
+                    "EVALUATION_BUSY",
+                    format!("最多同时执行 {max} 个评审阶段，可在性能设置中调整"),
+                ));
             }
             active.insert((pid.clone(), id.clone()), control.clone());
         }
@@ -278,7 +374,13 @@ impl Runner {
         }
         let ledger = db.clone();
         let sid = id.clone();
-        work(move || ledger.parse_received(&sid)).await?;
+        let budget = work(move || {
+            ledger.parse_received(&sid)?;
+            Ok(stage_policy(&ledger.stage(&sid)?).memory_budget_bytes())
+        })
+        .await?;
+        // Settings change only while no request is in flight, so one run keeps one budget.
+        let memory = Arc::new(Semaphore::new((budget >> 10) as usize));
         let mut running = FuturesUnordered::new();
         let mut failure: Option<Error> = None;
         loop {
@@ -314,10 +416,7 @@ impl Runner {
                 continue;
             }
             let can_start = stage.state == "running" && failure.is_none();
-            let concurrency = stage
-                .execution_settings
-                .as_ref()
-                .map_or(stage.config.request.concurrency, |s| s.policy.concurrency);
+            let concurrency = stage_policy(&stage).concurrency;
             if can_start && running.len() < concurrency as usize {
                 let ledger = db.clone();
                 let sid = id.clone();
@@ -336,6 +435,8 @@ impl Runner {
                         batch,
                         db.clone(),
                         control.clone(),
+                        memory.clone(),
+                        budget,
                     ));
                     continue;
                 }
@@ -352,7 +453,7 @@ impl Runner {
             }
             if can_start && running.is_empty() && stage.sampling.is_some() {
                 match self
-                    .plan_round(db.clone(), id.clone(), control.clone())
+                    .plan_round(db.clone(), id.clone(), control.clone(), memory.clone())
                     .await
                 {
                     Ok(true) => continue,
@@ -383,36 +484,24 @@ impl Runner {
         mut batch: AestheticBatch,
         db: Arc<EvaluationDb>,
         control: Control,
+        memory: Arc<Semaphore>,
+        budget: u64,
     ) -> Result<()> {
         let volume = health::storage_volume(&state.store.project(&pid)?.directory)?;
-        let request_kib = request_reservation_kib(&stage, &batch)?;
-        let admitted = async {
-            let request = self
-                .requests
-                .clone()
-                .acquire_owned()
-                .await
-                .map_err(Error::io)?;
-            let bytes = self
-                .bytes
-                .clone()
-                .acquire_many_owned(request_kib)
-                .await
-                .map_err(Error::io)?;
-            Ok::<_, Error>((request, bytes))
-        };
-        let permits = tokio::select! {r=admitted=>r?,_=control.cancel.cancelled()=>return Err(Error::new("CANCELLED","评审已取消"))};
+        let request_kib = request_reservation_kib(&stage, &batch, budget)?;
+        let admitted = memory.acquire_many_owned(request_kib);
+        let permits = tokio::select! {r=admitted=>r.map_err(Error::io)?,_=control.cancel.cancelled()=>return Err(Error::new("CANCELLED","评审已取消"))};
         let reserved = self
             .reserved
             .fetch_add(u64::from(request_kib) * 1024, Ordering::Relaxed)
             + u64::from(request_kib) * 1024;
         self.peak.fetch_max(reserved, Ordering::Relaxed);
         self.active_requests.fetch_add(1, Ordering::Relaxed);
-        let _account = Admission {
+        let account = Arc::new(Admission {
             runner: self.clone(),
-            _permits: permits,
-            request_kib,
-        };
+            permit: Mutex::new(permits),
+            kib: AtomicU32::new(request_kib),
+        });
         let sid = stage.id.clone();
         let sequence = batch.sequence;
         let _transfer = TransferGuard {
@@ -487,16 +576,24 @@ impl Runner {
             }
         };
         // Pace request admission by serialized bytes. This is not a TCP traffic shaper.
-        let wait = {
+        // The pacer is shared by all stages; each request occupies it at its stage's rate.
+        let rate = stage_policy(&stage).upload_rate();
+        self.upload_rate.store(rate, Ordering::Relaxed);
+        let wait = if rate == 0 {
+            Duration::ZERO
+        } else {
             let mut next = self.upload.lock().await;
             let now = Instant::now();
             let start = (*next).max(now);
-            *next = start + Duration::from_secs_f64(size as f64 / UPLOAD_BYTES_PER_SECOND as f64);
+            *next = start + Duration::from_secs_f64(size as f64 / rate as f64);
             start.saturating_duration_since(now)
         };
         tokio::select! {_=tokio::time::sleep(wait)=>{},_=control.cancel.cancelled()=>return Err(Error::new("CANCELLED","上传等待已取消"))}
         let attempt = plan.snapshot.invocation_id.clone();
+        let in_flight_kib = in_flight_reservation_kib(&stage, size)?;
         let sink = Arc::new(ReceiptSink {
+            admission: account.clone(),
+            in_flight_kib,
             runner: self.clone(),
             db: db.clone(),
             pid: pid.clone(),
@@ -703,6 +800,8 @@ enum Outcome {
     Failure(LlmFailure),
 }
 struct ReceiptSink {
+    admission: Arc<Admission>,
+    in_flight_kib: u32,
     runner: Arc<Runner>,
     db: Arc<EvaluationDb>,
     pid: String,
@@ -756,6 +855,9 @@ impl studio_application::llm::LlmReceiptSink for ReceiptSink {
             .await?;
             if !decision.defer {
                 self.runner.uploaded.fetch_add(self.size, Ordering::Relaxed);
+                // The body is serialized and encoding peaks are over; keep only what the
+                // in-flight request and its retained outcome can still hold.
+                self.admission.shrink(self.in_flight_kib);
             }
             Ok(decision)
         }
@@ -797,19 +899,83 @@ impl studio_application::llm::LlmReceiptSink for ReceiptSink {
     }
 }
 struct Admission {
-    request_kib: u32,
     runner: Arc<Runner>,
-    _permits: (
-        tokio::sync::OwnedSemaphorePermit,
-        tokio::sync::OwnedSemaphorePermit,
-    ),
+    permit: Mutex<tokio::sync::OwnedSemaphorePermit>,
+    kib: AtomicU32,
+}
+impl Admission {
+    /// Releases only. Growing could wait on permits held by peers that wait in turn.
+    fn shrink(&self, kib: u32) {
+        let Ok(mut permit) = self.permit.lock() else {
+            return;
+        };
+        let held = permit.num_permits();
+        let release = held.saturating_sub(kib as usize);
+        if release == 0 {
+            return;
+        }
+        if let Some(part) = permit.split(release) {
+            self.kib.store((held - release) as u32, Ordering::Relaxed);
+            self.runner
+                .reserved
+                .fetch_sub(release as u64 * 1024, Ordering::Relaxed);
+            drop(part);
+        }
+    }
 }
 impl Drop for Admission {
     fn drop(&mut self) {
-        self.runner
-            .reserved
-            .fetch_sub(u64::from(self.request_kib) * 1024, Ordering::Relaxed);
+        self.runner.reserved.fetch_sub(
+            u64::from(self.kib.load(Ordering::Relaxed)) * 1024,
+            Ordering::Relaxed,
+        );
         self.runner.active_requests.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn admission_shrink_only_releases_and_accounts_once() {
+        let runner = Arc::new(Runner::default());
+        let memory = Arc::new(Semaphore::new(1000));
+        let permit = memory.clone().try_acquire_many_owned(600).unwrap();
+        runner.reserved.store(600 * 1024, Ordering::Relaxed);
+        runner.active_requests.store(1, Ordering::Relaxed);
+        let admission = Admission {
+            runner: runner.clone(),
+            permit: Mutex::new(permit),
+            kib: AtomicU32::new(600),
+        };
+        admission.shrink(200);
+        assert_eq!(memory.available_permits(), 800);
+        assert_eq!(runner.reserved.load(Ordering::Relaxed), 200 * 1024);
+        // A larger target never acquires more permits.
+        admission.shrink(500);
+        assert_eq!(memory.available_permits(), 800);
+        admission.shrink(200);
+        assert_eq!(admission.kib.load(Ordering::Relaxed), 200);
+        drop(admission);
+        assert_eq!(memory.available_permits(), 1000);
+        assert_eq!(runner.reserved.load(Ordering::Relaxed), 0);
+        assert_eq!(runner.active_requests.load(Ordering::Relaxed), 0);
+    }
+    #[test]
+    fn running_stage_limit_persists_and_rejects_out_of_range() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/test-runs");
+        std::fs::create_dir_all(&root).unwrap();
+        let dir = tempfile::Builder::new()
+            .prefix("aesthetic-settings-")
+            .tempdir_in(root)
+            .unwrap();
+        let path = dir.path().join("aesthetic-settings.json");
+        let runner = Runner::open(path.clone()).unwrap();
+        assert_eq!(runner.stage_limits().1, AESTHETIC_DEFAULT_RUNNING_STAGES);
+        runner.configure(12).unwrap();
+        assert!(runner.configure(0).is_err());
+        assert!(runner.configure(AESTHETIC_MAX_RUNNING_STAGES + 1).is_err());
+        assert_eq!(Runner::open(path).unwrap().stage_limits().1, 12);
     }
 }
 

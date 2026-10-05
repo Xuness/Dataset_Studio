@@ -1533,6 +1533,7 @@ async fn shutdown(State(s): State<AppState>) -> Json<OkResponse> {
         resources::status,
         resources::configure,
         resources::configure_query,
+        resources::configure_aesthetic,
         resources::configure_query_cache,
         resources::clear_query_cache,
         resources::clear,
@@ -1730,6 +1731,10 @@ pub fn routes() -> axum::Router<AppState> {
         .route(
             "/v1/resources/query",
             axum::routing::put(resources::configure_query),
+        )
+        .route(
+            "/v1/resources/aesthetic",
+            axum::routing::put(resources::configure_aesthetic),
         )
         .route(
             "/v1/resources/cache",

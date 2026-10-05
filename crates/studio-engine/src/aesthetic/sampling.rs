@@ -20,6 +20,7 @@ impl Runner {
         db: Arc<EvaluationDb>,
         id: String,
         control: Control,
+        memory: Arc<Semaphore>,
     ) -> Result<bool> {
         let admit = async {
             let compute = self
@@ -28,9 +29,7 @@ impl Runner {
                 .acquire_owned()
                 .await
                 .map_err(Error::io)?;
-            let memory = self
-                .bytes
-                .clone()
+            let memory = memory
                 .acquire_many_owned(PLANNING_KIB)
                 .await
                 .map_err(Error::io)?;

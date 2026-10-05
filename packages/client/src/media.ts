@@ -279,6 +279,15 @@ export class ResourceClient {
       body: JSON.stringify({ memory_gib: memoryGib }),
     });
   }
+  configureAesthetic(maxRunningStages: number) {
+    return this.request<Schema["AestheticEngineStatus"]>(
+      "/v1/resources/aesthetic",
+      {
+        method: "PUT",
+        body: JSON.stringify({ max_running_stages: maxRunningStages }),
+      },
+    );
+  }
   configureQueryCache(quotaMib: number, maxAgeDays: number) {
     return this.request<Schema["QueryCacheStatus"]>(
       "/v1/resources/query-cache",

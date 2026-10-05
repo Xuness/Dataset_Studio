@@ -13,7 +13,7 @@ pub fn validate(config: &LlmConnectionConfig) -> Result<()> {
     if !(100..=120_000).contains(&n.connect_timeout_ms)
         || !(100..=3_600_000).contains(&n.request_timeout_ms)
         || !(100..=600_000).contains(&n.idle_timeout_ms)
-        || !(1..=32).contains(&n.max_concurrency)
+        || !(1..=1024).contains(&n.max_concurrency)
         || n.min_interval_ms > 60_000
         || n.rate_limit_retries > 3
     {

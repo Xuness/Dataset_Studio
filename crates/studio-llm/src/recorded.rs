@@ -170,15 +170,25 @@ impl RemoteLlm {
         options: LlmRecordedOptions,
     ) -> BoxFuture<'_, LlmCallResult<LlmResponse>> {
         async move {
-            let body=encode(&plan,&options).map_err(|e|LlmFailure::new(e.code,&e.message))?;
+            // Serialize before the send commitment so the caller's reservation still covers
+            // the transient encoding peak; afterwards only the plan and these bytes remain.
+            let mut body=serde_json::to_vec(&encode(&plan,&options).map_err(|e|LlmFailure::new(e.code,&e.message))?)
+                .map_err(|_|LlmFailure::new("LLM_INTERNAL","请求体序列化失败"))?;
+            body.shrink_to_fit();
+            // Decoders never read request messages; parse with a copy that omits image payloads.
+            let mut plan=plan;
+            let messages=std::mem::take(&mut plan.snapshot.messages);
+            let light=plan.clone();
+            plan.snapshot.messages=messages;
+            let provider=plan.provider.clone();
             let mut url=http::endpoint(&plan.provider.config.base_url,&protocols::suffix(&plan,options.stream))?;
             if options.stream && plan.snapshot.protocol==LlmProtocol::Gemini {url.query_pairs_mut().append_pair("alt","sse");}
             sink.progress(LlmTransferProgress{phase:"queueing",started_at_ms:None,last_data_at_ms:None,received_bytes:0});
             // Local concurrency/rate-limit waits have no network deadline and are cancellable.
             let admission=async {
-                let client=self.recorded_client(&plan.provider,options.connect_timeout_ms).await?;
-                let permit=self.limits.acquire(&plan.provider).await?;
-                permit.before_send(plan.provider.config.network.min_interval_ms).await?;
+                let client=self.recorded_client(&provider,options.connect_timeout_ms).await?;
+                let permit=self.limits.acquire(&provider).await?;
+                permit.before_send(provider.config.network.min_interval_ms).await?;
                 Ok::<_,LlmFailure>((client,permit))
             };
             tokio::pin!(admission);
@@ -204,7 +214,7 @@ impl RemoteLlm {
                 biased;
                 _=cancel.cancelled()=>return Err(interrupted("LLM_CANCELLED","调用已取消")),
                 _=tokio::time::sleep_until(first_deadline)=>return Err(interrupted("LLM_TIMEOUT",if first_deadline==deadline {"调用总时限已到"}else{"等待首个响应超时"})),
-                response=client.post(url).json(&body).send()=>response.map_err(http::network_error)?,
+                response=client.post(url).header(reqwest::header::CONTENT_TYPE,"application/json").body(body).send()=>response.map_err(http::network_error)?,
             };
             let content_type=response.headers().get("content-type").and_then(|v|v.to_str().ok()).unwrap_or("").to_owned();
             let mut receipt=LlmRawReceipt {
@@ -220,7 +230,7 @@ impl RemoteLlm {
                 receipt.failure=Some(LlmFailure::new("LLM_INVALID_STREAM","供应商未返回 SSE 流；已保留回执，未自动重发"));
             }
             let mut bytes=response.bytes_stream();let mut first=true;
-            let mut decoder=SseDecoder::default();let mut collector=protocols::streaming::Collector::new(plan.clone());
+            let mut decoder=SseDecoder::default();let mut collector=protocols::streaming::Collector::new(light.clone());
             let mut phase=if use_sse {"waiting_result"}else{"receiving"};
             loop {
                 let read_deadline=if first {first_deadline}else{deadline.min(Instant::now()+Duration::from_millis(options.idle_timeout_ms.into()))};
@@ -257,11 +267,13 @@ impl RemoteLlm {
                 }
             }
             // Cancellation ends network reads, never the durable commit of received evidence.
+            drop((collector,decoder));
             sink.progress(LlmTransferProgress{phase:"saving",started_at_ms:Some(started_at),last_data_at_ms:None,received_bytes:receipt.body.len() as u64});
             sink.persist(receipt.clone()).await.map_err(|e| {
                 let mut f=LlmFailure::new(e.code,"原始回执尚未持久保存");f.outcome_unknown=true;f.provider_request_id=receipt.provider_request_id.clone();f
             })?;
-            decode(&plan,&receipt)
+            // Moving the full snapshot keeps the response identical without another payload copy.
+            decode(&light,&receipt).map(|mut response|{response.snapshot=plan.snapshot;response})
         }.boxed()
     }
 }

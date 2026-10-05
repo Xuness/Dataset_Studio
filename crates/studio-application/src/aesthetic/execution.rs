@@ -1,7 +1,13 @@
 use studio_domain::{Error, Result, aesthetic::*, llm::*};
 
 pub fn validate_execution_policy(p: &AestheticExecutionPolicy) -> Result<()> {
-    if !(1..=32).contains(&p.concurrency)
+    if !(1..=AESTHETIC_MAX_CONCURRENCY).contains(&p.concurrency)
+        || p.memory_budget_mib
+            .is_some_and(|v| !(256..=1_048_576).contains(&v))
+        || p.upload_bytes_per_second
+            .is_some_and(|v| v != 0 && !(100_000..=10_000_000_000).contains(&v))
+        || p.failure_halt_threshold
+            .is_some_and(|v| !(1..=AESTHETIC_MAX_CONCURRENCY).contains(&v))
         || !(100..=120_000).contains(&p.connect_timeout_ms)
         || !(100..=600_000).contains(&p.first_response_timeout_ms)
         || !(100..=600_000).contains(&p.idle_timeout_ms)
@@ -12,7 +18,7 @@ pub fn validate_execution_policy(p: &AestheticExecutionPolicy) -> Result<()> {
         || !matches!(p.exhausted.as_str(), "pause" | "defer")
     {
         return Err(Error::invalid(
-            "执行设置无效：并发 1–32、自动重试 0–2 次，首包和单次时限不得超过对应总预算",
+            "执行设置无效：并发 1–1024、内存预算 256 MiB–1 TiB、上传速率 0（不限）或 0.1–10000 MB/s、连续失败停止阈值 1–1024、自动重试 0–2 次，首包和单次时限不得超过对应总预算",
         ));
     }
     Ok(())
