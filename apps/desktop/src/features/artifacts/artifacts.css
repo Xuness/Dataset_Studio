@@ -31,7 +31,7 @@
   overflow-wrap: anywhere;
 }
 .artifact-list button.active {
-  background: #36434c;
+  background: var(--select-parent);
 }
 .artifact-list button strong {
   font-size: 12px;
@@ -99,8 +99,8 @@
   gap: 8px;
   padding: 14px;
   margin: 15px 0;
-  background: #27343b;
-  border: 1px solid #3d505b;
+  background: var(--select-parent);
+  border: 1px solid var(--active);
   font-size: 11px;
 }
 .derived-field code {
@@ -126,12 +126,12 @@
   padding: 9px 10px;
   gap: 4px;
   text-align: left;
-  border-bottom: 1px solid #292929;
+  border-bottom: 1px solid var(--panel-alt);
   min-width: 0;
   border-radius: 0;
 }
 .artifact-list .artifact-item.active {
-  background: #434d59;
+  background: var(--active);
 }
 .artifact-list .artifact-item strong {
   font-weight: 500;
@@ -141,7 +141,7 @@
 .artifact-list .artifact-item span,
 .artifact-list .artifact-item small {
   font-size: 11px;
-  color: #aaa;
+  color: var(--text-secondary);
 }
 .artifact-quick-actions {
   display: flex;

@@ -67,7 +67,7 @@
   opacity: 0.7;
 }
 .editor-tab:hover {
-  background: #292929;
+  background: var(--panel-alt);
 }
 .studio-workspace {
   display: flex;
@@ -116,10 +116,6 @@
 .studio-app .tree-row {
   font-size: 12px;
 }
-.studio-app .tree-row.active,
-.studio-app .workset-row.active {
-  background: var(--active);
-}
 .studio-app .data-workspace {
   display: flex;
   flex: 1;
@@ -160,12 +156,12 @@
 .studio-app select,
 .studio-app textarea {
   background: var(--field);
-  border-color: #3a3a3a;
+  border-color: var(--panel-raised);
   border-radius: 2px;
 }
 .studio-app .button {
-  background: #343434;
-  border-color: #505050;
+  background: var(--panel-raised);
+  border-color: var(--line-control);
   border-radius: 2px;
 }
 .studio-app .button.primary {
@@ -210,7 +206,7 @@
   padding: 0;
   color: var(--text);
   background: var(--panel);
-  border: 1px solid #535353;
+  border: 1px solid var(--line-control);
   border-radius: 3px;
   box-shadow: 0 16px 65px #0009;
   width: min(620px, calc(100vw - 40px));
@@ -295,7 +291,7 @@
 }
 .studio-app .object-popover {
   background: var(--panel);
-  border-color: #4c4c4c;
+  border-color: var(--line-strong);
   border-radius: 2px;
 }
 .studio-app .tree-row.active,
@@ -421,9 +417,6 @@
   border: 1px solid var(--accent);
   padding: 5px;
 }
-.studio-app .asset-card.focused .asset-thumb {
-  box-shadow: 0 0 0 1px var(--accent);
-}
 .studio-app .selected .asset-check {
   background: var(--accent);
   border-color: var(--accent);
@@ -533,6 +526,13 @@
   }
   .studio-app .query-panel .query-run-row > select {
     width: 100%;
+    min-width: 0;
+  }
+  .studio-app .query-panel .query-result-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}
 /* Workbenches render their status into the single global status bar. */
 .status-workbench {
   display: flex;
@@ -703,11 +703,4 @@ button.scope-crumb:hover:not(:disabled) {
   .button:not(.primary):hover:not(:disabled) {
   background: var(--panel-raised);
   color: #fff;
-}
-    min-width: 0;
-  }
-  .studio-app .query-panel .query-result-row {
-    flex-direction: column;
-    align-items: stretch;
-  }
 }

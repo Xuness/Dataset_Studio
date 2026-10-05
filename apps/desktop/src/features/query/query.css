@@ -5,8 +5,8 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  background: #303030;
-  border-bottom: 1px solid #171717;
+  background: var(--header);
+  border-bottom: 1px solid var(--bg);
 }
 .query-panel > header {
   display: flex;
@@ -14,8 +14,8 @@
   gap: 14px;
   min-height: 33px;
   padding: 0 14px;
-  background: #383838;
-  border-bottom: 1px solid #242424;
+  background: var(--panel-raised);
+  border-bottom: 1px solid var(--panel);
   font-size: 13px;
   flex-shrink: 0;
 }
@@ -51,7 +51,7 @@
   gap: 5px;
   min-width: 0;
   font-size: 12px;
-  color: #b6b6b6;
+  color: var(--text);
 }
 .query-sources {
   margin: 0;
@@ -59,7 +59,7 @@
   min-width: 0;
   max-height: 130px;
   overflow-y: auto;
-  border: 1px solid #535353;
+  border: 1px solid var(--line-control);
   border-radius: 3px;
   font-size: 12px;
 }
@@ -75,9 +75,9 @@
 .query-panel input,
 .query-panel select {
   min-height: 29px;
-  background: #252525;
-  color: #dedede;
-  border: 1px solid #535353;
+  background: var(--panel);
+  color: var(--text-strong);
+  border: 1px solid var(--line-control);
   border-radius: 3px;
   padding: 4px 7px;
   font: inherit;
@@ -108,7 +108,7 @@
 .condition-join,
 .condition-no-value {
   font-size: 12px;
-  color: #aaa;
+  color: var(--text-secondary);
   padding-top: 5px;
 }
 .condition-value {
@@ -122,7 +122,7 @@
 .condition-error {
   display: block;
   font-size: 11px;
-  color: #ecc09f;
+  color: var(--warning-text);
   margin-top: 4px;
 }
 .query-run-row {
@@ -138,29 +138,29 @@
 }
 .query-rule-hint,
 .query-scope-note {
-  color: #aaa;
+  color: var(--text-secondary);
   font-size: 12px;
   line-height: 1.6;
   margin: 8px 0;
 }
 .query-scope-note button {
   padding: 2px 8px;
-  color: #b8d5ed;
+  color: var(--accent-text);
   text-decoration: underline;
 }
 .query-history {
-  border-top: 1px solid #4a4a4a;
+  border-top: 1px solid var(--line-strong);
   padding-top: 10px;
 }
 .query-history > summary {
   cursor: pointer;
   font-size: 12px;
-  color: #bdbdbd;
+  color: var(--text);
 }
 .query-history-options {
   display: flex;
   justify-content: flex-end;
-  color: #aaa;
+  color: var(--text-secondary);
   font-size: 11px;
 }
 .query-history-options label {
@@ -179,10 +179,10 @@
   align-items: flex-start;
   gap: 12px;
   padding: 10px 0;
-  border-bottom: 1px solid #424242;
+  border-bottom: 1px solid var(--hover);
 }
 .query-result-row.current {
-  border-left: 2px solid #7fa8ca;
+  border-left: 2px solid var(--accent-soft);
   padding-left: 10px;
 }
 .query-result-row > div:first-child {
@@ -198,21 +198,21 @@
 }
 .query-result-row small {
   display: block;
-  color: #aaa;
+  color: var(--text-secondary);
   font-size: 12px;
   margin-top: 4px;
   overflow-wrap: anywhere;
 }
 .result-current {
   font-size: 11px;
-  color: #bad6ee;
+  color: var(--accent-text);
 }
 .result-id {
-  color: #a0a0a0;
+  color: var(--text-secondary);
 }
 .result-condition-summary {
   font-size: 11px;
-  color: #b5b5b5;
+  color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -228,7 +228,7 @@
 }
 .release-result {
   font-size: 11px;
-  color: #b8b8b8;
+  color: var(--text);
   padding: 5px;
 }
 .query-history-page,

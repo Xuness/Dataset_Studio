@@ -11,10 +11,10 @@
 .system-prompt-list button {
   display: block;
   width: 100%;
-  border: 1px solid #464c55;
+  border: 1px solid var(--line-strong);
   border-radius: 5px;
-  background: #292d33;
-  color: #e0e5ed;
+  background: var(--header);
+  color: var(--text-strong);
   padding: 12px;
   margin-bottom: 8px;
   text-align: left;
@@ -22,8 +22,8 @@
   overflow-wrap: anywhere;
 }
 .system-prompt-list button[aria-current] {
-  background: #344250;
-  border-color: #7391ad;
+  background: var(--select-parent);
+  border-color: var(--accent-soft);
 }
 .system-prompt-list button:disabled {
   opacity: 0.6;
@@ -35,7 +35,7 @@
 }
 .system-prompt-list small {
   margin-top: 6px;
-  color: #a9b0ba;
+  color: var(--text-secondary);
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
@@ -54,10 +54,10 @@
 }
 .system-prompt-editor textarea,
 .system-prompt-preview {
-  border: 1px solid #555c66;
+  border: 1px solid var(--line-control);
   border-radius: 4px;
-  color: #e0e5ed;
-  background: #222529;
+  color: var(--text-strong);
+  background: var(--panel);
   padding: 12px;
   font: 12px/1.8 monospace;
   white-space: pre-wrap;
@@ -68,7 +68,7 @@
   min-height: 260px;
 }
 .system-prompt-editor textarea:focus {
-  outline: 1px solid #8bacce;
+  outline: 1px solid var(--accent-soft);
 }
 .system-prompt-preview {
   max-height: 430px;
@@ -76,7 +76,7 @@
 }
 .system-prompt-confirm {
   padding: 12px;
-  border: 1px solid #98796c;
+  border: 1px solid var(--warning-line);
   margin: 12px 0;
   font-size: 12px;
 }

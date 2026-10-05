@@ -3,7 +3,7 @@
   min-width: 0;
   min-height: 0;
   overflow: auto;
-  background: var(--panel, #25292e);
+  background: var(--panel, var(--panel-alt));
 }
 .tools-workspace {
   display: flex;
@@ -18,36 +18,32 @@
   gap: 0;
   padding: 0;
   height: 34px;
-  background: #242424;
-  border-bottom: 1px solid #191919;
+  background: var(--panel);
+  border-bottom: 1px solid var(--recessed);
   flex-shrink: 0;
 }
 .tools-navigation button {
   padding: 0 15px;
   border-radius: 0;
-  border-right: 1px solid #1d1d1d;
+  border-right: 1px solid var(--recessed);
   border-top: 1px solid transparent;
   font-size: 12px;
-  color: #a4a4a4;
+  color: var(--text-secondary);
 }
 .tools-navigation button.active {
-  background: #343434;
-  border-top-color: #575757;
-  color: #e1e1e1;
+  background: var(--panel-raised);
+  border-top-color: var(--line-control);
+  color: var(--text-strong);
 }
 .tool-view form {
   max-width: 1280px;
   width: 100%;
   margin: 0 auto;
-  padding: 12px 22px 20px;
 }
 .tool-view fieldset {
   border: 0;
   padding: 0;
   margin: 0;
-}
-.tool-view .field {
-  margin-bottom: 15px;
 }
 .tool-view input,
 .tool-view select {
@@ -67,8 +63,8 @@ form .tool-hint {
 .tool-notice {
   padding: 10px 14px;
   margin: 10px 22px;
-  background: #463725;
-  color: #f0c99b;
+  background: var(--warning-bg);
+  color: var(--warning-text);
   font-size: 12px;
   line-height: 1.7;
   overflow-wrap: anywhere;
@@ -84,7 +80,7 @@ form .tool-hint {
   font-size: 11px;
 }
 .tool-capabilities span {
-  border: 1px solid var(--border, #484f57);
+  border: 1px solid var(--border, var(--line-strong));
   padding: 3px 7px;
   border-radius: 3px;
 }
@@ -120,7 +116,7 @@ form .tool-hint {
 }
 .tool-input-details {
   font-size: 12px;
-  color: #aaa;
+  color: var(--text-secondary);
 }
 .tool-input-details summary {
   cursor: pointer;
@@ -145,7 +141,7 @@ form .tool-hint {
 }
 .basic-presets {
   padding: 3px 24px 8px;
-  border-bottom: 1px solid #444;
+  border-bottom: 1px solid var(--hover);
 }
 .tool-view .preset-controls select {
   width: auto;

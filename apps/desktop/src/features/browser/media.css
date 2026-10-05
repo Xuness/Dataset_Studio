@@ -6,7 +6,7 @@
   right: 5px;
   bottom: 5px;
   background: #263641e8;
-  color: #e4dbc1;
+  color: var(--warning-text);
   border-radius: 3px;
   padding: 3px 5px;
   font-size: 10px;

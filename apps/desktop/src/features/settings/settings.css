@@ -3,7 +3,7 @@
   max-width: none;
   max-height: calc(100vh - 72px);
   padding: 0;
-  border-color: #54575c;
+  border-color: var(--line-control);
 }
 .settings-dialog .dialog-content {
   padding: 0;
@@ -14,7 +14,7 @@
 .settings-dialog .dialog-content > header {
   margin: 0;
   padding: 18px 22px;
-  border-bottom: 1px solid #404348;
+  border-bottom: 1px solid var(--hover);
   flex-shrink: 0;
 }
 .settings-dialog .dialog-content > header h2 {
@@ -28,8 +28,8 @@
 }
 .settings-navigation {
   padding: 18px 10px;
-  border-right: 1px solid #404348;
-  background: #242629;
+  border-right: 1px solid var(--hover);
+  background: var(--panel);
 }
 .settings-navigation > button {
   display: flex;
@@ -42,28 +42,28 @@
   padding: 12px;
   margin-bottom: 5px;
   background: transparent;
-  color: #c1c3c7;
+  color: var(--text);
   font: inherit;
   cursor: pointer;
 }
 .settings-navigation > button:hover {
-  background: #303338;
+  background: var(--panel-raised);
 }
 .settings-navigation > button.active {
-  background: #344250;
-  border-color: #536a7e;
+  background: var(--select-parent);
+  border-color: var(--active);
   color: #ecf1f6;
 }
 .settings-navigation > p {
   margin: 26px 12px;
-  color: #90959c;
+  color: var(--muted);
   font-size: 11px;
   line-height: 1.9;
 }
 .settings-main {
   overflow: auto;
   min-width: 0;
-  background: #2b2d31;
+  background: var(--header);
   scrollbar-gutter: stable;
 }
 .settings-page {
@@ -80,7 +80,7 @@
 }
 .settings-page-heading p {
   margin: 0;
-  color: #abb0b8;
+  color: var(--text-secondary);
   font-size: 12px;
   line-height: 1.7;
 }
@@ -91,15 +91,15 @@
   margin-bottom: 24px;
 }
 .settings-usage-grid > div {
-  border: 1px solid #464a50;
+  border: 1px solid var(--line-strong);
   border-radius: 6px;
   padding: 13px 12px;
-  background: #303339;
+  background: var(--panel-raised);
 }
 .settings-usage-grid span,
 .settings-usage-grid small {
   display: block;
-  color: #a9b0ba;
+  color: var(--text-secondary);
   font-size: 11px;
 }
 .settings-usage-grid strong {
@@ -118,7 +118,7 @@
 }
 .settings-section {
   padding: 20px 0;
-  border-top: 1px solid #41454b;
+  border-top: 1px solid var(--hover);
 }
 .settings-section h4 {
   margin: 0 0 14px;
@@ -134,11 +134,11 @@
   padding: 11px 0;
 }
 .settings-control-row label {
-  color: #d6dbe1;
+  color: var(--text-strong);
   font-size: 12px;
 }
 .settings-control-row p {
-  color: #989fa9;
+  color: var(--text-secondary);
   font-size: 11px;
   line-height: 1.7;
   margin: 5px 0 0;
@@ -152,7 +152,7 @@
   align-items: center;
   gap: 10px;
   flex-shrink: 0;
-  color: #aab1bc;
+  color: var(--text-secondary);
   font-size: 12px;
 }
 .settings-number input {
@@ -166,10 +166,10 @@
 .settings-page select {
   min-height: 33px;
   padding: 5px 8px;
-  border: 1px solid #555c66;
+  border: 1px solid var(--line-control);
   border-radius: 4px;
-  color: #e0e5ed;
-  background: #222529;
+  color: var(--text-strong);
+  background: var(--panel);
   font: inherit;
   font-size: 12px;
 }
@@ -181,12 +181,12 @@
 .settings-note {
   margin: 12px 0 0;
   font-size: 11px;
-  color: #a0a8b2;
+  color: var(--text-secondary);
   line-height: 1.85;
 }
 .settings-validation {
   margin: 12px 0;
-  color: #efb7a0;
+  color: var(--warning-text);
   font-size: 12px;
 }
 .settings-page-actions {
@@ -219,14 +219,14 @@
 .settings-table th {
   font-weight: 500;
   padding: 10px 9px;
-  color: #a6afb9;
-  border-bottom: 1px solid #525862;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--line-control);
   white-space: nowrap;
 }
 .settings-table td {
   padding: 12px 9px;
-  color: #ccd2dc;
-  border-bottom: 1px solid #3e434a;
+  color: var(--text-strong);
+  border-bottom: 1px solid var(--hover);
   vertical-align: middle;
 }
 .settings-table td strong {
@@ -238,7 +238,7 @@
   display: block;
   margin-top: 5px;
   font-size: 10px;
-  color: #919ca9;
+  color: var(--accent-soft);
   line-height: 1.7;
 }
 .settings-table td select {
@@ -266,7 +266,7 @@
   white-space: nowrap;
 }
 .settings-empty {
-  color: #9ca6b3;
+  color: var(--accent-soft);
   padding: 16px 0;
   line-height: 1.9;
   font-size: 12px;
@@ -276,9 +276,9 @@
   align-items: center;
   gap: 12px;
   padding: 12px;
-  border: 1px solid #526173;
+  border: 1px solid var(--active);
   border-radius: 4px;
-  background: #303b47;
+  background: var(--select-parent);
   font-size: 11px;
   line-height: 1.7;
   margin-bottom: 10px;
@@ -290,12 +290,12 @@
   margin: 16px 28px 0;
 }
 .settings-success {
-  color: #b4d2b6;
+  color: var(--success-text);
   font-size: 12px;
   line-height: 1.7;
 }
 .settings-footer {
-  border-top: 1px solid #454a51;
+  border-top: 1px solid var(--line-strong);
   padding: 12px 20px;
   display: flex;
   align-items: center;
@@ -303,7 +303,7 @@
   flex-shrink: 0;
 }
 .settings-footer > span:first-child {
-  color: #9aa4b1;
+  color: var(--accent-soft);
   font-size: 11px;
 }
 @media (max-width: 850px) {
@@ -337,14 +337,14 @@
 .settings-page[aria-label="编辑与撤销设置"] .settings-card {
   margin-top: 24px;
   padding-top: 15px;
-  border-top: 1px solid #45484e;
+  border-top: 1px solid var(--line-strong);
 }
 .settings-page[aria-label="编辑与撤销设置"] kbd {
   font: inherit;
   padding: 2px 6px;
-  border: 1px solid #555b64;
+  border: 1px solid var(--line-control);
   border-radius: 3px;
-  background: #30343a;
+  background: var(--panel-raised);
 }
 .settings-cleanup-progress {
   display: grid;
@@ -362,7 +362,7 @@
   overflow: auto;
   margin-bottom: 20px;
   padding: 12px;
-  background: #30343a;
+  background: var(--panel-raised);
   border: 1px solid #667f98;
   border-radius: 6px;
 }
@@ -371,10 +371,10 @@
 }
 .settings-cleanup-progress progress {
   width: 100%;
-  accent-color: #91b0cf;
+  accent-color: var(--accent-soft);
 }
 .settings-project-caches tr[aria-selected="true"] {
-  background: #3a4551;
+  background: var(--active);
 }
 .settings-cache-project {
   border: 0;

@@ -58,25 +58,25 @@
   flex-wrap: wrap;
   gap: 4px 16px;
   font-size: 12px;
-  color: #bfc8d0;
+  color: var(--accent-text);
   margin-bottom: 6px;
 }
 .job-progress-label strong {
-  color: #d5e8f8;
+  color: var(--accent-text);
   font-size: 14px;
   font-weight: 600;
 }
 .job-progress-track {
   height: 7px;
-  background: #1e252a;
-  border: 1px solid #4a5660;
+  background: var(--panel);
+  border: 1px solid var(--active);
   overflow: hidden;
   border-radius: 2px;
 }
 .job-progress-track > span {
   display: block;
   height: 100%;
-  background: #8ab8e4;
+  background: var(--accent-soft);
   transition: width 240ms ease;
 }
 .job-progress-track > .indeterminate {
@@ -84,14 +84,14 @@
   animation: job-progress-travel 1.8s ease-in-out infinite alternate;
 }
 .job-progress[data-status="succeeded"] .job-progress-track > span {
-  background: #a0c7a0;
+  background: var(--success-text);
 }
 .job-progress[data-status="failed"] .job-progress-track > span {
   background: var(--danger);
 }
 .job-progress[data-status="cancelled"] .job-progress-track > span,
 .job-progress[data-disconnected] .job-progress-track > span {
-  background: #888;
+  background: var(--muted);
 }
 @keyframes job-progress-travel {
   from {
@@ -150,7 +150,7 @@ select,
 textarea {
   background: var(--field);
   color: var(--text);
-  border: 1px solid #171717;
+  border: 1px solid var(--bg);
   border-radius: var(--radius);
   padding: 7px 9px;
   min-width: 0;
@@ -160,7 +160,7 @@ select:focus {
   border-color: var(--accent);
 }
 input[type="range"] {
-  accent-color: #a4a4a4;
+  accent-color: var(--text-secondary);
   padding: 0;
 }
 h1,
@@ -178,18 +178,18 @@ button {
   gap: 7px;
 }
 button:hover:not(:disabled) {
-  background: #424242;
+  background: var(--hover);
 }
 .button {
-  border: 1px solid #555;
-  background: #3d3d3d;
+  border: 1px solid var(--line-control);
+  background: var(--panel-raised);
   border-radius: var(--radius);
   min-height: 28px;
   padding: 4px 12px;
   white-space: nowrap;
 }
 .button:hover:not(:disabled) {
-  background: #4a4a4a;
+  background: var(--line-strong);
 }
 .button.primary {
   background: var(--accent);
@@ -206,7 +206,7 @@ button:hover:not(:disabled) {
   border-radius: 2px;
 }
 .icon-button.active {
-  background: #474747;
+  background: var(--line-strong);
   color: #eee;
 }
 .grow {
@@ -230,7 +230,7 @@ button:hover:not(:disabled) {
 .empty-state h2 {
   font-size: 16px;
   font-weight: 500;
-  color: #c8c8c8;
+  color: var(--text);
 }
 .empty-state p {
   max-width: 460px;
@@ -238,7 +238,7 @@ button:hover:not(:disabled) {
   margin-bottom: 16px;
 }
 .empty-icon {
-  color: #6c6c6c;
+  color: var(--text-disabled);
   margin-bottom: 7px;
 }
 .field {
@@ -249,16 +249,16 @@ button:hover:not(:disabled) {
 }
 .field > span {
   font-size: 12px;
-  color: #b7b7b7;
+  color: var(--text);
 }
 .field select {
   width: 100%;
 }
 .dialog {
   width: min(510px, calc(100vw - 56px));
-  border: 1px solid #555;
+  border: 1px solid var(--line-control);
   box-shadow: 0 15px 70px #0009;
-  background: #303030;
+  background: var(--header);
   color: var(--text);
   padding: 0;
   border-radius: 5px;
@@ -337,14 +337,14 @@ button:hover:not(:disabled) {
   gap: 6px 12px;
   padding: 7px 12px;
   font-size: 11px;
-  color: var(--text-muted, #8b929c);
+  color: var(--text-muted, var(--muted));
 }
 .draft-status button {
-  color: var(--text, #dce1e7);
+  color: var(--text, var(--text-strong));
   text-decoration: underline;
 }
 .draft-error {
-  color: #edb88d;
+  color: var(--warning-text);
 }
 
 /* Shared reading and manipulation controls. */
@@ -363,16 +363,16 @@ button:hover:not(:disabled) {
 .rating-picker button {
   min-height: 28px;
   padding: 4px 10px;
-  border: 1px solid #555;
+  border: 1px solid var(--line-control);
   border-radius: 3px;
   font-size: 12px;
   white-space: nowrap;
-  background: #292929;
+  background: var(--panel-alt);
 }
 .rating-picker button[aria-pressed="true"] {
   color: #edf6ff;
-  background: #36556d;
-  border-color: #7aa4c7;
+  background: var(--active);
+  border-color: var(--accent-soft);
 }
 .filters-editor {
   display: flex;
@@ -386,7 +386,7 @@ button:hover:not(:disabled) {
   flex-wrap: wrap;
 }
 .filter-label {
-  color: #b6b6b6;
+  color: var(--text);
   font-size: 12px;
 }
 .filter-tags {
@@ -425,12 +425,12 @@ button:hover:not(:disabled) {
   box-shadow: 0 4px 20px #0006;
 }
 .error-details {
-  border: 1px solid #665044;
+  border: 1px solid var(--warning-line);
   border-radius: 3px;
   padding: 10px 12px;
   margin: 9px 0;
-  background: #382e28;
-  color: #f0c3a6;
+  background: var(--warning-bg);
+  color: var(--warning-text);
   font-size: 12px;
 }
 .error-details.compact {
@@ -457,7 +457,7 @@ button:hover:not(:disabled) {
 }
 .error-details summary {
   cursor: pointer;
-  color: #c6b5a8;
+  color: var(--warning-text);
   font-size: 11px;
 }
 .error-details pre {
@@ -470,8 +470,8 @@ button:hover:not(:disabled) {
     12px/1.6 Consolas,
     monospace;
   padding: 9px;
-  background: #252321;
-  color: #dbd2ca;
+  background: var(--panel);
+  color: var(--warning-text);
 }
 .copy-action {
   display: inline-flex;
@@ -486,7 +486,7 @@ button:hover:not(:disabled) {
 }
 .copy-action small {
   max-width: 220px;
-  color: #e7ad92;
+  color: var(--warning-text);
 }
 .resize-grip {
   z-index: 5;
@@ -506,12 +506,12 @@ button:hover:not(:disabled) {
   height: 6px;
   width: 100%;
   cursor: row-resize;
-  background: #242424;
-  border-top: 1px solid #171717;
+  background: var(--panel);
+  border-top: 1px solid var(--bg);
 }
 .resize-grip:hover,
 .resize-grip:focus-visible {
-  background: #608bab;
+  background: var(--accent-soft);
   outline: 0;
 }
 @media (max-width: 1100px) {
@@ -527,21 +527,20 @@ button:hover:not(:disabled) {
   width: 26px;
   height: 27px;
   padding: 3px !important;
-  color: #b1b1b1;
+  color: var(--text-secondary);
 }
 .object-popover {
   position: fixed;
   inset: auto;
   margin: 0;
-  width: 212px;
   max-height: min(360px, calc(100vh - 16px));
   overflow: auto;
   padding: 5px;
-  background: #353535;
-  border: 1px solid #646464;
+  background: var(--panel-raised);
+  border: 1px solid var(--text-disabled);
   border-radius: 3px;
   box-shadow: 0 7px 25px #0008;
-  color: #ddd;
+  color: var(--text-strong);
   z-index: 1200;
 }
 .object-popover:popover-open {
@@ -557,12 +556,13 @@ button:hover:not(:disabled) {
 }
 .object-popover button:hover:not(:disabled),
 .object-popover button:focus-visible {
-  background: #4c4c4c;
-  outline: 1px solid #8c8c8c;
+  background: var(--line-strong);
+  outline: 1px solid var(--muted);
   outline-offset: -1px;
 }
 .danger-text {
   color: #f1a3a0 !important;
+}
 
 /* Menus share one row anatomy: check column, label, accelerator. */
 .object-popover {
@@ -984,5 +984,4 @@ input[type="number"].wb-scrub-active {
 .wb-col-resizing * {
   cursor: col-resize !important;
   user-select: none;
-}
 }

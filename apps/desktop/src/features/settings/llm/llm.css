@@ -1,10 +1,10 @@
 .llm-editor,
 .llm-probe {
-  border: 1px solid #484e57;
+  border: 1px solid var(--line-strong);
   border-radius: 6px;
   padding: 16px;
   margin: 16px 0;
-  background: #292d33;
+  background: var(--header);
 }
 .llm-editor h4,
 .llm-probe h4 {
@@ -29,19 +29,19 @@
   font-size: 12px;
 }
 .llm-probe-field textarea {
-  border: 1px solid #555c66;
+  border: 1px solid var(--line-control);
   border-radius: 4px;
-  background: #222529;
-  color: #e0e5ed;
+  background: var(--panel);
+  color: var(--text-strong);
   font: 12px/1.6 monospace;
   padding: 8px;
   resize: vertical;
 }
 .llm-editor textarea {
-  border: 1px solid #555c66;
+  border: 1px solid var(--line-control);
   border-radius: 4px;
-  color: #e0e5ed;
-  background: #222529;
+  color: var(--text-strong);
+  background: var(--panel);
   font: 12px/1.6 monospace;
   padding: 8px;
   resize: vertical;
@@ -58,7 +58,7 @@
   margin: 12px 0;
 }
 .llm-settings details {
-  border-top: 1px solid #41454b;
+  border-top: 1px solid var(--hover);
   padding: 12px 0;
 }
 .llm-settings summary {
@@ -79,7 +79,7 @@
 }
 .llm-parameter small {
   display: block;
-  color: #9aa5b4;
+  color: var(--accent-soft);
   font-size: 10px;
   overflow-wrap: anywhere;
   margin-top: 4px;
@@ -87,7 +87,7 @@
 .llm-parameter p {
   grid-column: 1/-1;
   font-size: 11px;
-  color: #a0a8b2;
+  color: var(--text-secondary);
   line-height: 1.6;
   margin: 0;
 }
@@ -95,7 +95,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  border-bottom: 1px solid #41454b;
+  border-bottom: 1px solid var(--hover);
   padding: 10px 0;
 }
 .llm-model-row > div {
@@ -109,7 +109,7 @@
 }
 .llm-model-row small {
   display: block;
-  color: #a0a8b2;
+  color: var(--text-secondary);
   font-size: 11px;
   margin-top: 5px;
 }
