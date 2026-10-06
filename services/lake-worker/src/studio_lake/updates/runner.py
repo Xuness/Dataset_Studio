@@ -359,6 +359,10 @@ class Runner:
                     "An explicit verified starting ID is required; maximum imported ID is not coverage",
                 )
             cursor.update(next_id=after + 1, baseline=after, upper=None)
+        elif kind == "tags":
+            from .tag_query import initialize_cursor
+
+            cursor = initialize_cursor(lib, scope, cursor)
         else:
             cursor.update(next_id=scope.get("start_id", 1), upper=scope.get("end_id"))
         if kind == "local":
@@ -418,6 +422,10 @@ class Runner:
         self.state.progress(job["id"], phase="metadata", current_post_id=None)
         scope, cursor = job["definition"]["range"], dict(job["cursor"])
         kind = scope["kind"]
+        if kind == "tags":
+            from .tag_query import page
+
+            return page(self, lib, job, site, check, cancelled, publication)
         size = site.capabilities()["page_size"]
         size = min(size, job["definition"]["item_budget"] - cursor.get("slice_items", 0))
         ids = None
@@ -631,16 +639,22 @@ class Runner:
                 raise UpdateError("UPDATE_PAGE_INVALID", "Retry returned an unexpected post")
             tag_types = categories(self.state, lib, job, site, rows, {item["post_id"]}, cancelled)
             check()
+            selected = {item["post_id"]}
+            if job["definition"]["range"]["kind"] == "tags":
+                from .tag_query import matches, tags_of
+
+                selected = {r["id"] for _, r in rows if matches(job["definition"]["range"]["query"], tags_of(r, site.name))}
             self.publish_page(
                 lib,
                 job,
                 site,
                 response,
                 rows,
-                {item["post_id"]},
+                selected,
                 job["cursor"],
                 expected_ids=[item["post_id"]],
                 retry=True,
+                metadata_ids={r[1]["id"] for r in rows} if job["definition"]["range"]["kind"] == "tags" else None,
                 tag_types=tag_types,
                 publication=publication,
             )

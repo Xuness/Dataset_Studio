@@ -184,6 +184,7 @@ export function UpdateComposer({
                     set({ kind: e.target.value as FormDraft["kind"] })
                   }
                 >
+                  <option value="tags">按标签 / 画师 / 角色采集</option>
                   <option value="new">补充新帖</option>
                   <option value="local">刷新已有记录</option>
                   <option value="missing">补齐本地缺图</option>
@@ -197,6 +198,44 @@ export function UpdateComposer({
                   )}
                 </select>
               </label>
+              {d.kind === "tags" && (
+                <>
+                  <label>
+                    全部包含 Tag
+                    <textarea
+                      aria-label="全部包含 Tag"
+                      rows={2}
+                      value={d.tagAll}
+                      placeholder="例如 artist_name character_name"
+                      onChange={(e) => set({ tagAll: e.target.value })}
+                    />
+                  </label>
+                  <label>
+                    任一包含 Tag
+                    <textarea
+                      aria-label="任一包含 Tag"
+                      rows={2}
+                      value={d.tagAny}
+                      onChange={(e) => set({ tagAny: e.target.value })}
+                    />
+                  </label>
+                  <label>
+                    排除 Tag
+                    <textarea
+                      aria-label="排除 Tag"
+                      rows={2}
+                      value={d.tagNone}
+                      onChange={(e) => set({ tagNone: e.target.value })}
+                    />
+                  </label>
+                  <p className="lake-hint">
+                    使用源站精确标签，以空格、逗号或换行分隔。画师与角色填写对应
+                    Tag。 图片须满足全部包含、任一包含（若填写）且不含排除标签。
+                    会保留候选元数据，仅下载符合条件的图片；可用下方 ID
+                    限定采集范围。
+                  </p>
+                </>
+              )}
               {["new", "ids", "changes"].includes(d.kind) &&
                 d.lakes.map((id) => {
                   const lake = lakes.find((l) => l.id === id);
@@ -402,8 +441,10 @@ export function UpdateComposer({
                 />
               </label>
               <p className="lake-hint">
-                按 API
-                返回并匹配范围的帖子记录计数；复用、仅元数据和无图记录也计入，
+                {d.kind === "tags"
+                  ? "标签采集按返回的候选元数据计数，包括未命中完整条件的记录；"
+                  : "按 API 返回并匹配范围的帖子记录计数；"}
+                复用、仅元数据和无图记录也计入，
                 不代表成功下载的图片数。任一预算耗尽会暂停，需点“继续”从检查点开始下一轮，
                 每轮预算重新计算。任务范围由上方选项决定；希望一次跑完时请为预算留出余量。
               </p>
@@ -428,7 +469,9 @@ export function UpdateComposer({
                   候选数量：{p.known_candidates ?? "尚未知"} ·{" "}
                   {p.scan_strategy === "id_filtered_scan"
                     ? "按 ID 扫描并过滤日期"
-                    : "按范围游标获取"}
+                    : p.scan_strategy === "single_tag_local_filter"
+                      ? "按标签获取候选，本地判断组合条件"
+                      : "按范围游标获取"}
                 </small>
               </div>
             ))}

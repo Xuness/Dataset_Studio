@@ -20,7 +20,7 @@ from studio_lake.updates.media import Resources
 from studio_lake.updates.protocol import definition
 from studio_lake.updates.runner import Runner
 from studio_lake.updates.sites import Site, Response, UpdateError, split_response
-from studio_lake.updates.state import State
+from studio_lake.updates.state import SCHEMA_VERSION, State
 from studio_lake.util import atomic_json
 from studio_lake.updates.read_model import activity
 
@@ -513,7 +513,7 @@ def test_control_v1_migrates_without_changing_jobs_or_credentials(tmp_path):
     assert reopened.job(task["id"])["telemetry"] == {}
     assert reopened.credentials("danbooru")["api_key"] == "not-a-real-key"
     with reopened.db() as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 11
+        assert db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
 
 
 def test_ui_recent_filters_counts_and_sparse_problems(tmp_path):

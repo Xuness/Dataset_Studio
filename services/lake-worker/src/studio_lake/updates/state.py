@@ -56,7 +56,7 @@ CREATE TRIGGER IF NOT EXISTS input_count AFTER INSERT ON input_ids BEGIN
  UPDATE inputs SET count=count+1 WHERE id=new.input_id; END;
 """
 TERMINAL = {"completed", "completed_with_exclusions", "cancelled"}
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 
 class State:
@@ -140,6 +140,10 @@ class State:
             if version < 11:
                 db.executescript((Path(__file__).parents[1] / "collections" / "recovery.sql").read_text(encoding="utf-8"))
                 db.execute("PRAGMA user_version=11")
+            if version < 12:
+                # Older runners interpret unknown ranges as unfiltered ID scans.
+                # Fence them out before any literal-tag task can be admitted.
+                db.execute("PRAGMA user_version=12")
 
     @contextmanager
     def db(self):

@@ -16741,6 +16741,33 @@
         },
         "additionalProperties": false
       },
+      "LakeTagQuery": {
+        "type": "object",
+        "properties": {
+          "all": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": []
+          },
+          "any": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": []
+          },
+          "none": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": []
+          }
+        },
+        "additionalProperties": false
+      },
       "LakeTransferError": {
         "type": "object",
         "required": [
@@ -16892,6 +16919,9 @@
           },
           "site": {
             "$ref": "#/components/schemas/LakeUpdateSite"
+          },
+          "tag_queries": {
+            "type": "boolean"
           },
           "updated_range": {
             "type": "boolean"
@@ -17402,9 +17432,21 @@
             "default": null,
             "minimum": 0
           },
+          "matched_records": {
+            "type": "integer",
+            "format": "int64",
+            "default": 0,
+            "minimum": 0
+          },
           "metadata_complete": {
             "type": "boolean",
             "default": false
+          },
+          "metadata_records": {
+            "type": "integer",
+            "format": "int64",
+            "default": 0,
+            "minimum": 0
           },
           "next_id": {
             "type": [
@@ -17449,6 +17491,19 @@
             "default": 0,
             "minimum": 0
           },
+          "tag_anchors": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "default": []
+          },
+          "tag_branch": {
+            "type": "integer",
+            "format": "int64",
+            "default": 0,
+            "minimum": 0
+          },
           "upper": {
             "type": [
               "integer",
@@ -17462,6 +17517,40 @@
       },
       "LakeUpdateRange": {
         "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "query",
+              "kind"
+            ],
+            "properties": {
+              "end_id": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "minimum": 0
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "tags"
+                ]
+              },
+              "query": {
+                "$ref": "#/components/schemas/LakeTagQuery"
+              },
+              "start_id": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "minimum": 0
+              }
+            }
+          },
           {
             "type": "object",
             "required": [

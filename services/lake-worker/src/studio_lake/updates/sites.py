@@ -92,6 +92,7 @@ class Site:
             "page_size": 100 if self.name == "gelbooru" else 200,
             "id_ranges": True,
             "id_lists": True,
+            "tag_queries": True,
             "created_range": "bounded_id_scan",
             "updated_range": True,
             "change_sequence": self.name == "yandere",
@@ -100,7 +101,7 @@ class Site:
             "credential_set": bool(self.credentials),
         }
 
-    def params(self, lower, upper, limit, *, ids=None, change_after=None, change_through=None):
+    def params(self, lower, upper, limit, *, ids=None, change_after=None, change_through=None, tag=None):
         if self.name == "gelbooru":
             p = {"page": "dapi", "s": "post", "q": "index", "json": 1, "limit": limit, "pid": 0}
             p["tags"] = f"id:>{lower - 1} id:<{upper} sort:id:asc"
@@ -111,11 +112,15 @@ class Site:
                 p.pop("tags")
             if change_after is not None:
                 p["cid"] = change_after
+            if tag is not None:
+                p["tags"] = tag + " " + p["tags"]
             return p
         order = "order:id" if self.name == "yandere" else "order:id_asc"
         token = ",".join(map(str, ids)) if ids is not None else f"{lower}..{upper - 1}"
         visibility = "deleted:all holds:all pending:all" if self.name == "yandere" else "status:any"
         tags = f"id:{token} {order} {visibility}"
+        if tag is not None:
+            tags = tag + " " + tags
         if change_after is not None:
             if self.name != "yandere":
                 raise UpdateError("UPDATE_UNSUPPORTED", "This site has no verified change sequence")

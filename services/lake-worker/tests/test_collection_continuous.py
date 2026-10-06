@@ -12,7 +12,7 @@ from studio_lake.collections.service import Service
 from studio_lake.media_lake.reader import Reader
 from studio_lake.media_lake.schema import utc
 from studio_lake.updates.sites import UpdateError
-from studio_lake.updates.state import State
+from studio_lake.updates.state import SCHEMA_VERSION, State
 from update_fixtures import remove_collection_recovery
 
 
@@ -177,7 +177,7 @@ def test_v8_upgrade_preserves_completed_facts_and_controls(tmp_path):
     reopened = Service(State(service.state.root))
     assert reopened.job(job["id"])["progress"] == result["progress"]
     with reopened.state.db() as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 11
+        assert db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
 
 
 def test_early_development_v8_indexes_rebuilt_from_archive(tmp_path):

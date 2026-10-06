@@ -5220,6 +5220,14 @@ export interface components {
             /** Format: double */
             image_requests_per_second?: number | null;
         };
+        LakeTagQuery: {
+            /** @default [] */
+            all: string[];
+            /** @default [] */
+            any: string[];
+            /** @default [] */
+            none: string[];
+        };
         LakeTransferError: {
             at: string;
             /** Format: double */
@@ -5258,6 +5266,7 @@ export interface components {
             /** Format: int32 */
             page_size: number;
             site: components["schemas"]["LakeUpdateSite"];
+            tag_queries?: boolean;
             updated_range: boolean;
         };
         LakeUpdateCleanup: {
@@ -5394,8 +5403,18 @@ export interface components {
              * @default null
              */
             input_seq: number | null;
+            /**
+             * Format: int64
+             * @default 0
+             */
+            matched_records: number;
             /** @default false */
             metadata_complete: boolean;
+            /**
+             * Format: int64
+             * @default 0
+             */
+            metadata_records: number;
             /**
              * Format: int64
              * @default null
@@ -5423,6 +5442,13 @@ export interface components {
              * @default 0
              */
             slice_pages: number;
+            /** @default [] */
+            tag_anchors: string[];
+            /**
+             * Format: int64
+             * @default 0
+             */
+            tag_branch: number;
             /**
              * Format: int64
              * @default null
@@ -5430,6 +5456,14 @@ export interface components {
             upper: number | null;
         };
         LakeUpdateRange: {
+            /** Format: int64 */
+            end_id?: number | null;
+            /** @enum {string} */
+            kind: "tags";
+            query: components["schemas"]["LakeTagQuery"];
+            /** Format: int64 */
+            start_id?: number | null;
+        } | {
             input_id: string;
             /** @enum {string} */
             kind: "input";

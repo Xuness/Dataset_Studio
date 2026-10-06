@@ -52,6 +52,7 @@ def definition(value):
         "created": {"kind", "start", "end", "timezone", "start_id", "end_id"},
         "updated": {"kind", "start", "end", "timezone", "start_id", "end_id"},
         "local": {"kind", "start_id", "end_id", "observed_before", "missing_media"},
+        "tags": {"kind", "query", "start_id", "end_id"},
     }
     if kind not in fields or set(r) - fields[kind]:
         raise UpdateError("INVALID_INPUT", "Unsupported range or unknown range field")
@@ -73,6 +74,10 @@ def definition(value):
         number(r.setdefault("start_id", 1))
         if r.get("end_id") is not None and number(r["end_id"]) <= r["start_id"]:
             raise UpdateError("INVALID_INPUT", "Invalid ID scan bounds")
+        if kind == "tags":
+            from .tag_query import normalize
+
+            r["query"] = normalize(r.get("query"))
         if kind in {"created", "updated"}:
             if timestamp(r.get("start")) >= timestamp(r.get("end")):
                 raise UpdateError("INVALID_INPUT", "Date range must be [start,end)")

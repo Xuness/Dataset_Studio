@@ -141,7 +141,7 @@ def dispatch(state, command, args):
         return {
             "definition": spec,
             "known_candidates": known,
-            "scan_strategy": "id_filtered_scan" if kind in {"created", "updated"} else "keyset",
+            "scan_strategy": "single_tag_local_filter" if kind == "tags" else "id_filtered_scan" if kind in {"created", "updated"} else "keyset",
             "note": "Creation dates use a bounded ID scan; narrow ID bounds to reduce remote requests"
             if kind == "created"
             else None,

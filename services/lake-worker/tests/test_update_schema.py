@@ -8,7 +8,7 @@ import pytest
 from studio_lake.sqlite_control import Connection
 from studio_lake.updates import dispatch
 from studio_lake.updates.sites import UpdateError
-from studio_lake.updates.state import State
+from studio_lake.updates.state import SCHEMA_VERSION, State
 from studio_lake.util import FileLock
 from update_fixtures import remove_collection_schema
 
@@ -58,7 +58,7 @@ def test_dispatch_upgrade_retains_control_data_and_existing_service_order(tmp_pa
     dispatch.submitted(reopened, "A")
     assert [r["lake_id"] for r in dispatch.candidates(reopened, (), 3)] == ["B", "A"]
     with reopened.db() as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 11
+        assert db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
     durable = rows(reopened)
     assert rows(State(state.root)) == durable
 

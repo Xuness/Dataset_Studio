@@ -114,6 +114,22 @@ export function JobDetails({
           <dd>{job.cursor.metadata_complete ? "获取完成" : "尚未完成"}</dd>
           <dt>已扫描页数</dt>
           <dd>{job.cursor.pages}</dd>
+          {job.definition.range.kind === "tags" && (
+            <>
+              <dt>远端查询标签</dt>
+              <dd>{job.cursor.tag_anchors?.join(" / ") || "尚未规划"}</dd>
+              <dt>返回记录 / 条件命中</dt>
+              <dd>
+                {job.cursor.metadata_records ?? 0} /{" "}
+                {job.cursor.matched_records ?? 0}
+              </dd>
+              <dt>扫描分支完成</dt>
+              <dd>
+                {job.cursor.tag_branch ?? 0} /{" "}
+                {job.cursor.tag_anchors?.length ?? 0}
+              </dd>
+            </>
+          )}
           <dt>正在处理帖子</dt>
           <dd>{t.current_post_id ?? "—"}</dd>
           <dt>累计下载</dt>

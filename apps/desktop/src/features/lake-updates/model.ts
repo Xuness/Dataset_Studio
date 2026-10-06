@@ -108,6 +108,18 @@ export const bytesLabel = (value: number | null | undefined) =>
 export function rangeLabel(spec: Definition) {
   const r = spec.range;
   switch (r.kind) {
+    case "tags": {
+      const all = r.query.all ?? [],
+        any = r.query.any ?? [],
+        none = r.query.none ?? [];
+      return [
+        all.length ? `全部：${all.join(" + ")}` : "",
+        any.length ? `任一：${any.join(" / ")}` : "",
+        none.length ? `排除：${none.join(" / ")}` : "",
+      ]
+        .filter(Boolean)
+        .join(" · ");
+    }
     case "new":
       return r.after_id == null
         ? "补充新帖 · 接续已验证基线"
@@ -163,6 +175,7 @@ export const actionLabels = {
 export type FormDraft = ImageFields & {
   lakes: string[];
   kind:
+    | "tags"
     | "new"
     | "local"
     | "missing"
@@ -173,6 +186,9 @@ export type FormDraft = ImageFields & {
     | "changes"
     | "input";
   inputIds: Record<string, string>;
+  tagAll: string;
+  tagAny: string;
+  tagNone: string;
   perLake: Record<string, { ids?: string; after?: string }>;
   startId: string;
   endId: string;
@@ -189,7 +205,10 @@ export type FormDraft = ImageFields & {
 };
 export const initialDraft: FormDraft = {
   lakes: [],
-  kind: "new",
+  kind: "tags",
+  tagAll: "",
+  tagAny: "",
+  tagNone: "",
   profile: "",
   encoding: defaultEncoding,
   existing: "keep",
@@ -216,6 +235,7 @@ export function decodeDraft(value: unknown): FormDraft | null {
     !Array.isArray(v.lakes) ||
     !v.lakes.every((id) => typeof id === "string") ||
     ![
+      "tags",
       "new",
       "local",
       "missing",
@@ -303,6 +323,22 @@ export function definitions(d: FormDraft): Definition[] {
     const local = d.perLake[library_id] ?? {};
     let range: Definition["range"];
     switch (d.kind) {
+      case "tags": {
+        const split = (value: string) => [
+          ...new Set(value.split(/[\s,，]+/).filter(Boolean)),
+        ];
+        const query = {
+          all: split(d.tagAll),
+          any: split(d.tagAny),
+          none: split(d.tagNone),
+        };
+        if (!query.all.length && !query.any.length)
+          throw new Error(
+            "请至少填写一个需要包含的 Tag；画师或角色使用源站标签",
+          );
+        range = { kind: "tags", query, ...bounds };
+        break;
+      }
       case "input": {
         const input_id = d.inputIds[library_id];
         if (!input_id)

@@ -13,7 +13,7 @@ from PIL import Image, ImageCms
 from studio_lake.image_policy import ImagePolicyError, encoding, media_policy, prepare_image, profile_id
 from studio_lake.ingest import prepare_image as legacy_image
 from studio_lake.updates.sites import UpdateError
-from studio_lake.updates.state import State
+from studio_lake.updates.state import SCHEMA_VERSION, State
 from studio_lake.util import FileLock
 from test_updates import FakeSite, Images, Resources, Runner, online, png, post, setup
 
@@ -169,7 +169,7 @@ def test_schema3_handoff_requires_old_worker_to_stop_and_retains_jobs(tmp_path):
     assert upgraded.job(task["id"])["definition"] == task["definition"]
     assert upgraded.create(spec, "legacy")["id"] == task["id"]
     with upgraded.db() as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 11
+        assert db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
 
 
 def test_worker_entrypoint_isolated_from_other_repository(tmp_path):

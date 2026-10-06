@@ -76,6 +76,8 @@ def commit_page(
     error=None,
     retry=False,
     tag_types=None,
+    metadata_ids=None,
+    query_page=None,
 ):
     role = "error" if error else "retry" if retry else "page"
     key = stable_id(
@@ -109,6 +111,10 @@ def commit_page(
     }
     if error:
         source["error_code"] = error.code
+    if metadata_ids is not None:
+        source["metadata_ids"] = sorted(metadata_ids)
+    if query_page is not None:
+        source["query_page"] = query_page
     with io_lock(state.root, lib), lib.writer_lock(), online(lib) as (db, status):
         if (
             shutil.disk_usage(lib.root).free
@@ -139,7 +145,7 @@ def commit_page(
                 )
             )
         for ordinal, (_, record) in enumerate(rows):
-            if record["id"] not in selected or error:
+            if record["id"] not in (metadata_ids if metadata_ids is not None else selected) or error:
                 continue
             observation = site.normalize(record, key, ordinal, source["observed_at"], tag_types)
             # A refresh does not turn a previously imported base image into a monthly addition.
@@ -192,7 +198,7 @@ def resume_response(lib, path):
     try:
         with online(lib) as (db, status):
             for ordinal, (_, record) in enumerate(rows):
-                if record["id"] not in batch.source["selected_ids"]:
+                if record["id"] not in batch.source.get("metadata_ids", batch.source["selected_ids"]):
                     continue
                 obs = site.normalize(
                     record, batch.key, ordinal, batch.source["observed_at"], batch.source.get("tag_types")
@@ -320,16 +326,24 @@ def reconcile(state, lib, identity):
                 if source["update_role"] in {"page", "retry"}:
                     observations = pq.read_table(directory / "observations.parquet").to_pylist()
                     raw = pq.read_table(directory / "source.parquet").to_pylist() if observations else []
+                    selected = set(source["selected_ids"])
                     for obs in observations:
                         state_name = (
                             "metadata"
                             if source["definition"]["media"]["profile"] == "metadata_only"
                             else "pending"
                         )
+                        if obs["post_id"] not in selected:
+                            state_name = "excluded"
+                        # OR streams may encounter the same post repeatedly. Admission is
+                        # shared within the task; later pages must not reset a download.
+                        preserve = " WHERE items.state='excluded' AND excluded.state<>'excluded'" if (
+                            "metadata_ids" in source and source["update_role"] == "page"
+                        ) else ""
                         db.execute(
                             "INSERT INTO items(job_id,post_id,observation_id,record_json,state) VALUES(?,?,?,?,?) "
                             "ON CONFLICT(job_id,post_id) DO UPDATE SET observation_id=excluded.observation_id,"
-                            "record_json=excluded.record_json,state=excluded.state,reason=NULL",
+                            "record_json=excluded.record_json,state=excluded.state,reason=NULL" + preserve,
                             (
                                 identity,
                                 obs["post_id"],

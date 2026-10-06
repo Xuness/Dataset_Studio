@@ -402,7 +402,7 @@ def test_grouped_receipts_count_downloads_and_historical_reuse_separately(tmp_pa
 
 def test_v10_upgrade_is_atomic_and_preserves_existing_receipts(tmp_path, monkeypatch):
     from studio_lake.sqlite_control import Connection
-    from studio_lake.updates.state import State
+    from studio_lake.updates.state import SCHEMA_VERSION, State
     from update_fixtures import remove_collection_recovery
 
     service, runner, job, _ = setup(tmp_path)
@@ -429,7 +429,7 @@ def test_v10_upgrade_is_atomic_and_preserves_existing_receipts(tmp_path, monkeyp
         assert [tuple(row) for row in db.execute("SELECT * FROM collection_outbox ORDER BY id")] == receipts_before
     reopened = State(service.state.root)
     with reopened.db() as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 11
+        assert db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
         assert not list(db.execute("PRAGMA foreign_key_check"))
         assert [tuple(row)[:-1] for row in db.execute("SELECT * FROM collection_outbox ORDER BY id")] == receipts_before
     assert service.job(job["id"])["progress"] == before

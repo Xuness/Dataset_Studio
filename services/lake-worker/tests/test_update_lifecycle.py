@@ -1,6 +1,6 @@
-from update_fixtures import remove_collection_schema
 """Deterministic command races, lake fairness and cancellation ownership/recovery."""
 
+from update_fixtures import remove_collection_schema
 from concurrent.futures import Future, ThreadPoolExecutor
 import json
 import os
@@ -19,7 +19,7 @@ from studio_lake.updates.archive import online, reconcile
 from studio_lake.updates.resources import Resources
 from studio_lake.updates.runner import Runner
 from studio_lake.updates.sites import UpdateError
-from studio_lake.updates.state import State
+from studio_lake.updates.state import SCHEMA_VERSION, State
 from studio_lake.util import atomic_json
 
 
@@ -354,7 +354,7 @@ def test_v4_upgrade_enqueues_old_cancelled_tasks_and_retains_paused_files(tmp_pa
     assert not partial.exists() and (kept / ("c" * 64 + ".downloaded")).read_bytes() == b"resume me"
     assert reopened.job(paused["id"])["cleanup"] is None
     with reopened.db() as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 11
+        assert db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
 
 
 def queue(tmp_path, backlog):

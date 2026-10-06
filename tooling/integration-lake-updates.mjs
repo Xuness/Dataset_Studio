@@ -235,6 +235,26 @@ try {
       };
       const lake = await client.lakeUpdates.createLake(args);
       assert.equal((await client.lakeUpdates.createLake(args)).id, lake.id);
+      const tagDefinition = {
+        library_id: lake.id,
+        range: {
+          kind: "tags",
+          query: { all: ["fixture"], any: [], none: ["fixture"] },
+        },
+        media: { profile: "metadata_only" },
+      };
+      const tagPreview = await client.lakeUpdates.preview(tagDefinition);
+      assert.equal(tagPreview.scan_strategy, "single_tag_local_filter");
+      const emptyTagJob = await client.lakeUpdates.create(
+        tagDefinition,
+        crypto.randomUUID(),
+      );
+      const tagDone = await engine.wait(
+        `/v1/lake-updates/jobs/${emptyTagJob.id}`,
+        (job) => job.state === "completed",
+      );
+      assert.equal(tagDone.cursor.metadata_complete, true);
+      assert.deepEqual(tagDone.cursor.tag_anchors, []);
       const source = await client.sourceAccess.attach(emptyProject.id, {
         kind: "auto",
         name: site,
@@ -254,6 +274,9 @@ try {
     }
     checks.push(
       "three empty lakes created and attached through SDK; stable identity and no producer index",
+    );
+    checks.push(
+      "tag query DTO and local contradiction planning complete without source requests",
     );
   } else {
     checks.push(

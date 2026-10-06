@@ -70,6 +70,11 @@ pub enum LakeUpdateJobState {
 #[derive(Clone, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum LakeUpdateRange {
+    Tags {
+        query: LakeTagQuery,
+        start_id: Option<u64>,
+        end_id: Option<u64>,
+    },
     Input {
         input_id: String,
     },
@@ -108,6 +113,13 @@ pub enum LakeUpdateRange {
         observed_before: Option<String>,
         missing_media: Option<bool>,
     },
+}
+#[derive(Clone, Default, Serialize, Deserialize, ToSchema)]
+#[serde(default, deny_unknown_fields)]
+pub struct LakeTagQuery {
+    pub all: Vec<String>,
+    pub any: Vec<String>,
+    pub none: Vec<String>,
 }
 #[derive(Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
@@ -331,6 +343,8 @@ pub struct LakeUpdateCapability {
     pub page_size: u32,
     pub id_ranges: bool,
     pub id_lists: bool,
+    #[serde(default)]
+    pub tag_queries: bool,
     pub created_range: String,
     pub updated_range: bool,
     pub change_sequence: bool,
@@ -392,6 +406,10 @@ pub struct LakeUpdateProgress {
     pub change_through: Option<u64>,
     pub scope: Option<String>,
     pub completed_at: Option<String>,
+    pub tag_anchors: Vec<String>,
+    pub tag_branch: u64,
+    pub metadata_records: u64,
+    pub matched_records: u64,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct LakeUpdateJob {
