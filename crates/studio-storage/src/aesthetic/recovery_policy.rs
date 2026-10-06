@@ -91,14 +91,10 @@ pub(super) fn expire_retries(db: &Connection, stage: &AestheticStage) -> Result<
             }
             defer_batch(db, &stage.id, sequence, "recovery_time_budget")?;
         } else {
-            let state = if batch
-                .last_failure
-                .as_ref()
-                .is_some_and(|f| f.outcome_unknown)
-            {
-                "outcome_unknown"
-            } else {
-                "failed"
+            let state = match batch.last_failure.as_ref() {
+                Some(f) if f.code == "EVALUATION_INVALID_OUTPUT" => "invalid",
+                Some(f) if f.outcome_unknown => "outcome_unknown",
+                _ => "failed",
             };
             change_failure_count(db, &stage.id, state, 1)?;
             db.execute("UPDATE batches SET state=?2,retry_at=NULL,error='批次恢复时限已到；可明确重试以开启新的恢复窗口' WHERE sequence=?1",params![sequence as i64,state]).map_err(db_error)?;
@@ -146,7 +142,10 @@ pub(super) fn schedule_recovery(
         return Ok("unresolved".into());
     }
     let batch = read_batch(db, id, sequence)?;
-    if !matches!(batch.state.as_str(), "failed" | "outcome_unknown") {
+    if !matches!(
+        batch.state.as_str(),
+        "failed" | "invalid" | "outcome_unknown"
+    ) {
         return Ok("unresolved".into());
     }
     let base: u32 = db
@@ -185,9 +184,13 @@ pub(super) fn schedule_recovery(
             params![sequence as i64, due],
         )
         .map_err(db_error)?;
+        let semantic = matches!(
+            failure.code.as_str(),
+            "EVALUATION_NO_COMPARABLE_EVIDENCE" | "EVALUATION_INVALID_OUTPUT"
+        );
         for m in batch.members {
             db.execute("UPDATE candidates SET reserved=1,blocked=CASE WHEN ?3 THEN 0 ELSE blocked END WHERE stage_id=?1 AND ordinal=?2",
-                params![id, m.candidate.ordinal as i64, failure.code == "EVALUATION_NO_COMPARABLE_EVIDENCE"]).map_err(db_error)?;
+                params![id, m.candidate.ordinal as i64, semantic]).map_err(db_error)?;
         }
         Ok("retry_wait".into())
     } else if p.exhausted == "defer" {

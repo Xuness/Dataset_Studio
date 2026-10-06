@@ -88,6 +88,7 @@ pub fn retryable_failure(f: &LlmFailure, p: &AestheticExecutionPolicy) -> bool {
             | "LLM_UPSTREAM"
             | "LLM_NOT_FOUND"
             | "EVALUATION_NO_COMPARABLE_EVIDENCE"
+            | "EVALUATION_INVALID_OUTPUT"
     ) || f.http_status.is_some_and(|v| v == 429 || v >= 500);
     transient
         && if f.outcome_unknown {

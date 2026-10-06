@@ -155,6 +155,58 @@ fn noncomparative_exhaustion_obeys_pause_or_defer_without_quality_dispositions()
     }
 }
 
+fn malformed_receipt(batch: &AestheticBatch) -> AestheticReceipt {
+    let mut bad = receipt(batch);
+    bad.outputs[0].content = vec![LlmContent::Text {
+        text: "not json".into(),
+    }];
+    bad
+}
+
+#[test]
+fn malformed_output_retries_under_policy_and_exhaustion_stays_invalid() {
+    let (_dir, db, id) = fixture(16);
+    enable(
+        &db,
+        &id,
+        AestheticExecutionPolicy {
+            max_retries: 1,
+            ..Default::default()
+        },
+    );
+    let (batch, attempt) = sent(&db, &id);
+    db.receive(&id, &attempt, malformed_receipt(&batch))
+        .unwrap();
+    assert_eq!(db.parse_received(&id).unwrap(), 0);
+    let saved = db.batches(&id, 0, 10).unwrap().remove(0);
+    assert_eq!(saved.state, "retry_wait");
+    assert_eq!(
+        saved.last_failure.unwrap().code,
+        "EVALUATION_INVALID_OUTPUT"
+    );
+    assert_eq!(db.stage(&id).unwrap().invalid, 0);
+    due(&db, batch.sequence);
+    let (retry, second) = sent(&db, &id);
+    assert_eq!(retry.sequence, batch.sequence);
+    db.receive(&id, &second, malformed_receipt(&retry)).unwrap();
+    db.parse_received(&id).unwrap();
+    // Retries exhausted under "pause": the batch keeps its invalid classification.
+    assert_eq!(db.batches(&id, 0, 10).unwrap()[0].state, "invalid");
+    assert_eq!(db.stage(&id).unwrap().invalid, 1);
+    assert!(db.claim(&id).unwrap().is_none());
+    assert_eq!(db.settle(&id, None).unwrap().state, "needs_attention");
+    db.retry_batch(&id, batch.sequence).unwrap();
+    db.control(&id, "start").unwrap();
+    let (fixed, third) = sent(&db, &id);
+    db.receive(&id, &third, receipt(&fixed)).unwrap();
+    assert_eq!(db.parse_received(&id).unwrap(), 1);
+    let stage = db.settle(&id, None).unwrap();
+    assert_eq!(
+        (stage.state.as_str(), stage.attempts, stage.invalid),
+        ("completed", 3, 0)
+    );
+}
+
 #[test]
 fn noncomparative_failure_halts_after_committing_the_receipt() {
     let (_dir, db, id) = fixture(16);
@@ -346,7 +398,7 @@ fn v9_upgrade_preserves_history_and_dispositions_without_replaying_old_abstentio
     let observation = db.batches(&id, 0, 10).unwrap()[0].observation.clone();
     drop(db);
     let old = Connection::open(&path).unwrap();
-    old.execute_batch("ALTER TABLE analysis_jobs DROP COLUMN deleted; ALTER TABLE analysis_jobs DROP COLUMN name; ALTER TABLE candidates DROP COLUMN unjudgeable_streak; UPDATE candidates SET blocked=1,disposition='needs_review' WHERE ordinal=0; PRAGMA user_version=9;").unwrap();
+    old.execute_batch("ALTER TABLE analysis_jobs DROP COLUMN deleted; ALTER TABLE analysis_jobs DROP COLUMN name; ALTER TABLE candidates DROP COLUMN unjudgeable_streak; ALTER TABLE attempts DROP COLUMN image_inputs; UPDATE candidates SET blocked=1,disposition='needs_review' WHERE ordinal=0; PRAGMA user_version=9;").unwrap();
     drop(old);
     let db = EvaluationDb::open(&path).unwrap();
     assert_eq!(
@@ -354,7 +406,7 @@ fn v9_upgrade_preserves_history_and_dispositions_without_replaying_old_abstentio
             .unwrap()
             .pragma_query_value(None, "user_version", |r| r.get::<_, u32>(0))
             .unwrap(),
-        11
+        EVALUATION_SCHEMA_VERSION
     );
     assert_eq!(db.batches(&id, 0, 10).unwrap()[0].observation, observation);
     assert_eq!(db.stage(&id).unwrap().accepted, 1);

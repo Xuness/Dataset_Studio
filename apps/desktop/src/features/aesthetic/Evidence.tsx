@@ -222,7 +222,7 @@ export function BatchDetail({
           )[batch.resolution_reason] ?? batch.resolution_reason}
         </p>
       )}
-      {batch.last_failure && (
+      {batch.last_failure && batch.state !== "accepted" && (
         <p className="aesthetic-help">
           错误类型：{batch.last_failure.code}
           {batch.last_failure.http_status != null &&

@@ -147,11 +147,17 @@ impl AestheticRepository for EvaluationDb {
                         Ok((0,(recovery=="halt").then_some(failure.message)))
                     },
                     Err(error)=>{
+                        // Format drift or prompt non-compliance is a known, charged response:
+                        // keep it invalid, but let the stage policy schedule a bounded retry.
+                        let mut failure=LlmFailure::new("EVALUATION_INVALID_OUTPUT",&error.message);
+                        failure.retryable=true;
+                        failure.provider_request_id=receipt.provider_request_id;
                         db.execute("UPDATE batches SET state='invalid',error=?2 WHERE sequence=?1",params![sequence as i64,error.message]).map_err(db_error)?;
-                        db.execute("UPDATE attempts SET state='invalid' WHERE id=?1",[&attempt]).map_err(db_error)?;
+                        db.execute("UPDATE attempts SET state='invalid',failure=?2 WHERE id=?1",params![attempt,encode(&failure)?]).map_err(db_error)?;
                         for member in &batch.members {db.execute("UPDATE candidates SET reserved=0,blocked=1,blocked_batch=?3 WHERE stage_id=?1 AND ordinal=?2",params![id,member.candidate.ordinal as i64,sequence as i64]).map_err(db_error)?;}
-                        db.execute("UPDATE stages SET invalid=invalid+1 WHERE id=?1",[&id]).map_err(db_error)?;
-                        Ok((0,None))
+                        db.execute("UPDATE stages SET invalid=invalid+1,failure_streak=failure_streak+?2 WHERE id=?1",params![id,!had_failure]).map_err(db_error)?;
+                        let recovery=super::recovery_policy::schedule_recovery(db,&id,sequence,&failure)?;
+                        Ok((0,(recovery=="halt").then_some(failure.message)))
                     }
                 }
             })?;
