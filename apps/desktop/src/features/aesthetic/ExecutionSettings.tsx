@@ -252,23 +252,29 @@ export function ExecutionPolicyFields({
         每次已发送的请求失败（含自动重试）计 1
         次，收到有效结果或重新开始评审时清零；达到阈值后停止派发新请求，在途请求照常收尾。留空时取并发数，限定在
         4–32 之间（当前 {defaultFailureHaltThreshold(concurrency)}
-        ）。认证失败、配置错误、余额不足等问题不计次，立即停止。
+        ）。认证失败、配置错误、余额不足等问题不计次，立即停止；模型暂时
+        404、服务过载等供应商抖动按瞬态错误自动重试并计次。
       </p>
       <label>
         每批自动重试上限
-        <select
+        <input
           aria-label="每批自动重试上限"
+          required
+          type="number"
+          min={0}
+          max={7}
+          step={1}
           value={policy.max_retries}
           disabled={disabled}
           onChange={(e) =>
             onChange({ ...policy, max_retries: Number(e.target.value) })
           }
-        >
-          <option value={0}>不自动重试</option>
-          <option value={1}>1 次</option>
-          <option value={2}>2 次</option>
-        </select>
+        />
       </label>
+      <p className="aesthetic-help">
+        0 为不自动重试。每个批次最多保留 8 次调用（首次加 7
+        次重试），且仍受批次恢复总时限约束。
+      </p>
       <label>
         <input
           type="checkbox"

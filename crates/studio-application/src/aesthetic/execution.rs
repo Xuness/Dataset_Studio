@@ -15,11 +15,11 @@ pub fn validate_execution_policy(p: &AestheticExecutionPolicy) -> Result<()> {
         || !(100..=3_600_000).contains(&p.request_timeout_ms)
         || !(p.request_timeout_ms..=7_200_000).contains(&p.batch_timeout_ms)
         || p.first_response_timeout_ms > p.request_timeout_ms
-        || p.max_retries > 2
+        || p.max_retries > AESTHETIC_MAX_AUTO_RETRIES
         || !matches!(p.exhausted.as_str(), "pause" | "defer")
     {
         return Err(Error::invalid(
-            "执行设置无效：并发 1–1024、内存预算 256 MiB–1 TiB、上传速率 0（不限）或 0.1–10000 MB/s、连续失败停止阈值 1–1024、自动重试 0–2 次，首包和单次时限不得超过对应总预算",
+            "执行设置无效：并发 1–1024、内存预算 256 MiB–1 TiB、上传速率 0（不限）或 0.1–10000 MB/s、连续失败停止阈值 1–1024、自动重试 0–7 次，首包和单次时限不得超过对应总预算",
         ));
     }
     Ok(())
@@ -86,6 +86,7 @@ pub fn retryable_failure(f: &LlmFailure, p: &AestheticExecutionPolicy) -> bool {
             | "LLM_TIMEOUT"
             | "LLM_STREAM_INTERRUPTED"
             | "LLM_UPSTREAM"
+            | "LLM_NOT_FOUND"
             | "EVALUATION_NO_COMPARABLE_EVIDENCE"
     ) || f.http_status.is_some_and(|v| v == 429 || v >= 500);
     transient
@@ -96,6 +97,56 @@ pub fn retryable_failure(f: &LlmFailure, p: &AestheticExecutionPolicy) -> bool {
         }
 }
 
+#[cfg(test)]
+mod failure_class_tests {
+    use super::*;
+    fn status(code: &str, http: u16, retryable: bool, unknown: bool) -> LlmFailure {
+        let mut f = LlmFailure::new(code, "test");
+        f.http_status = Some(http);
+        f.retryable = retryable;
+        f.outcome_unknown = unknown;
+        f
+    }
+    #[test]
+    fn gateway_jitter_retries_but_configuration_halts() {
+        let p = AestheticExecutionPolicy::default();
+        for f in [
+            status("LLM_NOT_FOUND", 404, true, false),
+            status("LLM_UPSTREAM", 503, true, false),
+            status("LLM_RATE_LIMITED", 429, true, false),
+        ] {
+            assert!(
+                !stage_failure(&f) && retryable_failure(&f, &p),
+                "{}",
+                f.code
+            );
+        }
+        // Possibly billed 5xx still needs the explicit unknown-outcome opt-in.
+        assert!(!retryable_failure(
+            &status("LLM_UPSTREAM", 502, false, true),
+            &p
+        ));
+        for f in [
+            status("LLM_AUTHENTICATION", 401, false, false),
+            status("LLM_INVALID_REQUEST", 400, false, false),
+        ] {
+            assert!(
+                stage_failure(&f) && !retryable_failure(&f, &p),
+                "{}",
+                f.code
+            );
+        }
+    }
+    #[test]
+    fn automatic_retries_are_bounded_by_the_batch_attempt_cap() {
+        let mut p = AestheticExecutionPolicy::default();
+        p.max_retries = AESTHETIC_MAX_AUTO_RETRIES;
+        validate_execution_policy(&p).unwrap();
+        p.max_retries += 1;
+        assert!(validate_execution_policy(&p).is_err());
+    }
+}
+
 pub fn stage_failure(f: &LlmFailure) -> bool {
     matches!(
         f.code.as_str(),
@@ -103,7 +154,6 @@ pub fn stage_failure(f: &LlmFailure) -> bool {
             | "LLM_CONFIGURATION"
             | "LLM_CREDENTIAL_UNAVAILABLE"
             | "LLM_DISABLED"
-            | "LLM_NOT_FOUND"
             | "LLM_INVALID_REQUEST"
             | "LLM_REDIRECT"
     ) || f.http_status == Some(402)

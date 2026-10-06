@@ -184,13 +184,16 @@ pub fn status_error(response: &reqwest::Response) -> LlmFailure {
         300..=399 => ("LLM_REDIRECT", "供应商返回重定向，请直接配置最终 API 地址"),
         _ => ("LLM_UPSTREAM", "供应商返回服务错误"),
     };
+    // Multi-node gateways can briefly route a valid model to a node that lacks it (404),
+    // or reject before processing (408/425 and 503/529 overload); none of these were billed.
+    let rejected = matches!(status, 404 | 408 | 425 | 429 | 503 | 529);
     LlmFailure {
         code: code.into(),
         message: message.into(),
         http_status: Some(status),
         provider_request_id: request_id(response),
-        retryable: status == 429,
-        outcome_unknown: status >= 500,
+        retryable: rejected,
+        outcome_unknown: status >= 500 && !rejected,
     }
 }
 pub async fn json(response: reqwest::Response, idle_ms: u32) -> LlmCallResult<serde_json::Value> {

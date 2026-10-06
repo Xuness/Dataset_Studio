@@ -2,6 +2,8 @@
 use serde::{Deserialize, Serialize};
 
 pub const AESTHETIC_MAX_CONCURRENCY: u32 = 1024;
+/// A logical batch keeps at most eight attempts: the first send plus seven automatic retries.
+pub const AESTHETIC_MAX_AUTO_RETRIES: u32 = 7;
 /// Applied when a stage predates per-stage resource limits.
 pub const AESTHETIC_DEFAULT_MEMORY_BUDGET_MIB: u32 = 512;
 pub const AESTHETIC_DEFAULT_UPLOAD_BYTES_PER_SECOND: u64 = 3_500_000;
