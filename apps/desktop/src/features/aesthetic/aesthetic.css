@@ -1187,6 +1187,23 @@
 .aesthetic-evidence-viewer .ranking-full-image {
   height: 100%;
 }
+.aesthetic-image-inputs-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.aesthetic-image-inputs {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.aesthetic-image-inputs th,
+.aesthetic-image-inputs td {
+  padding: 5px 8px;
+  text-align: left;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--line-control);
+}
 .aesthetic-attempts > article {
   border-top: 1px solid var(--border, var(--hover));
   margin-top: 8px;

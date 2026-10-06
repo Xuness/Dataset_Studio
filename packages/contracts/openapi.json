@@ -9875,6 +9875,16 @@
           "id": {
             "type": "string"
           },
+          "image_inputs": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AestheticImageInputs"
+              }
+            ]
+          },
           "raw_receipt": {
             "oneOf": [
               {
@@ -10843,6 +10853,15 @@
             "format": "int32",
             "minimum": 0
           },
+          "image_max_edge": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "API image longest edge (128–8192); absent keeps original bytes. May change between attempts.",
+            "minimum": 0
+          },
           "max_retries": {
             "type": "integer",
             "format": "int32",
@@ -11096,6 +11115,41 @@
             ]
           },
           "working_bytes_estimate": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "AestheticImageInput": {
+        "type": "object",
+        "required": [
+          "label",
+          "image"
+        ],
+        "properties": {
+          "image": {
+            "$ref": "#/components/schemas/ImageInputInfo"
+          },
+          "label": {
+            "type": "string"
+          }
+        }
+      },
+      "AestheticImageInputs": {
+        "type": "object",
+        "required": [
+          "request_bytes",
+          "images"
+        ],
+        "properties": {
+          "images": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AestheticImageInput"
+            }
+          },
+          "request_bytes": {
             "type": "integer",
             "format": "int64",
             "minimum": 0
@@ -15810,6 +15864,81 @@
           },
           "undo_steps": {
             "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "ImageInputInfo": {
+        "type": "object",
+        "required": [
+          "source_sha256",
+          "sha256",
+          "source_bytes",
+          "bytes",
+          "content_type",
+          "transform_version"
+        ],
+        "properties": {
+          "bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "content_type": {
+            "type": "string"
+          },
+          "height": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "max_edge": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "source_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "source_height": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "source_sha256": {
+            "type": "string"
+          },
+          "source_width": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "transform_version": {
+            "type": "string"
+          },
+          "width": {
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           }

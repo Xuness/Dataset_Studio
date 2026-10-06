@@ -9,6 +9,7 @@ import {
 } from "@studio/ui";
 import type { ModuleContext } from "@studio/ui";
 import { ConnectionLimits } from "./ConnectionLimits.js";
+import { ImageInputSettings } from "./ImageInputSettings.js";
 
 export type ExecutionPolicy = Schema["AestheticExecutionPolicy"];
 export const defaultExecutionPolicy: ExecutionPolicy = {
@@ -29,9 +30,17 @@ export const defaultExecutionPolicy: ExecutionPolicy = {
  * Mirrors the engine's per-request reservation: 6 × (body + 64 KiB) + 64 MiB while
  * preparing, then 2.5 × body + 1 MiB + 64 MiB once the request is sent.
  */
-export function requestReservationMiB(maxRequestMiB: number) {
+export function requestReservationMiB(maxRequestMiB: number, resizing = false) {
+  const encoding = Math.ceil(6 * (maxRequestMiB + 1 / 16) + 64);
   return {
-    preparing: Math.ceil(6 * (maxRequestMiB + 1 / 16) + 64),
+    // A batch reads at most 16 × 2 MiB, plus their base64 estimate. Transform
+    // workspace and final request serialization peak at different times.
+    preparing: resizing
+      ? Math.max(
+          encoding,
+          Math.ceil((32 * 4) / 3 + maxRequestMiB * 2 + 256 + 64),
+        )
+      : encoding,
     inFlight: Math.ceil(2.5 * maxRequestMiB + 1 + 64),
   };
 }
@@ -45,6 +54,7 @@ export function validPolicy(value: unknown): value is ExecutionPolicy {
   return (
     typeof p.stream === "boolean" &&
     typeof p.retry_unknown === "boolean" &&
+    (p.image_max_edge == null || Number.isSafeInteger(p.image_max_edge)) &&
     [
       p.concurrency,
       p.connect_timeout_ms,
@@ -77,7 +87,10 @@ export function ExecutionPolicyFields({
   const upload =
     policy.upload_bytes_per_second ??
     defaultExecutionPolicy.upload_bytes_per_second!;
-  const perRequest = requestReservationMiB(maxRequestMiB);
+  const perRequest = requestReservationMiB(
+    maxRequestMiB,
+    policy.image_max_edge != null,
+  );
   // One request may still be preparing while the others wait for their responses.
   const capacity =
     memory < perRequest.preparing
@@ -87,6 +100,16 @@ export function ExecutionPolicyFields({
     perRequest.preparing + Math.max(0, concurrency - 1) * perRequest.inFlight;
   return (
     <div className="wb-field-list execution-policy-fields">
+      <ImageInputSettings
+        maxEdge={policy.image_max_edge}
+        disabled={disabled}
+        onChange={(image_max_edge) => {
+          const next = { ...policy };
+          if (image_max_edge == null) delete next.image_max_edge;
+          else next.image_max_edge = image_max_edge;
+          onChange(next);
+        }}
+      />
       <label>
         响应方式
         <select
@@ -139,9 +162,11 @@ export function ExecutionPolicyFields({
           capacity < concurrency ? "aesthetic-notice" : "aesthetic-help"
         }
       >
-        准备请求时按 6 × 请求体 + 64 MiB 预留内存，发出后降为 2.5 × 请求体 + 65
-        MiB（64 MiB 用于接收和保存最多 16 MiB 的响应）。以每批 {maxRequestMiB}{" "}
-        MiB 请求体估算，准备时约 {perRequest.preparing} MiB、在途约{" "}
+        准备请求时预留编码副本及响应空间
+        {policy.image_max_edge != null &&
+          "，缩图还计入逐图解码和重采样的工作空间"}
+        ，发出后降为 2.5 × 请求体 + 65 MiB。以每批 {maxRequestMiB} MiB
+        请求体估算，准备时约 {perRequest.preparing} MiB、在途约{" "}
         {perRequest.inFlight} MiB，当前预算最坏情况约可同时保持 {capacity}{" "}
         个请求，图片较小时更多
         {capacity < concurrency &&
@@ -402,7 +427,7 @@ export function ExecutionSettingsDialog({
           disabled={busy || !draft.editable || !!draft.value.pending}
         />
         <p>
-          保存时关联当前连接版本，并核对模型、端点和冻结评审标准。已保存的证据继续保留；保存后仍需点击“开始评审”；已有异常批次请先批量加入重试队列。
+          图片分辨率可以在评审中途调整，恢复后新调用和重试使用新设置；历史调用保留各自的实际输入记录。保存时关联当前连接版本，并核对模型、端点和冻结提示词。保存后仍需点击“开始评审”；已有异常批次请先加入重试队列。
         </p>
         {error != null && <ErrorDetails error={error} />}
         <DraftStatus controller={draft.controller} />

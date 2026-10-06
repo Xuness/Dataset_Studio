@@ -226,6 +226,24 @@ try {
     "tier order and input order are available; evidence images reuse the zoomable keyboard-navigable viewer",
   );
 
+  await page
+    .getByRole("button", { name: "查看调用返回", exact: true })
+    .first()
+    .click();
+  await page
+    .getByText(/实际发送图片 · 16 张/)
+    .first()
+    .click();
+  await expect(
+    page
+      .getByRole("table", { name: "实际发送图片尺寸" })
+      .first()
+      .getByRole("row"),
+  ).toHaveCount(17);
+  checks.push(
+    "attempt details show actual source/send dimensions and bytes from recorded input evidence",
+  );
+
   await page.getByRole("button", { name: "执行设置", exact: true }).click();
   const execution = page.getByRole("dialog", {
     name: "阶段执行设置",
@@ -240,21 +258,48 @@ try {
   await expect(
     execution.getByLabel("单次请求总时限（秒）", { exact: true }),
   ).toHaveValue("4");
-  await page.screenshot({ path: resolve(run, "execution-settings.png") });
+  await expect(
+    execution.getByLabel("API 图片最长边", { exact: true }),
+  ).toHaveValue("original");
   await execution
-    .getByRole("button", { name: "关闭阶段执行设置", exact: true })
+    .getByLabel("API 图片最长边", { exact: true })
+    .selectOption("1536");
+  await execution
+    .getByLabel("API 图片最长边", { exact: true })
+    .selectOption("custom");
+  await execution
+    .getByLabel("自定义图片最长边（px）", { exact: true })
+    .fill("1408");
+  await page.screenshot({ path: resolve(run, "execution-settings.png") });
+  const beforeImageSettings = await engine.api(stagePath(report.cases.valid));
+  await execution
+    .getByRole("button", { name: "保存并关联当前连接", exact: true })
     .click();
+  await expect(execution).toHaveCount(0);
+  const afterImageSettings = await engine.api(stagePath(report.cases.valid));
+  assert.equal(
+    afterImageSettings.execution_settings.policy.image_max_edge,
+    1408,
+  );
+  assert.equal(afterImageSettings.attempts, beforeImageSettings.attempts);
+  assert.equal(afterImageSettings.config_hash, beforeImageSettings.config_hash);
   await page.getByRole("button", { name: "复制配置", exact: true }).click();
   const copy = page.getByRole("dialog", { name: "新建评审阶段", exact: true });
   await expect(copy).toBeVisible();
   await expect(copy.getByLabel("阶段名称", { exact: true })).toHaveValue(
     /副本/,
   );
+  await expect(copy.getByLabel("API 图片最长边", { exact: true })).toHaveValue(
+    "custom",
+  );
+  await expect(
+    copy.getByLabel("自定义图片最长边（px）", { exact: true }),
+  ).toHaveValue("1408");
   await copy
     .getByRole("button", { name: "关闭新建评审阶段", exact: true })
     .click();
   checks.push(
-    "execution settings show independent time budgets and stage cloning preserves editable configuration",
+    "execution settings save a custom image cap without dispatch; cloning inherits the current resolution and time budgets",
   );
 
   if (report.cases.noRaw) {

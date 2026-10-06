@@ -77,6 +77,8 @@ Pixiv：[结果隔离与有界组批](decisions/0055-pixiv-receipts-and-bounded-
 
 评审执行与体验修正：[流式回执、有限恢复与工作台流程](decisions/0059-aesthetic-streaming-and-recovery.md)、[2026-10-05 验证记录](verification/2026-10-05-aesthetic-execution-ux.md)。
 
+API 图片输入：[发送前缩放与阶段中途调整分辨率](decisions/0063-api-image-input-resolution.md)，逐次保存实际发送尺寸、字节数与原图身份。
+
 最新接入验收：[评审执行与离线实验](verification/2026-09-23-aesthetic-execution.md)；前一轮：[连续看图、保护复核与快照对照](verification/2026-09-23-aesthetic-reading.md)。
 
 - [UE 5 风格工作台设计与首轮范围](design/frontend-workbench.md)

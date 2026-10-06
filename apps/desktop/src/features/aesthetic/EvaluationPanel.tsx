@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import { imageInputLabel } from "./ImageInputSettings.js";
 import type { Schema } from "@studio/contracts";
 import {
   ErrorDetails,
@@ -672,6 +673,12 @@ export default function EvaluationPanel(
                 </p>
               )}
               <WorkbenchPanelPortal id="stage-config">
+                <p className="aesthetic-help">
+                  后续调用图片：
+                  {imageInputLabel(
+                    selected.execution_settings?.policy.image_max_edge,
+                  )}
+                </p>
                 <details className="wb-fold evaluation-config-panel">
                   <summary>固定配置与审美标准</summary>
                   <pre>{JSON.stringify(selected.config, null, 2)}</pre>

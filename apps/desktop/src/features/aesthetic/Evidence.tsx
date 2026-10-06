@@ -1,4 +1,5 @@
 import { samplingReason } from "./SamplingPanel.js";
+import { imageInputLabel } from "./ImageInputSettings.js";
 import { useEffect, useState } from "react";
 import type { Schema } from "@studio/contracts";
 import type { ModuleContext } from "@studio/ui";
@@ -413,14 +414,67 @@ export function BatchDetail({
                   ? `已保存 ${a.raw_receipt.bytes.toLocaleString()} 字节回执${a.raw_receipt.complete ? "" : "（接收不完整）"}`
                   : "没有原始回执"}
                 {a.execution_settings &&
-                  ` · ${a.execution_settings.policy.stream ? "流式" : "非流式"} · 单次上限 ${a.execution_settings.policy.request_timeout_ms / 1000} 秒`}
+                  ` · ${a.execution_settings.policy.stream ? "流式" : "非流式"} · ${imageInputLabel(a.execution_settings.policy.image_max_edge)} · 单次上限 ${a.execution_settings.policy.request_timeout_ms / 1000} 秒`}
               </p>
+              {a.image_inputs ? (
+                <details>
+                  <summary>
+                    实际发送图片 · {a.image_inputs.images.length} 张 · 请求体{" "}
+                    {(a.image_inputs.request_bytes / 1048576).toFixed(2)} MiB
+                  </summary>
+                  <div className="aesthetic-image-inputs-scroll">
+                    <table
+                      className="aesthetic-image-inputs"
+                      aria-label="实际发送图片尺寸"
+                    >
+                      <thead>
+                        <tr>
+                          <th>图片</th>
+                          <th>原尺寸</th>
+                          <th>发送尺寸</th>
+                          <th>格式</th>
+                          <th>原文件 → 发送</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {a.image_inputs.images.map(({ label, image }) => (
+                          <tr key={label}>
+                            <td>{label}</td>
+                            <td>
+                              {image.source_width && image.source_height
+                                ? `${image.source_width} × ${image.source_height}`
+                                : "未知"}
+                            </td>
+                            <td>
+                              {image.width && image.height
+                                ? `${image.width} × ${image.height}`
+                                : "未知"}
+                            </td>
+                            <td>
+                              {image.content_type
+                                .replace("image/", "")
+                                .toUpperCase()}
+                            </td>
+                            <td>
+                              {(image.source_bytes / 1024).toFixed(1)} →{" "}
+                              {(image.bytes / 1024).toFixed(1)} KiB
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </details>
+              ) : (
+                <p className="aesthetic-help">历史调用未记录实际发送尺寸。</p>
+              )}
               <details>
                 <summary>完整调用记录</summary>
                 <pre>{JSON.stringify(a, null, 2)}</pre>
               </details>
               {a.receipt && (
                 <p className="aesthetic-help">
+                  输入 {a.receipt.usage.input_tokens ?? "未知"} tokens ·{" "}
                   缓存读取 {a.receipt.usage.cached_input_tokens ?? "未知"} /
                   写入 {a.receipt.usage.cache_write_tokens ?? "未知"} tokens
                   {` · 费用 ${a.receipt.usage.cost_usd != null ? `$${a.receipt.usage.cost_usd.toFixed(6)}` : "未知"}`}

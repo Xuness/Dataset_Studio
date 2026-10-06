@@ -34,6 +34,19 @@ const fixture = JSON.parse(
 const engine = new EngineFixture(root, resolve(run, "state"));
 const { StudioClient } = await clientFixture(root, resolve(run, "sdk"));
 const mock = { calls: [], mode: "valid", hold: false };
+function dimensions(bytes) {
+  if (bytes.subarray(0, 8).equals(Buffer.from("89504e470d0a1a0a", "hex")))
+    return [bytes.readUInt32BE(16), bytes.readUInt32BE(20)];
+  assert.equal(bytes.readUInt16BE(0), 0xffd8);
+  for (let offset = 2; offset + 9 < bytes.length;) {
+    assert.equal(bytes[offset], 0xff);
+    const marker = bytes[offset + 1];
+    if (marker === 0xc0 || marker === 0xc2)
+      return [bytes.readUInt16BE(offset + 7), bytes.readUInt16BE(offset + 5)];
+    offset += 2 + bytes.readUInt16BE(offset + 2);
+  }
+  throw new Error("Fixture JPEG has no dimensions");
+}
 const server = createServer(async (req, res) => {
   res.on("error", () => {});
   try {
@@ -60,7 +73,7 @@ const server = createServer(async (req, res) => {
       );
       const row = db
         .prepare(
-          "SELECT members FROM batches WHERE state='sent' ORDER BY sequence DESC LIMIT 1",
+          "SELECT b.members,a.image_inputs FROM batches b JOIN attempts a ON a.id=b.attempt_id WHERE b.state='sent' ORDER BY b.sequence DESC LIMIT 1",
         )
         .get();
       db.close();
@@ -70,24 +83,45 @@ const server = createServer(async (req, res) => {
         ids,
         members.map((m) => m.label),
       );
-      const hashes = images.map((i) =>
-        createHash("sha256")
-          .update(
-            Buffer.from(
-              i.inlineData?.data ?? i.image_url.url.split(",")[1],
-              "base64",
-            ),
-          )
-          .digest("hex"),
+      const payloads = images.map((i) =>
+        Buffer.from(
+          i.inlineData?.data ??
+            (typeof i.image_url === "string"
+              ? i.image_url
+              : i.image_url.url
+            ).split(",")[1],
+          "base64",
+        ),
       );
+      const hashes = payloads.map((data) =>
+        createHash("sha256").update(data).digest("hex"),
+      );
+      const inputs = JSON.parse(row.image_inputs);
+      assert.equal(inputs.request_bytes, Buffer.concat(chunks).length);
       assert.deepEqual(
         hashes,
-        members.map((m) => m.image_sha256),
+        inputs.images.map((m) => m.image.sha256),
       );
       assert.deepEqual(
-        hashes,
+        inputs.images.map((m) => m.image.source_sha256),
         members.map((m) => m.candidate.key.asset_id),
       );
+      assert.deepEqual(
+        members.map((m) => m.image_sha256),
+        inputs.images.map((m) => m.image.source_sha256),
+      );
+      assert.deepEqual(
+        inputs.images.map((m) => m.label),
+        ids,
+      );
+      payloads.forEach((data, i) => {
+        const image = inputs.images[i].image;
+        assert.deepEqual(dimensions(data), [image.width, image.height]);
+        assert.equal(data.length, image.bytes);
+        if (image.max_edge != null)
+          assert.ok(Math.max(image.width, image.height) <= image.max_edge);
+        else assert.equal(image.sha256, image.source_sha256);
+      });
       assert.ok(Buffer.concat(chunks).length <= 48 * 1024 * 1024);
     }
     const call = {
@@ -391,6 +425,131 @@ try {
   checks.push(
     "new default 32 MiB keeps all 16 large images together; 48 MiB can be frozen; old 12 MiB stage remains unchanged",
   );
+  const imagePolicy = {
+    image_max_edge: 512,
+    stream: false,
+    concurrency: 1,
+    connect_timeout_ms: 15000,
+    first_response_timeout_ms: 180000,
+    idle_timeout_ms: 60000,
+    request_timeout_ms: 600000,
+    batch_timeout_ms: 900000,
+    max_retries: 0,
+    retry_unknown: false,
+    exhausted: "pause",
+  };
+  mock.mode = "invalid";
+  const resized = await create(
+    configuration(single, { execution_policy: imagePolicy }),
+  );
+  const frozen = JSON.stringify(resized.config);
+  await client.aesthetic.control(project.id, resized.id, "start");
+  const firstDone = await waitStage(
+    resized.id,
+    (s) => s.state === "needs_attention",
+  );
+  assert.equal(firstDone.attempts, 1);
+  const resizedBatch = (
+    await client.aesthetic.batches(project.id, resized.id)
+  ).items.find((b) => b.attempt_id);
+  const firstInput = (
+    await client.aesthetic.attempts(
+      project.id,
+      resized.id,
+      resizedBatch.sequence,
+    )
+  ).items[0];
+  assert.ok(
+    firstInput.image_inputs.images.every(
+      (i) => Math.max(i.image.width, i.image.height) === 512,
+    ),
+  );
+  assert.ok(
+    firstInput.image_inputs.images.some(
+      (i) => i.image.source_sha256 !== i.image.sha256,
+    ),
+  );
+  assert.ok(firstInput.image_inputs.request_bytes < 12 * 1048576);
+  const changed = await client.aesthetic.configureExecution(
+    project.id,
+    resized.id,
+    {
+      idempotency_key: randomUUID(),
+      expected_revision: firstDone.execution_settings.revision,
+      policy: { ...imagePolicy, image_max_edge: 256 },
+    },
+  );
+  assert.equal(JSON.stringify(changed.config), frozen);
+  await client.aesthetic.retry(
+    project.id,
+    resized.id,
+    resizedBatch.sequence,
+    true,
+  );
+  mock.mode = "valid";
+  await client.aesthetic.control(project.id, resized.id, "start");
+  const retried = await waitStage(resized.id, (s) =>
+    ["completed", "needs_attention"].includes(s.state),
+  );
+  assert.equal(retried.state, "completed", retried.error);
+  assert.equal(retried.attempts, 2);
+  const history = (
+    await client.aesthetic.attempts(
+      project.id,
+      resized.id,
+      resizedBatch.sequence,
+    )
+  ).items;
+  assert.deepEqual(
+    history.find((a) => a.id === firstInput.id),
+    firstInput,
+  );
+  const secondInput = history.find((a) => a.id !== firstInput.id);
+  assert.equal(secondInput.execution_settings.policy.image_max_edge, 256);
+  assert.ok(
+    secondInput.image_inputs.images.every(
+      (i) => Math.max(i.image.width, i.image.height) === 256,
+    ),
+  );
+  assert.equal(retried.accepted, 1);
+  checks.push(
+    "change resolution inside one stage, retry with new pixels, preserve the old attempt and source identities",
+  );
+  for (const model of models) {
+    const s = await create(
+      configuration(single, {
+        model_id: model.id,
+        execution_policy: {
+          ...imagePolicy,
+          image_max_edge: model === models[0] ? 2048 : 512,
+        },
+      }),
+    );
+    await client.aesthetic.control(project.id, s.id, "start");
+    const done = await waitStage(s.id, (v) =>
+      ["completed", "needs_attention"].includes(v.state),
+    );
+    assert.equal(done.state, "completed", done.error);
+    if (model === models[0]) {
+      // These originals are at most 1024 px. A 2048 cap must not upscale or re-encode them.
+      const sent = (
+        await client.aesthetic.batches(project.id, s.id)
+      ).items.filter((b) => b.attempt_id);
+      for (const b of sent) {
+        const record = (
+          await client.aesthetic.attempts(project.id, s.id, b.sequence)
+        ).items[0];
+        assert.ok(
+          record.image_inputs.images.every(
+            (i) => i.image.sha256 === i.image.source_sha256,
+          ),
+        );
+      }
+    }
+  }
+  checks.push(
+    "wire dimensions and hashes verified for Chat, Responses and Gemini; small originals remain byte-identical",
+  );
   const db = new DatabaseSync(resolve(project.directory, "evaluation.sqlite"), {
     readOnly: true,
   });
@@ -454,7 +613,7 @@ try {
   const manifest = JSON.parse(
     await readFile(resolve(packageDirectory, "recovery.json"), "utf8"),
   );
-  assert.equal(manifest.evaluation_schema, 11);
+  assert.equal(manifest.evaluation_schema, 12);
   assert.ok(manifest.files.some((f) => f.path === "project.sqlite"));
   assert.ok(manifest.files.some((f) => f.path === "evaluation.sqlite"));
   const target = resolve(run, "restored-project");
@@ -484,7 +643,15 @@ try {
   assert.equal(restored.id, project.id);
   const savedStage = await client.aesthetic.stage(restored.id, normal.id);
   assert.equal(savedStage.accepted, 2);
-  assert.equal(mock.calls.length, 6);
+  assert.equal(mock.calls.length, originalCalls);
+  const restoredInputs = (
+    await client.aesthetic.attempts(
+      restored.id,
+      resized.id,
+      resizedBatch.sequence,
+    )
+  ).items;
+  assert.deepEqual(restoredInputs, history);
   checks.push(
     "project package verifies two database generations, file hashes and references; restoration preserves paid evidence without dispatch",
   );

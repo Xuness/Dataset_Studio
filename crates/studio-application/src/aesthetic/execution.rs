@@ -1,6 +1,7 @@
 use studio_domain::{Error, Result, aesthetic::*, llm::*};
 
 pub fn validate_execution_policy(p: &AestheticExecutionPolicy) -> Result<()> {
+    studio_domain::validate_image_max_edge(p.image_max_edge)?;
     if !(1..=AESTHETIC_MAX_CONCURRENCY).contains(&p.concurrency)
         || p.memory_budget_mib
             .is_some_and(|v| !(256..=1_048_576).contains(&v))
@@ -22,6 +23,34 @@ pub fn validate_execution_policy(p: &AestheticExecutionPolicy) -> Result<()> {
         ));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod image_input_tests {
+    use super::*;
+    #[test]
+    fn image_input_size_is_optional_bounded_and_preserves_legacy_policy() {
+        let mut policy = AestheticExecutionPolicy::default();
+        let legacy = serde_json::to_value(&policy).unwrap();
+        assert!(legacy.get("image_max_edge").is_none());
+        assert_eq!(
+            serde_json::from_value::<AestheticExecutionPolicy>(legacy)
+                .unwrap()
+                .image_max_edge,
+            None
+        );
+        for value in [None, Some(128), Some(1024), Some(1536), Some(8192)] {
+            policy.image_max_edge = value;
+            validate_execution_policy(&policy).unwrap();
+        }
+        for value in [0, 127, 8193, u32::MAX] {
+            policy.image_max_edge = Some(value);
+            assert_eq!(
+                validate_execution_policy(&policy).unwrap_err().code,
+                "INVALID_INPUT"
+            );
+        }
+    }
 }
 
 pub fn recorded_options(p: &AestheticExecutionPolicy) -> LlmRecordedOptions {

@@ -5,7 +5,8 @@ use studio_application::{MediaInput, MediaSource, SourceAdapter};
 use studio_domain::ReadClass;
 
 pub(super) enum Prepared {
-    Messages(Vec<LlmMessage>),
+    Messages(Vec<LlmMessage>, Vec<AestheticImageInput>),
+    Oversized,
     Rejected(Vec<(u64, String)>),
 }
 
@@ -15,12 +16,16 @@ pub(super) fn prepare_images(
     stage: &AestheticStage,
     batch: &mut AestheticBatch,
     cancelled: Arc<AtomicBool>,
+    prepare_request: bool,
 ) -> Result<Prepared> {
     let router = state
         .sources
         .background(ReadClass::Media, 32 << 20, cancelled.clone())?;
     studio_application::aesthetic::validate_execution(&stage.config)?;
     let mut content = Vec::new();
+    let mut image_inputs = Vec::new();
+    let mut image_url_bytes = 0_u64;
+    let max_edge = stage_policy(stage).image_max_edge;
     let mut media = std::collections::BTreeMap::new();
     let sources = batch
         .members
@@ -69,10 +74,26 @@ pub(super) fn prepare_images(
             }
         }
     }
+    drop(router);
     let mut rejected = Vec::new();
     for member in &mut batch.members {
         studio_application::read_cancelled(&cancelled)?;
-        let prepared = (|| -> Result<LlmContent> {
+        // Resource backpressure is an execution failure, not an invalid-image decision.
+        // Acquire outside the per-image rejection path so a full decode queue cannot
+        // permanently mark an otherwise valid candidate as needing image review.
+        let _decode = (prepare_request && max_edge.is_some())
+            .then(|| {
+                state.resources.acquire(
+                    studio_domain::ReadRequest {
+                        class: ReadClass::Decode,
+                        priority: studio_domain::ReadPriority::Background,
+                        bytes: studio_resources::IMAGE_INPUT_WORKSPACE_BYTES,
+                    },
+                    &cancelled,
+                )
+            })
+            .transpose()?;
+        let prepared = (|| -> Result<Option<(LlmContent, studio_domain::ImageInputInfo)>> {
             let image = media
                 .remove(&member.label)
                 .ok_or_else(|| Error::invalid("来源未返回图片"))??;
@@ -106,23 +127,49 @@ pub(super) fn prepare_images(
                     "图片 SHA-256 与冻结身份不一致",
                 ));
             }
-            member.image_sha256 = Some(digest);
-            Ok(LlmContent::Image {
-                url: format!(
-                    "data:{};base64,{}",
-                    image.content_type,
-                    STANDARD.encode(&image.bytes)
-                ),
-                detail: None,
-            })
+            member.image_sha256 = Some(digest.clone());
+            if !prepare_request {
+                // Candidate freezing verifies the original only, without encoding the whole lake.
+                return Ok(None);
+            }
+            studio_application::read_cancelled(&cancelled)?;
+            let prepared = studio_resources::prepare_image_input(
+                image,
+                &digest,
+                max_edge,
+                Some(&state.previews.cache),
+            )?;
+            studio_application::read_cancelled(&cancelled)?;
+            Ok(Some((
+                LlmContent::Image {
+                    url: format!(
+                        "data:{};base64,{}",
+                        prepared.media.content_type,
+                        STANDARD.encode(&prepared.media.bytes)
+                    ),
+                    detail: None,
+                },
+                prepared.info,
+            )))
         })();
         match prepared {
-            Ok(image) => {
+            Ok(Some((image, info))) => {
+                if let LlmContent::Image { url, .. } = &image {
+                    image_url_bytes = image_url_bytes.saturating_add(url.len() as u64);
+                }
+                if image_url_bytes > stage.config.max_request_bytes {
+                    return Ok(Prepared::Oversized);
+                }
+                image_inputs.push(AestheticImageInput {
+                    label: member.label.clone(),
+                    image: info,
+                });
                 content.push(LlmContent::Text {
                     text: member.label.clone(),
                 });
                 content.push(image);
             }
+            Ok(None) => {}
             Err(e) if e.code == "CANCELLED" => return Err(e),
             Err(e) => rejected.push((member.candidate.ordinal, e.to_string())),
         }
@@ -130,7 +177,12 @@ pub(super) fn prepare_images(
     if !rejected.is_empty() {
         return Ok(Prepared::Rejected(rejected));
     }
-    studio_application::aesthetic::request_messages(&stage.config, content).map(Prepared::Messages)
+    let messages = if prepare_request {
+        studio_application::aesthetic::request_messages(&stage.config, content)?
+    } else {
+        Vec::new()
+    };
+    Ok(Prepared::Messages(messages, image_inputs))
 }
 
 pub(super) fn freeze_page(
@@ -233,7 +285,7 @@ pub(super) fn freeze_page(
             observation: None,
         };
         if let Prepared::Rejected(rejected) =
-            prepare_images(state, pid, stage, &mut probe, cancel.clone())?
+            prepare_images(state, pid, stage, &mut probe, cancel.clone(), false)?
         {
             for row in chunk {
                 if let Some((_, reason)) =

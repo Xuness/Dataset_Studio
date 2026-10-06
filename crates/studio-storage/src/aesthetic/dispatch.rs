@@ -56,9 +56,11 @@ impl EvaluationDb {
         members: Vec<AestheticMember>,
         attempt: String,
         semantic_request_hash: String,
+        image_inputs: Option<AestheticImageInputs>,
     ) -> Result<bool> {
         let id = id.to_owned();
-        self.writer.submit_named(encode(&members)?.len(), "dispatch", &id.clone(), move |db| {
+        let images_json = image_inputs.as_ref().map(encode).transpose()?;
+        self.writer.submit_named(encode(&members)?.len() + images_json.as_ref().map_or(0, String::len), "dispatch", &id.clone(), move |db| {
             let s=read_stage(db,&id)?;
             studio_application::aesthetic::validate_capacity(s.total)?;
             studio_application::aesthetic::validate_execution(&s.config)?;
@@ -72,6 +74,28 @@ impl EvaluationDb {
             if members.len()!=batch.members.len() || members.iter().zip(&batch.members).any(|(a,b)|a.label!=b.label || a.candidate.ordinal!=b.candidate.ordinal || a.image_sha256.as_ref().is_none_or(|h| h.len()!=64)) {
                 return Err(Error::invalid("发送图片映射与固定批次不一致"));
             }
+            let edge = s.execution_settings.as_ref().and_then(|s| s.policy.image_max_edge);
+            if let Some(inputs) = &image_inputs {
+                if inputs.request_bytes == 0 || inputs.request_bytes > s.config.max_request_bytes
+                    || inputs.images.len() != members.len()
+                    || inputs.images.iter().zip(&members).any(|(input, member)| {
+                        input.label != member.label
+                            || member.image_sha256.as_deref() != Some(input.image.source_sha256.as_str())
+                            || input.image.max_edge != edge
+                            || input.image.bytes == 0
+                            || input.image.sha256.len() != 64
+                            || !input.image.sha256.bytes().all(|v| v.is_ascii_hexdigit())
+                            || edge.is_some_and(|edge| {
+                                input.image.width.is_none_or(|v| v == 0 || v > edge)
+                                    || input.image.height.is_none_or(|v| v == 0 || v > edge)
+                            })
+                    })
+                {
+                    return Err(Error::invalid("实际发送图片与执行设置或原图身份不一致"));
+                }
+            } else if edge.is_some() {
+                return Err(Error::invalid("缩图请求缺少实际发送图片记录"));
+            }
             let timestamp=super::recovery_policy::clock_ms();
             if batch.recovery_deadline.as_ref().and_then(|v|v.parse::<i64>().ok()).is_some_and(|v|v<=timestamp) {
                 db.execute("UPDATE batches SET state='retry_wait',retry_at=?2 WHERE sequence=?1",params![sequence as i64,timestamp]).map_err(db_error)?;
@@ -81,7 +105,7 @@ impl EvaluationDb {
             if let Some(settings)=&s.execution_settings {
                 db.execute("UPDATE batches SET recovery_deadline=COALESCE(recovery_deadline,?2) WHERE sequence=?1",params![sequence as i64,timestamp.saturating_add(i64::from(settings.policy.batch_timeout_ms))]).map_err(db_error)?;
             }
-            db.execute("INSERT INTO attempts(id,batch,state,created_at,semantic_request_hash,execution_settings) VALUES (?1,?2,'sent',?3,?4,?5)",params![attempt,sequence as i64,timestamp.to_string(),semantic_request_hash,s.execution_settings.as_ref().map(encode).transpose()?]).map_err(db_error)?;
+            db.execute("INSERT INTO attempts(id,batch,state,created_at,semantic_request_hash,execution_settings,image_inputs) VALUES (?1,?2,'sent',?3,?4,?5,?6)",params![attempt,sequence as i64,timestamp.to_string(),semantic_request_hash,s.execution_settings.as_ref().map(encode).transpose()?,images_json]).map_err(db_error)?;
             db.execute("UPDATE batches SET state='sent',attempt_id=?2,members=?3,error=NULL WHERE sequence=?1",params![sequence as i64,attempt,encode(&members)?]).map_err(db_error)?;
             db.execute("UPDATE stages SET attempts=attempts+1 WHERE id=?1",[&id]).map_err(db_error)?;
             Ok(true)

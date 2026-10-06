@@ -6,7 +6,11 @@ import type { SettingsPageProps } from "./types.js";
 const capacities = [
   ["long_term_mib", "长期缓存", "包含分级基础、排序索引和长期查询结果。"],
   ["temporary_mib", "临时缓存", "用于 Tag 和其他组合查询的短期复用。"],
-  ["preview_mib", "缩略图缓存", "用于已生成的预览图片。"],
+  [
+    "preview_mib",
+    "图片缓存",
+    "用于预览图片及按需生成的 API 缩图，可随时重建。",
+  ],
 ] as const;
 function validate(value: Schema["CacheSettings"]) {
   const sizes = [
@@ -85,9 +89,9 @@ export function CacheSettingsPage({
           </small>
         </div>
         <div>
-          <span>缩略图</span>
+          <span>图片缓存</span>
           <strong>{sizeLabel(storage.preview_bytes)}</strong>
-          <small>预览与索引文件</small>
+          <small>预览、API 缩图与索引文件</small>
         </div>
       </div>
       <p className="settings-note">

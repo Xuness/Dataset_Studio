@@ -40,7 +40,8 @@ fn judge(db: &EvaluationDb, id: &str, mut batch: AestheticBatch, noisy: bool) {
             batch.sequence,
             batch.members.clone(),
             attempt.clone(),
-            "b".repeat(64)
+            "b".repeat(64),
+            None,
         )
         .unwrap()
     );

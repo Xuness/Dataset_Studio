@@ -51,11 +51,27 @@ fn request_reservation_kib(
         .sum::<u64>();
     let configuration = configuration_bytes(stage)?;
     // Admit preparation too: an oversized parent is encoded before it can be split.
-    let bytes = images
+    let mut bytes = images
         .saturating_add(configuration)
         .saturating_add(65536)
         .saturating_mul(6)
         .saturating_add(64 << 20);
+    if stage_policy(stage).image_max_edge.is_some() {
+        // Transform and JSON serialization peak at different times. Re-encoding may
+        // grow compressed bytes, so bound output by the request cap, not source size.
+        let transform = images
+            .saturating_add(stage.config.max_request_bytes.saturating_mul(2))
+            .saturating_add(studio_resources::IMAGE_INPUT_WORKSPACE_BYTES)
+            .saturating_add(64 << 20);
+        let encoding = stage
+            .config
+            .max_request_bytes
+            .saturating_add(configuration)
+            .saturating_add(65536)
+            .saturating_mul(6)
+            .saturating_add(64 << 20);
+        bytes = bytes.max(transform).max(encoding);
+    }
     if bytes > budget_bytes {
         return Err(Error::new(
             "EVALUATION_CAPACITY_EXCEEDED",
@@ -519,8 +535,14 @@ impl Runner {
             let config = stage.clone();
             let cancel = control.reads.clone();
             work(move || {
-                let messages = match media::prepare_images(&copy, &media_pid, &config, &mut batch, cancel)? {
-                    media::Prepared::Messages(messages)=>messages,
+                let (messages, images) = match media::prepare_images(&copy, &media_pid, &config, &mut batch, cancel, true)? {
+                    media::Prepared::Messages(messages, images)=>(messages, images),
+                    media::Prepared::Oversized=>{
+                        if batch.members.len()<=2 {return Err(Error::invalid("最小比较批次仍超过请求预算，请调整图片最长边或请求体预算"));}
+                        let middle=batch.members.len()/2;
+                        copy.store.evaluation(&media_pid)?.regroup(&config.id,batch.sequence,vec![batch.members[..middle].to_vec(),batch.members[middle..].to_vec()],vec![],"image_input_byte_limit")?;
+                        return Ok(None);
+                    }
                     media::Prepared::Rejected(rejected)=>{
                         let valid=batch.members.iter().filter(|m|!rejected.iter().any(|r|r.0==m.candidate.ordinal)).cloned().collect();
                         copy.store.evaluation(&media_pid)?.regroup(&config.id,batch.sequence,vec![valid],rejected,"image_preflight_failed")?;
@@ -541,9 +563,11 @@ impl Runner {
                 let preview=match &options {Some(options)=>copy.llm.preview_recorded(&plan,options)?,None=>copy.llm.preview(&plan)?};
                 let body = serde_json::to_vec(&preview).map_err(Error::io)?;
                 let size = body.len() as u64;
+                let image_inputs = AestheticImageInputs { request_bytes: size, images };
                 let semantic_hash = hex::encode(Sha256::digest(serde_json::to_vec(&serde_json::json!({
                     "version": 2, "config_hash": config.config_hash, "execution": config.execution_settings, "batch": batch.sequence,
                     "members": batch.members, "native_body_sha256": hex::encode(Sha256::digest(&body)),
+                    "image_inputs": image_inputs,
                 })).map_err(Error::io)?));
                 if size > config.config.max_request_bytes {
                     if batch.members.len()<=2 {return Err(Error::invalid("最小比较批次仍超过请求预算，请检查冻结提示词与图片规格"));}
@@ -551,11 +575,11 @@ impl Runner {
                     copy.store.evaluation(&media_pid)?.regroup(&config.id,batch.sequence,vec![batch.members[..middle].to_vec(),batch.members[middle..].to_vec()],vec![],"native_request_byte_limit")?;
                     return Ok(None);
                 }
-                Ok(Some((plan, batch.members, size, semantic_hash)))
+                Ok(Some((plan, batch.members, size, semantic_hash, image_inputs)))
             })
             .await
         };
-        let (plan, members, size, semantic_hash) = match prepared {
+        let (plan, members, size, semantic_hash, image_inputs) = match prepared {
             Ok(Some(value)) => value,
             Ok(None) => return Ok(()),
             // Pausing may interrupt image reads before the send commitment. Leave the
@@ -602,6 +626,7 @@ impl Runner {
             attempt: attempt.clone(),
             sequence,
             members,
+            image_inputs,
             semantic_hash,
             size,
             directory: state.store.directory(&pid)?,
@@ -810,6 +835,7 @@ struct ReceiptSink {
     attempt: String,
     sequence: u64,
     members: Vec<AestheticMember>,
+    image_inputs: AestheticImageInputs,
     semantic_hash: String,
     size: u64,
     directory: PathBuf,
@@ -831,6 +857,7 @@ impl studio_application::llm::LlmReceiptSink for ReceiptSink {
             let id = self.stage.clone();
             let sequence = self.sequence;
             let members = self.members.clone();
+            let image_inputs = self.image_inputs.clone();
             let attempt = self.attempt.clone();
             let hash = self.semantic_hash.clone();
             let runner = self.runner.clone();
@@ -841,7 +868,7 @@ impl studio_application::llm::LlmReceiptSink for ReceiptSink {
                 studio_storage::faults::check("dispatch_after_upload", &id)?;
                 let sent = runner.gate.commit(&pid, &volume, || {
                     creation::check_storage(&directory)?;
-                    db.begin_attempt(&id, sequence, members, attempt, hash)
+                    db.begin_attempt(&id, sequence, members, attempt, hash, Some(image_inputs))
                 })?;
                 Ok(LlmDispatchDecision {
                     defer: !sent,

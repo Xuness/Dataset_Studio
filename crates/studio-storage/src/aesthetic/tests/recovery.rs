@@ -75,7 +75,7 @@ fn disposition_queue_seeks_sparse_candidates_and_v3_migration_preserves_evidence
             DROP TABLE batch_state_counts; DROP TABLE batch_round_counts; DROP TABLE exposure_counts; DROP TABLE execution_updates; DROP TABLE batch_actions;
             ALTER TABLE stages DROP COLUMN usage_summary; ALTER TABLE stages DROP COLUMN archived; ALTER TABLE stages DROP COLUMN execution_settings; ALTER TABLE stages DROP COLUMN failure_streak; ALTER TABLE stages DROP COLUMN next_batch_number;
             ALTER TABLE batches DROP COLUMN stage_sequence; ALTER TABLE batches DROP COLUMN retry_at; ALTER TABLE batches DROP COLUMN recovery_deadline; ALTER TABLE batches DROP COLUMN recovery_attempt_base; ALTER TABLE batches DROP COLUMN disposition_reason;
-            ALTER TABLE candidates DROP COLUMN unjudgeable_streak; ALTER TABLE candidates DROP COLUMN blocked_batch; ALTER TABLE attempts DROP COLUMN execution_settings;").unwrap();
+            ALTER TABLE candidates DROP COLUMN unjudgeable_streak; ALTER TABLE candidates DROP COLUMN blocked_batch; ALTER TABLE attempts DROP COLUMN execution_settings; ALTER TABLE attempts DROP COLUMN image_inputs;").unwrap();
         target
             .execute_batch("ALTER TABLE analysis_jobs DROP COLUMN deleted; ALTER TABLE analysis_jobs DROP COLUMN name; ALTER TABLE stages DROP COLUMN sampling_plan_id; ALTER TABLE batches DROP COLUMN sampling; DROP TABLE sampling_diagnostics; DROP TABLE sampling_queue; DROP TABLE sampling_rounds; DROP TABLE sampling_plans; DROP TABLE receipt_parses; DROP TABLE raw_receipts; DROP TABLE batch_replacements; DROP INDEX candidate_disposition_page; PRAGMA user_version=3;")
             .unwrap();
@@ -92,7 +92,7 @@ fn disposition_queue_seeks_sparse_candidates_and_v3_migration_preserves_evidence
             .unwrap()
             .pragma_query_value(None, "user_version", |r| r.get::<_, u32>(0))
             .unwrap(),
-        11
+        12
     );
     let backup = std::fs::read_dir(legacy.join(".backups"))
         .unwrap()
@@ -389,7 +389,7 @@ fn v1_and_v2_ledgers_migrate_paid_history_and_abstentions_with_durable_backups()
                 .unwrap()
                 .pragma_query_value(None, "user_version", |r| r.get::<_, u32>(0))
                 .unwrap(),
-            11
+            12
         );
         let backup = std::fs::read_dir(legacy.join(".backups"))
             .unwrap()

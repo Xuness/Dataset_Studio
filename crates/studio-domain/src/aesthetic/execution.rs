@@ -12,6 +12,9 @@ pub const AESTHETIC_MAX_RUNNING_STAGES: u32 = 32;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct AestheticExecutionPolicy {
+    /// Local, aspect-preserving downscale before each new API attempt; absent keeps original bytes.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_max_edge: Option<u32>,
     pub stream: bool,
     pub concurrency: u32,
     pub connect_timeout_ms: u32,
@@ -58,6 +61,7 @@ pub fn default_failure_halt_threshold(concurrency: u32) -> u32 {
 impl Default for AestheticExecutionPolicy {
     fn default() -> Self {
         Self {
+            image_max_edge: None,
             stream: true,
             concurrency: 2,
             connect_timeout_ms: 15_000,

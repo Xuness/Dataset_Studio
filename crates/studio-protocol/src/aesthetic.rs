@@ -453,6 +453,33 @@ pub struct AestheticAttempt {
     pub semantic_request_hash: Option<String>,
     pub raw_receipt: Option<AestheticRawSummary>,
     pub execution_settings: Option<AestheticExecutionSettings>,
+    pub image_inputs: Option<AestheticImageInputs>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct AestheticImageInputs {
+    pub request_bytes: u64,
+    pub images: Vec<AestheticImageInput>,
+}
+#[derive(Serialize, ToSchema)]
+pub struct AestheticImageInput {
+    pub label: String,
+    pub image: crate::ImageInputInfo,
+}
+impl From<domain::AestheticImageInputs> for AestheticImageInputs {
+    fn from(v: domain::AestheticImageInputs) -> Self {
+        Self {
+            request_bytes: v.request_bytes,
+            images: v
+                .images
+                .into_iter()
+                .map(|i| AestheticImageInput {
+                    label: i.label,
+                    image: i.image.into(),
+                })
+                .collect(),
+        }
+    }
 }
 impl From<domain::AestheticAttempt> for AestheticAttempt {
     fn from(v: domain::AestheticAttempt) -> Self {
@@ -465,6 +492,7 @@ impl From<domain::AestheticAttempt> for AestheticAttempt {
             failure: v.failure.map(Into::into),
             semantic_request_hash: v.semantic_request_hash,
             execution_settings: v.execution_settings.map(Into::into),
+            image_inputs: v.image_inputs.map(Into::into),
             raw_receipt: v.raw_receipt.map(|r| AestheticRawSummary {
                 sha256: r.sha256,
                 bytes: r.bytes,

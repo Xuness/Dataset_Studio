@@ -3414,6 +3414,7 @@ export interface components {
             execution_settings?: null | components["schemas"]["AestheticExecutionSettings"];
             failure?: null | components["schemas"]["LlmFailure"];
             id: string;
+            image_inputs?: null | components["schemas"]["AestheticImageInputs"];
             raw_receipt?: null | components["schemas"]["AestheticRawSummary"];
             receipt?: null | components["schemas"]["AestheticReceipt"];
             semantic_request_hash?: string | null;
@@ -3667,6 +3668,11 @@ export interface components {
             first_response_timeout_ms: number;
             /** Format: int32 */
             idle_timeout_ms: number;
+            /**
+             * Format: int32
+             * @description API image longest edge (128–8192); absent keeps original bytes. May change between attempts.
+             */
+            image_max_edge?: number | null;
             /** Format: int32 */
             max_retries: number;
             /**
@@ -3741,6 +3747,15 @@ export interface components {
             validity?: null | components["schemas"]["AestheticValidity"];
             /** Format: int64 */
             working_bytes_estimate: number;
+        };
+        AestheticImageInput: {
+            image: components["schemas"]["ImageInputInfo"];
+            label: string;
+        };
+        AestheticImageInputs: {
+            images: components["schemas"]["AestheticImageInput"][];
+            /** Format: int64 */
+            request_bytes: number;
         };
         AestheticMember: {
             candidate: components["schemas"]["AestheticCandidate"];
@@ -4969,6 +4984,26 @@ export interface components {
             undo_label?: string | null;
             /** Format: int32 */
             undo_steps: number;
+        };
+        ImageInputInfo: {
+            /** Format: int64 */
+            bytes: number;
+            content_type: string;
+            /** Format: int32 */
+            height?: number | null;
+            /** Format: int32 */
+            max_edge?: number | null;
+            sha256: string;
+            /** Format: int64 */
+            source_bytes: number;
+            /** Format: int32 */
+            source_height?: number | null;
+            source_sha256: string;
+            /** Format: int32 */
+            source_width?: number | null;
+            transform_version: string;
+            /** Format: int32 */
+            width?: number | null;
         };
         Job: {
             artifact?: string | null;

@@ -348,3 +348,186 @@ fn v7_upgrade_preserves_unknown_history_and_adds_stable_local_numbers() {
     assert!(migrated.stage(&id).unwrap().execution_settings.is_none());
     assert_eq!(migrated.attempts(&id, 50).unwrap()[0].id, attempt);
 }
+
+#[test]
+fn image_input_changes_preserve_each_attempt_and_the_frozen_stage() {
+    let (dir, db, id) = fixture(16);
+    let frozen = encode(&db.stage(&id).unwrap().config).unwrap();
+    enable(
+        &db,
+        &id,
+        AestheticExecutionPolicy {
+            image_max_edge: Some(1536),
+            ..Default::default()
+        },
+    );
+    let mut batch = db.claim(&id).unwrap().unwrap();
+    for member in &mut batch.members {
+        member.image_sha256 = Some("a".repeat(64));
+    }
+    let images = |edge, digest: &str| AestheticImageInputs {
+        request_bytes: 10000,
+        images: batch
+            .members
+            .iter()
+            .map(|member| AestheticImageInput {
+                label: member.label.clone(),
+                image: studio_domain::ImageInputInfo {
+                    source_sha256: "a".repeat(64),
+                    sha256: digest.repeat(64),
+                    source_width: Some(2048),
+                    source_height: Some(1536),
+                    width: Some(edge),
+                    height: Some(edge * 3 / 4),
+                    source_bytes: 1000,
+                    bytes: 500,
+                    content_type: "image/jpeg".into(),
+                    max_edge: Some(edge),
+                    transform_version: "test-encoder".into(),
+                },
+            })
+            .collect(),
+    };
+    let first = new_id();
+    assert_eq!(
+        db.begin_attempt(
+            &id,
+            batch.sequence,
+            batch.members.clone(),
+            first.clone(),
+            "f".repeat(64),
+            Some(images(1024, "b"))
+        )
+        .unwrap_err()
+        .code,
+        "INVALID_INPUT"
+    );
+    assert!(
+        db.begin_attempt(
+            &id,
+            batch.sequence,
+            batch.members.clone(),
+            first.clone(),
+            "f".repeat(64),
+            Some(images(1536, "b"))
+        )
+        .unwrap()
+    );
+    db.fail_attempt(&id, &first, unknown()).unwrap();
+    db.schedule_recovery(&id, batch.sequence, unknown())
+        .unwrap();
+    db.control(&id, "pause").unwrap();
+    db.settle(&id, None).unwrap();
+    let old_attempt = encode(&db.attempts(&id, batch.sequence).unwrap()[0]).unwrap();
+    db.configure_execution(
+        &id,
+        AestheticExecutionUpdate {
+            idempotency_key: new_id(),
+            expected_revision: 1,
+            policy: AestheticExecutionPolicy {
+                image_max_edge: Some(1024),
+                ..Default::default()
+            },
+        },
+        1,
+        1,
+    )
+    .unwrap();
+    db.retry_batch(&id, batch.sequence).unwrap();
+    db.control(&id, "start").unwrap();
+    let retry = db.claim(&id).unwrap().unwrap();
+    assert_eq!(retry.sequence, batch.sequence);
+    let second = new_id();
+    assert!(
+        db.begin_attempt(
+            &id,
+            batch.sequence,
+            retry.members.clone(),
+            second.clone(),
+            "e".repeat(64),
+            Some(images(1024, "c"))
+        )
+        .unwrap()
+    );
+    db.receive(&id, &second, receipt(&retry)).unwrap();
+    db.parse_received(&id).unwrap();
+    db.settle(&id, None).unwrap();
+    assert_eq!(encode(&db.stage(&id).unwrap().config).unwrap(), frozen);
+    drop(db);
+    let reopened = EvaluationDb::open(&dir.path().join("evaluation.sqlite")).unwrap();
+    let attempts = reopened.attempts(&id, batch.sequence).unwrap();
+    assert_eq!(attempts.len(), 2);
+    assert_eq!(
+        encode(attempts.iter().find(|a| a.id == first).unwrap()).unwrap(),
+        old_attempt
+    );
+    let new = attempts.iter().find(|a| a.id == second).unwrap();
+    assert_eq!(
+        new.execution_settings
+            .as_ref()
+            .unwrap()
+            .policy
+            .image_max_edge,
+        Some(1024)
+    );
+    assert_eq!(
+        new.image_inputs.as_ref().unwrap().images[0].image.width,
+        Some(1024)
+    );
+    assert_eq!(reopened.stage(&id).unwrap().accepted, 1);
+}
+
+#[test]
+fn image_input_v11_migration_preserves_missing_history_and_backs_up_once() {
+    let (dir, db, id) = fixture(16);
+    let (batch, attempt) = sent(&db, &id);
+    db.receive(&id, &attempt, receipt(&batch)).unwrap();
+    db.parse_received(&id).unwrap();
+    let frozen = encode(&db.stage(&id).unwrap().config).unwrap();
+    drop(db);
+    let path = dir.path().join("evaluation.sqlite");
+    let old = Connection::open(&path).unwrap();
+    old.execute_batch("ALTER TABLE attempts DROP COLUMN image_inputs; PRAGMA user_version=11;")
+        .unwrap();
+    drop(old);
+    let migrated = EvaluationDb::open(&path).unwrap();
+    assert_eq!(migrated.stage(&id).unwrap().accepted, 1);
+    assert_eq!(
+        encode(&migrated.stage(&id).unwrap().config).unwrap(),
+        frozen
+    );
+    assert!(
+        migrated.attempts(&id, batch.sequence).unwrap()[0]
+            .image_inputs
+            .is_none()
+    );
+    assert_eq!(
+        migrated
+            .read()
+            .unwrap()
+            .pragma_query_value(None, "user_version", |r| r.get::<_, u32>(0))
+            .unwrap(),
+        12
+    );
+    drop(migrated);
+    let backup_paths: Vec<_> = std::fs::read_dir(dir.path().join(".backups"))
+        .unwrap()
+        .map(|v| v.unwrap().path())
+        .collect();
+    assert_eq!(backup_paths.len(), 1);
+    let backup = Connection::open(&backup_paths[0]).unwrap();
+    assert_eq!(
+        backup
+            .pragma_query_value(None, "user_version", |r| r.get::<_, u32>(0))
+            .unwrap(),
+        11
+    );
+    drop(backup);
+    drop(EvaluationDb::open(&path).unwrap());
+    assert_eq!(
+        std::fs::read_dir(dir.path().join(".backups"))
+            .unwrap()
+            .count(),
+        1
+    );
+}

@@ -363,6 +363,21 @@ pub struct AestheticAttempt {
     pub raw_receipt: Option<AestheticRawSummary>,
     #[serde(default)]
     pub execution_settings: Option<AestheticExecutionSettings>,
+    /// Absent on historical attempts; never reconstructed from today's execution settings.
+    #[serde(default)]
+    pub image_inputs: Option<AestheticImageInputs>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AestheticImageInputs {
+    pub request_bytes: u64,
+    pub images: Vec<AestheticImageInput>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AestheticImageInput {
+    pub label: String,
+    pub image: crate::ImageInputInfo,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AestheticRawSummary {

@@ -6,6 +6,9 @@ use utoipa::ToSchema;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct AestheticExecutionPolicy {
+    /// API image longest edge (128–8192); absent keeps original bytes. May change between attempts.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_max_edge: Option<u32>,
     pub stream: bool,
     pub concurrency: u32,
     pub connect_timeout_ms: u32,
@@ -31,6 +34,7 @@ pub struct AestheticExecutionPolicy {
 impl Default for AestheticExecutionPolicy {
     fn default() -> Self {
         Self {
+            image_max_edge: None,
             stream: true,
             concurrency: 2,
             connect_timeout_ms: 15_000,
@@ -130,6 +134,7 @@ pub struct AestheticBatchActionResult {
 impl From<domain::AestheticExecutionPolicy> for AestheticExecutionPolicy {
     fn from(v: domain::AestheticExecutionPolicy) -> Self {
         Self {
+            image_max_edge: v.image_max_edge,
             stream: v.stream,
             concurrency: v.concurrency,
             connect_timeout_ms: v.connect_timeout_ms,
@@ -150,6 +155,7 @@ impl From<domain::AestheticExecutionPolicy> for AestheticExecutionPolicy {
 impl From<AestheticExecutionPolicy> for domain::AestheticExecutionPolicy {
     fn from(v: AestheticExecutionPolicy) -> Self {
         Self {
+            image_max_edge: v.image_max_edge,
             stream: v.stream,
             concurrency: v.concurrency,
             connect_timeout_ms: v.connect_timeout_ms,

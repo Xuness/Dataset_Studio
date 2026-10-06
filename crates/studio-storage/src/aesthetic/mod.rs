@@ -24,6 +24,8 @@ pub(crate) use project::{recover, reference_reason};
 #[cfg(test)]
 mod tests;
 
+pub const EVALUATION_SCHEMA_VERSION: u32 = 12;
+
 pub struct EvaluationDb {
     path: PathBuf,
     writer: writer::Writer,

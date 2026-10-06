@@ -35,7 +35,7 @@ impl AestheticRepository for EvaluationDb {
     fn attempts(&self, id: &str, batch: u64) -> Result<Vec<AestheticAttempt>> {
         let db = self.read()?;
         read_batch(&db, id, batch)?;
-        let mut stmt=db.prepare("SELECT id,state,created_at,receipt,failure,semantic_request_hash,execution_settings FROM attempts WHERE batch=?1 ORDER BY created_at,id LIMIT 8").map_err(db_error)?;
+        let mut stmt=db.prepare("SELECT id,state,created_at,receipt,failure,semantic_request_hash,execution_settings,image_inputs FROM attempts WHERE batch=?1 ORDER BY created_at,id LIMIT 8").map_err(db_error)?;
         let rows = stmt
             .query_map([batch as i64], |r| {
                 Ok((
@@ -46,6 +46,7 @@ impl AestheticRepository for EvaluationDb {
                     r.get::<_, Option<String>>(4)?,
                     r.get::<_, Option<String>>(5)?,
                     r.get::<_, Option<String>>(6)?,
+                    r.get::<_, Option<String>>(7)?,
                 ))
             })
             .map_err(db_error)?
@@ -62,6 +63,7 @@ impl AestheticRepository for EvaluationDb {
                     failure: r.4.map(decode).transpose()?,
                     semantic_request_hash: r.5,
                     execution_settings: r.6.map(decode).transpose()?,
+                    image_inputs: r.7.map(decode).transpose()?,
                     raw_receipt: self.raw_summary(&r.0)?,
                 })
             })

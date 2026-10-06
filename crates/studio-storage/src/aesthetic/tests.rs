@@ -116,7 +116,8 @@ fn sent(db: &EvaluationDb, id: &str) -> (AestheticBatch, String) {
             batch.sequence,
             batch.members.clone(),
             attempt.clone(),
-            "f".repeat(64)
+            "f".repeat(64),
+            None,
         )
         .unwrap()
     );
@@ -298,7 +299,7 @@ fn paused_preparation_is_resumable_and_call_budget_is_atomic() {
         m.image_sha256 = Some("b".repeat(64));
     }
     assert!(
-        !db.begin_attempt(&id, batch.sequence, members, new_id(), "f".repeat(64))
+        !db.begin_attempt(&id, batch.sequence, members, new_id(), "f".repeat(64), None)
             .unwrap()
     );
 }
