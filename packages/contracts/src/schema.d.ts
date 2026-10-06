@@ -1055,6 +1055,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{project_id}/aesthetic/analysis/jobs/{id}/move": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["aesthetic_analysis_move"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects/{project_id}/aesthetic/analysis/jobs/{id}/remove": {
         parameters: {
             query?: never;
@@ -3356,6 +3372,15 @@ export interface components {
         AestheticAnalysisMetadata: {
             name: string;
         };
+        AestheticAnalysisMove: {
+            place: components["schemas"]["AestheticAnalysisPlace"];
+            target?: string | null;
+        };
+        /**
+         * @description `first` and `last` take no target; `before` and `after` place the job next to `target`.
+         * @enum {string}
+         */
+        AestheticAnalysisPlace: "first" | "last" | "before" | "after";
         AestheticAnalysisSpec: {
             config: components["schemas"]["AestheticFit"];
             experiment_id?: string | null;
@@ -9166,6 +9191,32 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AestheticAnalysisJob"];
+                };
+            };
+        };
+    };
+    aesthetic_analysis_move: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AestheticAnalysisMove"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
                 };
             };
         };

@@ -166,7 +166,11 @@ impl Writer {
                 tx.execute_batch(include_str!("schema_v11.sql"))
                     .map_err(db_error)?;
             }
-            tx.execute_batch(include_str!("schema_v12.sql"))
+            if version < 12 {
+                tx.execute_batch(include_str!("schema_v12.sql"))
+                    .map_err(db_error)?;
+            }
+            tx.execute_batch(include_str!("schema_v13.sql"))
                 .map_err(db_error)?;
             let violations = tx
                 .prepare("PRAGMA foreign_key_check")

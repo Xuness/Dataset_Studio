@@ -109,6 +109,49 @@ fn frozen_watermark_excludes_later_paid_results_and_rebuild_is_idempotent() {
     assert_eq!(db.stage(&stage).unwrap().attempts, 2);
 }
 #[test]
+fn moved_jobs_keep_a_user_order_across_pages_and_new_jobs() {
+    use crate::aesthetic::analysis::AnalysisPlace;
+    let (_dir, db, stage) = fixture(32);
+    let (a, aid) = sent(&db, &stage);
+    db.receive(&stage, &aid, receipt(&a)).unwrap();
+    db.parse_received(&stage).unwrap();
+    let ids: Vec<String> = (0..4)
+        .map(|_| db.analysis_create(fit_request(&stage)).unwrap().id)
+        .collect();
+    let [a, b, c, d] = [0, 1, 2, 3].map(|i| ids[i].clone());
+    let listed = |after: &str| -> Vec<String> {
+        db.analysis_jobs(after, None, 50)
+            .unwrap()
+            .into_iter()
+            .map(|j| j.id)
+            .collect()
+    };
+    assert_eq!(listed(""), [a.clone(), b.clone(), c.clone(), d.clone()]);
+    db.analysis_move(&d, AnalysisPlace::First).unwrap();
+    db.analysis_move(&a, AnalysisPlace::After(c.clone()))
+        .unwrap();
+    db.analysis_move(&b, AnalysisPlace::Before(d.clone()))
+        .unwrap();
+    assert_eq!(listed(""), [b.clone(), d.clone(), c.clone(), a.clone()]);
+    // The page cursor stays a job id and follows the arranged order.
+    assert_eq!(listed(&d), [c.clone(), a.clone()]);
+    assert_eq!(
+        db.analysis_move(&a, AnalysisPlace::Before(a.clone()))
+            .unwrap_err()
+            .code,
+        "INVALID_INPUT"
+    );
+    complete(&db, &c);
+    db.analysis_remove(&c).unwrap();
+    // Removed jobs neither move nor anchor a move.
+    let removed = |id: &str, place| db.analysis_move(id, place).unwrap_err().code;
+    assert_eq!(removed(&c, AnalysisPlace::First), "NOT_FOUND");
+    assert_eq!(removed(&a, AnalysisPlace::Before(c.clone())), "NOT_FOUND");
+    db.analysis_move(&b, AnalysisPlace::Last).unwrap();
+    let e = db.analysis_create(fit_request(&stage)).unwrap().id;
+    assert_eq!(listed(""), [d, a, b, e]);
+}
+#[test]
 fn renamed_and_removed_jobs_keep_frozen_requests_and_dependents() {
     let (_dir, db, stage) = fixture(32);
     let (a, aid) = sent(&db, &stage);

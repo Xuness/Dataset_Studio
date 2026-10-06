@@ -45,7 +45,7 @@ fn cache_usage_v8_upgrade_backfills_existing_receipts_and_preserves_unknown_cost
     drop(db);
     let legacy = Connection::open(&path).unwrap();
     legacy
-        .execute_batch("ALTER TABLE analysis_jobs DROP COLUMN deleted; ALTER TABLE analysis_jobs DROP COLUMN name; ALTER TABLE candidates DROP COLUMN unjudgeable_streak; ALTER TABLE stages DROP COLUMN usage_summary; ALTER TABLE attempts DROP COLUMN image_inputs; PRAGMA user_version=8;")
+        .execute_batch("ALTER TABLE analysis_jobs DROP COLUMN sort_key; ALTER TABLE analysis_jobs DROP COLUMN deleted; ALTER TABLE analysis_jobs DROP COLUMN name; ALTER TABLE candidates DROP COLUMN unjudgeable_streak; ALTER TABLE stages DROP COLUMN usage_summary; ALTER TABLE attempts DROP COLUMN image_inputs; PRAGMA user_version=8;")
         .unwrap();
     drop(legacy);
     let reopened = EvaluationDb::open(&path).unwrap();

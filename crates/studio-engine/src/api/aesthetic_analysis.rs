@@ -24,6 +24,21 @@ pub struct AestheticAnalysisControl {
 pub struct AestheticAnalysisMetadata {
     name: String,
 }
+/// `first` and `last` take no target; `before` and `after` place the job next to `target`.
+#[derive(Deserialize, utoipa::ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AestheticAnalysisPlace {
+    First,
+    Last,
+    Before,
+    After,
+}
+#[derive(Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct AestheticAnalysisMove {
+    place: AestheticAnalysisPlace,
+    target: Option<String>,
+}
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct AestheticAnalysisJobs {
     items: Vec<AestheticAnalysisJob>,
@@ -277,6 +292,28 @@ async fn remove(
     blocking(move || s.store.evaluation(&pid)?.analysis_remove(&id)).await?;
     Ok(Json(OkResponse { ok: true }))
 }
+#[utoipa::path(operation_id="aesthetic_analysis_move",post,path="/jobs/{id}/move",params(("project_id"=String,Path),("id"=String,Path)),request_body=AestheticAnalysisMove,responses((status=200,body=OkResponse)))]
+async fn reorder(
+    State(s): State<AppState>,
+    Path((pid, id)): Path<(String, String)>,
+    Body(value): Body<AestheticAnalysisMove>,
+) -> ApiResult<OkResponse> {
+    use studio_storage::aesthetic::analysis::AnalysisPlace;
+    let place = match (value.place, value.target) {
+        (AestheticAnalysisPlace::First, None) => AnalysisPlace::First,
+        (AestheticAnalysisPlace::Last, None) => AnalysisPlace::Last,
+        (AestheticAnalysisPlace::Before, Some(target)) => AnalysisPlace::Before(target),
+        (AestheticAnalysisPlace::After, Some(target)) => AnalysisPlace::After(target),
+        _ => {
+            return Err(domain::Error::invalid(
+                "before 与 after 需要 target，first 与 last 不接受 target",
+            )
+            .into());
+        }
+    };
+    blocking(move || s.store.evaluation(&pid)?.analysis_move(&id, place)).await?;
+    Ok(Json(OkResponse { ok: true }))
+}
 #[utoipa::path(operation_id="aesthetic_snapshot",get,path="/snapshots/{id}",params(("project_id"=String,Path),("id"=String,Path)),responses((status=200,body=AestheticAnalysisJob)))]
 async fn snapshot(
     State(s): State<AppState>,
@@ -477,6 +514,7 @@ async fn reviews(
     control,
     metadata,
     remove,
+    reorder,
     snapshot,
     rows,
     candidate,
@@ -498,6 +536,7 @@ pub(super) fn routes() -> axum::Router<AppState> {
         .route("/jobs/{id}/control", post(control))
         .route("/jobs/{id}/metadata", post(metadata))
         .route("/jobs/{id}/remove", post(remove))
+        .route("/jobs/{id}/move", post(reorder))
         .route("/jobs/{id}/comparison", get(comparison))
         .route("/snapshots/{id}", get(snapshot))
         .route("/stages/{id}/latest-snapshot", get(latest_snapshot))

@@ -2,6 +2,15 @@ use super::*;
 use studio_application::aesthetic_analysis::{self as application, AestheticReplaySource};
 use studio_domain::aesthetic_analysis::*;
 
+/// Where `analysis_move` places a job, relative to the whole listing or to another job.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AnalysisPlace {
+    First,
+    Last,
+    Before(String),
+    After(String),
+}
+
 fn job(db: &Connection, id: &str) -> Result<AestheticAnalysisJob> {
     let row:(String,String,String,u64,u64,String,String,Option<String>,Option<String>,Option<String>)=db.query_row(
         "SELECT created_at,state,phase,progress,total,request_json,input_json,result_json,error,name FROM analysis_jobs WHERE id=?1",[id],
@@ -146,7 +155,7 @@ impl EvaluationDb {
                 if *watermark>input.review_watermark{return Err(Error::invalid("复核水位不存在"));}
                 input.review_watermark = *watermark;
             }
-            db.execute("INSERT INTO analysis_jobs(id,created_at,state,phase,request_json,input_json,total,experiment_id) VALUES (?1,?2,'queued','queued',?3,?4,?5,?6)",params![id,now(),json,encode(&input)?,input.candidates as i64,experiment_id]).map_err(db_error)?;
+            db.execute("INSERT INTO analysis_jobs(id,created_at,state,phase,request_json,input_json,total,experiment_id,sort_key) VALUES (?1,?2,'queued','queued',?3,?4,?5,?6,(SELECT COALESCE(MAX(sort_key),0)+1 FROM analysis_jobs))",params![id,now(),json,encode(&input)?,input.candidates as i64,experiment_id]).map_err(db_error)?;
             job(db,id)
         })
     }
@@ -164,7 +173,7 @@ impl EvaluationDb {
         limit: usize,
     ) -> Result<Vec<AestheticAnalysisJob>> {
         let db = self.read()?;
-        let mut stmt=db.prepare("SELECT id FROM analysis_jobs WHERE id>?1 AND deleted=0 AND (?2 IS NULL OR experiment_id=?2) ORDER BY id LIMIT ?3").map_err(db_error)?;
+        let mut stmt=db.prepare("SELECT id FROM analysis_jobs WHERE (?1='' OR (sort_key,id)>(SELECT sort_key,id FROM analysis_jobs WHERE id=?1)) AND deleted=0 AND (?2 IS NULL OR experiment_id=?2) ORDER BY sort_key,id LIMIT ?3").map_err(db_error)?;
         let ids = stmt
             .query_map(params![after, experiment, limit.clamp(1, 51) as u32], |r| {
                 r.get::<_, String>(0)
@@ -213,6 +222,55 @@ impl EvaluationDb {
                 return Err(Error::new("NOT_FOUND", "离线任务不存在或已删除"));
             }
             job(db, &id)
+        })
+    }
+    /// Moves a job in the user-arranged listing order. Every job is renumbered
+    /// so the order stays dense; ledgers hold at most a few thousand jobs.
+    pub fn analysis_move(&self, id: &str, place: AnalysisPlace) -> Result<()> {
+        studio_domain::validate_id(id)?;
+        if let AnalysisPlace::Before(target) | AnalysisPlace::After(target) = &place {
+            studio_domain::validate_id(target)?;
+            if target == id {
+                return Err(Error::invalid("不能相对自身移动离线任务"));
+            }
+        }
+        let id = id.to_owned();
+        self.writer.submit(1024, move |db| {
+            let mut order = db
+                .prepare("SELECT id,deleted FROM analysis_jobs ORDER BY sort_key,id")
+                .map_err(db_error)?
+                .query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, bool>(1)?)))
+                .map_err(db_error)?
+                .collect::<std::result::Result<Vec<_>, _>>()
+                .map_err(db_error)?;
+            let missing = || Error::new("NOT_FOUND", "离线任务不存在或已删除");
+            let from = order
+                .iter()
+                .position(|(j, deleted)| *j == id && !deleted)
+                .ok_or_else(missing)?;
+            let moved = order.remove(from);
+            let index = |target: &str| {
+                order
+                    .iter()
+                    .position(|(j, deleted)| j == target && !deleted)
+                    .ok_or_else(missing)
+            };
+            let to = match &place {
+                AnalysisPlace::First => 0,
+                AnalysisPlace::Last => order.len(),
+                AnalysisPlace::Before(target) => index(target)?,
+                AnalysisPlace::After(target) => index(target)? + 1,
+            };
+            order.insert(to, moved);
+            let mut update = db
+                .prepare("UPDATE analysis_jobs SET sort_key=?2 WHERE id=?1 AND sort_key<>?2")
+                .map_err(db_error)?;
+            for (key, (job, _)) in order.iter().enumerate() {
+                update
+                    .execute(params![job, key as i64 + 1])
+                    .map_err(db_error)?;
+            }
+            Ok(())
         })
     }
     /// Tombstones a finished job. Rows stay so dependent comparisons, reviews and

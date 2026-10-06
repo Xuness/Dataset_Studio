@@ -542,7 +542,7 @@ try {
     toNamespacedPath(resolve(project.directory, backup.relative_path)),
     { readOnly: true },
   );
-  assert.equal(ledger.prepare("PRAGMA user_version").get().user_version, 12);
+  assert.equal(ledger.prepare("PRAGMA user_version").get().user_version, 13);
   assert.equal(ledger.prepare("PRAGMA quick_check").get().quick_check, "ok");
   assert.equal(ledger.prepare("SELECT COUNT(*) n FROM reviews").get().n, 2);
   ledger.close();

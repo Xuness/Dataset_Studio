@@ -398,7 +398,7 @@ fn v9_upgrade_preserves_history_and_dispositions_without_replaying_old_abstentio
     let observation = db.batches(&id, 0, 10).unwrap()[0].observation.clone();
     drop(db);
     let old = Connection::open(&path).unwrap();
-    old.execute_batch("ALTER TABLE analysis_jobs DROP COLUMN deleted; ALTER TABLE analysis_jobs DROP COLUMN name; ALTER TABLE candidates DROP COLUMN unjudgeable_streak; ALTER TABLE attempts DROP COLUMN image_inputs; UPDATE candidates SET blocked=1,disposition='needs_review' WHERE ordinal=0; PRAGMA user_version=9;").unwrap();
+    old.execute_batch("ALTER TABLE analysis_jobs DROP COLUMN sort_key; ALTER TABLE analysis_jobs DROP COLUMN deleted; ALTER TABLE analysis_jobs DROP COLUMN name; ALTER TABLE candidates DROP COLUMN unjudgeable_streak; ALTER TABLE attempts DROP COLUMN image_inputs; UPDATE candidates SET blocked=1,disposition='needs_review' WHERE ordinal=0; PRAGMA user_version=9;").unwrap();
     drop(old);
     let db = EvaluationDb::open(&path).unwrap();
     assert_eq!(

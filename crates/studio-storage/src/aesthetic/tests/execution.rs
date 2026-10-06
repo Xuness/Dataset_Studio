@@ -487,7 +487,7 @@ fn image_input_v11_migration_preserves_missing_history_and_backs_up_once() {
     drop(db);
     let path = dir.path().join("evaluation.sqlite");
     let old = Connection::open(&path).unwrap();
-    old.execute_batch("ALTER TABLE attempts DROP COLUMN image_inputs; PRAGMA user_version=11;")
+    old.execute_batch("ALTER TABLE analysis_jobs DROP COLUMN sort_key; ALTER TABLE attempts DROP COLUMN image_inputs; PRAGMA user_version=11;")
         .unwrap();
     drop(old);
     let migrated = EvaluationDb::open(&path).unwrap();
@@ -507,7 +507,7 @@ fn image_input_v11_migration_preserves_missing_history_and_backs_up_once() {
             .unwrap()
             .pragma_query_value(None, "user_version", |r| r.get::<_, u32>(0))
             .unwrap(),
-        12
+        13
     );
     drop(migrated);
     let backup_paths: Vec<_> = std::fs::read_dir(dir.path().join(".backups"))

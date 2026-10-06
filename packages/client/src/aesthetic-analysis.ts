@@ -63,6 +63,18 @@ export class AestheticAnalysisClient {
       post(),
     );
   }
+  /** Rearranges listing order: to either end, or before/after another job. */
+  move(
+    pid: string,
+    id: string,
+    place: Schema["AestheticAnalysisPlace"],
+    target?: string,
+  ) {
+    return this.request<Schema["OkResponse"]>(
+      `${root(pid)}/jobs/${encodeURIComponent(id)}/move`,
+      post(target === undefined ? { place } : { place, target }),
+    );
+  }
   latestForStage(pid: string, id: string, signal?: AbortSignal) {
     return this.request<Schema["AestheticAnalysisJob"] | null>(
       `${root(pid)}/stages/${encodeURIComponent(id)}/latest-snapshot`,

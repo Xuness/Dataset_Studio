@@ -24,7 +24,7 @@ pub(crate) use project::{recover, reference_reason};
 #[cfg(test)]
 mod tests;
 
-pub const EVALUATION_SCHEMA_VERSION: u32 = 12;
+pub const EVALUATION_SCHEMA_VERSION: u32 = 13;
 
 pub struct EvaluationDb {
     path: PathBuf,

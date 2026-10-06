@@ -2618,6 +2618,54 @@
         }
       }
     },
+    "/v1/projects/{project_id}/aesthetic/analysis/jobs/{id}/move": {
+      "post": {
+        "tags": [
+          "aesthetic_analysis"
+        ],
+        "operationId": "aesthetic_analysis_move",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AestheticAnalysisMove"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/projects/{project_id}/aesthetic/analysis/jobs/{id}/remove": {
       "post": {
         "tags": [
@@ -9610,6 +9658,34 @@
           }
         },
         "additionalProperties": false
+      },
+      "AestheticAnalysisMove": {
+        "type": "object",
+        "required": [
+          "place"
+        ],
+        "properties": {
+          "place": {
+            "$ref": "#/components/schemas/AestheticAnalysisPlace"
+          },
+          "target": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "AestheticAnalysisPlace": {
+        "type": "string",
+        "description": "`first` and `last` take no target; `before` and `after` place the job next to `target`.",
+        "enum": [
+          "first",
+          "last",
+          "before",
+          "after"
+        ]
       },
       "AestheticAnalysisSpec": {
         "oneOf": [
