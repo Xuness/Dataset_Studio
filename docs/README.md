@@ -12,6 +12,8 @@
 
 数据湖更新：[工作台](decisions/0039-lake-update-workbench.md)、[内置服务与图片配方](decisions/0040-owned-lake-worker-and-image-recipes.md)、[运行环境与保存策略](../services/lake-worker/README.md)。
 
+从零建湖与按需采集：[空湖初始化与来源身份](decisions/0065-empty-lake-initialization.md)、[分阶段实施计划](plans/zero-lake-collection-2026-10-07.md)。
+
 数据湖浏览：[Booru 与通用图像排序偏好分离](decisions/0056-booru-browse-order.md)。
 
 全湖元数据排名：[批量读取与固定输入复用](decisions/0057-bulk-ranking-and-snapshot-reuse.md)、[千万级性能验收](verification/2026-10-04-metarecall-full-lake-performance.md)、[固定排名成员引用与直接分页](decisions/0058-fixed-ranking-membership-recipes.md)、[工作集保存与读取验收](verification/2026-10-04-ranked-workset-read-performance.md)、[未排名图片置底验收](verification/2026-10-04-ranked-workset-unranked-last.md)。

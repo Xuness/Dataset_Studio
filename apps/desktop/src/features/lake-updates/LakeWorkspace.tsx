@@ -152,7 +152,7 @@ export default function LakeWorkspace({
   const [error, setError] = useState<unknown>(null),
     [pending, setPending] = useState(false);
   const [target, setTarget] = useState({
-    site: "pixiv",
+    site: "danbooru",
     index_root: "",
     media_root: "",
     create: true,
@@ -764,13 +764,13 @@ export default function LakeWorkspace({
       )}
       {register && (
         <WorkbenchDialog
-          title="登记可更新的数据湖"
+          title="创建或登记数据湖"
           onClose={() => setRegister(false)}
         >
           <div className="lake-fields">
             <p>
-              {target.site === "pixiv" && target.create
-                ? "在两个独立的空目录中创建 Pixiv 数据湖。"
+              {target.create
+                ? `在两个独立的空目录中创建 ${allSites[target.site]} 数据湖，之后选择需要采集的内容。`
                 : "选择已有在线库与图片归档，登记时会核验同一湖身份。"}
             </p>
             <label>
@@ -792,22 +792,20 @@ export default function LakeWorkspace({
                 ))}
               </select>
             </label>
-            {target.site === "pixiv" && (
-              <label className="lake-check">
-                <input
-                  type="checkbox"
-                  checked={target.create}
-                  onChange={(e) =>
-                    setTarget({
-                      ...target,
-                      create: e.target.checked,
-                      requestKey: crypto.randomUUID(),
-                    })
-                  }
-                />
-                创建新的 Pixiv 空湖
-              </label>
-            )}
+            <label className="lake-check">
+              <input
+                type="checkbox"
+                checked={target.create}
+                onChange={(e) =>
+                  setTarget({
+                    ...target,
+                    create: e.target.checked,
+                    requestKey: crypto.randomUUID(),
+                  })
+                }
+              />
+              创建新的空湖
+            </label>
             <label>
               在线库目录
               <input
@@ -853,7 +851,14 @@ export default function LakeWorkspace({
                     if (target.create)
                       await client.sourceCollections.createLake(args);
                     else await client.sourceCollections.registerLake(args);
-                  } else
+                  } else if (target.create)
+                    await client.lakeUpdates.createLake({
+                      request_key: target.requestKey,
+                      site: target.site as Schema["CreateUpdateLake"]["site"],
+                      index_root: target.index_root.trim(),
+                      media_root: target.media_root.trim(),
+                    });
+                  else
                     await client.lakeUpdates.register({
                       library_id: "",
                       site: target.site as Schema["RegisterUpdateLake"]["site"],
@@ -864,8 +869,8 @@ export default function LakeWorkspace({
                 })
               }
             >
-              {target.site === "pixiv" && target.create
-                ? "创建 Pixiv 数据湖"
+              {target.create
+                ? `创建 ${allSites[target.site]} 数据湖`
                 : "核验并登记"}
             </Button>
           </div>

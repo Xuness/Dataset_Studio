@@ -479,6 +479,8 @@ def build_archive(media, output, site, *, through=None, chunk_rows=1024, stop=No
     if site not in {"danbooru", "gelbooru", "yandere"} or not 1 <= chunk_rows <= 4096:
         raise ValueError("站点或重建批次无效")
     library = read_json(media / "library.json")
+    if library.get("site") is not None and library["site"] != site:
+        raise IntegrityError("站点与归档来源不一致")
     source_plan = media / "source_manifests" / "hf-conversion-plan.json"
     if source_plan.exists() and read_json(source_plan).get("site") != site:
         raise IntegrityError("站点与归档来源不一致")

@@ -54,6 +54,10 @@ def dispatch(state, command, args):
         return {"items": [Site(name, state.credentials(name)).capabilities() for name in Site.URLS]}
     if command == "register":
         return state.register(args)
+    if command == "lake_create":
+        from .bootstrap import create
+
+        return create(state, args)
     if command == "input_create":
         return state.create_input(**args)
     if command == "input":

@@ -206,6 +206,7 @@ pub fn detected_site(root: &std::path::Path) -> Result<Option<String>> {
     type Cache = HashMap<std::path::PathBuf, (u64, SystemTime, String)>;
     static CACHE: OnceLock<Mutex<Cache>> = OnceLock::new();
     let root = root.canonicalize().map_err(Error::io)?;
+    let mut declared_site = None;
     let library_path = root.join("library.json");
     if library_path.metadata().is_ok_and(|m| m.len() <= 16384) {
         let library: serde_json::Value =
@@ -220,11 +221,22 @@ pub fn detected_site(root: &std::path::Path) -> Result<Option<String>> {
             }
             return Ok(Some("pixiv".into()));
         }
+        if library["format_version"] == 1 && !library["site"].is_null() {
+            let kind = library["site"]
+                .as_str()
+                .filter(|kind| matches!(*kind, "danbooru" | "yandere" | "gelbooru"));
+            declared_site = Some(
+                kind.ok_or_else(|| {
+                    Error::new("SOURCE_FORMAT_UNSUPPORTED", "归档声明的 Booru 站点无效")
+                })?
+                .to_owned(),
+            );
+        }
     }
     let path = root.join("source_manifests/hf-conversion-plan.json");
     let meta = match path.metadata() {
         Ok(meta) => meta,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(declared_site),
         Err(e) => return Err(Error::io(e)),
     };
     if !meta.is_file() || meta.len() > 2 << 20 {
@@ -244,6 +256,12 @@ pub fn detected_site(root: &std::path::Path) -> Result<Option<String>> {
         && *bytes == meta.len()
         && *stamp == modified
     {
+        if declared_site.as_ref().is_some_and(|site| site != kind) {
+            return Err(Error::new(
+                "SOURCE_SITE_MISMATCH",
+                "归档与导入清单的站点不一致",
+            ));
+        }
         return Ok(Some(kind.clone()));
     }
     #[derive(serde::Deserialize)]
@@ -255,6 +273,15 @@ pub fn detected_site(root: &std::path::Path) -> Result<Option<String>> {
         .map_err(|e| Error::new("SOURCE_FORMAT_ERROR", format!("来源清单无效：{e}")))?;
     let profile = site(&manifest.site)
         .ok_or_else(|| Error::new("SOURCE_FORMAT_UNSUPPORTED", "来源清单中的站点尚未注册"))?;
+    if declared_site
+        .as_ref()
+        .is_some_and(|site| site != &manifest.site)
+    {
+        return Err(Error::new(
+            "SOURCE_SITE_MISMATCH",
+            "归档与导入清单的站点不一致",
+        ));
+    }
     if profile.normalizer != Some(manifest.normalizer.as_str()) {
         return Err(Error::new(
             "SOURCE_FORMAT_UNSUPPORTED",
@@ -279,8 +306,48 @@ pub fn validate_site(root: &std::path::Path, kind: &str) -> Result<()> {
         )),
         None if profile.normalizer.is_some() => Err(Error::new(
             "SOURCE_SITE_UNKNOWN",
-            "缺少已转换数据湖的站点来源清单",
+            "缺少数据湖站点声明或原导入来源清单",
         )),
         _ => Ok(()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_lake_site_does_not_require_import_provenance() {
+        let parent =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/test-runs");
+        std::fs::create_dir_all(&parent).unwrap();
+        let root = tempfile::Builder::new()
+            .prefix("empty-lake-site-")
+            .tempdir_in(parent)
+            .unwrap();
+        std::fs::write(
+            root.path().join("library.json"),
+            br#"{"format_version":1,"site":"yandere"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            detected_site(root.path()).unwrap().as_deref(),
+            Some("yandere")
+        );
+        validate_site(root.path(), "yandere").unwrap();
+        assert_eq!(
+            validate_site(root.path(), "danbooru").unwrap_err().code,
+            "SOURCE_SITE_MISMATCH"
+        );
+        std::fs::create_dir(root.path().join("source_manifests")).unwrap();
+        std::fs::write(
+            root.path().join("source_manifests/hf-conversion-plan.json"),
+            br#"{"site":"gelbooru","normalizer":"hf_gelbooru_v1"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            detected_site(root.path()).unwrap_err().code,
+            "SOURCE_SITE_MISMATCH"
+        );
     }
 }

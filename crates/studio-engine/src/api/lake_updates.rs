@@ -109,6 +109,13 @@ pub(super) async fn register(
 ) -> ApiResult<UpdateLake> {
     invoke(s, Op::Register, json!(body)).await
 }
+#[utoipa::path(post,path="/v1/lake-updates/lakes/create",request_body=CreateUpdateLake,responses((status=200,body=UpdateLake)),operation_id="lake_updates_create_lake")]
+pub(super) async fn create_lake(
+    State(s): State<AppState>,
+    Body(body): Body<CreateUpdateLake>,
+) -> ApiResult<UpdateLake> {
+    invoke(s, Op::LakeCreate, json!(body)).await
+}
 #[utoipa::path(put,path="/v1/lake-updates/credentials",request_body=SetLakeCredentials,responses((status=200,body=LakeCredentialStatus)),operation_id="lake_updates_credentials")]
 pub(super) async fn credentials(
     State(s): State<AppState>,
@@ -265,6 +272,7 @@ pub(super) fn routes() -> axum::Router<AppState> {
         .route("/pipeline", get(pipeline).put(save_pipeline))
         .route("/capabilities", get(capabilities))
         .route("/lakes", get(lakes).post(register))
+        .route("/lakes/create", post(create_lake))
         .route("/credentials", axum::routing::put(credentials))
         .route("/credentials/{site}/clear", post(clear_credentials))
         .route("/probes/{site}", post(probe))

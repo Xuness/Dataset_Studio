@@ -115,6 +115,12 @@ export class LakeUpdateClient {
       body: JSON.stringify(target),
     });
   }
+  createLake(target: Schema["CreateUpdateLake"]) {
+    return this.request<Schema["UpdateLake"]>(`${base}/lakes/create`, {
+      method: "POST",
+      body: JSON.stringify(target),
+    });
+  }
   setCredentials(value: Schema["SetLakeCredentials"]) {
     return this.request<Schema["LakeCredentialStatus"]>(`${base}/credentials`, {
       method: "PUT",

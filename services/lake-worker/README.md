@@ -1,6 +1,8 @@
 # Studio 数据湖更新服务
 
-本模块由 Dataset Studio 仓库维护，负责 Danbooru、Yandere、Gelbooru 的 API 更新，以及 Pixiv 作者与作品采集，提供原文保留、图片处理、持久任务、调度、归档及在线发布。Rust 引擎负责应用生命周期和 HTTP 接口，React 工作台只使用公开 SDK。Pixiv 前端暂缓，独立命令与 API 使用见[来源采集接入](../../docs/architecture/source-collections.md)。
+本模块由 Dataset Studio 仓库维护，负责 Danbooru、Yandere、Gelbooru 的 API 更新，以及 Pixiv 作者与作品采集，提供原文保留、图片处理、持久任务、调度、归档及在线发布。Rust 引擎负责应用生命周期和 HTTP 接口，React 工作台只使用公开 SDK。Pixiv 界面、独立命令与 API 使用见[来源采集接入](../../docs/architecture/source-collections.md)。
+
+四个站点都可以在数据湖工作台选择“创建新的空湖”，填写独立的图片归档目录和在线目录后，从 ID、ID 区间或 Pixiv 作者/作品开始采集。已有湖选择“核验并登记”。创建过程不联网，失败后保持相同提交内容重试即可接续；未知非空目录不会被覆盖。Booru 公共入口为 `POST /v1/lake-updates/lakes/create` 和 `client.lakeUpdates.createLake({request_key, site, media_root, index_root})`；无需旧生产者索引或发行归档。身份与恢复规则见 [0065](../../docs/decisions/0065-empty-lake-initialization.md)。
 
 归档重建、旧任务交接及生产者索引退役使用 `node tooling/lake-storage.mjs`。它直接使用本仓库服务源码和已配置测试/维护解释器；重建仅写独立准备目录，退役默认预览，`--apply` 才回收清单内文件。完整边界与操作顺序见 [0050](../../docs/decisions/0050-archive-rebuild-and-producer-retirement.md)。
 

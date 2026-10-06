@@ -862,6 +862,36 @@
         }
       }
     },
+    "/v1/lake-updates/lakes/create": {
+      "post": {
+        "tags": [
+          "lake_updates"
+        ],
+        "operationId": "lake_updates_create_lake",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateUpdateLake"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateLake"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/lake-updates/pipeline": {
       "get": {
         "tags": [
@@ -15553,6 +15583,30 @@
               "string",
               "null"
             ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "CreateUpdateLake": {
+        "type": "object",
+        "required": [
+          "request_key",
+          "site",
+          "media_root",
+          "index_root"
+        ],
+        "properties": {
+          "index_root": {
+            "type": "string"
+          },
+          "media_root": {
+            "type": "string"
+          },
+          "request_key": {
+            "type": "string"
+          },
+          "site": {
+            "$ref": "#/components/schemas/LakeUpdateSite"
           }
         },
         "additionalProperties": false

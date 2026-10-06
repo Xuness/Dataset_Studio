@@ -316,7 +316,8 @@ try {
   await expect(page.locator(".lake-outline")).toContainText("Pixiv");
   await expect(page.locator(".lake-table")).toContainText("公开范围完成");
   await page.getByRole("button", { name: "登记数据湖", exact: true }).click();
-  let dialog = page.getByRole("dialog", { name: "登记可更新的数据湖" });
+  let dialog = page.getByRole("dialog", { name: "创建或登记数据湖" });
+  await dialog.getByLabel("站点", { exact: true }).selectOption("pixiv");
   await dialog
     .getByLabel("在线库目录", { exact: true })
     .fill(resolve(run, "created-online"));

@@ -367,6 +367,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/lake-updates/lakes/create": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["lake_updates_create_lake"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/lake-updates/pipeline": {
         parameters: {
             query?: never;
@@ -4902,6 +4918,12 @@ export interface components {
             name: string;
             parent_directory?: string | null;
         };
+        CreateUpdateLake: {
+            index_root: string;
+            media_root: string;
+            request_key: string;
+            site: components["schemas"]["LakeUpdateSite"];
+        };
         DeleteSchedule: {
             /** Format: int64 */
             revision: number;
@@ -7945,6 +7967,29 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["RegisterUpdateLake"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdateLake"];
+                };
+            };
+        };
+    };
+    lake_updates_create_lake: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateUpdateLake"];
             };
         };
         responses: {

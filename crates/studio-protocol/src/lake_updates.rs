@@ -279,6 +279,14 @@ pub struct RegisterUpdateLake {
     pub index_root: String,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CreateUpdateLake {
+    pub request_key: String,
+    pub site: LakeUpdateSite,
+    pub media_root: String,
+    pub index_root: String,
+}
+#[derive(Serialize, Deserialize, ToSchema)]
 pub struct UpdateLake {
     pub id: String,
     pub site: LakeUpdateSite,

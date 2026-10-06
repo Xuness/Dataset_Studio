@@ -225,6 +225,36 @@ try {
     checks.push(
       "immutable input, schedule revision checks, restart recovery and worker supervision",
     );
+    const emptyProject = await client.createProject({ name: "Empty lakes" });
+    for (const site of ["danbooru", "yandere", "gelbooru"]) {
+      const args = {
+        request_key: crypto.randomUUID(),
+        site,
+        media_root: resolve(runDir, "empty", site, "archive"),
+        index_root: resolve(runDir, "empty", site, "online"),
+      };
+      const lake = await client.lakeUpdates.createLake(args);
+      assert.equal((await client.lakeUpdates.createLake(args)).id, lake.id);
+      const source = await client.sourceAccess.attach(emptyProject.id, {
+        kind: "auto",
+        name: site,
+        media_root: args.media_root,
+        index_root: args.index_root,
+      });
+      assert.equal(source.id, lake.id);
+      assert.equal(source.count, 0);
+      const pointer = JSON.parse(
+        await readFile(resolve(args.index_root, "ONLINE.json"), "utf8"),
+      );
+      assert.equal(pointer.schema_version, 2);
+      await assert.rejects(
+        stat(resolve(args.index_root, "CURRENT.json")),
+        (error) => error.code === "ENOENT",
+      );
+    }
+    checks.push(
+      "three empty lakes created and attached through SDK; stable identity and no producer index",
+    );
   } else {
     checks.push(
       "Worker integration skipped: run setup-lake-worker.ps1 or set STUDIO_LAKE_TEST_PYTHON",
