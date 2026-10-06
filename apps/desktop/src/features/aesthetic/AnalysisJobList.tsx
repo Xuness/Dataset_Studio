@@ -5,14 +5,24 @@ import {
   ErrorDetails,
   MoreMenu,
   startObjectDrag,
+  useDropZone,
+  useObjectDragging,
   WorkbenchDialog,
 } from "@studio/ui";
-import type { DragObject, ModuleContext, MoreMenuItem } from "@studio/ui";
+import type {
+  DragObject,
+  DropLocate,
+  ModuleContext,
+  MoreMenuItem,
+} from "@studio/ui";
 import type { Schema } from "@studio/contracts";
 import { analysisActive } from "./analysisPresentation.js";
 
 type Job = Schema["AestheticAnalysisJob"];
+type Place = Schema["AestheticAnalysisPlace"];
+type Move = { id: string; place: Place; target?: string };
 const SNAPSHOT = "aesthetic.snapshot";
+const JOB = "aesthetic.job";
 export const isSnapshot = (job: Job) =>
   job.state === "completed" && job.result?.kind === "fit";
 export const acceptsSnapshot = (object: DragObject) => object.kind === SNAPSHOT;
@@ -22,11 +32,32 @@ const noun = (job: Job) =>
     : job.request.spec.kind === "compare"
       ? "对照记录"
       : "离线任务";
-const snapshotDrag = (job: Job): DragObject => ({
-  kind: SNAPSHOT,
+// Snapshots keep their own kind so canvases and comparison slots accept them.
+const jobDrag = (job: Job): DragObject => ({
+  kind: isSnapshot(job) ? SNAPSHOT : JOB,
   id: job.id,
   label: job.request.name,
 });
+const rowHalf: DropLocate = (rect, _x, y) =>
+  y < rect.top + rect.height / 2 ? "before" : "after";
+/** Applies a pending move locally so a dropped row lands before the refetch. */
+function arranged(items: Job[], move: Move | null) {
+  if (!move) return items;
+  const job = items.find((j) => j.id === move.id);
+  const rest = items.filter((j) => j.id !== move.id);
+  if (!job) return items;
+  const target = rest.findIndex((j) => j.id === move.target);
+  const at =
+    move.place === "first"
+      ? 0
+      : move.place === "last"
+        ? rest.length
+        : target < 0
+          ? -1
+          : target + (move.place === "after" ? 1 : 0);
+  if (at < 0) return items;
+  return [...rest.slice(0, at), job, ...rest.slice(at)];
+}
 /** Single-job queries whose display name or listing a rename/removal changes. */
 const jobQueries = [
   "analysis-jobs",
@@ -37,7 +68,7 @@ const jobQueries = [
 ];
 
 export type AnalysisJobEditing = ReturnType<typeof useAnalysisJobEditing>;
-/** Rename and removal state shared by every job row in one workspace. */
+/** Rename, removal and ordering state shared by every job row in one workspace. */
 export function useAnalysisJobEditing(
   { client, projectId }: ModuleContext,
   onRemoved?: (job: Job) => void,
@@ -50,6 +81,7 @@ export function useAnalysisJobEditing(
   const [error, setError] = useState<unknown>(null);
   // Hide removals at once; a stale page must not reselect a removed snapshot.
   const [removed, setRemoved] = useState<ReadonlySet<string>>(new Set());
+  const [moving, setMoving] = useState<Move | null>(null);
   async function refresh() {
     await Promise.all(
       jobQueries.map((key) =>
@@ -69,6 +101,24 @@ export function useAnalysisJobEditing(
       await refresh();
     } catch (failure) {
       setError(failure);
+    }
+  }
+  async function move(next: Move) {
+    if (moving) return;
+    setMoving(next);
+    setError(null);
+    try {
+      await client.aesthetic.analysis.move(
+        projectId,
+        next.id,
+        next.place,
+        next.target,
+      );
+      await refresh();
+    } catch (failure) {
+      setError(failure);
+    } finally {
+      setMoving(null);
     }
   }
   async function remove() {
@@ -131,17 +181,28 @@ export function useAnalysisJobEditing(
     },
     removable: (job: Job) => !analysisActive(job.state),
     visible: (job: Job) => !removed.has(job.id),
+    /** Listing order, including a move that is still being saved. */
+    arrange: (items: Job[]) => arranged(items, moving),
+    moving: moving !== null,
+    move: (job: Job, place: Place, target?: Job) =>
+      void move({
+        id: job.id,
+        place,
+        ...(target ? { target: target.id } : {}),
+      }),
   };
 }
 
 /**
  * One offline job in an outliner: click opens, F2 or double-click renames,
- * Delete asks to remove, right-click opens the menu, and a published
- * snapshot can be dragged onto a drop zone.
+ * Delete asks to remove, right-click opens the menu. Dragging a row onto
+ * another row of the same list, or Alt+Up/Down, rearranges the order; a
+ * published snapshot can also be dragged onto a drop zone.
  */
 export function AnalysisJobRow({
   list,
   job,
+  siblings,
   edit,
   icon,
   detail,
@@ -154,6 +215,8 @@ export function AnalysisJobRow({
   /** Distinguishes rows of the same job in different lists. */
   list: string;
   job: Job;
+  /** The rows of this list in display order; drags reorder among them. */
+  siblings: Job[];
   edit: AnalysisJobEditing;
   icon?: ReactNode;
   detail?: ReactNode;
@@ -169,6 +232,32 @@ export function AnalysisJobRow({
   const removable = edit.removable(job);
   const main = useRef<HTMLButtonElement>(null);
   const wasEditing = useRef(false);
+  const index = siblings.findIndex((j) => j.id === job.id);
+  const previous = index > 0 ? siblings[index - 1] : undefined;
+  const next = index >= 0 ? siblings[index + 1] : undefined;
+  const dragged = useObjectDragging();
+  // Dropping a row beside its current neighbour leaves the order unchanged.
+  const unchanged = (id: string, place: string | null) => {
+    const from = siblings.findIndex((j) => j.id === id);
+    return place === "before" ? from === index - 1 : from === index + 1;
+  };
+  const drop = useDropZone(
+    (object) =>
+      (object.kind === SNAPSHOT || object.kind === JOB) &&
+      object.id !== job.id &&
+      siblings.some((j) => j.id === object.id),
+    (object, place) => {
+      const source = siblings.find((j) => j.id === object.id);
+      if (!source || unchanged(object.id, place)) return;
+      edit.move(source, place === "before" ? "before" : "after", job);
+    },
+    editing || edit.moving,
+    rowHalf,
+  );
+  const insertion =
+    drop.dragging && !unchanged(drop.dragging.id, drop.place)
+      ? drop.place
+      : null;
   useEffect(() => {
     // Keep keyboard focus on the row once the inline editor closes, unless
     // the user already moved it elsewhere by clicking.
@@ -179,8 +268,11 @@ export function AnalysisJobRow({
   }, [editing]);
   return (
     <div
+      {...drop.props}
       className="analysis-row"
       data-pressed={pressed || undefined}
+      data-drop={insertion ?? undefined}
+      data-dragged={dragged?.id === job.id || undefined}
       title={name}
     >
       {editing ? (
@@ -201,10 +293,16 @@ export function AnalysisJobRow({
           disabled={disabled}
           onClick={onOpen}
           onDoubleClick={() => edit.startRename(list, job)}
-          onPointerDown={(event) => {
-            if (isSnapshot(job)) startObjectDrag(event, snapshotDrag(job));
-          }}
+          onPointerDown={(event) => startObjectDrag(event, jobDrag(job))}
           onKeyDown={(event) => {
+            if (event.altKey && event.key === "ArrowUp" && previous) {
+              event.preventDefault();
+              edit.move(job, "before", previous);
+            }
+            if (event.altKey && event.key === "ArrowDown" && next) {
+              event.preventDefault();
+              edit.move(job, "after", next);
+            }
             if (event.key === "F2") {
               event.preventDefault();
               edit.startRename(list, job);
@@ -230,9 +328,32 @@ export function AnalysisJobRow({
         items={[
           ...actions,
           {
+            label: "上移",
+            shortcut: "Alt+↑",
+            separator: actions.length > 0,
+            disabled: !previous || edit.moving,
+            action: () => previous && edit.move(job, "before", previous),
+          },
+          {
+            label: "下移",
+            shortcut: "Alt+↓",
+            disabled: !next || edit.moving,
+            action: () => next && edit.move(job, "after", next),
+          },
+          {
+            label: "移到最前",
+            disabled: edit.moving,
+            action: () => edit.move(job, "first"),
+          },
+          {
+            label: "移到最后",
+            disabled: edit.moving,
+            action: () => edit.move(job, "last"),
+          },
+          {
             label: "重命名",
             shortcut: "F2",
-            separator: actions.length > 0,
+            separator: true,
             action: () => edit.startRename(list, job),
           },
           {

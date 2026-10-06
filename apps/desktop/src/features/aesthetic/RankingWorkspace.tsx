@@ -130,7 +130,7 @@ export function RankingWorkspace({
     if (job.id === saved.snapshotId)
       selectSnapshot(snapshots.find((s) => s.id !== job.id)?.id ?? "");
   });
-  const jobItems = jobs.data?.items.filter(edit.visible) ?? [];
+  const jobItems = edit.arrange(jobs.data?.items.filter(edit.visible) ?? []);
   const snapshots = jobItems.filter(isSnapshot);
   const firstId = snapshots[0]?.id;
   useEffect(() => {
@@ -421,6 +421,7 @@ export function RankingWorkspace({
             <AnalysisJobRow
               key={job.id}
               job={job}
+              siblings={snapshots}
               edit={edit}
               list="snapshots"
               icon={<ListOrdered size={15} />}
@@ -476,6 +477,7 @@ export function RankingWorkspace({
             <AnalysisJobRow
               key={job.id}
               job={job}
+              siblings={jobItems}
               edit={edit}
               list="jobs"
               icon={<Timer size={14} />}

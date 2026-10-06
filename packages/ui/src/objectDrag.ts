@@ -7,11 +7,15 @@ import type { PointerEvent as ReactPointerEvent } from "react";
  * drag in Workbench: a 6px threshold, a floating ghost and Escape to cancel.
  */
 export type DragObject = { kind: string; id: string; label: string };
+/** Optional sub-target inside a zone, such as "before" or "after" a list row. */
+export type DropLocate = (rect: DOMRect, x: number, y: number) => string | null;
 type Zone = {
   accepts: (object: DragObject) => boolean;
-  drop: (object: DragObject) => void;
+  drop: (object: DragObject, place: string | null) => void;
+  locate: DropLocate | undefined;
 };
-type DragSnapshot = { object: DragObject; over: string | null } | null;
+type Target = { over: string | null; place: string | null };
+type DragSnapshot = ({ object: DragObject } & Target) | null;
 
 const zones = new Map<string, Zone>();
 const listeners = new Set<() => void>();
@@ -24,11 +28,18 @@ function subscribe(listener: () => void) {
   listeners.add(listener);
   return () => listeners.delete(listener);
 }
-function zoneAt(object: DragObject, x: number, y: number) {
-  const id = document
+function targetAt(object: DragObject, x: number, y: number): Target {
+  const element = document
     .elementFromPoint(x, y)
-    ?.closest<HTMLElement>("[data-drop-zone]")?.dataset.dropZone;
-  return id && zones.get(id)?.accepts(object) ? id : null;
+    ?.closest<HTMLElement>("[data-drop-zone]");
+  const id = element?.dataset.dropZone;
+  const zone = id ? zones.get(id) : undefined;
+  if (!element || !id || !zone?.accepts(object))
+    return { over: null, place: null };
+  return {
+    over: id,
+    place: zone.locate?.(element.getBoundingClientRect(), x, y) ?? null,
+  };
 }
 
 /** Start dragging `object` from a pointerdown; a plain click stays a click. */
@@ -48,9 +59,13 @@ export function startObjectDrag(event: ReactPointerEvent, object: DragObject) {
     }
     ghost.style.left = e.clientX + 12 + "px";
     ghost.style.top = e.clientY + 10 + "px";
-    const over = zoneAt(object, e.clientX, e.clientY);
-    if (current?.over !== over || current.object !== object)
-      publish({ object, over });
+    const target = targetAt(object, e.clientX, e.clientY);
+    if (
+      current?.object !== object ||
+      current.over !== target.over ||
+      current.place !== target.place
+    )
+      publish({ object, ...target });
   };
   const stop = (commit: boolean, e?: PointerEvent) => {
     window.removeEventListener("pointermove", move);
@@ -60,7 +75,10 @@ export function startObjectDrag(event: ReactPointerEvent, object: DragObject) {
     if (!ghost) return;
     ghost.remove();
     delete document.body.dataset.objectDragging;
-    const over = commit && e ? zoneAt(object, e.clientX, e.clientY) : null;
+    const target =
+      commit && e
+        ? targetAt(object, e.clientX, e.clientY)
+        : { over: null, place: null };
     publish(null);
     // The release would otherwise click whatever row the drag started on.
     const swallow = (click: MouseEvent) => {
@@ -69,7 +87,7 @@ export function startObjectDrag(event: ReactPointerEvent, object: DragObject) {
     };
     window.addEventListener("click", swallow, { capture: true, once: true });
     setTimeout(() => window.removeEventListener("click", swallow, true), 0);
-    if (over) zones.get(over)?.drop(object);
+    if (target.over) zones.get(target.over)?.drop(object, target.place);
   };
   const up = (e: PointerEvent) => stop(true, e);
   const cancel = () => stop(false);
@@ -88,20 +106,24 @@ export function startObjectDrag(event: ReactPointerEvent, object: DragObject) {
 /**
  * Register a drop zone. Spread `props` on the target element; `active` is true
  * while an acceptable object is being dragged and `over` while it is above.
+ * `locate` splits the zone, e.g. into the halves of a row; `place` reports the
+ * part under the pointer and is passed to `drop`.
  */
 export function useDropZone(
   accepts: (object: DragObject) => boolean,
-  drop: (object: DragObject) => void,
+  drop: (object: DragObject, place: string | null) => void,
   disabled = false,
+  locate?: DropLocate,
 ) {
   const id = useId();
-  const latest = useRef<Zone>({ accepts, drop });
-  latest.current = { accepts, drop };
+  const latest = useRef({ accepts, drop, locate });
+  latest.current = { accepts, drop, locate };
   useEffect(() => {
     if (disabled) return;
     zones.set(id, {
       accepts: (object) => latest.current.accepts(object),
-      drop: (object) => latest.current.drop(object),
+      drop: (object, place) => latest.current.drop(object, place),
+      locate: (rect, x, y) => latest.current.locate?.(rect, x, y) ?? null,
     });
     return () => {
       zones.delete(id);
@@ -109,10 +131,12 @@ export function useDropZone(
   }, [id, disabled]);
   const state = useSyncExternalStore(subscribe, () => current);
   const active = !disabled && !!state && accepts(state.object);
+  const over = active && state?.over === id;
   return {
     props: { "data-drop-zone": id },
     active,
-    over: active && state?.over === id,
+    over,
+    place: over ? (state?.place ?? null) : null,
     dragging: state?.object ?? null,
   };
 }

@@ -64,7 +64,7 @@ export {
   useDropZone,
   useObjectDragging,
 } from "./objectDrag.js";
-export type { DragObject } from "./objectDrag.js";
+export type { DragObject, DropLocate } from "./objectDrag.js";
 export type { MoreMenuItem, ContextMenuState } from "./MoreMenu.js";
 export { TooltipLayer } from "./Tooltip.js";
 export { NotificationStack } from "./Notifications.js";

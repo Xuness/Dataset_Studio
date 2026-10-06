@@ -192,3 +192,5 @@ OpenRouter 提示词缓存与计费观测：[缓存策略、严格 Flex 和回�
 评审阶段资源限制：[按阶段内存预算、在途降额与写入背压](decisions/0061-aesthetic-stage-resource-limits.md)。
 
 离线任务管理：[任务改名、删除标记与快照拖放](decisions/0062-aesthetic-job-names-removal-and-drag.md)。
+
+离线任务排序：[账本中的自定义顺序与列表拖动排序](decisions/0064-aesthetic-job-order.md)。

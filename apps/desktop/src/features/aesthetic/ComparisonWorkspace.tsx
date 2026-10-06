@@ -228,7 +228,9 @@ export function ComparisonWorkspace({
         .map((j) => [j.id, j]),
     ).values(),
   ];
-  const listed = jobs.data?.items.filter(edit.visible) ?? [];
+  const listed = edit.arrange(jobs.data?.items.filter(edit.visible) ?? []);
+  const listedSnapshots = listed.filter(isSnapshot);
+  const comparisons = listed.filter((j) => j.request.spec.kind === "compare");
   function assign(side: Side, id: string) {
     if (!draft.editable || busy) return;
     draft.controller.set((old) => ({
@@ -362,10 +364,11 @@ export function ComparisonWorkspace({
           排名快照 <small>拖到 A / B 对比区</small>
         </summary>
         <div className="ranking-snapshot-list">
-          {listed.filter(isSnapshot).map((j) => (
+          {listedSnapshots.map((j) => (
             <AnalysisJobRow
               key={j.id}
               job={j}
+              siblings={listedSnapshots}
               edit={edit}
               list="snapshots"
               icon={<ListOrdered size={15} />}
@@ -400,22 +403,21 @@ export function ComparisonWorkspace({
           对照记录 <small>当前任务页</small>
         </summary>
         <div className="ranking-snapshot-list">
-          {listed
-            .filter((j) => j.request.spec.kind === "compare")
-            .map((j) => (
-              <AnalysisJobRow
-                key={j.id}
-                job={j}
-                edit={edit}
-                list="comparisons"
-                icon={<GitCompareArrows size={15} />}
-                detail={analysisState(j.state)}
-                pressed={j.id === saved.jobId}
-                disabled={busy || !draft.editable}
-                onOpen={() => choose(j)}
-                actions={[{ label: "打开对照", action: () => choose(j) }]}
-              />
-            ))}
+          {comparisons.map((j) => (
+            <AnalysisJobRow
+              key={j.id}
+              job={j}
+              siblings={comparisons}
+              edit={edit}
+              list="comparisons"
+              icon={<GitCompareArrows size={15} />}
+              detail={analysisState(j.state)}
+              pressed={j.id === saved.jobId}
+              disabled={busy || !draft.editable}
+              onOpen={() => choose(j)}
+              actions={[{ label: "打开对照", action: () => choose(j) }]}
+            />
+          ))}
         </div>
         {paging}
       </details>
