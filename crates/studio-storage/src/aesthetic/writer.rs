@@ -59,7 +59,7 @@ impl Writer {
                     |r| r.get(0),
                 )
                 .map_err(db_error)?;
-            if version > 10 || (version == 0 && occupied) {
+            if version > 11 || (version == 0 && occupied) {
                 return Err(Error::new("FORMAT_UNSUPPORTED", "评审账本版本不兼容"));
             }
             if occupied {
@@ -78,7 +78,7 @@ impl Writer {
         let version: u32 = db
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .map_err(db_error)?;
-        if version > 0 && version < 10 {
+        if version > 0 && version < 11 {
             let parent = path
                 .parent()
                 .ok_or_else(|| Error::invalid("评审路径无效"))?;
@@ -92,7 +92,7 @@ impl Writer {
                 return Err(Error::invalid("评审备份目录必须在项目内"));
             }
             let destination = directory.join(format!(
-                "evaluation-v{version}-to-v10-{}-{}.sqlite",
+                "evaluation-v{version}-to-v11-{}-{}.sqlite",
                 crate::now(),
                 studio_domain::new_id()
             ));
@@ -120,7 +120,7 @@ impl Writer {
                 .sync_all()
                 .map_err(Error::io)?;
         }
-        if version < 10 {
+        if version < 11 {
             let tx = db.transaction().map_err(db_error)?;
             if version == 0 {
                 tx.execute_batch(include_str!("schema.sql"))
@@ -158,7 +158,11 @@ impl Writer {
                 tx.execute_batch(include_str!("schema_v9.sql"))
                     .map_err(db_error)?;
             }
-            tx.execute_batch(include_str!("schema_v10.sql"))
+            if version < 10 {
+                tx.execute_batch(include_str!("schema_v10.sql"))
+                    .map_err(db_error)?;
+            }
+            tx.execute_batch(include_str!("schema_v11.sql"))
                 .map_err(db_error)?;
             let violations = tx
                 .prepare("PRAGMA foreign_key_check")
@@ -173,7 +177,7 @@ impl Writer {
                 ));
             }
             tx.commit().map_err(db_error)?;
-        } else if version != 10 {
+        } else if version != 11 {
             return Err(Error::new("FORMAT_UNSUPPORTED", "评审账本版本不兼容"));
         }
         // A new writer is created only under the exclusive project lease.

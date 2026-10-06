@@ -109,6 +109,77 @@ fn frozen_watermark_excludes_later_paid_results_and_rebuild_is_idempotent() {
     assert_eq!(db.stage(&stage).unwrap().attempts, 2);
 }
 #[test]
+fn renamed_and_removed_jobs_keep_frozen_requests_and_dependents() {
+    let (_dir, db, stage) = fixture(32);
+    let (a, aid) = sent(&db, &stage);
+    db.receive(&stage, &aid, receipt(&a)).unwrap();
+    db.parse_received(&stage).unwrap();
+    let request = fit_request(&stage);
+    let running = db.analysis_create(request.clone()).unwrap();
+    assert_eq!(
+        db.analysis_remove(&running.id).unwrap_err().code,
+        "REVISION_CONFLICT"
+    );
+    let left = complete(&db, &running.id);
+    let right = complete(&db, &db.analysis_create(fit_request(&stage)).unwrap().id);
+    assert_eq!(
+        db.analysis_rename(&left.id, "  基准  ")
+            .unwrap()
+            .request
+            .name,
+        "基准"
+    );
+    // Idempotent retries still match the frozen request, but report the new name.
+    assert_eq!(db.analysis_create(request).unwrap().request.name, "基准");
+    assert_eq!(
+        db.analysis_rename(&left.id, " ").unwrap_err().code,
+        "INVALID_INPUT"
+    );
+    let compare = db
+        .analysis_create(AestheticAnalysisCreate {
+            idempotency_key: new_id(),
+            name: "对照".into(),
+            spec: AestheticAnalysisSpec::Compare {
+                left: left.id.clone(),
+                right: right.id.clone(),
+            },
+        })
+        .unwrap();
+    db.analysis_remove(&right.id).unwrap();
+    let listed: Vec<_> = db
+        .analysis_jobs("", None, 50)
+        .unwrap()
+        .into_iter()
+        .map(|j| j.id)
+        .collect();
+    assert!(listed.contains(&left.id) && listed.contains(&compare.id));
+    assert!(!listed.contains(&right.id));
+    assert_eq!(
+        db.latest_stage_snapshot(&stage).unwrap().unwrap().id,
+        left.id
+    );
+    // Existing references stay readable; new jobs cannot start from a removed snapshot.
+    assert_eq!(db.ranking_snapshot(&right.id).unwrap().id, right.id);
+    assert_eq!(db.analysis_job(&compare.id).unwrap().state, "queued");
+    assert_eq!(
+        db.analysis_create(AestheticAnalysisCreate {
+            idempotency_key: new_id(),
+            name: "对照".into(),
+            spec: AestheticAnalysisSpec::Compare {
+                left: left.id.clone(),
+                right: right.id.clone(),
+            },
+        })
+        .unwrap_err()
+        .code,
+        "NOT_FOUND"
+    );
+    assert_eq!(
+        db.analysis_rename(&right.id, "改名").unwrap_err().code,
+        "NOT_FOUND"
+    );
+}
+#[test]
 fn partial_projection_recovers_without_publishing_or_network_retries() {
     let (dir, db, stage) = fixture(16);
     let (batch, attempt) = sent(&db, &stage);

@@ -49,6 +49,20 @@ export class AestheticAnalysisClient {
       post({ action }),
     );
   }
+  /** Changes only the displayed `request.name`; the frozen request is kept. */
+  rename(pid: string, id: string, name: string) {
+    return this.request<Schema["AestheticAnalysisJob"]>(
+      `${root(pid)}/jobs/${encodeURIComponent(id)}/metadata`,
+      post({ name }),
+    );
+  }
+  /** Hides a finished job from listings and new inputs; dependents stay readable. */
+  remove(pid: string, id: string) {
+    return this.request<Schema["OkResponse"]>(
+      `${root(pid)}/jobs/${encodeURIComponent(id)}/remove`,
+      post(),
+    );
+  }
   latestForStage(pid: string, id: string, signal?: AbortSignal) {
     return this.request<Schema["AestheticAnalysisJob"] | null>(
       `${root(pid)}/stages/${encodeURIComponent(id)}/latest-snapshot`,

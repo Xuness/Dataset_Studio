@@ -19,6 +19,11 @@ struct Page {
 pub struct AestheticAnalysisControl {
     action: String,
 }
+#[derive(Deserialize, utoipa::ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct AestheticAnalysisMetadata {
+    name: String,
+}
 #[derive(Serialize, utoipa::ToSchema)]
 pub struct AestheticAnalysisJobs {
     items: Vec<AestheticAnalysisJob>,
@@ -249,6 +254,29 @@ async fn control(
     }
     Ok(Json(dispatch(&s, &pid, item).await?))
 }
+#[utoipa::path(operation_id="aesthetic_analysis_metadata",post,path="/jobs/{id}/metadata",params(("project_id"=String,Path),("id"=String,Path)),request_body=AestheticAnalysisMetadata,responses((status=200,body=AestheticAnalysisJob)))]
+async fn metadata(
+    State(s): State<AppState>,
+    Path((pid, id)): Path<(String, String)>,
+    Body(value): Body<AestheticAnalysisMetadata>,
+) -> ApiResult<AestheticAnalysisJob> {
+    Ok(Json(wire(
+        blocking(move || s.store.evaluation(&pid)?.analysis_rename(&id, &value.name)).await?,
+    )?))
+}
+#[utoipa::path(operation_id="aesthetic_analysis_remove",post,path="/jobs/{id}/remove",params(("project_id"=String,Path),("id"=String,Path)),responses((status=200,body=OkResponse)))]
+async fn remove(
+    State(s): State<AppState>,
+    Path((pid, id)): Path<(String, String)>,
+) -> ApiResult<OkResponse> {
+    if s.aesthetic_analysis.contains(&pid, &id) {
+        return Err(
+            domain::Error::new("REVISION_CONFLICT", "任务仍在退出，请等待状态稳定后删除").into(),
+        );
+    }
+    blocking(move || s.store.evaluation(&pid)?.analysis_remove(&id)).await?;
+    Ok(Json(OkResponse { ok: true }))
+}
 #[utoipa::path(operation_id="aesthetic_snapshot",get,path="/snapshots/{id}",params(("project_id"=String,Path),("id"=String,Path)),responses((status=200,body=AestheticAnalysisJob)))]
 async fn snapshot(
     State(s): State<AppState>,
@@ -447,6 +475,8 @@ async fn reviews(
     jobs,
     job,
     control,
+    metadata,
+    remove,
     snapshot,
     rows,
     candidate,
@@ -466,6 +496,8 @@ pub(super) fn routes() -> axum::Router<AppState> {
         .route("/jobs", get(jobs).post(create))
         .route("/jobs/{id}", get(job))
         .route("/jobs/{id}/control", post(control))
+        .route("/jobs/{id}/metadata", post(metadata))
+        .route("/jobs/{id}/remove", post(remove))
         .route("/jobs/{id}/comparison", get(comparison))
         .route("/snapshots/{id}", get(snapshot))
         .route("/stages/{id}/latest-snapshot", get(latest_snapshot))

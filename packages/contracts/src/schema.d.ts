@@ -1039,6 +1039,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{project_id}/aesthetic/analysis/jobs/{id}/metadata": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["aesthetic_analysis_metadata"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/aesthetic/analysis/jobs/{id}/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["aesthetic_analysis_remove"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects/{project_id}/aesthetic/analysis/reviews": {
         parameters: {
             query?: never;
@@ -3320,6 +3352,9 @@ export interface components {
         AestheticAnalysisJobs: {
             items: components["schemas"]["AestheticAnalysisJob"][];
             next_cursor?: string | null;
+        };
+        AestheticAnalysisMetadata: {
+            name: string;
         };
         AestheticAnalysisSpec: {
             config: components["schemas"]["AestheticFit"];
@@ -9070,6 +9105,54 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AestheticAnalysisJob"];
+                };
+            };
+        };
+    };
+    aesthetic_analysis_metadata: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AestheticAnalysisMetadata"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AestheticAnalysisJob"];
+                };
+            };
+        };
+    };
+    aesthetic_analysis_remove: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OkResponse"];
                 };
             };
         };

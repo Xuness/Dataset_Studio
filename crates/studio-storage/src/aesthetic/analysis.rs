@@ -3,10 +3,15 @@ use studio_application::aesthetic_analysis::{self as application, AestheticRepla
 use studio_domain::aesthetic_analysis::*;
 
 fn job(db: &Connection, id: &str) -> Result<AestheticAnalysisJob> {
-    let row:(String,String,String,u64,u64,String,String,Option<String>,Option<String>)=db.query_row(
-        "SELECT created_at,state,phase,progress,total,request_json,input_json,result_json,error FROM analysis_jobs WHERE id=?1",[id],
-        |r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,crate::unsigned(r,3)?,crate::unsigned(r,4)?,r.get(5)?,r.get(6)?,r.get(7)?,r.get(8)?)))
+    let row:(String,String,String,u64,u64,String,String,Option<String>,Option<String>,Option<String>)=db.query_row(
+        "SELECT created_at,state,phase,progress,total,request_json,input_json,result_json,error,name FROM analysis_jobs WHERE id=?1",[id],
+        |r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,crate::unsigned(r,3)?,crate::unsigned(r,4)?,r.get(5)?,r.get(6)?,r.get(7)?,r.get(8)?,r.get(9)?)))
         .optional().map_err(db_error)?.ok_or_else(||Error::new("NOT_FOUND","离线任务不存在"))?;
+    let mut request: AestheticAnalysisCreate = decode(row.5)?;
+    // The stored request stays frozen; a user rename only changes the displayed name.
+    if let Some(name) = row.9 {
+        request.name = name;
+    }
     Ok(AestheticAnalysisJob {
         id: id.into(),
         created_at: row.0,
@@ -14,7 +19,7 @@ fn job(db: &Connection, id: &str) -> Result<AestheticAnalysisJob> {
         phase: row.2,
         progress: row.3,
         total: row.4,
-        request: decode(row.5)?,
+        request,
         input: decode(row.6)?,
         result: row.7.map(decode).transpose()?,
         error: row.8,
@@ -26,6 +31,20 @@ fn ready(db: &Connection, id: &str) -> Result<AestheticAnalysisJob> {
         return Err(Error::new("RESULT_NOT_READY", "需要已发布的排名快照"));
     }
     Ok(item)
+}
+/// New offline jobs may not read from a removed snapshot; existing results keep their rows.
+fn live(db: &Connection, id: &str) -> Result<AestheticAnalysisJob> {
+    let deleted: bool = db
+        .query_row("SELECT deleted FROM analysis_jobs WHERE id=?1", [id], |r| {
+            r.get(0)
+        })
+        .optional()
+        .map_err(db_error)?
+        .unwrap_or(false);
+    if deleted {
+        return Err(Error::new("NOT_FOUND", "排名快照已删除"));
+    }
+    ready(db, id)
 }
 fn experiment(db: &Connection, id: &str) -> Result<AestheticExperiment> {
     let (created_at, json, inputs): (String, String, String) = db
@@ -84,7 +103,7 @@ impl EvaluationDb {
     pub fn latest_stage_snapshot(&self, stage: &str) -> Result<Option<AestheticAnalysisJob>> {
         let db = self.read()?;
         read_stage(&db, stage)?;
-        let id:Option<String>=db.query_row("SELECT id FROM analysis_jobs WHERE json_extract(input_json,'$.stage_id')=?1 AND state='completed' AND json_extract(request_json,'$.spec.kind')='fit' ORDER BY created_at DESC,id DESC LIMIT 1",[stage],|r|r.get(0)).optional().map_err(db_error)?;
+        let id:Option<String>=db.query_row("SELECT id FROM analysis_jobs WHERE json_extract(input_json,'$.stage_id')=?1 AND state='completed' AND json_extract(request_json,'$.spec.kind')='fit' AND deleted=0 ORDER BY created_at DESC,id DESC LIMIT 1",[stage],|r|r.get(0)).optional().map_err(db_error)?;
         id.map(|id| job(&db, &id)).transpose()
     }
     pub fn review_watermark(&self) -> Result<u64> {
@@ -119,8 +138,8 @@ impl EvaluationDb {
                         freeze(db,&config.stage_id,watermark)?
                     }
                 }
-                AestheticAnalysisSpec::Compare{left,right}=>{ready(db,right)?;ready(db,left)?.input}
-                AestheticAnalysisSpec::Derive{snapshot_id,..}|AestheticAnalysisSpec::Preview{snapshot_id,..}=>ready(db,snapshot_id)?.input,
+                AestheticAnalysisSpec::Compare{left,right}=>{live(db,right)?;live(db,left)?.input}
+                AestheticAnalysisSpec::Derive{snapshot_id,..}|AestheticAnalysisSpec::Preview{snapshot_id,..}=>live(db,snapshot_id)?.input,
             };
             input.review_watermark=db.query_row("SELECT COALESCE(MAX(sequence),0) FROM reviews",[],|r|crate::unsigned(r,0)).map_err(db_error)?;
             if let AestheticAnalysisSpec::Derive{review_watermark:Some(watermark),..}|AestheticAnalysisSpec::Preview{review_watermark:Some(watermark),..}=&request.spec {
@@ -145,7 +164,7 @@ impl EvaluationDb {
         limit: usize,
     ) -> Result<Vec<AestheticAnalysisJob>> {
         let db = self.read()?;
-        let mut stmt=db.prepare("SELECT id FROM analysis_jobs WHERE id>?1 AND (?2 IS NULL OR experiment_id=?2) ORDER BY id LIMIT ?3").map_err(db_error)?;
+        let mut stmt=db.prepare("SELECT id FROM analysis_jobs WHERE id>?1 AND deleted=0 AND (?2 IS NULL OR experiment_id=?2) ORDER BY id LIMIT ?3").map_err(db_error)?;
         let ids = stmt
             .query_map(params![after, experiment, limit.clamp(1, 51) as u32], |r| {
                 r.get::<_, String>(0)
@@ -177,6 +196,41 @@ impl EvaluationDb {
             )
             .map_err(db_error)?;
             job(db, &id)
+        })
+    }
+    pub fn analysis_rename(&self, id: &str, name: &str) -> Result<AestheticAnalysisJob> {
+        studio_domain::validate_id(id)?;
+        let name = studio_domain::validate_name(name)?;
+        let id = id.to_owned();
+        self.writer.submit(name.len() + 1024, move |db| {
+            let changed = db
+                .execute(
+                    "UPDATE analysis_jobs SET name=?2 WHERE id=?1 AND deleted=0",
+                    params![id, name],
+                )
+                .map_err(db_error)?;
+            if changed != 1 {
+                return Err(Error::new("NOT_FOUND", "离线任务不存在或已删除"));
+            }
+            job(db, &id)
+        })
+    }
+    /// Tombstones a finished job. Rows stay so dependent comparisons, reviews and
+    /// worksets keep their provenance; the job leaves listings and new inputs.
+    pub fn analysis_remove(&self, id: &str) -> Result<()> {
+        studio_domain::validate_id(id)?;
+        let id = id.to_owned();
+        self.writer.submit(1024, move |db| {
+            let item = job(db, &id)?;
+            if matches!(item.state.as_str(), "queued" | "running" | "cancelling") {
+                return Err(Error::new(
+                    "REVISION_CONFLICT",
+                    "请先取消离线任务并等待其停止，再删除",
+                ));
+            }
+            db.execute("UPDATE analysis_jobs SET deleted=1 WHERE id=?1", [&id])
+                .map_err(db_error)?;
+            Ok(())
         })
     }
     pub fn analysis_start(&self, id: &str) -> Result<AestheticAnalysisJob> {

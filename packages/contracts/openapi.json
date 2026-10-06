@@ -2570,6 +2570,92 @@
         }
       }
     },
+    "/v1/projects/{project_id}/aesthetic/analysis/jobs/{id}/metadata": {
+      "post": {
+        "tags": [
+          "aesthetic_analysis"
+        ],
+        "operationId": "aesthetic_analysis_metadata",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AestheticAnalysisMetadata"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AestheticAnalysisJob"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/aesthetic/analysis/jobs/{id}/remove": {
+      "post": {
+        "tags": [
+          "aesthetic_analysis"
+        ],
+        "operationId": "aesthetic_analysis_remove",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OkResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/projects/{project_id}/aesthetic/analysis/reviews": {
       "post": {
         "tags": [
@@ -9512,6 +9598,18 @@
             ]
           }
         }
+      },
+      "AestheticAnalysisMetadata": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
       },
       "AestheticAnalysisSpec": {
         "oneOf": [

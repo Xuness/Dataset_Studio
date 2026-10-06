@@ -346,7 +346,7 @@ fn v9_upgrade_preserves_history_and_dispositions_without_replaying_old_abstentio
     let observation = db.batches(&id, 0, 10).unwrap()[0].observation.clone();
     drop(db);
     let old = Connection::open(&path).unwrap();
-    old.execute_batch("ALTER TABLE candidates DROP COLUMN unjudgeable_streak; UPDATE candidates SET blocked=1,disposition='needs_review' WHERE ordinal=0; PRAGMA user_version=9;").unwrap();
+    old.execute_batch("ALTER TABLE analysis_jobs DROP COLUMN deleted; ALTER TABLE analysis_jobs DROP COLUMN name; ALTER TABLE candidates DROP COLUMN unjudgeable_streak; UPDATE candidates SET blocked=1,disposition='needs_review' WHERE ordinal=0; PRAGMA user_version=9;").unwrap();
     drop(old);
     let db = EvaluationDb::open(&path).unwrap();
     assert_eq!(
@@ -354,7 +354,7 @@ fn v9_upgrade_preserves_history_and_dispositions_without_replaying_old_abstentio
             .unwrap()
             .pragma_query_value(None, "user_version", |r| r.get::<_, u32>(0))
             .unwrap(),
-        10
+        11
     );
     assert_eq!(db.batches(&id, 0, 10).unwrap()[0].observation, observation);
     assert_eq!(db.stage(&id).unwrap().accepted, 1);
