@@ -53,7 +53,11 @@ pub fn validate_call_budget(request: &AestheticCreate, total: u64) -> Result<()>
 pub fn retryable_failure(f: &LlmFailure, p: &AestheticExecutionPolicy) -> bool {
     let transient = matches!(
         f.code.as_str(),
-        "LLM_NETWORK" | "LLM_TIMEOUT" | "LLM_STREAM_INTERRUPTED" | "LLM_UPSTREAM"
+        "LLM_NETWORK"
+            | "LLM_TIMEOUT"
+            | "LLM_STREAM_INTERRUPTED"
+            | "LLM_UPSTREAM"
+            | "EVALUATION_NO_COMPARABLE_EVIDENCE"
     ) || f.http_status.is_some_and(|v| v == 429 || v >= 500);
     transient
         && if f.outcome_unknown {

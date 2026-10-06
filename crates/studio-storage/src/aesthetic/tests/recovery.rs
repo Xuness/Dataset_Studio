@@ -75,7 +75,7 @@ fn disposition_queue_seeks_sparse_candidates_and_v3_migration_preserves_evidence
             DROP TABLE batch_state_counts; DROP TABLE batch_round_counts; DROP TABLE exposure_counts; DROP TABLE execution_updates; DROP TABLE batch_actions;
             ALTER TABLE stages DROP COLUMN usage_summary; ALTER TABLE stages DROP COLUMN archived; ALTER TABLE stages DROP COLUMN execution_settings; ALTER TABLE stages DROP COLUMN failure_streak; ALTER TABLE stages DROP COLUMN next_batch_number;
             ALTER TABLE batches DROP COLUMN stage_sequence; ALTER TABLE batches DROP COLUMN retry_at; ALTER TABLE batches DROP COLUMN recovery_deadline; ALTER TABLE batches DROP COLUMN recovery_attempt_base; ALTER TABLE batches DROP COLUMN disposition_reason;
-            ALTER TABLE candidates DROP COLUMN blocked_batch; ALTER TABLE attempts DROP COLUMN execution_settings;").unwrap();
+            ALTER TABLE candidates DROP COLUMN unjudgeable_streak; ALTER TABLE candidates DROP COLUMN blocked_batch; ALTER TABLE attempts DROP COLUMN execution_settings;").unwrap();
         target
             .execute_batch("ALTER TABLE stages DROP COLUMN sampling_plan_id; ALTER TABLE batches DROP COLUMN sampling; DROP TABLE sampling_diagnostics; DROP TABLE sampling_queue; DROP TABLE sampling_rounds; DROP TABLE sampling_plans; DROP TABLE receipt_parses; DROP TABLE raw_receipts; DROP TABLE batch_replacements; DROP INDEX candidate_disposition_page; PRAGMA user_version=3;")
             .unwrap();
@@ -92,7 +92,7 @@ fn disposition_queue_seeks_sparse_candidates_and_v3_migration_preserves_evidence
             .unwrap()
             .pragma_query_value(None, "user_version", |r| r.get::<_, u32>(0))
             .unwrap(),
-        9
+        10
     );
     let backup = std::fs::read_dir(legacy.join(".backups"))
         .unwrap()
@@ -202,10 +202,22 @@ fn abstain_one(db: &EvaluationDb, id: &str) -> (AestheticBatch, u64) {
     let ordinal = unjudgeable.candidate.ordinal;
     (batch, ordinal)
 }
+fn abstain_until_review(db: &EvaluationDb, id: &str) -> (AestheticBatch, u64) {
+    let mut last = None;
+    for _ in 0..3 {
+        let (batch, attempt) = sent(db, id);
+        db.receive(id, &attempt, abstaining_receipt(&batch, &[0]))
+            .unwrap();
+        db.parse_received(id).unwrap();
+        last = Some(batch);
+    }
+    db.settle(id, None).unwrap();
+    (last.unwrap(), 0)
+}
 #[test]
 fn exclusion_completes_without_inventing_exposure_and_is_idempotent() {
     let (_dir, db, id) = fixture(16);
-    let (batch, ordinal) = abstain_one(&db, &id);
+    let (batch, ordinal) = abstain_until_review(&db, &id);
     let observation = batch_observation(&db, &id, batch.sequence);
     let before = db.stage(&id).unwrap();
     assert_eq!(
@@ -234,7 +246,7 @@ fn exclusion_completes_without_inventing_exposure_and_is_idempotent() {
             .exposures,
         0
     );
-    assert_eq!(db.batches(&id, 0, 20).unwrap()[0].observation, observation);
+    assert_eq!(batch_observation(&db, &id, batch.sequence), observation);
     let mut conflicting = decision;
     conflicting.reason = "changed".into();
     assert_eq!(
@@ -253,7 +265,7 @@ fn batch_observation(db: &EvaluationDb, id: &str, sequence: u64) -> Option<Aesth
 #[test]
 fn rejudge_is_a_new_observation_with_same_rating_anchors_and_preserved_history() {
     let (_dir, db, id) = fixture(16);
-    let (old, ordinal) = abstain_one(&db, &id);
+    let (old, ordinal) = abstain_until_review(&db, &id);
     let observation = batch_observation(&db, &id, old.sequence);
     db.decide_candidate(
         &id,
@@ -287,7 +299,7 @@ fn rejudge_is_a_new_observation_with_same_rating_anchors_and_preserved_history()
             stage.comparable,
             stage.unresolved
         ),
-        (2, 2, 16, 0)
+        (4, 4, 16, 0)
     );
     assert_eq!(batch_observation(&db, &id, old.sequence), observation);
 }
@@ -335,6 +347,15 @@ fn v1_and_v2_ledgers_migrate_paid_history_and_abstentions_with_durable_backups()
         std::fs::create_dir(&legacy).unwrap();
         let path = legacy.join("evaluation.sqlite");
         legacy_copy(&dir.path().join("evaluation.sqlite"), &path, version);
+        // v1/v2 immediately blocked accepted abstentions; reproduce that old
+        // persisted flag rather than the new parser's provisional eligibility.
+        let old = Connection::open(&path).unwrap();
+        old.execute(
+            "UPDATE candidates SET blocked=1 WHERE stage_id=?1 AND ordinal=?2",
+            params![id, ordinal as i64],
+        )
+        .unwrap();
+        drop(old);
         let migrated = EvaluationDb::open(&path).unwrap();
         let stage = migrated.stage(&id).unwrap();
         assert_eq!(
@@ -368,7 +389,7 @@ fn v1_and_v2_ledgers_migrate_paid_history_and_abstentions_with_durable_backups()
                 .unwrap()
                 .pragma_query_value(None, "user_version", |r| r.get::<_, u32>(0))
                 .unwrap(),
-            9
+            10
         );
         let backup = std::fs::read_dir(legacy.join(".backups"))
             .unwrap()

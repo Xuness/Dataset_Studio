@@ -54,7 +54,7 @@ const engine = new EngineFixture(
   resolve(run, "logs"),
   { profile: "debug", env: { STUDIO_TEST_FAULT_DIR: faults } },
 );
-const mock = { calls: [], mode: "valid" };
+const mock = { calls: [], mode: "valid", unjudgeableImage: null };
 const server = createServer(async (req, res) => {
   res.on("error", () => {});
   try {
@@ -86,7 +86,12 @@ const server = createServer(async (req, res) => {
       return;
     }
     const abstain = mock.mode === "unjudgeable";
-    const judged = abstain ? ids.slice(1) : ids;
+    const images = parts.filter((v) => v.image_url).map((v) => v.image_url.url);
+    if (abstain) mock.unjudgeableImage ??= images[0];
+    const unjudgeable = abstain
+      ? ids.filter((_, i) => images[i] === mock.unjudgeableImage)
+      : [];
+    const judged = ids.filter((id) => !unjudgeable.includes(id));
     res.end(
       JSON.stringify({
         id: "r1-response",
@@ -99,9 +104,10 @@ const server = createServer(async (req, res) => {
                 schema_version: 1,
                 tiers: [judged],
                 elite_candidates: [judged.at(-1)],
-                unjudgeable: abstain
-                  ? [{ id: ids[0], reason: "mock unreadable image" }]
-                  : [],
+                unjudgeable: unjudgeable.map((id) => ({
+                  id,
+                  reason: "mock unreadable image",
+                })),
               }),
             },
             finish_reason: "stop",
@@ -309,6 +315,7 @@ try {
 
   for (const action of ["exclude", "rejudge"]) {
     mock.mode = "unjudgeable";
+    mock.unjudgeableImage = null;
     const stage = await create(p);
     await client.aesthetic.control(p.id, stage.id, "start");
     const pending = await waitState(p, stage.id, "needs_attention");
@@ -343,18 +350,18 @@ try {
       const done = await waitState(p, stage.id, "completed_with_exclusions");
       assert.deepEqual(
         [done.excluded, done.comparable, done.unresolved, done.attempts],
-        [1, 15, 0, 1],
+        [1, 15, 0, 3],
       );
     } else {
       const done = await complete(p, stage);
-      assert.equal(done.attempts, 2);
+      assert.equal(done.attempts, 4);
       assert.equal(done.comparable, 16);
       const batches = (await client.aesthetic.batches(p.id, stage.id)).items;
-      assert.equal(batches.length, 2);
-      assert.notEqual(batches[0].sequence, batches[1].sequence);
+      assert.equal(batches.length, 4);
+      assert.notEqual(batches[0].sequence, batches[3].sequence);
       assert.ok(
-        batches[1].members.length >= 2 &&
-          batches[1].members.every(
+        batches[3].members.length >= 2 &&
+          batches[3].members.every(
             (v) => v.candidate.rating === candidate.rating,
           ),
       );
@@ -365,7 +372,7 @@ try {
     );
   }
   checks.push(
-    "15 judged plus one abstention: explicit exclusion or new same-Rating comparison, append-only decisions and unchanged accepted evidence",
+    "three comparative batches confirm one persistent abstention before exclusion or rejudge; decisions and accepted evidence remain append-only",
   );
 
   for (const mode of ["invalid_http_json", "invalid_provider_shape"]) {
@@ -711,7 +718,9 @@ try {
     }
     client.dispose();
     await engine.stop();
-    const changed = new DatabaseSync(resolve(other.directory, "project.sqlite"));
+    const changed = new DatabaseSync(
+      resolve(other.directory, "project.sqlite"),
+    );
     try {
       changed.exec("BEGIN IMMEDIATE");
       changed

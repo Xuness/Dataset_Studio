@@ -568,7 +568,7 @@ fn supplemental_budget_reuses_compatible_stability_instead_of_retesting_every_im
 }
 
 #[test]
-fn missing_population_scope_stops_adaptive_spending_after_available_coverage() {
+fn transient_abstention_keeps_adaptive_coverage_running() {
     let (_dir, db, id) = fixture(16);
     configure(&db, &id, policy("adaptive", 2, 8), 100);
     assert!(db.plan_sampling(&id, &|| Ok(())).unwrap());
@@ -590,8 +590,30 @@ fn missing_population_scope_stops_adaptive_spending_after_available_coverage() {
     db.parse_received(&id).unwrap();
     finish(&db, &id, false);
     let stage = db.stage(&id).unwrap();
-    assert_eq!(stage.attempts, 2);
+    assert!(stage.attempts >= 3);
+    assert_eq!(stage.state, "completed");
+    let status = stage.sampling.unwrap();
+    assert_eq!(status.covered, 16);
+}
+
+#[test]
+fn confirmed_abstention_still_stops_incomplete_adaptive_ranking() {
+    let (_dir, db, id) = fixture(16);
+    configure(&db, &id, policy("adaptive", 2, 8), 100);
+    for _ in 0..3 {
+        assert!(db.plan_sampling(&id, &|| Ok(())).unwrap());
+        let (batch, attempt) = sent(&db, &id);
+        db.receive(&id, &attempt, abstaining_receipt(&batch, &[0]))
+            .unwrap();
+        db.parse_received(&id).unwrap();
+    }
+    finish(&db, &id, false);
+    let stage = db.stage(&id).unwrap();
     assert_eq!(stage.state, "needs_attention");
+    assert_eq!(
+        db.candidate(&id, 0).unwrap().disposition,
+        AestheticDisposition::NeedsReview
+    );
     let status = stage.sampling.unwrap();
     assert_eq!(status.covered, 15);
     assert_eq!(status.reason.as_deref(), Some("ranking_scope_incomplete"));
@@ -647,25 +669,15 @@ fn isolated_rating_candidates_have_an_explicit_disposition_and_all_excluded_exit
 #[test]
 fn exclusion_can_finalize_a_sampling_stage_with_no_remaining_call_budget() {
     let (_dir, db, id) = fixture(16);
-    configure(&db, &id, policy("balanced", 1, 2), 1);
-    assert!(db.plan_sampling(&id, &|| Ok(())).unwrap());
-    let (batch, attempt) = sent(&db, &id);
-    let ordinal = batch.members[0].candidate.ordinal;
-    let observation = AestheticObservation {
-        schema_version: 1,
-        tiers: vec![batch.members[1..].iter().map(|m| m.label.clone()).collect()],
-        elite_candidates: vec![],
-        unjudgeable: vec![AestheticUnjudgeable {
-            id: batch.members[0].label.clone(),
-            reason: "fixture abstention".into(),
-        }],
-    };
-    let mut response = receipt(&batch);
-    response.outputs[0].content = vec![LlmContent::Text {
-        text: encode(&observation).unwrap(),
-    }];
-    db.receive(&id, &attempt, response).unwrap();
-    db.parse_received(&id).unwrap();
+    configure(&db, &id, policy("balanced", 1, 3), 3);
+    let ordinal = 0;
+    for _ in 0..3 {
+        assert!(db.plan_sampling(&id, &|| Ok(())).unwrap());
+        let (batch, attempt) = sent(&db, &id);
+        db.receive(&id, &attempt, abstaining_receipt(&batch, &[ordinal]))
+            .unwrap();
+        db.parse_received(&id).unwrap();
+    }
     finish(&db, &id, false);
     assert_eq!(db.stage(&id).unwrap().state, "needs_attention");
     db.decide_candidate(
@@ -683,12 +695,12 @@ fn exclusion_can_finalize_a_sampling_stage_with_no_remaining_call_budget() {
     finish(&db, &id, false);
     let stage = db.stage(&id).unwrap();
     assert_eq!(stage.state, "completed_with_exclusions");
-    assert_eq!(stage.attempts, 1);
+    assert_eq!(stage.attempts, 3);
     assert_eq!(stage.excluded, 1);
 }
 
 #[test]
-fn a_single_judged_image_is_not_an_effective_exposure_and_can_be_rejudged() {
+fn a_single_judged_image_requires_batch_retry_without_accepting_evidence() {
     let (_dir, db, id) = fixture(2);
     configure(&db, &id, policy("balanced", 1, 1), 3);
     db.plan_sampling(&id, &|| Ok(())).unwrap();
@@ -709,34 +721,23 @@ fn a_single_judged_image_is_not_an_effective_exposure_and_can_be_rejudged() {
     db.receive(&id, &attempt, response).unwrap();
     db.parse_received(&id).unwrap();
     finish(&db, &id, false);
-    let snapshot = db
-        .analysis_create(super::analysis::fit_request(&id))
-        .unwrap();
-    super::analysis::complete(&db, &snapshot.id);
+    assert_eq!(db.stage(&id).unwrap().accepted, 0);
     for ordinal in 0..2 {
         assert_eq!(db.candidate(&id, ordinal).unwrap().exposures, 0);
         assert_eq!(
-            db.ranking_candidate(&snapshot.id, ordinal)
-                .unwrap()
-                .exposures,
-            0
+            db.candidate(&id, ordinal).unwrap().disposition,
+            AestheticDisposition::Active
         );
-        db.decide_candidate(
-            &id,
-            ordinal,
-            AestheticCandidateDecision {
-                idempotency_key: new_id(),
-                action: AestheticDispositionAction::Rejudge,
-                reason: "both images need a valid comparative judgment".into(),
-            },
-        )
-        .unwrap();
     }
+    db.retry_batch(&id, batch.sequence).unwrap();
     db.control(&id, "start").unwrap();
+    let (retry, attempt) = sent(&db, &id);
+    assert_eq!(retry.sequence, batch.sequence);
+    db.receive(&id, &attempt, receipt(&retry)).unwrap();
+    db.parse_received(&id).unwrap();
     finish(&db, &id, false);
     assert_eq!(db.stage(&id).unwrap().state, "completed");
     assert_eq!(db.stage(&id).unwrap().attempts, 2);
     assert_eq!(db.candidate(&id, 0).unwrap().exposures, 1);
     assert_eq!(db.candidate(&id, 1).unwrap().exposures, 1);
-    assert_eq!(db.ranking_candidate(&snapshot.id, 0).unwrap().exposures, 0);
 }

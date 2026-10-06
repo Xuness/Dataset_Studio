@@ -110,6 +110,94 @@ pub(super) fn expire_retries(db: &Connection, stage: &AestheticStage) -> Result<
     Ok(())
 }
 
+/// May share the receipt parser's transaction, so a crash cannot strand a
+/// semantic failure between recording it and scheduling its bounded retry.
+pub(super) fn schedule_recovery(
+    db: &Connection,
+    id: &str,
+    sequence: u64,
+    failure: &LlmFailure,
+) -> Result<String> {
+    if stage_failure(failure) {
+        return Ok("halt".into());
+    }
+    let stage = read_stage(db, id)?;
+    let streak: u32 = db
+        .query_row("SELECT failure_streak FROM stages WHERE id=?1", [id], |r| {
+            r.get(0)
+        })
+        .map_err(db_error)?;
+    let threshold = stage.execution_settings.as_ref().map_or_else(
+        || {
+            studio_domain::aesthetic::default_failure_halt_threshold(
+                stage.config.request.concurrency,
+            )
+        },
+        |s| s.policy.failure_halt_threshold(),
+    );
+    if streak >= threshold {
+        return Ok("halt".into());
+    }
+    let Some(settings) = &stage.execution_settings else {
+        return Ok("unresolved".into());
+    };
+    let p = &settings.policy;
+    if !retryable_failure(failure, p) {
+        return Ok("unresolved".into());
+    }
+    let batch = read_batch(db, id, sequence)?;
+    if !matches!(batch.state.as_str(), "failed" | "outcome_unknown") {
+        return Ok("unresolved".into());
+    }
+    let base: u32 = db
+        .query_row(
+            "SELECT recovery_attempt_base FROM batches WHERE sequence=?1",
+            [sequence as i64],
+            |r| r.get(0),
+        )
+        .map_err(db_error)?;
+    let attempts = batch.attempt_count.saturating_sub(base);
+    let retry_after: Option<String> = db
+        .query_row("SELECT json_extract(metadata,'$.headers.retry-after') FROM raw_receipts WHERE attempt_id=?1", [&batch.attempt_id], |r| r.get(0))
+        .optional().map_err(db_error)?.flatten();
+    let jitter = (sequence.wrapping_mul(31) + u64::from(attempts) * 137) % 751;
+    let delay = retry_after
+        .and_then(|v| v.parse::<u64>().ok())
+        .map(|v| v.saturating_mul(1000))
+        .unwrap_or(if attempts <= 1 { 3000 } else { 10000 })
+        .max(1000)
+        .saturating_add(jitter);
+    let due = clock_ms().saturating_add(delay.min(i64::MAX as u64) as i64);
+    let deadline = batch
+        .recovery_deadline
+        .as_ref()
+        .and_then(|v| v.parse::<i64>().ok())
+        .unwrap_or(0);
+    if p.max_retries > 0
+        && attempts <= p.max_retries
+        && batch.attempt_count < 8
+        && stage.attempts < stage.call_limit()
+        && due < deadline
+    {
+        change_failure_count(db, id, &batch.state, -1)?;
+        db.execute(
+            "UPDATE batches SET state='retry_wait',retry_at=?2 WHERE sequence=?1",
+            params![sequence as i64, due],
+        )
+        .map_err(db_error)?;
+        for m in batch.members {
+            db.execute("UPDATE candidates SET reserved=1,blocked=CASE WHEN ?3 THEN 0 ELSE blocked END WHERE stage_id=?1 AND ordinal=?2",
+                params![id, m.candidate.ordinal as i64, failure.code == "EVALUATION_NO_COMPARABLE_EVIDENCE"]).map_err(db_error)?;
+        }
+        Ok("retry_wait".into())
+    } else if p.exhausted == "defer" {
+        defer_batch(db, id, sequence, "automatic_recovery_exhausted")?;
+        Ok("deferred".into())
+    } else {
+        Ok("unresolved".into())
+    }
+}
+
 impl EvaluationDb {
     pub fn attempt_exists(&self, id: &str, attempt: &str) -> Result<bool> {
         self.read()?.query_row("SELECT EXISTS(SELECT 1 FROM attempts a JOIN batches b ON b.sequence=a.batch WHERE a.id=?1 AND b.stage_id=?2)",params![attempt,id],|r|r.get(0)).map_err(db_error)
@@ -142,32 +230,8 @@ impl EvaluationDb {
         failure: LlmFailure,
     ) -> Result<String> {
         let id = id.to_owned();
-        self.writer.submit(4096,move|db| {
-            if stage_failure(&failure) {return Ok("halt".into());}
-            let stage=read_stage(db,&id)?;
-            let streak:u32=db.query_row("SELECT failure_streak FROM stages WHERE id=?1",[&id],|r|r.get(0)).map_err(db_error)?;
-            let threshold=stage.execution_settings.as_ref().map_or_else(||studio_domain::aesthetic::default_failure_halt_threshold(stage.config.request.concurrency),|s|s.policy.failure_halt_threshold());
-            if streak>=threshold {return Ok("halt".into());}
-            let Some(settings)=&stage.execution_settings else {return Ok("unresolved".into());};
-            let p=&settings.policy;
-            if !retryable_failure(&failure,p) {return Ok("unresolved".into());}
-            let batch=read_batch(db,&id,sequence)?;
-            if !matches!(batch.state.as_str(),"failed"|"outcome_unknown") {return Ok("unresolved".into());}
-            let base:u32=db.query_row("SELECT recovery_attempt_base FROM batches WHERE sequence=?1",[sequence as i64],|r|r.get(0)).map_err(db_error)?;
-            let attempts=batch.attempt_count.saturating_sub(base);
-            let retry_after:Option<String>=db.query_row("SELECT json_extract(metadata,'$.headers.retry-after') FROM raw_receipts WHERE attempt_id=?1",[&batch.attempt_id],|r|r.get(0)).optional().map_err(db_error)?.flatten();
-            let jitter=(sequence.wrapping_mul(31)+u64::from(attempts)*137)%751;
-            let delay=retry_after.and_then(|v|v.parse::<u64>().ok()).map(|v|v.saturating_mul(1000)).unwrap_or(if attempts<=1 {3000}else{10000}).max(1000).saturating_add(jitter);
-            let due=clock_ms().saturating_add(delay.min(i64::MAX as u64) as i64);
-            let deadline=batch.recovery_deadline.as_ref().and_then(|v|v.parse::<i64>().ok()).unwrap_or(0);
-            if p.max_retries>0 && attempts<=p.max_retries && batch.attempt_count<8 && stage.attempts<stage.call_limit() && due<deadline {
-                change_failure_count(db,&id,&batch.state,-1)?;
-                db.execute("UPDATE batches SET state='retry_wait',retry_at=?2 WHERE sequence=?1",params![sequence as i64,due]).map_err(db_error)?;
-                for m in batch.members {db.execute("UPDATE candidates SET reserved=1 WHERE stage_id=?1 AND ordinal=?2",params![id,m.candidate.ordinal as i64]).map_err(db_error)?;}
-                Ok("retry_wait".into())
-            } else if p.exhausted=="defer" {
-                defer_batch(db,&id,sequence,"automatic_recovery_exhausted")?;Ok("deferred".into())
-            } else {Ok("unresolved".into())}
+        self.writer.submit(4096, move |db| {
+            schedule_recovery(db, &id, sequence, &failure)
         })
     }
     pub fn batch_action(

@@ -103,36 +103,61 @@ impl AestheticRepository for EvaluationDb {
             let receipt: AestheticReceipt = decode(json)?;
             let parsed = parse_observation(&receipt, &batch.members);
             let id = id.to_owned();
-            applied+=self.writer.submit_named(32*1024, "parse", &id.clone(), move |db| {
-                let state:String=db.query_row("SELECT state FROM attempts WHERE id=?1",[&attempt],|r|r.get(0)).map_err(db_error)?;
-                if state!="received" {return Ok(0);}
+            let (count, halt)=self.writer.submit_named(32*1024, "parse", &id.clone(), move |db| {
+                let (state,had_failure):(String,bool)=db.query_row("SELECT state,failure IS NOT NULL FROM attempts WHERE id=?1",[&attempt],|r|Ok((r.get(0)?,r.get(1)?))).map_err(db_error)?;
+                if state!="received" {return Ok((0,None));}
                 match parsed {
                     Ok(observation)=>{
                         let json=encode(&observation)?;
                         db.execute("INSERT INTO evidence(batch,attempt_id,observation,parser_version,accepted_at) VALUES (?1,?2,?3,1,?4)",params![sequence as i64,attempt,json,now()]).map_err(db_error)?;
                         let judged:std::collections::BTreeSet<_>=observation.tiers.iter().flatten().collect();
                         for member in &batch.members {
-                            let valid=judged.contains(&member.label) && judged.len() >= 2;
-                            let reason = if valid { None } else { Some(observation.unjudgeable.iter().find(|v|v.id==member.label).map(|v|v.reason.clone()).unwrap_or_else(||"insufficient_judged_peers".into())) };
+                            let valid=judged.contains(&member.label);
+                            let reason = observation.unjudgeable.iter().find(|v|v.id==member.label).map(|v|v.reason.clone());
                             let elite=observation.elite_candidates.contains(&member.label);
-                            let was_protected:bool=db.query_row("SELECT protected FROM candidates WHERE stage_id=?1 AND ordinal=?2",params![id,member.candidate.ordinal as i64],|r|r.get(0)).map_err(db_error)?;
-                            db.execute("UPDATE candidates SET reserved=0,blocked=?3,blocked_batch=NULL,exposures=exposures+?4,protected=MAX(protected,?5),sort_key=?6,disposition=?7,disposition_reason=?8 WHERE stage_id=?1 AND ordinal=?2",params![id,member.candidate.ordinal as i64,!valid,valid as u32,elite,hash(&format!("{id}:{}:{}",member.candidate.ordinal,member.candidate.exposures+u32::from(valid))),if valid {"active"} else {"needs_review"},reason]).map_err(db_error)?;
+                            // Read live history in the committing transaction, not the
+                            // candidate snapshot frozen when this batch was dispatched.
+                            let (was_protected,exposures,streak,disposition):(bool,u32,u32,String)=db.query_row("SELECT protected,exposures,unjudgeable_streak,disposition FROM candidates WHERE stage_id=?1 AND ordinal=?2",params![id,member.candidate.ordinal as i64],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?))).map_err(db_error)?;
+                            let threshold=studio_application::aesthetic::UNJUDGEABLE_REVIEW_THRESHOLD;
+                            let streak=if valid {0} else {(streak+1).min(threshold)};
+                            let needs_review=!valid && exposures==0 && streak>=threshold;
+                            let next=if valid {"active"} else if needs_review {"needs_review"} else {disposition.as_str()};
+                            let sort_key=if valid {hash(&format!("{id}:{}:{}",member.candidate.ordinal,exposures+1))} else {hash(&format!("{id}:{}:{exposures}:unjudgeable:{sequence}",member.candidate.ordinal))};
+                            db.execute("UPDATE candidates SET reserved=0,blocked=?3,blocked_batch=NULL,exposures=exposures+?4,protected=MAX(protected,?5),sort_key=?6,disposition=?7,disposition_reason=?8,unjudgeable_streak=?9 WHERE stage_id=?1 AND ordinal=?2",params![id,member.candidate.ordinal as i64,needs_review,valid as u32,elite,sort_key,next,reason,streak]).map_err(db_error)?;
                             if elite && !was_protected {db.execute("UPDATE stages SET protected=protected+1 WHERE id=?1",[&id]).map_err(db_error)?;}
                         }
                         db.execute("UPDATE batches SET state='accepted',observation=?2,error=NULL WHERE sequence=?1",params![sequence as i64,json]).map_err(db_error)?;
                         db.execute("UPDATE attempts SET state='accepted' WHERE id=?1",[&attempt]).map_err(db_error)?;
                         db.execute("UPDATE stages SET accepted=accepted+1,failure_streak=0 WHERE id=?1",[&id]).map_err(db_error)?;
-                        Ok(1)
+                        Ok((1,None))
+                    },
+                    Err(error) if error.code=="EVALUATION_NO_COMPARABLE_EVIDENCE"=>{
+                        let mut failure=LlmFailure::new(error.code,&error.message);
+                        failure.retryable=true;
+                        failure.provider_request_id=receipt.provider_request_id;
+                        db.execute("UPDATE attempts SET state='failed',failure=?2 WHERE id=?1",params![attempt,encode(&failure)?]).map_err(db_error)?;
+                        db.execute("UPDATE batches SET state='failed',error=?2 WHERE sequence=?1",params![sequence as i64,failure.message]).map_err(db_error)?;
+                        db.execute("UPDATE stages SET failure_streak=failure_streak+?2 WHERE id=?1",params![id,!had_failure]).map_err(db_error)?;
+                        // This is a batch recovery lock, never a candidate disposition
+                        // or an unjudgeable strike. Automatic retries only reserve it.
+                        for member in &batch.members {db.execute("UPDATE candidates SET reserved=0,blocked=1,blocked_batch=?3 WHERE stage_id=?1 AND ordinal=?2",params![id,member.candidate.ordinal as i64,sequence as i64]).map_err(db_error)?;}
+                        let recovery=super::recovery_policy::schedule_recovery(db,&id,sequence,&failure)?;
+                        Ok((0,(recovery=="halt").then_some(failure.message)))
                     },
                     Err(error)=>{
                         db.execute("UPDATE batches SET state='invalid',error=?2 WHERE sequence=?1",params![sequence as i64,error.message]).map_err(db_error)?;
                         db.execute("UPDATE attempts SET state='invalid' WHERE id=?1",[&attempt]).map_err(db_error)?;
                         for member in &batch.members {db.execute("UPDATE candidates SET reserved=0,blocked=1,blocked_batch=?3 WHERE stage_id=?1 AND ordinal=?2",params![id,member.candidate.ordinal as i64,sequence as i64]).map_err(db_error)?;}
                         db.execute("UPDATE stages SET invalid=invalid+1 WHERE id=?1",[&id]).map_err(db_error)?;
-                        Ok(0)
+                        Ok((0,None))
                     }
                 }
             })?;
+            applied += count;
+            // Return the halt only after committing its receipt and failure.
+            if let Some(message) = halt {
+                return Err(Error::new("EVALUATION_REMOTE", message));
+            }
         }
         Ok(applied)
     }

@@ -7,6 +7,9 @@ pub use execution::*;
 pub mod sampling;
 pub use lifecycle::*;
 
+/// Two regrouping opportunities before an unseen candidate requires review.
+pub const UNJUDGEABLE_REVIEW_THRESHOLD: u32 = 3;
+
 /// Storage implements this port; accepted observations are the replay source of truth.
 pub trait AestheticRepository: Send + Sync {
     fn stage(&self, id: &str) -> Result<AestheticStage>;
@@ -109,6 +112,14 @@ pub fn parse_observation(
     let value: AestheticObservation =
         serde_json::from_str(&text).map_err(|_| Error::invalid("评审不是约定的 JSON 对象"))?;
     validate_observation(&value, members)?;
+    // Keep structural validation compatible with immutable historical evidence.
+    // New receipts must actually compare at least two images before acceptance.
+    if value.tiers.iter().map(Vec::len).sum::<usize>() < 2 {
+        return Err(Error::new(
+            "EVALUATION_NO_COMPARABLE_EVIDENCE",
+            "本批可比较图片不足 2 张，未产生有效比较证据，可按执行策略重试",
+        ));
+    }
     Ok(value)
 }
 
@@ -233,7 +244,7 @@ mod tests {
         assert!(parse_observation(&value, &members()).is_err());
     }
     #[test]
-    fn output_contract_rejects_extra_fields_and_accepts_explicit_total_abstention() {
+    fn output_contract_retains_abstentions_but_requires_comparative_evidence() {
         let text = r#"{"schema_version":1,"tiers":[],"elite_candidates":[],"unjudgeable":[{"id":"img0","reason":"无法辨认"},{"id":"img1","reason":"无法辨认"}]}"#;
         let mut receipt = AestheticReceipt {
             provider_request_id: None,
@@ -246,7 +257,18 @@ mod tests {
                 content: vec![LlmContent::Text { text: text.into() }],
             }],
         };
-        assert!(parse_observation(&receipt, &members()).is_ok());
+        validate_observation(&serde_json::from_str(text).unwrap(), &members()).unwrap();
+        assert_eq!(
+            parse_observation(&receipt, &members()).unwrap_err().code,
+            "EVALUATION_NO_COMPARABLE_EVIDENCE"
+        );
+        receipt.outputs[0].content = vec![LlmContent::Text {
+            text: r#"{"schema_version":1,"tiers":[["img0"]],"elite_candidates":["img0"],"unjudgeable":[{"id":"img1","reason":"无法辨认"}]}"#.into(),
+        }];
+        assert_eq!(
+            parse_observation(&receipt, &members()).unwrap_err().code,
+            "EVALUATION_NO_COMPARABLE_EVIDENCE"
+        );
         for invalid in [
             text.replacen("{", r#"{"score":100,"#, 1),
             text.replace(r#""reason":"无法辨认""#, r#""reason":"" "#),

@@ -42,7 +42,7 @@ impl EvaluationDb {
                 }
             };
             db.execute("INSERT INTO candidate_decisions VALUES (?1,?2,?3,?4,?5,?6,?7)",params![id,decision.idempotency_key,ordinal as i64,json,candidate.disposition.as_str(),next,now()]).map_err(db_error)?;
-            db.execute("UPDATE candidates SET disposition=?3,disposition_reason=?4,blocked=?5 WHERE stage_id=?1 AND ordinal=?2",params![id,ordinal as i64,next,decision.reason,next=="excluded"]).map_err(db_error)?;
+            db.execute("UPDATE candidates SET disposition=?3,disposition_reason=?4,blocked=?5,unjudgeable_streak=CASE WHEN ?3='rejudge' THEN 0 ELSE unjudgeable_streak END WHERE stage_id=?1 AND ordinal=?2",params![id,ordinal as i64,next,decision.reason,next=="excluded"]).map_err(db_error)?;
             if let Some(mut status)=sampling::status(db,&id)? {
                 status.state="ready".into();status.reason=None;
                 db.execute("UPDATE sampling_plans SET status_json=?2 WHERE id=?1",params![status.plan_id,encode(&status)?]).map_err(db_error)?;

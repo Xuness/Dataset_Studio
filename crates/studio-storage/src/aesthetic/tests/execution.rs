@@ -1,6 +1,6 @@
 use super::*;
 
-fn enable(db: &EvaluationDb, id: &str, policy: AestheticExecutionPolicy) {
+pub(super) fn enable(db: &EvaluationDb, id: &str, policy: AestheticExecutionPolicy) {
     db.control(id, "pause").unwrap();
     db.settle(id, None).unwrap();
     db.configure_execution(
@@ -21,7 +21,7 @@ fn unknown() -> LlmFailure {
     failure.outcome_unknown = true;
     failure
 }
-fn due(db: &EvaluationDb, sequence: u64) {
+pub(super) fn due(db: &EvaluationDb, sequence: u64) {
     db.writer
         .submit(1024, move |tx| {
             tx.execute(

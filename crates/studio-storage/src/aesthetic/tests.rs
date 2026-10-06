@@ -4,6 +4,7 @@ mod analysis;
 mod execution;
 mod recovery;
 mod sampling;
+mod tolerance;
 mod transport;
 mod usage;
 
@@ -145,6 +146,37 @@ fn receipt(batch: &AestheticBatch) -> AestheticReceipt {
             ..Default::default()
         },
     }
+}
+fn abstaining_receipt(batch: &AestheticBatch, ordinals: &[u64]) -> AestheticReceipt {
+    let mut response = receipt(batch);
+    let judged: Vec<_> = batch
+        .members
+        .iter()
+        .filter(|m| !ordinals.contains(&m.candidate.ordinal))
+        .map(|m| m.label.clone())
+        .collect();
+    response.outputs[0].content = vec![LlmContent::Text {
+        text: encode(&AestheticObservation {
+            schema_version: 1,
+            tiers: if judged.is_empty() {
+                vec![]
+            } else {
+                vec![judged]
+            },
+            elite_candidates: vec![],
+            unjudgeable: batch
+                .members
+                .iter()
+                .filter(|m| ordinals.contains(&m.candidate.ordinal))
+                .map(|m| AestheticUnjudgeable {
+                    id: m.label.clone(),
+                    reason: "temporarily unreadable".into(),
+                })
+                .collect(),
+        })
+        .unwrap(),
+    }];
+    response
 }
 #[test]
 fn committed_response_replays_once_and_elite_does_not_add_exposure() {

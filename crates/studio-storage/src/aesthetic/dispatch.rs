@@ -26,9 +26,9 @@ impl EvaluationDb {
                     else { index+=1; }
                 }
             }
-            if picked.len() < 2 {
-                // A new observation needs a same-Rating comparator, even when
-                // every other candidate has already reached the exposure target.
+            if picked.len() < 16 {
+                // Fill the tail with same-Rating anchors, so a small group of
+                // resampled abstentions is not compared only against itself.
                 let anchors=candidates(db,"WHERE stage_id=?1 AND rating=?2 AND disposition='active' AND blocked=0 AND reserved=0 AND exposures>=?3 ORDER BY exposures,sort_key LIMIT 16",params![id,first.rating,stage.config.request.exposures])?;
                 for anchor in anchors { if picked.iter().all(|v|v.ordinal!=anchor.ordinal) && picked.len()<16 { picked.push(anchor); } }
                 if picked.len()<2 {

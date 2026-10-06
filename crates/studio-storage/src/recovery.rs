@@ -290,7 +290,7 @@ fn verify(directory: &Path) -> Result<Package> {
     if package.version != 1
         || package.files.len() > 100000
         || package.project_schema > crate::migrations::VERSION
-        || package.evaluation_schema > 9
+        || package.evaluation_schema > 10
     {
         return Err(Error::invalid("恢复包版本或文件数不受支持"));
     }

@@ -29,7 +29,7 @@ const fixture = JSON.parse(
 );
 const engine = new EngineFixture(root, resolve(run, "state"));
 const { StudioClient } = await clientFixture(root, resolve(run, "sdk"));
-const mock = { calls: [], abstain: true };
+const mock = { calls: [], abstain: true, unjudgeableImages: null };
 const server = createServer(async (req, res) => {
   try {
     const chunks = [];
@@ -41,12 +41,16 @@ const server = createServer(async (req, res) => {
     const ids = parts.map((p) => p.text).filter((v) => /^img\d{2}$/.test(v));
     assert.ok(ids.length >= 2 && ids.length <= 16);
     assert.equal(parts.filter((v) => v.image_url).length, ids.length);
-    const unjudgeable = mock.abstain ? ids.slice(0, 2) : [];
+    const images = parts.filter((v) => v.image_url).map((v) => v.image_url.url);
+    if (mock.abstain) mock.unjudgeableImages ??= images.slice(0, 2);
+    const unjudgeable = mock.abstain
+      ? ids.filter((_, i) => mock.unjudgeableImages.includes(images[i]))
+      : [];
     mock.calls.push({ ids, unjudgeable });
     const text = JSON.stringify({
       schema_version: 1,
       tiers: [ids.filter((v) => !unjudgeable.includes(v))],
-      elite_candidates: [ids.at(-1)],
+      elite_candidates: [ids.filter((v) => !unjudgeable.includes(v)).at(-1)],
       unjudgeable: unjudgeable.map((id) => ({
         id,
         reason: "合成测试：暂时无法可靠判断",
@@ -260,7 +264,7 @@ try {
   );
   await page.getByLabel("采样方式", { exact: true }).selectOption("balanced");
   await page.getByLabel("每图最低有效曝光", { exact: true }).fill("1");
-  await page.getByLabel("每图有效曝光上限", { exact: true }).fill("2");
+  await page.getByLabel("每图有效曝光上限", { exact: true }).fill("4");
   await page.getByLabel("调用次数上限", { exact: true }).fill("6");
   await expect(page.getByLabel("每批请求体预算", { exact: true })).toHaveValue(
     "32",
@@ -450,7 +454,7 @@ try {
   );
   assert.equal(finished.excluded, 1);
   assert.equal(finished.unresolved, 0);
-  assert.equal(finished.attempts, 2);
+  assert.equal(finished.attempts, 4);
   await page.getByLabel("候选状态").selectOption("excluded");
   await expect(
     page.getByRole("button", {
@@ -581,7 +585,7 @@ try {
     configured.sampling.plan_id,
     samplingRequests[0].value.idempotency_key,
   );
-  assert.equal(mock.calls.length, 2);
+  assert.equal(mock.calls.length, 4);
   await screenshot("sampling-status-2560");
   checks.push(
     "supplement plan survives lost response and reload; exact retry preserves one unstarted budget revision without API calls",
@@ -598,7 +602,7 @@ try {
   assert.ok(bounds.scroll <= bounds.width + 1);
   await screenshot("candidate-decisions-compact");
   checks.push("compact viewport has no document horizontal overflow");
-  assert.equal(mock.calls.length, 2);
+  assert.equal(mock.calls.length, 4);
   assert.deepEqual(errors, []);
   await writeFile(
     resolve(run, "report.json"),

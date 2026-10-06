@@ -84,11 +84,24 @@ const server = createServer(async (req, res) => {
     }
     if (current === "slow-first") await sleep(700);
     if (res.destroyed) return;
+    const abstainCount =
+      current === "once-empty" && ordinal === 1
+        ? ids.length
+        : current === "once-single" && ordinal === 1
+          ? ids.length - 1
+          : (current === "once-abstain" && ordinal === 1) ||
+              (current === "after-exposure" && ordinal === 2)
+            ? 1
+            : 0;
+    const judged = ids.slice(abstainCount);
     const text = JSON.stringify({
       schema_version: 1,
-      tiers: [ids.slice(0, 4), ids.slice(4)].filter((t) => t.length),
-      elite_candidates: [ids.at(-1)],
-      unjudgeable: [],
+      tiers: [judged.slice(0, 4), judged.slice(4)].filter((t) => t.length),
+      elite_candidates: judged.length ? [judged.at(-1)] : [],
+      unjudgeable: ids.slice(0, abstainCount).map((id) => ({
+        id,
+        reason: "transient model abstention",
+      })),
     });
     if (!streamed) {
       res.writeHead(200, { "content-type": "application/json" });
@@ -640,6 +653,89 @@ try {
   assert.ok(rateCalls[1].at - rateCalls[0].at >= 1000);
   checks.push(
     "Retry-After is honored by the ledger retry queue; no hidden transport retry or uncounted request occurs",
+  );
+
+  for (const abstention of ["once-empty", "once-single"]) {
+    mode(abstention);
+    const recovered = await runStage(single, { max_retries: 1 });
+    assert.equal(recovered.state, "completed");
+    assert.deepEqual(
+      [recovered.attempts, recovered.accepted, recovered.unresolved],
+      [2, 1, 0],
+    );
+    assert.equal(recovered.input_tokens, 26);
+    const batches = (await client.aesthetic.batches(project.id, recovered.id))
+      .items;
+    assert.equal(batches.length, 1);
+    const attempts = (
+      await client.aesthetic.attempts(
+        project.id,
+        recovered.id,
+        batches[0].sequence,
+      )
+    ).items;
+    assert.deepEqual(
+      attempts.map((a) => a.state),
+      ["failed", "accepted"],
+    );
+    assert.equal(attempts[0].failure.code, "EVALUATION_NO_COMPARABLE_EVIDENCE");
+    assert.equal(attempts[0].failure.outcome_unknown, false);
+    assert.ok(attempts.every((a) => a.raw_receipt && a.receipt));
+    assert.ok(
+      ledger(
+        "SELECT exposures,unjudgeable_streak,blocked,disposition FROM candidates WHERE stage_id=?",
+        recovered.id,
+      ).every(
+        (c) =>
+          c.exposures === 1 &&
+          c.unjudgeable_streak === 0 &&
+          c.blocked === 0 &&
+          c.disposition === "active",
+      ),
+    );
+  }
+  checks.push(
+    "zero or one comparable image retries the same batch and completes with one evidence record, both receipts and all usage retained",
+  );
+
+  for (const [abstention, exposures] of [
+    ["once-abstain", 1],
+    ["after-exposure", 2],
+  ]) {
+    mode(abstention);
+    const recovered = await runStage(
+      single,
+      {},
+      {
+        exposures,
+        sampling: {
+          mode: "balanced",
+          min_exposures: exposures,
+          max_exposures: exposures + 1,
+          rank_tolerance: 0.1,
+          seed: 17,
+        },
+      },
+    );
+    assert.equal(recovered.state, "completed");
+    assert.equal(recovered.unresolved, 0);
+    assert.equal(recovered.attempts, exposures + 1);
+    assert.equal(recovered.accepted, exposures + 1);
+    assert.ok(
+      ledger(
+        "SELECT exposures,unjudgeable_streak,blocked,disposition FROM candidates WHERE stage_id=?",
+        recovered.id,
+      ).every(
+        (c) =>
+          c.exposures >= exposures &&
+          c.unjudgeable_streak === 0 &&
+          c.blocked === 0 &&
+          c.disposition === "active",
+      ),
+    );
+  }
+  checks.push(
+    "first and previously exposed candidates recover from a single abstention in a later batch and automatically complete sampling",
   );
 
   mode("once-drop");

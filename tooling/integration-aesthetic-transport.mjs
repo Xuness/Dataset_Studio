@@ -454,7 +454,7 @@ try {
   const manifest = JSON.parse(
     await readFile(resolve(packageDirectory, "recovery.json"), "utf8"),
   );
-  assert.equal(manifest.evaluation_schema, 9);
+  assert.equal(manifest.evaluation_schema, 10);
   assert.ok(manifest.files.some((f) => f.path === "project.sqlite"));
   assert.ok(manifest.files.some((f) => f.path === "evaluation.sqlite"));
   const target = resolve(run, "restored-project");
