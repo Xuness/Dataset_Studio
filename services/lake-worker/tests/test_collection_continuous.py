@@ -84,13 +84,15 @@ def test_metadata_only_history_cannot_hide_missing_originals(tmp_path):
     request["definition"]["media"].update(retain_original=True, ugoira="archive_with_poster")
     request["definition"]["media"]["image_policy"]["profile"] = "original"
     second, _ = next_job(service, request)
+    FreshClient.requests.clear()
     result = runner.run(second["id"], time_slice=60)
     assert result["state"] == "completed", result
-    assert result["progress"]["works"]["retained"] == 0
+    assert result["progress"]["works"]["retained"] == 1
     assert result["progress"]["media"]["downloaded"] == 2
+    assert [kind for kind, _ in FreshClient.requests] == ["author_profile", "author_directory"]
 
 
-def test_age_context_and_recipe_changes_require_recheck(tmp_path):
+def test_age_context_requires_recheck_and_recipe_change_reuses_metadata(tmp_path):
     service, runner, job, request = fresh_setup(tmp_path)
     runner.run(job["id"], time_slice=60)
     spec = {**request["definition"], "refresh": dict(mode="missing_or_stale", max_age_hours=1)}
@@ -100,7 +102,8 @@ def test_age_context_and_recipe_changes_require_recheck(tmp_path):
     assert incremental.reusable_work(lib, "12345", spec, context, at=datetime.now(timezone.utc)+timedelta(hours=2)) is None
     assert incremental.reusable_work(lib, "12345", spec, {**context, "comparison_key": "different"}) is None
     spec["media"]["image_policy"]["profile"] = "webp-2048-q95"
-    assert incremental.reusable_work(lib, "12345", spec, context) is None
+    retained = incremental.reusable_work(lib, "12345", spec, context)
+    assert retained["materialize_manifest"] and retained["media_count"] == 0
 
 
 def test_identical_active_intent_coalesces_and_request_stays_bound(tmp_path):

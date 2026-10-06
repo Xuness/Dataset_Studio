@@ -13,6 +13,44 @@
   min-height: 0;
   flex: 1;
 }
+.lake-metadata-catalog {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+.lake-metadata-catalog > details > summary {
+  padding: 9px 12px;
+  background: var(--header);
+  cursor: pointer;
+}
+.lake-metadata-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 10px;
+  padding: 12px;
+}
+.lake-metadata-filters > label:not(.lake-check) {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+.lake-metadata-filters input:not([type="checkbox"]),
+.lake-metadata-filters select {
+  min-width: 0;
+  width: 100%;
+}
+.lake-metadata-filters select {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lake-metadata-table .lake-metadata-tags {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  min-width: 160px;
+  max-width: 420px;
+}
 .lake-workspace > .wb-shell {
   flex: 1;
   min-height: 0;

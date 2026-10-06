@@ -64,6 +64,7 @@ export function NewUpdateComposer({
   ) : (
     <UpdateComposer
       client={client}
+      initialLake={initialLake}
       lakes={updateLakes(lakes)}
       capabilities={capabilities}
       sourceHeader={header}

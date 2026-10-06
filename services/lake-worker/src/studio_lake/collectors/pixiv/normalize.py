@@ -91,7 +91,8 @@ def work(captured):
                   created_at=date("createDate"), updated_at=date("uploadDate"),
                   source_fields_json=canonical({"pixiv": {"x_restrict": integer(data.get("xRestrict")),
                       "ai_type": integer(data.get("aiType")), "bookmark_count": integer(data.get("bookmarkCount")),
-                      "view_count": integer(data.get("viewCount")), "like_count": integer(data.get("likeCount"))}}),
+                      "view_count": integer(data.get("viewCount")), "like_count": integer(data.get("likeCount")),
+                      "tags_known": isinstance(data.get("tags"), dict) and isinstance(data["tags"].get("tags"), list)}}),
                   issues_json=canonical(issues))
     from ...media_lake.content import revision
 

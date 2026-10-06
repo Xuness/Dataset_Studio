@@ -82,6 +82,8 @@ pub enum LakeUpdateRange {
         post_ids: Option<Vec<u64>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         version: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        missing_media: Option<bool>,
     },
     Input {
         input_id: String,
@@ -125,8 +127,11 @@ pub enum LakeUpdateRange {
 #[derive(Clone, Default, Serialize, Deserialize, ToSchema)]
 #[serde(default, deny_unknown_fields)]
 pub struct LakeTagQuery {
+    #[serde(default)]
     pub all: Vec<String>,
+    #[serde(default)]
     pub any: Vec<String>,
+    #[serde(default)]
     pub none: Vec<String>,
 }
 #[derive(Clone, Serialize, Deserialize, ToSchema)]
@@ -339,13 +344,21 @@ pub struct UpdateLakes {
 #[derive(Default, Serialize, Deserialize, ToSchema)]
 #[serde(default, deny_unknown_fields)]
 pub struct LakePostQuery {
+    #[serde(default)]
     pub query: LakeTagQuery,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub start_id: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub end_id: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub after: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub post_ids: Option<Vec<u64>>,
+    #[serde(default)]
     pub missing_media: bool,
 }
 #[derive(Serialize, Deserialize, ToSchema)]

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { ImagePolicyEditor } from "./ImagePolicyEditor.js";
 import type { StudioClient } from "@studio/client";
@@ -22,6 +22,7 @@ export function UpdateComposer({
   onClose,
   onCreated,
   sourceHeader,
+  initialLake,
 }: {
   client: StudioClient;
   lakes: Lake[];
@@ -29,6 +30,7 @@ export function UpdateComposer({
   onClose: () => void;
   onCreated: (id: string, kind: "job" | "schedule") => void;
   sourceHeader?: ReactNode;
+  initialLake?: string;
 }) {
   const draft = useLakePreference(
     client,
@@ -38,6 +40,18 @@ export function UpdateComposer({
   );
   const d = draft.value,
     refresh = useLakeRefresh(client);
+  const initialized = useRef(false);
+  useEffect(() => {
+    if (!draft.editable || initialized.current) return;
+    initialized.current = true;
+    if (
+      initialLake &&
+      lakes.some((lake) => lake.id === initialLake) &&
+      !d.lakes.length &&
+      !d.submissions.length
+    )
+      draft.controller.set({ ...d, lakes: [initialLake] });
+  }, [draft.editable, draft.controller, initialLake, lakes, d]);
   const [previews, setPreviews] = useState<Schema["LakeUpdatePreview"][]>([]);
   const [error, setError] = useState<unknown>(null),
     [pending, setPending] = useState(false);
@@ -294,6 +308,16 @@ export function UpdateComposer({
                     </>
                   ) : (
                     <>
+                      <label className="lake-check">
+                        <input
+                          type="checkbox"
+                          checked={d.tagMissingMedia}
+                          onChange={(event) =>
+                            set({ tagMissingMedia: event.target.checked })
+                          }
+                        />
+                        只选择尚无图片的帖子
+                      </label>
                       {d.lakes.map((id) => (
                         <label key={id}>
                           {

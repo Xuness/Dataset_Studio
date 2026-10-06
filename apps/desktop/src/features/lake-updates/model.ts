@@ -128,7 +128,7 @@ export function rangeLabel(spec: Definition) {
           : r.start_id && r.start_id > 1
             ? ` · ID ≥ ${r.start_id}`
             : "";
-      return `${r.source === "local" ? "已有元数据" : "标签采集"} · ${labels || "全部条目"}${r.post_ids ? ` · 已选 ${r.post_ids.length} 条` : ""}${bounds}`;
+      return `${r.source === "local" ? "已有元数据" : "标签采集"} · ${labels || "全部条目"}${r.post_ids ? ` · 已选 ${r.post_ids.length} 条` : ""}${r.missing_media ? " · 尚无图片" : ""}${bounds}`;
     }
     case "new":
       return r.after_id == null
@@ -202,6 +202,7 @@ export type FormDraft = ImageFields & {
   tagSource: "remote" | "local";
   tagFreshness: string;
   tagRefreshAll: boolean;
+  tagMissingMedia: boolean;
   perLake: Record<
     string,
     {
@@ -233,6 +234,7 @@ export const initialDraft: FormDraft = {
   tagSource: "remote",
   tagFreshness: "24",
   tagRefreshAll: false,
+  tagMissingMedia: false,
   profile: "",
   encoding: defaultEncoding,
   existing: "keep",
@@ -258,6 +260,8 @@ export function decodeDraft(value: unknown): FormDraft | null {
   if (
     (v.tagSource !== undefined && !["remote", "local"].includes(v.tagSource)) ||
     (v.tagRefreshAll !== undefined && typeof v.tagRefreshAll !== "boolean") ||
+    (v.tagMissingMedia !== undefined &&
+      typeof v.tagMissingMedia !== "boolean") ||
     [v.tagAll, v.tagAny, v.tagNone, v.tagFreshness].some(
       (field) => field !== undefined && typeof field !== "string",
     )
@@ -381,8 +385,9 @@ export function definitions(d: FormDraft): Definition[] {
           source: d.tagSource,
           ...(d.tagSource === "local"
             ? {
+                missing_media: d.tagMissingMedia,
                 ...(postIds ? { post_ids: postIds } : {}),
-                ...(local.catalogVersion
+                ...(local.catalogVersion && d.execution === "now"
                   ? { version: local.catalogVersion }
                   : {}),
               }

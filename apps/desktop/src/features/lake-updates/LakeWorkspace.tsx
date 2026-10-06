@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { Database, Plus, RefreshCw } from "lucide-react";
 import {
   Button,
@@ -48,6 +52,7 @@ import { CollectionJobDetails } from "./CollectionJobDetails.js";
 import { ScheduleDetails } from "./ScheduleDetails.js";
 import { CollectionScheduleDetails } from "./CollectionScheduleDetails.js";
 import { ScopePreparations } from "./ScopePreparations.js";
+import { MetadataCatalog } from "./MetadataCatalog.js";
 import { PipelineSettings } from "./PipelineSettings.js";
 import { CollectionPipelineSettings } from "./CollectionPipelineSettings.js";
 import "./lake-updates.css";
@@ -58,7 +63,7 @@ type View = {
   jobId: string;
   family: Family;
   scheduleId: string;
-  view: "jobs" | "schedules" | "preparations";
+  view: "jobs" | "schedules" | "preparations" | "metadata";
 };
 const initial: View = {
   lakeId: "",
@@ -73,7 +78,7 @@ function decode(value: unknown): View | null {
   return typeof v.lakeId === "string" &&
     typeof v.jobId === "string" &&
     typeof v.scheduleId === "string" &&
-    ["jobs", "schedules", "preparations"].includes(v.view)
+    ["jobs", "schedules", "preparations", "metadata"].includes(v.view)
     ? { ...v, family: v.family === "collection" ? "collection" : "update" }
     : null;
 }
@@ -100,6 +105,7 @@ export default function LakeWorkspace({
   invocation,
   project,
 }: ApplicationModuleContext & { invocation: LakeInvocation | null }) {
+  const queryClient = useQueryClient();
   const status = useLakeStatus(client, true),
     refresh = useLakeRefresh(client),
     key = lakeKey(client);
@@ -156,6 +162,7 @@ export default function LakeWorkspace({
     index_root: "",
     media_root: "",
     create: true,
+    attach: true,
     requestKey: crypto.randomUUID(),
   });
   const configured = !!status.data?.configured;
@@ -318,6 +325,28 @@ export default function LakeWorkspace({
             <dd>{dateLabel(lake.registered_at)}</dd>
           </dl>
           <Button onClick={openSettings}>API 与凭据设置</Button>
+          {project && (
+            <Button
+              disabled={pending}
+              onClick={() =>
+                void act(async () => {
+                  const sources = await client.sourceAccess.list(project.id);
+                  if (!sources.items.some((source) => source.id === lake.id))
+                    await client.sourceAccess.attach(project.id, {
+                      kind: "auto",
+                      name: allSites[lake.site] ?? lake.site,
+                      media_root: lake.media,
+                      index_root: lake.index_root,
+                    });
+                  await queryClient.invalidateQueries({
+                    queryKey: ["project", project.id, "sources"],
+                  });
+                })
+              }
+            >
+              添加到当前项目
+            </Button>
+          )}
         </details>
         <p className="lake-hint">所有引用此湖的项目共享已发布数据。</p>
       </div>
@@ -426,6 +455,7 @@ export default function LakeWorkspace({
               <option value="jobs">更新任务</option>
               <option value="schedules">定时计划</option>
               <option value="preparations">项目范围准备</option>
+              <option value="metadata">帖子元数据</option>
             </select>
             {v.view === "jobs" && (
               <select
@@ -452,7 +482,7 @@ export default function LakeWorkspace({
             </Button>
             <Button onClick={openSettings}>API 设置</Button>
             <Button disabled={!configured} onClick={() => setRegister(true)}>
-              登记数据湖
+              创建 / 登记数据湖
             </Button>
             <Button aria-label="刷新数据湖状态" onClick={() => void refresh()}>
               <RefreshCw size={14} />
@@ -553,7 +583,25 @@ export default function LakeWorkspace({
       >
         <div className="lake-center">
           {error != null && <ErrorDetails error={error} />}
-          {v.view === "preparations" ? (
+          {v.view === "metadata" ? (
+            lake?.site === "pixiv" ? (
+              <p className="lake-empty">
+                Pixiv
+                按作者或作品采集，可在“新建更新”中选择范围、标签和保存策略。
+              </p>
+            ) : (
+              <MetadataCatalog
+                key={v.lakeId || "all"}
+                client={client}
+                lakes={oldLakes}
+                initialLake={v.lakeId}
+                onUse={(libraryId) => {
+                  select({ lakeId: libraryId, jobId: "", family: "update" });
+                  openComposer();
+                }}
+              />
+            )
+          ) : v.view === "preparations" ? (
             lake?.site === "pixiv" ? (
               <p className="lake-empty">
                 Pixiv 使用作者或作品范围，请在“新建更新”中设置。
@@ -731,7 +779,7 @@ export default function LakeWorkspace({
               </div>
             </>
           )}
-          {v.view !== "preparations" && (
+          {["jobs", "schedules"].includes(v.view) && (
             <footer className="lake-pagination">
               <span>第 {after.length} 页 · 每页最多 50 条</span>
               <span className="grow" />
@@ -776,6 +824,7 @@ export default function LakeWorkspace({
             <label>
               站点
               <select
+                aria-label="站点"
                 value={target.site}
                 onChange={(e) =>
                   setTarget({
@@ -833,6 +882,18 @@ export default function LakeWorkspace({
               />
             </label>
             {error != null && <ErrorDetails error={error} />}
+            {project && (
+              <label className="lake-check">
+                <input
+                  type="checkbox"
+                  checked={target.attach}
+                  onChange={(event) =>
+                    setTarget({ ...target, attach: event.target.checked })
+                  }
+                />
+                添加到当前项目：{project.name}
+              </label>
+            )}
             <Button
               disabled={
                 pending ||
@@ -841,6 +902,7 @@ export default function LakeWorkspace({
               }
               onClick={() =>
                 void act(async () => {
+                  let libraryId: string;
                   if (target.site === "pixiv") {
                     const args = {
                       request_key: target.requestKey,
@@ -848,23 +910,50 @@ export default function LakeWorkspace({
                       index_root: target.index_root.trim(),
                       media_root: target.media_root.trim(),
                     };
-                    if (target.create)
-                      await client.sourceCollections.createLake(args);
-                    else await client.sourceCollections.registerLake(args);
+                    libraryId = (
+                      target.create
+                        ? await client.sourceCollections.createLake(args)
+                        : await client.sourceCollections.registerLake(args)
+                    ).library_id;
                   } else if (target.create)
-                    await client.lakeUpdates.createLake({
-                      request_key: target.requestKey,
-                      site: target.site as Schema["CreateUpdateLake"]["site"],
-                      index_root: target.index_root.trim(),
-                      media_root: target.media_root.trim(),
-                    });
+                    libraryId = (
+                      await client.lakeUpdates.createLake({
+                        request_key: target.requestKey,
+                        site: target.site as Schema["CreateUpdateLake"]["site"],
+                        index_root: target.index_root.trim(),
+                        media_root: target.media_root.trim(),
+                      })
+                    ).id;
                   else
-                    await client.lakeUpdates.register({
-                      library_id: "",
-                      site: target.site as Schema["RegisterUpdateLake"]["site"],
-                      index_root: target.index_root.trim(),
-                      media_root: target.media_root.trim(),
+                    libraryId = (
+                      await client.lakeUpdates.register({
+                        library_id: "",
+                        site: target.site as Schema["RegisterUpdateLake"]["site"],
+                        index_root: target.index_root.trim(),
+                        media_root: target.media_root.trim(),
+                      })
+                    ).id;
+                  if (target.attach && project) {
+                    const sources = await client.sourceAccess.list(project.id);
+                    if (
+                      !sources.items.some((source) => source.id === libraryId)
+                    )
+                      await client.sourceAccess.attach(project.id, {
+                        kind: "auto",
+                        name: allSites[target.site] ?? target.site,
+                        media_root: target.media_root.trim(),
+                        index_root: target.index_root.trim(),
+                      });
+                    await queryClient.invalidateQueries({
+                      queryKey: ["project", project.id, "sources"],
                     });
+                  }
+                  select({
+                    lakeId: libraryId,
+                    jobId: "",
+                    scheduleId: "",
+                    view: "jobs",
+                  });
                   setRegister(false);
                 })
               }

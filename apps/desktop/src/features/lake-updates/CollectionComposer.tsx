@@ -282,6 +282,33 @@ export function CollectionComposer({
                 按所选访问方式实际可见的内容采集。登录凭据在“设置 → 数据湖
                 API”管理。
               </p>
+              <details>
+                <summary>标签筛选（可选）</summary>
+                <div className="lake-fields">
+                  {(
+                    [
+                      ["tagAll", "全部包含 Tag"],
+                      ["tagAny", "任一包含 Tag"],
+                      ["tagNone", "排除 Tag"],
+                    ] as const
+                  ).map(([field, label]) => (
+                    <label key={field}>
+                      {label}
+                      <textarea
+                        aria-label={`Pixiv ${label}`}
+                        rows={2}
+                        value={d[field]}
+                        onChange={(event) =>
+                          change({ [field]: event.target.value })
+                        }
+                      />
+                    </label>
+                  ))}
+                  <p className="lake-hint">
+                    在所选作者或作品范围内筛选。每行一个精确标签，保留标签内的空格；未命中的作品详情仍会保存，图片按条件取得。
+                  </p>
+                </div>
+              </details>
             </div>
           </details>
           {d.kind === "authors" && (

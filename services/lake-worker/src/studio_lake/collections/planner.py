@@ -48,7 +48,7 @@ def edge(db, job, source_kind, source_id, target_kind, target_id, step, snapshot
         db.execute("UPDATE collection_entities SET provenance_count=provenance_count+1 WHERE job_id=? AND kind=? AND source_id=?", (job["id"], target_kind, target_id))
 
 
-def scope_allows(detail, spec):
+def scope_allows(detail, spec, tags=None):
     scope = spec["scope"]
     fields = json.loads(detail["source_fields_json"])["pixiv"]
     work_type, restrict, ai = detail["work_type"], fields["x_restrict"], fields["ai_type"]
@@ -61,6 +61,15 @@ def scope_allows(detail, spec):
         return False
     if ai == 2 and not scope["include_ai"]:
         return False
+    query = scope.get("tags") or {}
+    if any(query.values()):
+        if tags is None or not fields.get("tags_known", bool(tags)):
+            return False
+        names = set(tags)
+        if (not set(query.get("all", [])).issubset(names)
+                or (query.get("any") and set(query["any"]).isdisjoint(names))
+                or not set(query.get("none", [])).isdisjoint(names)):
+            return False
     return ai in {1, 2} or scope["include_unknown_markers"]
 
 
@@ -95,11 +104,14 @@ def apply(db, job, records, outcomes):
             task(db, job["id"], "relationship_page", root_id,
                  dict(root_kind=root_kind, root_id=root_id, relation=relation, cursor=cursor["offset"], directory_snapshot_id=cursor.get("directory_snapshot_id")),
                  key=f"relationship:{root_id}:{relation}:{cursor['offset']}", priority=-10)
+    tag_names = {}
+    for row in records.get("work_tags", []):
+        tag_names.setdefault(row["observation_id"], []).append(row["tag"])
     for detail in records.get("work_observations", []):
         work_id = detail["work_id"]
         if spec["seeds"]["kind"] == "authors" and detail["author_id"]:
             edge(db, job, "work", work_id, "author", detail["author_id"], 0, detail["observation_id"])
-        allowed = scope_allows(detail, spec)
+        allowed = scope_allows(detail, spec, tag_names.get(detail["observation_id"], []))
         db.execute("UPDATE collection_entities SET state=? WHERE job_id=? AND kind='work' AND source_id=?", ("processed" if allowed else "excluded", job["id"], work_id))
         if allowed:
             task(db, job["id"], "media_manifest", work_id, dict(detail=detail), priority=5, parent=parent("work_detail", work_id))

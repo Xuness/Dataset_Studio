@@ -52,7 +52,7 @@ def definition(value):
         "created": {"kind", "start", "end", "timezone", "start_id", "end_id"},
         "updated": {"kind", "start", "end", "timezone", "start_id", "end_id"},
         "local": {"kind", "start_id", "end_id", "observed_before", "missing_media"},
-        "tags": {"kind", "query", "start_id", "end_id", "refresh", "source", "post_ids", "version"},
+        "tags": {"kind", "query", "start_id", "end_id", "refresh", "source", "post_ids", "version", "missing_media"},
     }
     if kind not in fields or set(r) - fields[kind]:
         raise UpdateError("INVALID_INPUT", "Unsupported range or unknown range field")
@@ -80,6 +80,8 @@ def definition(value):
             if r.get("source", "remote") not in {"remote", "local"}:
                 raise UpdateError("INVALID_INPUT", "Tag candidate source must be remote or local")
             local = r.get("source") == "local"
+            if "missing_media" in r and (not local or not isinstance(r["missing_media"], bool)):
+                raise UpdateError("INVALID_INPUT", "missing_media is a boolean local catalog predicate")
             r["query"] = normalize(r.get("query"), require_positive=not local)
             if "post_ids" in r:
                 if not local or not isinstance(r["post_ids"], list) or not 1 <= len(r["post_ids"]) <= 10000:

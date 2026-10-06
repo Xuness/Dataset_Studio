@@ -205,7 +205,10 @@ try {
   await expect(browseOrder).toHaveValue("asset_key_desc");
   for (const kind of Object.keys(booru))
     await openSource(kind + " fixture", "post_id_asc");
-  await page.getByRole("button", { name: "全部项目数据", exact: true }).click();
+  await page
+    .getByRole("tabpanel", { name: "项目", exact: true })
+    .getByRole("button", { name: "全部项目数据", exact: true })
+    .click();
   await expect(browseOrder).toHaveValue("asset_key_desc");
   await expect(browseOrder.locator('option[value="post_id_desc"]')).toHaveCount(
     0,
@@ -315,7 +318,9 @@ try {
     .click();
   await expect(page.locator(".lake-outline")).toContainText("Pixiv");
   await expect(page.locator(".lake-table")).toContainText("公开范围完成");
-  await page.getByRole("button", { name: "登记数据湖", exact: true }).click();
+  await page
+    .getByRole("button", { name: "创建 / 登记数据湖", exact: true })
+    .click();
   let dialog = page.getByRole("dialog", { name: "创建或登记数据湖" });
   await dialog.getByLabel("站点", { exact: true }).selectOption("pixiv");
   await dialog

@@ -256,7 +256,11 @@ def test_content_revision_rejects_changed_media_but_allows_statistics(tmp_path, 
         with Reader(lib.root, lib.cache) as reader:
             assert reader.work("12345")["manifest_state"] == ("needs_refresh" if changed else "ready")
             assert len(reader.media("12345")["items"]) == 1
-        assert bool(reusable_work(lib, "12345", spec, fixture["context"], at=at)) is not changed
+        retained = reusable_work(lib, "12345", spec, fixture["context"], at=at)
+        assert retained
+        assert bool(retained.get("fetch_manifest")) is changed
+        if changed:
+            assert not retained.get("materialize_manifest") and retained["media_count"] == 0
 
 
 def test_schedule_limit_follows_unfinished_job_filter(tmp_path):

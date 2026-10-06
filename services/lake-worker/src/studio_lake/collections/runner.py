@@ -191,10 +191,18 @@ class Runner:
 
     def metadata(self, job, task, context, client, lib=None):
         payload, kind = json.loads(task["payload_json"]), task["kind"]
+        if kind == "media_manifest" and payload.get("retained_detail") and lib is not None:
+            payload = dict(detail=incremental.retained_detail(lib, payload["retained_detail"], context))
+        if kind == "media_manifest" and payload.get("retained_manifest") and lib is not None:
+            page = incremental.manifest_page(lib, payload["retained_manifest"],
+                                             json.loads(job["definition_json"]), context, payload["after_ordinal"])
+            return receipts.prepared(self.service, job, task, {}, reason="fresh_existing_manifest",
+                                     summary=dict(retained_manifest_page=page), directory=task["directory"])
         if kind == "work_detail" and lib is not None:
             retained = incremental.reusable_work(lib, payload["work_id"], json.loads(job["definition_json"]), context)
             if retained:
-                return receipts.prepared(self.service, job, task, {}, reason="fresh_existing_snapshot",
+                return receipts.prepared(self.service, job, task, {}, state="excluded" if retained.get("excluded") else "done",
+                                         reason="scope_filter_cached" if retained.get("excluded") else "fresh_existing_snapshot",
                                          summary=dict(retained_work=retained), directory=task["directory"])
         if kind == "relationship_page":
             with self.state.db() as db:
@@ -247,8 +255,14 @@ class Runner:
                                     next_cursor=json.loads(snapshot["next_cursor_json"]) if snapshot["next_cursor_json"] else {},
                                     exhausted=snapshot["traversal_exhausted"], capture_id=captured["capture_id"]))
         state, reason = "done", None
-        if kind == "work_detail" and not planner.scope_allows(normalized["work_observations"][0], json.loads(job["definition_json"])):
-            state, reason = "excluded", "scope_filter"
+        if kind == "work_detail":
+            spec = json.loads(job["definition_json"])
+            detail = normalized["work_observations"][0]
+            fields = json.loads(detail["source_fields_json"])["pixiv"]
+            if any((spec["scope"].get("tags") or {}).values()) and not fields.get("tags_known"):
+                state, reason = "needs_review", "COLLECTION_TAGS_UNKNOWN"
+            elif not planner.scope_allows(detail, spec, [r["tag"] for r in normalized.get("work_tags", [])]):
+                state, reason = "excluded", "scope_filter"
         if kind == "media_manifest" and not normalized["media_manifests"][0]["complete"]:
             state, reason = "needs_review", normalized["media_manifests"][0]["reason"]
         summary = dict(directory_delta=incremental.directory_delta(lib, normalized, context)) if lib is not None and kind == "author_directory" else {}

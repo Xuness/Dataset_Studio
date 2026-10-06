@@ -1,4 +1,6 @@
-use crate::{LakeImagePolicy, LakePipelineConfig, LakeSitePipeline, LakeUpdateRuntimeHealth};
+use crate::{
+    LakeImagePolicy, LakePipelineConfig, LakeSitePipeline, LakeTagQuery, LakeUpdateRuntimeHealth,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
@@ -56,6 +58,8 @@ pub struct CollectionScope {
     pub ratings: Vec<String>,
     pub include_ai: bool,
     pub include_unknown_markers: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tags: Option<LakeTagQuery>,
 }
 #[derive(Clone, Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]

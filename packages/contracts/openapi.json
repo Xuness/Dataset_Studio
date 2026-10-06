@@ -15233,6 +15233,16 @@
               "type": "string"
             }
           },
+          "tags": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/LakeTagQuery"
+              }
+            ]
+          },
           "work_types": {
             "type": "array",
             "items": {
@@ -17792,6 +17802,12 @@
                 "type": "string",
                 "enum": [
                   "tags"
+                ]
+              },
+              "missing_media": {
+                "type": [
+                  "boolean",
+                  "null"
                 ]
               },
               "post_ids": {

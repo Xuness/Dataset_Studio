@@ -18,9 +18,9 @@ Ctrl+Z 撤销图片选择，Ctrl+Y 或 Ctrl+Shift+Z 重做。“设置 → 编�
 
 分级基础缓存按数据湖共享，组合筛选使用候选记录缩小查询范围；项目结果按长期、临时或仅本次会话管理。顶部“设置”统一提供容量、缓存管理和查询内存选项。缓存管理可查看所有项目（包括已关闭项目）的查询、固定输入引用和排名索引，并按项调整保留或清理。固定工作集上的成果分级筛选跨每日数据湖更新复用；涉及最新来源字段的条件仍按需刷新。行为与兼容规则见[缓存分层与设置决策](docs/decisions/0008-cache-tiers-settings.md)、[固定查询与缓存明细](docs/decisions/0021-fixed-query-dependencies-and-cache-inventory.md)及[实施与验收清单](docs/plans/cache-settings-v0.7.md)。
 
-“工具 → 数据湖”管理 Danbooru、Yandere、Gelbooru 的共享更新、预约计划和项目范围准备。API 抓取、图片编码、断点恢复及归档发布已由本仓库的 `services/lake-worker` 维护，运行源码内置于引擎，不再需要 Danbooru-Store 源码目录。保存策略支持原文件、WebP/JPEG/PNG 自定义编码与命名预设；详见[数据湖更新服务](services/lake-worker/README.md)。
+“工具 → 数据湖”支持从空目录创建 Danbooru、Yandere、Gelbooru、Pixiv 数据湖并加入项目。Booru 可以按 ID 或标签组合采集，复用相容的近期查询覆盖，并在独立的帖子元数据目录中选择尚未下载图片的条目。API 抓取、图片编码、断点恢复及归档发布由内置的 `services/lake-worker` 维护，无需 Danbooru-Store 源码或已有发行归档。操作见[从零建湖与按需采集](docs/architecture/zero-lake-collection.md)，保存策略与运行环境见[数据湖更新服务](services/lake-worker/README.md)。
 
-Pixiv 已接入独立多媒体湖、作者采集和任务管理、后端 API / SDK；可通过独立命令创建任务，并通过现有来源读取、查询和预览接口消费结果。Pixiv 前端页面暂缓，使用方法和公开样本边界见[来源采集后端](docs/architecture/source-collections.md)。
+Pixiv 使用独立多媒体湖，已接入作者/作品采集、范围内标签筛选、增量复查、周期计划、账号设置和任务工作台。近期详情与完整媒体清单可以复用于后续补图；作者目录、作品元数据和媒体下载分别保留进度。使用方法和公开样本边界见[来源采集接入](docs/architecture/source-collections.md)。
 
 ## 启动
 
@@ -56,7 +56,7 @@ pwsh -File tooling/start-dev.ps1
 ## 首次使用
 
 1. 新建项目，或打开包含 project.json 的项目目录。
-2. 添加完整数据湖。可自动识别已转换的 Yandere/Gelbooru，或显式选择 Danbooru；填写 SSD 索引目录和图片湖目录，检查后加入项目。内置参考资料用于验证基础功能。
+2. 在“工具 → 数据湖 → 创建 / 登记数据湖”创建空湖并加入当前项目，或登记已有湖；随后按 ID、标签或 Pixiv 作者/作品开始采集。也可直接添加已转换的数据湖，填写 SSD 索引目录和图片湖目录。内置参考资料用于验证基础功能。
 3. 在项目中浏览、查看单图、选择对象、保存工作集。选择属于项目，在切换来源和重开项目后保留。
 4. 点击图片后，右侧属性面板的“元数据”可切换来源记录与历史观察、查看标签及来源尺寸，按需读取原始 JSON。滚动面板查看完整内容；记录切换不改变项目选择。
 5. “查询”面板按字段能力设置条件、观察规则和身份排序，保存定义并在后台构建结果。可查看结果、全选并排除个别对象，或对工作集和结果范围进行集合操作。

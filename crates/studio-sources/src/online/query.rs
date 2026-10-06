@@ -16,7 +16,9 @@ fn field(field: &str, version: u32) -> Result<&'static str> {
             "work.title" => "p.title",
             "source.width" => "m.width",
             "source.height" => "m.height",
-            "tags" => "p.observation_id",
+            "tags" => {
+                "CASE WHEN json_extract(p.source_fields_json,'$.pixiv.tags_known')=0 THEN NULL ELSE p.observation_id END"
+            }
             "pixiv.x_restrict" => "json_extract(p.source_fields_json,'$.pixiv.x_restrict')",
             "pixiv.ai_type" => "json_extract(p.source_fields_json,'$.pixiv.ai_type')",
             "pixiv.bookmark_count" => "json_extract(p.source_fields_json,'$.pixiv.bookmark_count')",

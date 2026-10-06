@@ -59,7 +59,10 @@ export const taskStates: Record<string, string> = {
 };
 const reasons: Record<string, string> = {
   run_budget_exhausted: "本轮预算用完，继续会保留进度并重置本轮用量。",
-  fresh_existing_snapshot: "沿用近期完整快照",
+  fresh_existing_snapshot: "沿用近期元数据",
+  fresh_existing_manifest: "沿用已保存的逐页与动画清单",
+  scope_filter_cached: "近期元数据未命中标签条件",
+  COLLECTION_TAGS_UNKNOWN: "源站未返回可确认的标签，原始响应已保留",
   scope_filter: "不符合所选范围",
   depth_limit: "达到扩展深度",
   COLLECTION_CREDENTIAL_REQUIRED: "需要导入或更新登录会话",
@@ -154,6 +157,9 @@ export type CollectionDraft = ImageFields & {
   ratings: string[];
   includeAi: boolean;
   includeUnknown: boolean;
+  tagAll: string;
+  tagAny: string;
+  tagNone: string;
   entrypoints: string[];
   depth: number;
   recommendationSeeds: number;
@@ -188,6 +194,9 @@ export const initialCollectionDraft: CollectionDraft = {
   ratings: ["all_ages"],
   includeAi: true,
   includeUnknown: true,
+  tagAll: "",
+  tagAny: "",
+  tagNone: "",
   entrypoints: [],
   depth: 0,
   recommendationSeeds: 2,
@@ -212,6 +221,12 @@ export const initialCollectionDraft: CollectionDraft = {
 export function decodeCollectionDraft(value: unknown): CollectionDraft | null {
   if (!value || typeof value !== "object") return null;
   const v = value as CollectionDraft;
+  if (
+    [v.tagAll, v.tagAny, v.tagNone].some(
+      (field) => field !== undefined && typeof field !== "string",
+    )
+  )
+    return null;
   if (
     !["authors", "works"].includes(v.kind) ||
     typeof v.seeds !== "string" ||
@@ -241,6 +256,9 @@ export function draftForCollection(
     ratings: spec.scope.ratings,
     includeAi: spec.scope.include_ai,
     includeUnknown: spec.scope.include_unknown_markers,
+    tagAll: spec.scope.tags?.all?.join("\n") ?? "",
+    tagAny: spec.scope.tags?.any?.join("\n") ?? "",
+    tagNone: spec.scope.tags?.none?.join("\n") ?? "",
     entrypoints: spec.discovery.entrypoints,
     depth: spec.discovery.max_depth,
     recommendationSeeds: spec.discovery.recommendation_seeds_per_author || 2,
@@ -289,6 +307,14 @@ export function collectionDefinition(
   });
   const metadata = policy.profile === "metadata_only";
   const depth = d.kind === "authors" ? d.depth : 0;
+  const names = (value: string) => [
+    ...new Set(value.split(/\r?\n/).filter((tag) => tag.length > 0)),
+  ];
+  const tags = {
+    all: names(d.tagAll),
+    any: names(d.tagAny),
+    none: names(d.tagNone),
+  };
   return {
     version: 1,
     collector: "pixiv_web_v1",
@@ -300,6 +326,7 @@ export function collectionDefinition(
       ratings: d.ratings,
       include_ai: d.includeAi,
       include_unknown_markers: d.includeUnknown,
+      ...(Object.values(tags).some((group) => group.length) ? { tags } : {}),
     },
     discovery: {
       entrypoints: depth ? d.entrypoints : [],

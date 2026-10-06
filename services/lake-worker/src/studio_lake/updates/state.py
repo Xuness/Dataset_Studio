@@ -56,7 +56,7 @@ CREATE TRIGGER IF NOT EXISTS input_count AFTER INSERT ON input_ids BEGIN
  UPDATE inputs SET count=count+1 WHERE id=new.input_id; END;
 """
 TERMINAL = {"completed", "completed_with_exclusions", "cancelled"}
-SCHEMA_VERSION = 13
+SCHEMA_VERSION = 14
 
 
 class State:
@@ -149,6 +149,10 @@ class State:
 
                 migrate(db)
                 db.execute("PRAGMA user_version=13")
+            if version < 14:
+                # New local selection and Pixiv tag predicates cannot be ignored
+                # by an older executor sharing this controller.
+                db.execute("PRAGMA user_version=14")
 
     @contextmanager
     def db(self):
@@ -444,6 +448,8 @@ class State:
         self, spec, every_seconds=None, first_run_at=None, enabled=False, identity=None, revision=None
     ):
         spec = definition(spec)
+        if spec["range"]["kind"] == "tags" and spec["range"].get("source") == "local" and spec["range"].get("version"):
+            raise UpdateError("INVALID_INPUT", "Scheduled catalog queries must read the current local version; omit the temporary view version")
         validate_site(self.lake(spec["library_id"])["site"], spec)
         every_seconds = number(every_seconds, 60, 366 * 86400) if every_seconds is not None else 0
         next_at = timestamp(first_run_at).timestamp()

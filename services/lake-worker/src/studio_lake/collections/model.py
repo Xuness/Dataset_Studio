@@ -69,11 +69,27 @@ def definition(value):
     if not isinstance(seeds["ids"], list) or not 1 <= len(seeds["ids"]) <= 1000:
         invalid("Supply 1–1000 author or work identities")
     seeds["ids"] = sorted({source_id(v) for v in seeds["ids"]}, key=int)
-    scope = fields(value["scope"], ("work_types", "ratings", "include_ai", "include_unknown_markers"))
+    scope = fields(value["scope"], ("work_types", "ratings", "include_ai", "include_unknown_markers"), ("tags",))
     scope["work_types"] = choices(scope["work_types"], ("illustration", "manga", "ugoira"))
     scope["ratings"] = choices(scope["ratings"], ("all_ages", "r18", "r18g"))
     boolean(scope["include_ai"])
     boolean(scope["include_unknown_markers"])
+    if scope.get("tags") is not None:
+        tags = fields(scope["tags"], (), ("all", "any", "none"))
+        normalized = {}
+        for name in ("all", "any", "none"):
+            group = tags.get(name, [])
+            if (not isinstance(group, list) or len(group) > 64 or any(
+                not isinstance(tag, str) or not 1 <= len(tag) <= 512 or any(ord(c) < 32 for c in tag)
+                for tag in group
+            )):
+                invalid("Pixiv tag groups accept at most 64 bounded literal names; spaces are preserved")
+            normalized[name] = sorted(set(group))
+        if sum(map(len, normalized.values())) > 128:
+            invalid("Pixiv tag query exceeds 128 names")
+        scope["tags"] = normalized
+    else:
+        scope.pop("tags", None)
     discovery = fields(value["discovery"], ("entrypoints", "max_depth", "recommendation_seeds_per_author"))
     discovery["entrypoints"] = choices(discovery["entrypoints"], ("bookmarks", "following", "recommendations"), empty=True)
     depth = integer(discovery["max_depth"], 0, 4)

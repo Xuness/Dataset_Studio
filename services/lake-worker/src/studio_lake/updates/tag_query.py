@@ -186,7 +186,7 @@ def local_page(runner, lib, job, site, check, publication):
     size = min(200, job["definition"]["item_budget"] - cursor.get("slice_items", 0))
     result = read_page(lib, dict(query=scope["query"], start_id=scope.get("start_id", 1),
                                 end_id=cursor["upper"], after=cursor["next_id"] - 1, limit=size,
-                                version=cursor["catalog_version"], post_ids=scope.get("post_ids")),
+                                version=cursor["catalog_version"], post_ids=scope.get("post_ids"), missing_media=scope.get("missing_media", False)),
                        retain=False, scan_limit=min(2048, job["definition"]["item_budget"] - cursor.get("slice_items", 0)))
     refs = [dict(post_id=r["post_id"], observation_id=r["observation_id"]) for r in result["items"]]
     records = query_cache.observation_records(lib, refs)

@@ -4834,6 +4834,7 @@ export interface components {
             include_ai: boolean;
             include_unknown_markers: boolean;
             ratings: string[];
+            tags?: null | components["schemas"]["LakeTagQuery"];
             work_types: string[];
         };
         /** @enum {string} */
@@ -5554,6 +5555,7 @@ export interface components {
             end_id?: number | null;
             /** @enum {string} */
             kind: "tags";
+            missing_media?: boolean | null;
             post_ids?: number[] | null;
             query: components["schemas"]["LakeTagQuery"];
             refresh?: null | components["schemas"]["LakeMetadataRefresh"];

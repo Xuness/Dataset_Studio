@@ -178,3 +178,18 @@ def test_catalog_does_not_require_an_image_or_duplicate_observations(tmp_path):
     assert runner.run(task["id"])["counts"] == {"metadata": 3}
     with online(lib) as (db, _):
         assert next(db.execute("SELECT count(*) FROM observations"))[0] == original
+
+
+def test_local_missing_media_predicate_survives_catalog_to_task_handoff(tmp_path):
+    lib, state, _, _, runner = setup(tmp_path)
+    seed(lib, state, runner)
+    stored = job(state, lib, dict(kind="tags", source="local", query={}, post_ids=[11]), "original")
+    assert runner.run(stored["id"])["state"] == "completed"
+    page = read_page(lib, dict(query={}, missing_media=True))
+    assert [row["post_id"] for row in page["items"]] == [50, 5000, 9000]
+    selected = dict(kind="tags", source="local", query={}, missing_media=True, version=page["version"])
+    task = job(state, lib, selected)
+    done = runner.run(task["id"])
+    assert done["state"] == "completed" and done["counts"] == {"metadata": 3}
+    with pytest.raises(UpdateError, match="Scheduled"):
+        state.set_schedule(dict(library_id=lib.info["library_id"], range=selected), first_run_at="2099-01-01T00:00:00Z")
