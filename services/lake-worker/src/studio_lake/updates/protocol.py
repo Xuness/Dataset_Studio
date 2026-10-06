@@ -40,7 +40,7 @@ def definition(value):
     if not isinstance(r, dict):
         raise UpdateError("INVALID_INPUT", "A bounded update range is required")
     kind = r.get("kind")
-    for optional in ("start_id", "end_id", "observed_before", "missing_media"):
+    for optional in ("start_id", "end_id", "observed_before", "missing_media", "refresh", "source", "post_ids", "version"):
         if r.get(optional) is None:
             r.pop(optional, None)
     fields = {
@@ -52,7 +52,7 @@ def definition(value):
         "created": {"kind", "start", "end", "timezone", "start_id", "end_id"},
         "updated": {"kind", "start", "end", "timezone", "start_id", "end_id"},
         "local": {"kind", "start_id", "end_id", "observed_before", "missing_media"},
-        "tags": {"kind", "query", "start_id", "end_id"},
+        "tags": {"kind", "query", "start_id", "end_id", "refresh", "source", "post_ids", "version"},
     }
     if kind not in fields or set(r) - fields[kind]:
         raise UpdateError("INVALID_INPUT", "Unsupported range or unknown range field")
@@ -77,7 +77,24 @@ def definition(value):
         if kind == "tags":
             from .tag_query import normalize
 
-            r["query"] = normalize(r.get("query"))
+            if r.get("source", "remote") not in {"remote", "local"}:
+                raise UpdateError("INVALID_INPUT", "Tag candidate source must be remote or local")
+            local = r.get("source") == "local"
+            r["query"] = normalize(r.get("query"), require_positive=not local)
+            if "post_ids" in r:
+                if not local or not isinstance(r["post_ids"], list) or not 1 <= len(r["post_ids"]) <= 10000:
+                    raise UpdateError("INVALID_INPUT", "Explicit catalog selection requires 1–10000 local post IDs")
+                r["post_ids"] = sorted({number(pid) for pid in r["post_ids"]})
+            if "version" in r and (not local or not isinstance(r["version"], str) or len(r["version"]) > 128):
+                raise UpdateError("INVALID_INPUT", "Only a local catalog task accepts a retained source version")
+            if "refresh" in r:
+                if local:
+                    raise UpdateError("INVALID_INPUT", "Local catalog selection uses saved metadata; omit remote refresh policy")
+                refresh = r["refresh"]
+                if (not isinstance(refresh, dict) or set(refresh) != {"mode", "max_age_hours"}
+                        or refresh["mode"] not in {"all", "missing_or_stale"}):
+                    raise UpdateError("INVALID_INPUT", "Metadata refresh requires mode and max_age_hours")
+                number(refresh["max_age_hours"], 1, 8760)
         if kind in {"created", "updated"}:
             if timestamp(r.get("start")) >= timestamp(r.get("end")):
                 raise UpdateError("INVALID_INPUT", "Date range must be [start,end)")

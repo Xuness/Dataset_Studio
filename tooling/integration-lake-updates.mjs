@@ -24,7 +24,7 @@ try {
   if (python) {
     await promisify(execFile)(
       python,
-      [resolve(root, "tooling/lake-updates-fixture.py"), runDir],
+      [resolve(root, "tooling/lake-updates-fixture.py"), runDir, "--assets"],
       { windowsHide: true },
     );
     const targets = JSON.parse(
@@ -74,6 +74,40 @@ try {
     );
     for (const target of targets) await client.lakeUpdates.register(target);
     assert.equal((await client.lakeUpdates.lakes()).items.length, 3);
+    const metadataPage = await client.lakeUpdates.catalog(
+      targets[0].library_id,
+      {
+        query: { all: ["a"], any: [], none: [] },
+        limit: 1,
+      },
+    );
+    assert.equal(metadataPage.items.length, 1);
+    assert.equal(metadataPage.items[0].post_id, 11);
+    const savedMetadataJob = await client.lakeUpdates.create(
+      {
+        library_id: targets[0].library_id,
+        range: {
+          kind: "tags",
+          source: "local",
+          query: {},
+          post_ids: [11],
+          version: metadataPage.version,
+        },
+        media: { profile: "original", existing: "keep" },
+      },
+      crypto.randomUUID(),
+    );
+    const savedMetadataDone = await engine.wait(
+      `/v1/lake-updates/jobs/${savedMetadataJob.id}`,
+      (job) => job.state === "completed",
+    );
+    assert.deepEqual(savedMetadataDone.counts, { reused: 1 });
+    assert.equal(savedMetadataDone.cursor.metadata_reused_records, 1);
+    assert.equal(savedMetadataDone.telemetry.api_requests, 0);
+    assert.equal(savedMetadataDone.telemetry.image_requests, 0);
+    checks.push(
+      "versioned metadata catalog feeds a selected local acquisition with zero API/image requests",
+    );
     const secret = "integration-only-not-a-real-api-key";
     const credential = await client.lakeUpdates.setCredentials({
       site: "danbooru",
@@ -263,6 +297,10 @@ try {
       });
       assert.equal(source.id, lake.id);
       assert.equal(source.count, 0);
+      assert.deepEqual(
+        (await client.lakeUpdates.catalog(lake.id, { query: {} })).items,
+        [],
+      );
       const pointer = JSON.parse(
         await readFile(resolve(args.index_root, "ONLINE.json"), "utf8"),
       );

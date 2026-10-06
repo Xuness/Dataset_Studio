@@ -56,7 +56,7 @@ CREATE TRIGGER IF NOT EXISTS input_count AFTER INSERT ON input_ids BEGIN
  UPDATE inputs SET count=count+1 WHERE id=new.input_id; END;
 """
 TERMINAL = {"completed", "completed_with_exclusions", "cancelled"}
-SCHEMA_VERSION = 12
+SCHEMA_VERSION = 13
 
 
 class State:
@@ -144,6 +144,11 @@ class State:
                 # Older runners interpret unknown ranges as unfiltered ID scans.
                 # Fence them out before any literal-tag task can be admitted.
                 db.execute("PRAGMA user_version=12")
+            if version < 13:
+                from .query_cache import migrate
+
+                migrate(db)
+                db.execute("PRAGMA user_version=13")
 
     @contextmanager
     def db(self):
@@ -231,12 +236,41 @@ class State:
                 "blob=excluded.blob,revision=revision+1",
                 (site, blob),
             )
+            db.execute("UPDATE source_access_epochs SET epoch=? WHERE site=?", (uuid.uuid4().hex, site))
         return {"site": site, "credential_set": True}
 
     def credentials(self, site):
+        return self.credential_snapshot(site)[0]
+
+    def credential_snapshot(self, site):
+        from .query_cache import context_key
+
         with self.db() as db:
+            db.execute("BEGIN")
             row = db.execute("SELECT blob FROM credentials WHERE site=?", (site,)).fetchone()
-        return credentials.decode(row[0]) if row else {}
+            epoch = db.execute("SELECT epoch FROM source_access_epochs WHERE site=?", (site,)).fetchone()
+        if epoch is None:
+            raise UpdateError("INVALID_INPUT", "Unknown source credential context")
+        return credentials.decode(row[0]) if row else {}, context_key(site, epoch[0])
+
+    def clear_credentials(self, site):
+        from .sites import Site
+
+        if site not in Site.URLS:
+            raise UpdateError("INVALID_INPUT", "Unknown site")
+        with self.db() as db:
+            db.execute("DELETE FROM credentials WHERE site=?", (site,))
+            db.execute("UPDATE source_access_epochs SET epoch=? WHERE site=?", (uuid.uuid4().hex, site))
+        return {"site": site, "credential_set": False}
+
+    def access_context(self, site):
+        from .query_cache import context_key
+
+        with self.db() as db:
+            epoch = db.execute("SELECT epoch FROM source_access_epochs WHERE site=?", (site,)).fetchone()
+        if epoch is None:
+            raise UpdateError("INVALID_INPUT", "Unknown source credential context")
+        return context_key(site, epoch[0])
 
     def credential_status(self):
         with self.db() as db:

@@ -74,6 +74,14 @@ pub enum LakeUpdateRange {
         query: LakeTagQuery,
         start_id: Option<u64>,
         end_id: Option<u64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        refresh: Option<LakeMetadataRefresh>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        source: Option<LakeTagCandidateSource>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        post_ids: Option<Vec<u64>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        version: Option<String>,
     },
     Input {
         input_id: String,
@@ -120,6 +128,24 @@ pub struct LakeTagQuery {
     pub all: Vec<String>,
     pub any: Vec<String>,
     pub none: Vec<String>,
+}
+#[derive(Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LakeTagCandidateSource {
+    Remote,
+    Local,
+}
+#[derive(Clone, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum LakeMetadataRefreshMode {
+    All,
+    MissingOrStale,
+}
+#[derive(Clone, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LakeMetadataRefresh {
+    pub mode: LakeMetadataRefreshMode,
+    pub max_age_hours: u32,
 }
 #[derive(Clone, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
@@ -310,6 +336,38 @@ pub struct UpdateLake {
 pub struct UpdateLakes {
     pub items: Vec<UpdateLake>,
 }
+#[derive(Default, Serialize, Deserialize, ToSchema)]
+#[serde(default, deny_unknown_fields)]
+pub struct LakePostQuery {
+    pub query: LakeTagQuery,
+    pub start_id: Option<u64>,
+    pub end_id: Option<u64>,
+    pub after: Option<u64>,
+    pub limit: Option<u32>,
+    pub version: Option<String>,
+    pub post_ids: Option<Vec<u64>>,
+    pub missing_media: bool,
+}
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct LakePostMetadata {
+    pub post_id: u64,
+    pub observation_id: String,
+    pub observed_at: Option<String>,
+    pub tags: Option<String>,
+    pub rating: Option<String>,
+    pub width: Option<i64>,
+    pub height: Option<i64>,
+    pub has_media: bool,
+    pub source_kind: Option<String>,
+    pub tags_truncated: bool,
+}
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct LakePostPage {
+    pub version: String,
+    pub items: Vec<LakePostMetadata>,
+    pub next_after: Option<u64>,
+    pub scanned: u64,
+}
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct LakeRelocation {
     pub id: String,
@@ -410,6 +468,8 @@ pub struct LakeUpdateProgress {
     pub tag_branch: u64,
     pub metadata_records: u64,
     pub matched_records: u64,
+    pub metadata_reused_records: u64,
+    pub metadata_cache_pages: u64,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct LakeUpdateJob {

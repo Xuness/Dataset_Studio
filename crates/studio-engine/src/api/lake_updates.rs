@@ -116,6 +116,16 @@ pub(super) async fn create_lake(
 ) -> ApiResult<UpdateLake> {
     invoke(s, Op::LakeCreate, json!(body)).await
 }
+#[utoipa::path(post,path="/v1/lake-updates/lakes/{id}/posts/query",params(("id"=String,Path)),request_body=LakePostQuery,responses((status=200,body=LakePostPage)),operation_id="lake_updates_catalog")]
+pub(super) async fn catalog(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+    Body(body): Body<LakePostQuery>,
+) -> ApiResult<LakePostPage> {
+    let mut args = json!(body);
+    args["library_id"] = json!(id);
+    invoke(s, Op::Catalog, args).await
+}
 #[utoipa::path(put,path="/v1/lake-updates/credentials",request_body=SetLakeCredentials,responses((status=200,body=LakeCredentialStatus)),operation_id="lake_updates_credentials")]
 pub(super) async fn credentials(
     State(s): State<AppState>,
@@ -273,6 +283,7 @@ pub(super) fn routes() -> axum::Router<AppState> {
         .route("/capabilities", get(capabilities))
         .route("/lakes", get(lakes).post(register))
         .route("/lakes/create", post(create_lake))
+        .route("/lakes/{id}/posts/query", post(catalog))
         .route("/credentials", axum::routing::put(credentials))
         .route("/credentials/{site}/clear", post(clear_credentials))
         .route("/probes/{site}", post(probe))

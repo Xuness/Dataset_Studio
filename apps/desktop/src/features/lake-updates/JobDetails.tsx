@@ -117,7 +117,11 @@ export function JobDetails({
           {job.definition.range.kind === "tags" && (
             <>
               <dt>远端查询标签</dt>
-              <dd>{job.cursor.tag_anchors?.join(" / ") || "尚未规划"}</dd>
+              <dd>
+                {job.definition.range.source === "local"
+                  ? "仅已有元数据"
+                  : job.cursor.tag_anchors?.join(" / ") || "尚未规划"}
+              </dd>
               <dt>返回记录 / 条件命中</dt>
               <dd>
                 {job.cursor.metadata_records ?? 0} /{" "}
@@ -127,6 +131,11 @@ export function JobDetails({
               <dd>
                 {job.cursor.tag_branch ?? 0} /{" "}
                 {job.cursor.tag_anchors?.length ?? 0}
+              </dd>
+              <dt>复用元数据记录 / 页</dt>
+              <dd>
+                {job.cursor.metadata_reused_records ?? 0} /{" "}
+                {job.cursor.metadata_cache_pages ?? 0}
               </dd>
             </>
           )}
@@ -404,7 +413,7 @@ export function JobDetails({
             <dd>{source.media_complete ? "已确认" : "仍有缺口或未完成"}</dd>
             <dt>未获取项</dt>
             <dd>{String(source.exceptions ?? "—")}</dd>
-            <dt>检查时间</dt>
+            <dt>范围记录时间</dt>
             <dd>{dateLabel(String(source.checked_at ?? ""))}</dd>
           </dl>
         ) : (
@@ -412,6 +421,8 @@ export function JobDetails({
         )}
         <p className="lake-hint">
           仅代表此任务的范围；不代表整个数据湖的完整度。
+          {(job.cursor.metadata_reused_records ?? 0) > 0 &&
+            "元数据复用保留原获取时间，可在元数据列表查看；需要最新源站信息时选择重新核验。"}
         </p>
       </details>
       <details open>

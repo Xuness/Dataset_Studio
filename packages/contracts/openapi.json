@@ -892,6 +892,46 @@
         }
       }
     },
+    "/v1/lake-updates/lakes/{id}/posts/query": {
+      "post": {
+        "tags": [
+          "lake_updates"
+        ],
+        "operationId": "lake_updates_catalog",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LakePostQuery"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LakePostPage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/lake-updates/pipeline": {
       "get": {
         "tags": [
@@ -16531,6 +16571,31 @@
           }
         }
       },
+      "LakeMetadataRefresh": {
+        "type": "object",
+        "required": [
+          "mode",
+          "max_age_hours"
+        ],
+        "properties": {
+          "max_age_hours": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "mode": {
+            "$ref": "#/components/schemas/LakeMetadataRefreshMode"
+          }
+        },
+        "additionalProperties": false
+      },
+      "LakeMetadataRefreshMode": {
+        "type": "string",
+        "enum": [
+          "all",
+          "missing_or_stale"
+        ]
+      },
       "LakePipelineConfig": {
         "type": "object",
         "required": [
@@ -16658,6 +16723,178 @@
           }
         }
       },
+      "LakePostMetadata": {
+        "type": "object",
+        "required": [
+          "post_id",
+          "observation_id",
+          "has_media",
+          "tags_truncated"
+        ],
+        "properties": {
+          "has_media": {
+            "type": "boolean"
+          },
+          "height": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "observation_id": {
+            "type": "string"
+          },
+          "observed_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "post_id": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "rating": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source_kind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tags": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tags_truncated": {
+            "type": "boolean"
+          },
+          "width": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        }
+      },
+      "LakePostPage": {
+        "type": "object",
+        "required": [
+          "version",
+          "items",
+          "scanned"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LakePostMetadata"
+            }
+          },
+          "next_after": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "scanned": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "LakePostQuery": {
+        "type": "object",
+        "properties": {
+          "after": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "default": null,
+            "minimum": 0
+          },
+          "end_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "default": null,
+            "minimum": 0
+          },
+          "limit": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "default": null,
+            "minimum": 0
+          },
+          "missing_media": {
+            "type": "boolean",
+            "default": false
+          },
+          "post_ids": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            },
+            "default": null
+          },
+          "query": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/LakeTagQuery"
+              }
+            ],
+            "default": {
+              "all": [],
+              "any": [],
+              "none": []
+            }
+          },
+          "start_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "default": null,
+            "minimum": 0
+          },
+          "version": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "default": null
+          }
+        },
+        "additionalProperties": false
+      },
       "LakeRelocation": {
         "type": "object",
         "required": [
@@ -16740,6 +16977,13 @@
           }
         },
         "additionalProperties": false
+      },
+      "LakeTagCandidateSource": {
+        "type": "string",
+        "enum": [
+          "remote",
+          "local"
+        ]
       },
       "LakeTagQuery": {
         "type": "object",
@@ -17438,11 +17682,23 @@
             "default": 0,
             "minimum": 0
           },
+          "metadata_cache_pages": {
+            "type": "integer",
+            "format": "int64",
+            "default": 0,
+            "minimum": 0
+          },
           "metadata_complete": {
             "type": "boolean",
             "default": false
           },
           "metadata_records": {
+            "type": "integer",
+            "format": "int64",
+            "default": 0,
+            "minimum": 0
+          },
+          "metadata_reused_records": {
             "type": "integer",
             "format": "int64",
             "default": 0,
@@ -17538,8 +17794,39 @@
                   "tags"
                 ]
               },
+              "post_ids": {
+                "type": [
+                  "array",
+                  "null"
+                ],
+                "items": {
+                  "type": "integer",
+                  "format": "int64",
+                  "minimum": 0
+                }
+              },
               "query": {
                 "$ref": "#/components/schemas/LakeTagQuery"
+              },
+              "refresh": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/LakeMetadataRefresh"
+                  }
+                ]
+              },
+              "source": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/LakeTagCandidateSource"
+                  }
+                ]
               },
               "start_id": {
                 "type": [
@@ -17548,6 +17835,12 @@
                 ],
                 "format": "int64",
                 "minimum": 0
+              },
+              "version": {
+                "type": [
+                  "string",
+                  "null"
+                ]
               }
             }
           },

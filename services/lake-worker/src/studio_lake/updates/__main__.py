@@ -58,6 +58,15 @@ def dispatch(state, command, args):
         from .bootstrap import create
 
         return create(state, args)
+    if command == "catalog":
+        from .catalog import read_page
+        from . import locations
+
+        library_id = args.get("library_id")
+        if state.lake(library_id)["site"] not in Site.URLS:
+            raise UpdateError("UPDATE_UNSUPPORTED", "Use the source's author/work catalog for this lake")
+        with locations.access(state, library_id):
+            return read_page(state.library(library_id), {k: v for k, v in args.items() if k != "library_id"})
     if command == "input_create":
         return state.create_input(**args)
     if command == "input":
@@ -80,11 +89,7 @@ def dispatch(state, command, args):
     if command == "credential_set":
         return state.set_credentials(args["site"], args["value"])
     if command == "credential_delete":
-        if args["site"] not in Site.URLS:
-            raise UpdateError("INVALID_INPUT", "Unknown site")
-        with state.db() as db:
-            db.execute("DELETE FROM credentials WHERE site=?", (args["site"],))
-        return {"site": args["site"], "credential_set": False}
+        return state.clear_credentials(args["site"])
     if command == "probe":
         from . import settings
 
@@ -141,7 +146,7 @@ def dispatch(state, command, args):
         return {
             "definition": spec,
             "known_candidates": known,
-            "scan_strategy": "single_tag_local_filter" if kind == "tags" else "id_filtered_scan" if kind in {"created", "updated"} else "keyset",
+            "scan_strategy": ("local_metadata_filter" if spec["range"].get("source") == "local" else "single_tag_local_filter") if kind == "tags" else "id_filtered_scan" if kind in {"created", "updated"} else "keyset",
             "note": "Creation dates use a bounded ID scan; narrow ID bounds to reduce remote requests"
             if kind == "created"
             else None,

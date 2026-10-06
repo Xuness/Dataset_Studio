@@ -315,6 +315,15 @@ def reconcile(state, lib, identity):
             manifest = json.loads(row["manifest_json"])
             source = manifest["source"]
             directory = lib.root / "segments" / row["batch_id"]
+            reused = None
+            if source["update_role"] == "reuse":
+                with state.db() as db:
+                    applied = db.execute("SELECT 1 FROM applied_batches WHERE batch_id=?", (row["batch_id"],)).fetchone()
+                if not applied:
+                    from .query_cache import observation_records
+
+                    # Decode bounded original records outside the control write transaction.
+                    reused = observation_records(lib, source["reused_observations"])
             with state.db() as db:
                 db.execute("BEGIN IMMEDIATE")
                 if db.execute(
@@ -359,6 +368,22 @@ def reconcile(state, lib, identity):
                             "ON CONFLICT(job_id,post_id) DO UPDATE SET state='unavailable',reason='not_returned_by_api'",
                             (identity, missing),
                         )
+                    if source["update_role"] == "page" and source.get("query_page"):
+                        from .query_cache import record_page
+
+                        record_page(db, source["definition"]["library_id"], source, row["seq"], row["batch_id"])
+                elif source["update_role"] == "reuse":
+                    selected = {r["post_id"] for r in source["reused_observations"] if r["selected"]}
+                    for item in reused or []:
+                        state_name = ("metadata" if source["definition"]["media"]["profile"] == "metadata_only" else "pending") if item["post_id"] in selected else "excluded"
+                        db.execute(
+                            "INSERT INTO items(job_id,post_id,observation_id,record_json,state,reason) VALUES(?,?,?,?,?,?) "
+                            "ON CONFLICT(job_id,post_id) DO UPDATE SET observation_id=excluded.observation_id,"
+                            "record_json=excluded.record_json,state=excluded.state,reason=excluded.reason "
+                            "WHERE items.state='excluded' AND excluded.state<>'excluded'",
+                            (identity, item["post_id"], item["observation_id"], item["raw"], state_name,
+                             "metadata_requires_refresh" if item.get("needs_refresh") else "metadata_reused"),
+                        )
                 elif source["update_role"] == "media":
                     for result in source["results"]:
                         db.execute(
@@ -372,7 +397,7 @@ def reconcile(state, lib, identity):
                                 result["post_id"],
                             ),
                         )
-                if source["update_role"] in {"page", "register", "progress"}:
+                if source["update_role"] in {"page", "register", "progress", "reuse"}:
                     db.execute(
                         "UPDATE jobs SET cursor=?,updated_at=? WHERE id=?",
                         (json.dumps(source["cursor"]), now(), identity),

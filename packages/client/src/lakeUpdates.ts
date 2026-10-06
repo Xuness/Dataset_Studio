@@ -121,6 +121,16 @@ export class LakeUpdateClient {
       body: JSON.stringify(target),
     });
   }
+  catalog(
+    libraryId: string,
+    query: Schema["LakePostQuery"],
+    signal?: AbortSignal,
+  ) {
+    return this.request<Schema["LakePostPage"]>(
+      `${base}/lakes/${encodeURIComponent(libraryId)}/posts/query`,
+      { method: "POST", body: JSON.stringify(query), signal: signal ?? null },
+    );
+  }
   setCredentials(value: Schema["SetLakeCredentials"]) {
     return this.request<Schema["LakeCredentialStatus"]>(`${base}/credentials`, {
       method: "PUT",

@@ -383,6 +383,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/lake-updates/lakes/{id}/posts/query": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["lake_updates_catalog"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/lake-updates/pipeline": {
         parameters: {
             query?: never;
@@ -5159,6 +5175,13 @@ export interface components {
             /** Format: int64 */
             resume_from?: number | null;
         };
+        LakeMetadataRefresh: {
+            /** Format: int32 */
+            max_age_hours: number;
+            mode: components["schemas"]["LakeMetadataRefreshMode"];
+        };
+        /** @enum {string} */
+        LakeMetadataRefreshMode: "all" | "missing_or_stale";
         LakePipelineConfig: {
             /** Format: int32 */
             active_lakes: number;
@@ -5199,6 +5222,65 @@ export interface components {
             revision: number;
             value: components["schemas"]["LakePipelineConfig"];
         };
+        LakePostMetadata: {
+            has_media: boolean;
+            /** Format: int64 */
+            height?: number | null;
+            observation_id: string;
+            observed_at?: string | null;
+            /** Format: int64 */
+            post_id: number;
+            rating?: string | null;
+            source_kind?: string | null;
+            tags?: string | null;
+            tags_truncated: boolean;
+            /** Format: int64 */
+            width?: number | null;
+        };
+        LakePostPage: {
+            items: components["schemas"]["LakePostMetadata"][];
+            /** Format: int64 */
+            next_after?: number | null;
+            /** Format: int64 */
+            scanned: number;
+            version: string;
+        };
+        LakePostQuery: {
+            /**
+             * Format: int64
+             * @default null
+             */
+            after: number | null;
+            /**
+             * Format: int64
+             * @default null
+             */
+            end_id: number | null;
+            /**
+             * Format: int32
+             * @default null
+             */
+            limit: number | null;
+            /** @default false */
+            missing_media: boolean;
+            /** @default null */
+            post_ids: number[] | null;
+            /**
+             * @default {
+             *       "all": [],
+             *       "any": [],
+             *       "none": []
+             *     }
+             */
+            query: components["schemas"]["LakeTagQuery"];
+            /**
+             * Format: int64
+             * @default null
+             */
+            start_id: number | null;
+            /** @default null */
+            version: string | null;
+        };
         LakeRelocation: {
             created_at: string;
             id: string;
@@ -5220,6 +5302,8 @@ export interface components {
             /** Format: double */
             image_requests_per_second?: number | null;
         };
+        /** @enum {string} */
+        LakeTagCandidateSource: "remote" | "local";
         LakeTagQuery: {
             /** @default [] */
             all: string[];
@@ -5408,6 +5492,11 @@ export interface components {
              * @default 0
              */
             matched_records: number;
+            /**
+             * Format: int64
+             * @default 0
+             */
+            metadata_cache_pages: number;
             /** @default false */
             metadata_complete: boolean;
             /**
@@ -5415,6 +5504,11 @@ export interface components {
              * @default 0
              */
             metadata_records: number;
+            /**
+             * Format: int64
+             * @default 0
+             */
+            metadata_reused_records: number;
             /**
              * Format: int64
              * @default null
@@ -5460,9 +5554,13 @@ export interface components {
             end_id?: number | null;
             /** @enum {string} */
             kind: "tags";
+            post_ids?: number[] | null;
             query: components["schemas"]["LakeTagQuery"];
+            refresh?: null | components["schemas"]["LakeMetadataRefresh"];
+            source?: null | components["schemas"]["LakeTagCandidateSource"];
             /** Format: int64 */
             start_id?: number | null;
+            version?: string | null;
         } | {
             input_id: string;
             /** @enum {string} */
@@ -8033,6 +8131,31 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UpdateLake"];
+                };
+            };
+        };
+    };
+    lake_updates_catalog: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LakePostQuery"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LakePostPage"];
                 };
             };
         };

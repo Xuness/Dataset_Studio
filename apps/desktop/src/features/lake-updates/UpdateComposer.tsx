@@ -57,6 +57,15 @@ export function UpdateComposer({
         const lake = lakes.find((l) => l.id === spec.library_id);
         if (!lake) throw new Error("目标数据湖尚未登记");
         if (
+          lake.site === "gelbooru" &&
+          spec.range.kind === "tags" &&
+          spec.range.source !== "local" &&
+          !capabilities.find((c) => c.site === "gelbooru")?.credential_set
+        )
+          throw new Error(
+            "请先在数据湖 API 设置中配置 Gelbooru 的 user_id 与 API Key",
+          );
+        if (
           spec.range.kind === "changes" &&
           !capabilities.find((c) => c.site === lake.site)?.change_sequence
         )
@@ -201,6 +210,21 @@ export function UpdateComposer({
               {d.kind === "tags" && (
                 <>
                   <label>
+                    候选来源
+                    <select
+                      aria-label="候选来源"
+                      value={d.tagSource}
+                      onChange={(e) =>
+                        set({
+                          tagSource: e.target.value as FormDraft["tagSource"],
+                        })
+                      }
+                    >
+                      <option value="remote">源站按标签采集</option>
+                      <option value="local">从已入湖元数据选择</option>
+                    </select>
+                  </label>
+                  <label>
                     全部包含 Tag
                     <textarea
                       aria-label="全部包含 Tag"
@@ -234,6 +258,73 @@ export function UpdateComposer({
                     会保留候选元数据，仅下载符合条件的图片；可用下方 ID
                     限定采集范围。
                   </p>
+                  {d.tagSource === "remote" ? (
+                    <>
+                      <label>
+                        元数据获取
+                        <select
+                          aria-label="元数据获取"
+                          value={d.tagRefreshAll ? "all" : "reuse"}
+                          onChange={(e) =>
+                            set({ tagRefreshAll: e.target.value === "all" })
+                          }
+                        >
+                          <option value="reuse">优先复用近期扫描</option>
+                          <option value="all">重新核验源站</option>
+                        </select>
+                      </label>
+                      {!d.tagRefreshAll && (
+                        <label>
+                          允许复用的时长（小时）
+                          <input
+                            aria-label="允许复用的时长（小时）"
+                            type="number"
+                            min={1}
+                            max={8760}
+                            value={d.tagFreshness}
+                            onChange={(e) =>
+                              set({ tagFreshness: e.target.value })
+                            }
+                          />
+                        </label>
+                      )}
+                      <p className="lake-hint">
+                        近期扫描沿用原获取时间，补抓未覆盖部分。需要检查旧帖标签变动时选择重新核验。
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      {d.lakes.map((id) => (
+                        <label key={id}>
+                          {
+                            sites[
+                              lakes.find((lake) => lake.id === id)?.site ??
+                                "danbooru"
+                            ]
+                          }{" "}
+                          · 已有帖子 ID（可选）
+                          <textarea
+                            rows={2}
+                            value={d.perLake[id]?.metadataIds ?? ""}
+                            onChange={(e) =>
+                              set({
+                                perLake: {
+                                  ...d.perLake,
+                                  [id]: {
+                                    ...d.perLake[id],
+                                    metadataIds: e.target.value,
+                                  },
+                                },
+                              })
+                            }
+                          />
+                        </label>
+                      ))}
+                      <p className="lake-hint">
+                        只选择已入湖的帖子。条件留空表示全部已有元数据；缺少有效下载地址时会刷新相应帖子。
+                      </p>
+                    </>
+                  )}
                 </>
               )}
               {["new", "ids", "changes"].includes(d.kind) &&
@@ -471,7 +562,9 @@ export function UpdateComposer({
                     ? "按 ID 扫描并过滤日期"
                     : p.scan_strategy === "single_tag_local_filter"
                       ? "按标签获取候选，本地判断组合条件"
-                      : "按范围游标获取"}
+                      : p.scan_strategy === "local_metadata_filter"
+                        ? "从已有元数据选择；不扩展远端范围"
+                        : "按范围游标获取"}
                 </small>
               </div>
             ))}

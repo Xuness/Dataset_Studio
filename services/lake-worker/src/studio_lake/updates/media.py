@@ -99,17 +99,17 @@ def cached(path, receipt):
 
 def reusable(lib, observation, profile, allow_sample, existing="keep"):
     md5 = observation.get("md5")
-    if not isinstance(md5, str) or not re.fullmatch("[a-fA-F0-9]{32}", md5):
-        return None
+    valid_md5 = isinstance(md5, str) and re.fullmatch("[a-fA-F0-9]{32}", md5)
+    identity_clause = "a.source_md5=?" if valid_md5 else "a.observation_id=?"
     with online(lib) as (db, status):
         # Profile and source variant matter: a preserved HF thumbnail is not an original.
         profile_clause = " AND a.storage_profile=?" if existing == "match_profile" else ""
-        args = [observation["post_id"], md5, int(status["served_seq"])]
+        args = [observation["post_id"], md5 if valid_md5 else observation["observation_id"], int(status["served_seq"])]
         if profile_clause:
             args.append(profile)
         cur = db.execute(
             "SELECT a.asset_id,a.sha256,a.details_json FROM assets a JOIN objects o USING(sha256) "
-            "WHERE a.post_id=? AND a.source_md5=? AND a.commit_seq<=? "
+            f"WHERE a.post_id=? AND {identity_clause} AND a.commit_seq<=? "
             + profile_clause
             + " ORDER BY a.commit_seq DESC,a.asset_id DESC LIMIT 32",
             args,
@@ -140,6 +140,8 @@ def inspect_download(lib, job, item, site, allow_external=False):
     )
     if old:
         return {"state": "reused", **old}
+    if item.get("reason") == "metadata_requires_refresh":
+        return {"state": "pending_metadata", "reason": "metadata_requires_refresh"}
     record = json.loads(item["record_json"])
     # Source moderation flags remain in observations and raw metadata. They do
     # not establish whether an API-provided original URL can still be fetched.
@@ -165,6 +167,8 @@ def inspect_download(lib, job, item, site, allow_external=False):
                 continue
             urls.append((kind, url))
     if not urls:
+        if item.get("reason") == "metadata_reused":
+            return {"state": "pending_metadata", "reason": "refresh_cached_media_locator"}
         return {"state": "unavailable", "reason": "no_image_url"}
     return {"observation": observation, "urls": urls}
 
@@ -201,6 +205,8 @@ def download(lib, job, item, site, resources, cancelled, sessions, progress=None
             if isinstance(failure, OSError) and failure.errno == errno.ENOSPC:
                 raise UpdateError("UPDATE_SPACE", "Waiting for SSD space during download") from None
             error = {"state": "needs_review", "reason": "image_download_or_storage_error"}
+    if item.get("reason") == "metadata_reused" and error.get("reason") in {"image_http_403", "image_http_404", "image_http_410"}:
+        return {"state": "pending_metadata", "reason": "refresh_cached_media_locator"}
     return error
 
 

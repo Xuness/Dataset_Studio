@@ -75,15 +75,17 @@ class Runner:
 
     def site(self, name):
         with self.site_lock:
+            credentials, context = self.state.credential_snapshot(name)
             if name not in self.sites:
                 self.sites[name] = Site(
                     name,
-                    self.state.credentials(name),
+                    credentials,
                     rate_root=self.state.root,
                     delay=1 / self.resources.config["sites"][name]["api_requests_per_second"],
                 )
             elif isinstance(self.sites[name], Site):
-                self.sites[name].credentials = self.state.credentials(name)
+                self.sites[name].credentials = credentials
+            self.sites[name].query_context = context
             return self.sites[name]
 
     def run(self, identity):
@@ -362,7 +364,7 @@ class Runner:
         elif kind == "tags":
             from .tag_query import initialize_cursor
 
-            cursor = initialize_cursor(lib, scope, cursor)
+            cursor = initialize_cursor(self, lib, job, site, scope, cursor)
         else:
             cursor.update(next_id=scope.get("start_id", 1), upper=scope.get("end_id"))
         if kind == "local":
@@ -630,6 +632,10 @@ class Runner:
         reconcile(self.state, lib, job["id"])
 
     def retry_metadata(self, lib, job, item, site, check, cancelled, publication=None):
+        if job["definition"]["range"]["kind"] == "tags":
+            from .tag_query import validate_context
+
+            validate_context(self.state, lib, site, job["cursor"])
         response = site.request(
             site.params(item["post_id"], item["post_id"] + 1, 1, ids=[item["post_id"]]), cancelled
         )

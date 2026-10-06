@@ -12,7 +12,7 @@
 
 数据湖更新：[工作台](decisions/0039-lake-update-workbench.md)、[内置服务与图片配方](decisions/0040-owned-lake-worker-and-image-recipes.md)、[运行环境与保存策略](../services/lake-worker/README.md)。
 
-从零建湖与按需采集：[空湖初始化与来源身份](decisions/0065-empty-lake-initialization.md)、[标签发现与本地组合筛选](decisions/0066-booru-tag-discovery.md)、[分阶段实施计划](plans/zero-lake-collection-2026-10-07.md)。
+从零建湖与按需采集：[空湖初始化与来源身份](decisions/0065-empty-lake-initialization.md)、[标签发现与本地组合筛选](decisions/0066-booru-tag-discovery.md)、[查询覆盖复用与元数据目录](decisions/0067-query-coverage-and-metadata-catalog.md)、[分阶段实施计划](plans/zero-lake-collection-2026-10-07.md)。
 
 数据湖浏览：[Booru 与通用图像排序偏好分离](decisions/0056-booru-browse-order.md)。
 

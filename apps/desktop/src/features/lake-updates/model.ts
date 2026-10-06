@@ -65,6 +65,9 @@ export const itemStates: Record<string, string> = {
   skipped: "已跳过",
 };
 const itemReasons: Record<string, string> = {
+  metadata_reused: "沿用已保存的元数据观察",
+  metadata_requires_refresh: "已有图片可复用；缺少原始下载信息时刷新该帖子",
+  refresh_cached_media_locator: "已保存的下载地址需重新获取",
   image_http_404: "图片地址暂未找到；可重试，不代表帖子已删除",
   image_color_profile_error: "图片色彩配置无法转换；原始下载已保留",
   image_decode_or_storage_error: "图片解码或暂存失败；检查格式与本地存储",
@@ -112,13 +115,20 @@ export function rangeLabel(spec: Definition) {
       const all = r.query.all ?? [],
         any = r.query.any ?? [],
         none = r.query.none ?? [];
-      return [
+      const labels = [
         all.length ? `全部：${all.join(" + ")}` : "",
         any.length ? `任一：${any.join(" / ")}` : "",
         none.length ? `排除：${none.join(" / ")}` : "",
       ]
         .filter(Boolean)
         .join(" · ");
+      const bounds =
+        r.end_id != null
+          ? ` · ID ${r.start_id ?? 1}–${r.end_id - 1}`
+          : r.start_id && r.start_id > 1
+            ? ` · ID ≥ ${r.start_id}`
+            : "";
+      return `${r.source === "local" ? "已有元数据" : "标签采集"} · ${labels || "全部条目"}${r.post_ids ? ` · 已选 ${r.post_ids.length} 条` : ""}${bounds}`;
     }
     case "new":
       return r.after_id == null
@@ -189,7 +199,18 @@ export type FormDraft = ImageFields & {
   tagAll: string;
   tagAny: string;
   tagNone: string;
-  perLake: Record<string, { ids?: string; after?: string }>;
+  tagSource: "remote" | "local";
+  tagFreshness: string;
+  tagRefreshAll: boolean;
+  perLake: Record<
+    string,
+    {
+      ids?: string;
+      after?: string;
+      metadataIds?: string;
+      catalogVersion?: string;
+    }
+  >;
   startId: string;
   endId: string;
   from: string;
@@ -209,6 +230,9 @@ export const initialDraft: FormDraft = {
   tagAll: "",
   tagAny: "",
   tagNone: "",
+  tagSource: "remote",
+  tagFreshness: "24",
+  tagRefreshAll: false,
   profile: "",
   encoding: defaultEncoding,
   existing: "keep",
@@ -231,6 +255,14 @@ export const initialDraft: FormDraft = {
 export function decodeDraft(value: unknown): FormDraft | null {
   if (!value || typeof value !== "object") return null;
   const v = value as FormDraft;
+  if (
+    (v.tagSource !== undefined && !["remote", "local"].includes(v.tagSource)) ||
+    (v.tagRefreshAll !== undefined && typeof v.tagRefreshAll !== "boolean") ||
+    [v.tagAll, v.tagAny, v.tagNone, v.tagFreshness].some(
+      (field) => field !== undefined && typeof field !== "string",
+    )
+  )
+    return null;
   if (
     !Array.isArray(v.lakes) ||
     !v.lakes.every((id) => typeof id === "string") ||
@@ -332,11 +364,40 @@ export function definitions(d: FormDraft): Definition[] {
           any: split(d.tagAny),
           none: split(d.tagNone),
         };
-        if (!query.all.length && !query.any.length)
+        if (d.tagSource !== "local" && !query.all.length && !query.any.length)
           throw new Error(
             "请至少填写一个需要包含的 Tag；画师或角色使用源站标签",
           );
-        range = { kind: "tags", query, ...bounds };
+        const postIds =
+          d.tagSource === "local" && local.metadataIds?.trim()
+            ? split(local.metadataIds).map((id) => integer(id, "帖子 ID"))
+            : undefined;
+        if (postIds && postIds.length > 10000)
+          throw new Error("一次最多选择 10000 个帖子");
+        range = {
+          kind: "tags",
+          query,
+          ...bounds,
+          source: d.tagSource,
+          ...(d.tagSource === "local"
+            ? {
+                ...(postIds ? { post_ids: postIds } : {}),
+                ...(local.catalogVersion
+                  ? { version: local.catalogVersion }
+                  : {}),
+              }
+            : {
+                refresh: {
+                  mode: d.tagRefreshAll ? "all" : "missing_or_stale",
+                  max_age_hours: integer(
+                    d.tagFreshness,
+                    "元数据新鲜度",
+                    1,
+                    8760,
+                  ),
+                },
+              }),
+        };
         break;
       }
       case "input": {
