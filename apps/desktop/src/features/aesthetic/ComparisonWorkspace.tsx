@@ -1,12 +1,20 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { GitCompareArrows, RefreshCw } from "lucide-react";
+import {
+  ArrowLeftRight,
+  GitCompareArrows,
+  ListOrdered,
+  RefreshCw,
+  X,
+} from "lucide-react";
 import {
   Button,
   DraftStatus,
   ErrorDetails,
   useDraft,
+  useDropZone,
+  useObjectDragging,
   useWorkbenchLayout,
   Workbench,
   WorkbenchPreferences,
@@ -19,6 +27,12 @@ import {
   analysisState,
   comparisonDeltaLabel as deltaLabel,
 } from "./analysisPresentation.js";
+import {
+  AnalysisJobRow,
+  acceptsSnapshot,
+  isSnapshot,
+  useAnalysisJobEditing,
+} from "./AnalysisJobList.js";
 
 const initial = {
   left: "",
@@ -51,6 +65,8 @@ const initialLayout: WorkbenchLayout = {
 };
 type Job = Schema["AestheticAnalysisJob"];
 type Row = Schema["AestheticComparisonRow"];
+type Side = "left" | "right";
+const sideLabel = { left: "基准快照 A", right: "对照快照 B" } as const;
 const identity = (row: Row) => `${row.key.source_id}:${row.key.asset_id}`;
 const percentile = (value: number | null | undefined) =>
   value == null ? "—" : `${(value * 100).toFixed(2)}%`;
@@ -72,7 +88,8 @@ export function ComparisonWorkspace({
 }: {
   context: ModuleContext;
   toolbarStart: ReactNode;
-  openComparison?: { left: string; right: string } | undefined;
+  /** A full pair starts a new comparison; one side replaces only that side. */
+  openComparison?: { left?: string; right?: string } | undefined;
 }) {
   const { client, projectId } = context;
   const draft = useDraft(
@@ -97,7 +114,20 @@ export function ComparisonWorkspace({
       applied.current !== openComparison
     ) {
       applied.current = openComparison;
-      draft.controller.set({ ...initial, ...openComparison });
+      const { left, right } = openComparison;
+      if (left !== undefined && right !== undefined)
+        draft.controller.set({ ...initial, left, right });
+      else
+        draft.controller.set((old) => ({
+          ...old,
+          ...(left !== undefined ? { left } : {}),
+          ...(right !== undefined ? { right } : {}),
+          jobId: "",
+          key: "",
+          after: "",
+          past: [],
+          selected: "",
+        }));
       layout.update((old) => {
         const position =
           old.panels.configuration && old.panels.configuration !== "hidden"
@@ -115,6 +145,16 @@ export function ComparisonWorkspace({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
   const lock = useRef(false);
+  const edit = useAnalysisJobEditing(context, (removed) =>
+    draft.controller.set((old) => ({
+      ...old,
+      ...(old.left === removed.id ? { left: "" } : {}),
+      ...(old.right === removed.id ? { right: "" } : {}),
+      ...(old.jobId === removed.id
+        ? { jobId: "", key: "", after: "", past: [], selected: "" }
+        : {}),
+    })),
+  );
   const jobs = useQuery({
     queryKey: ["project", projectId, "aesthetic", "analysis-jobs", jobsAfter],
     queryFn: ({ signal }) =>
@@ -180,14 +220,52 @@ export function ComparisonWorkspace({
   const snapshots = [
     ...new Map(
       [
-        ...(jobs.data?.items ?? []),
+        ...(jobs.data?.items.filter(edit.visible) ?? []),
         ...(left.data ? [left.data] : []),
         ...(right.data ? [right.data] : []),
       ]
-        .filter((j) => j.state === "completed" && j.result?.kind === "fit")
+        .filter(isSnapshot)
         .map((j) => [j.id, j]),
     ).values(),
   ];
+  const listed = jobs.data?.items.filter(edit.visible) ?? [];
+  function assign(side: Side, id: string) {
+    if (!draft.editable || busy) return;
+    draft.controller.set((old) => ({
+      ...old,
+      [side]: id,
+      jobId: "",
+      key: "",
+      after: "",
+      past: [],
+      selected: "",
+    }));
+  }
+  function swap() {
+    if (!draft.editable || busy) return;
+    draft.controller.set((old) => ({
+      ...old,
+      left: old.right,
+      right: old.left,
+      jobId: "",
+      key: "",
+      after: "",
+      past: [],
+      selected: "",
+    }));
+  }
+  const slot = (side: Side, variant: "field" | "zone") => (
+    <SnapshotSlot
+      side={side}
+      variant={variant}
+      value={saved[side]}
+      job={(side === "left" ? left : right).data}
+      snapshots={snapshots}
+      disabled={busy || !draft.editable}
+      onChange={(id) => assign(side, id)}
+    />
+  );
+  const dragging = useObjectDragging();
   async function create() {
     if (
       lock.current ||
@@ -281,24 +359,62 @@ export function ComparisonWorkspace({
     <div className="ranking-outline">
       <details className="wb-fold" open>
         <summary>
+          排名快照 <small>拖到 A / B 对比区</small>
+        </summary>
+        <div className="ranking-snapshot-list">
+          {listed.filter(isSnapshot).map((j) => (
+            <AnalysisJobRow
+              key={j.id}
+              job={j}
+              edit={edit}
+              list="snapshots"
+              icon={<ListOrdered size={15} />}
+              badge={
+                j.id === saved.left
+                  ? "A"
+                  : j.id === saved.right
+                    ? "B"
+                    : undefined
+              }
+              pressed={j.id === saved.left || j.id === saved.right}
+              disabled={busy || !draft.editable}
+              onOpen={() => assign(saved.left ? "right" : "left", j.id)}
+              actions={[
+                {
+                  label: "设为基准 A",
+                  checked: j.id === saved.left,
+                  action: () => assign("left", j.id),
+                },
+                {
+                  label: "设为对照 B",
+                  checked: j.id === saved.right,
+                  action: () => assign("right", j.id),
+                },
+              ]}
+            />
+          ))}
+        </div>
+      </details>
+      <details className="wb-fold" open>
+        <summary>
           对照记录 <small>当前任务页</small>
         </summary>
         <div className="ranking-snapshot-list">
-          {jobs.data?.items
+          {listed
             .filter((j) => j.request.spec.kind === "compare")
             .map((j) => (
-              <button
-                type="button"
+              <AnalysisJobRow
                 key={j.id}
+                job={j}
+                edit={edit}
+                list="comparisons"
+                icon={<GitCompareArrows size={15} />}
+                detail={analysisState(j.state)}
+                pressed={j.id === saved.jobId}
                 disabled={busy || !draft.editable}
-                aria-pressed={j.id === saved.jobId}
-                onClick={() => choose(j)}
-              >
-                <GitCompareArrows size={15} />
-                <span title={j.request.name}>
-                  {j.request.name} · {analysisState(j.state)}
-                </span>
-              </button>
+                onOpen={() => choose(j)}
+                actions={[{ label: "打开对照", action: () => choose(j) }]}
+              />
             ))}
         </div>
         {paging}
@@ -308,7 +424,8 @@ export function ComparisonWorkspace({
   const configuration = (
     <div className="comparison-configuration">
       <p className="aesthetic-help">
-        选择两份已发布快照，对照模型、评审标准或估计器产生的结果。
+        从左侧把两份已发布快照拖入 A /
+        B，或在下方选择，对照模型、评审标准或估计器产生的结果。
       </p>
       <form
         onSubmit={(e) => {
@@ -333,34 +450,17 @@ export function ComparisonWorkspace({
               }
             />
           </label>
-          {(["left", "right"] as const).map((side) => (
-            <label key={side}>
-              {side === "left" ? "基准快照 A" : "对照快照 B"}
-              <select
-                aria-label={side === "left" ? "基准快照 A" : "对照快照 B"}
-                value={saved[side]}
-                required
-                onChange={(e) =>
-                  draft.controller.set((old) => ({
-                    ...old,
-                    [side]: e.target.value,
-                    jobId: "",
-                    key: "",
-                    after: "",
-                    past: [],
-                    selected: "",
-                  }))
-                }
-              >
-                <option value="">选择快照…</option>
-                {snapshots.map((j) => (
-                  <option key={j.id} value={j.id}>
-                    {j.request.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ))}
+          {slot("left", "field")}
+          <button
+            type="button"
+            className="comparison-swap"
+            disabled={!saved.left && !saved.right}
+            onClick={swap}
+          >
+            <ArrowLeftRight size={13} />
+            交换 A / B
+          </button>
+          {slot("right", "field")}
           <Button
             type="submit"
             className="primary"
@@ -446,6 +546,7 @@ export function ComparisonWorkspace({
   const errors = [
     draft.error,
     error,
+    edit.error,
     jobs.error,
     job.error,
     left.error,
@@ -500,6 +601,14 @@ export function ComparisonWorkspace({
         </>
       }
     >
+      {dragging &&
+        acceptsSnapshot(dragging) &&
+        job.data?.state === "completed" && (
+          <div className="comparison-drop-overlay">
+            {slot("left", "zone")}
+            {slot("right", "zone")}
+          </div>
+        )}
       {errors.length > 0 && <ErrorDetails error={errors[0]} />}
       {job.data && (
         <div className="ranking-task-state">
@@ -651,10 +760,119 @@ export function ComparisonWorkspace({
               ? "正在生成对照…"
               : "从两份排名快照开始"}
           </h3>
-          <p>在右侧选择基准与对照，查看相对位置变化和顶级提名分歧。</p>
+          <p>把左侧快照拖入下方对比区，查看相对位置变化和顶级提名分歧。</p>
+          <div className="comparison-slots">
+            {slot("left", "zone")}
+            <button
+              type="button"
+              className="icon-button"
+              aria-label="交换 A / B"
+              disabled={busy || (!saved.left && !saved.right)}
+              onClick={swap}
+            >
+              <ArrowLeftRight size={16} />
+            </button>
+            {slot("right", "zone")}
+          </div>
+          <Button
+            className="primary"
+            disabled={
+              busy ||
+              !saved.left ||
+              !saved.right ||
+              saved.left === saved.right ||
+              !saved.name.trim() ||
+              (!!job.data && analysisActive(job.data.state))
+            }
+            onClick={() => void create()}
+          >
+            <GitCompareArrows size={15} />
+            生成离线对照
+          </Button>
         </div>
       )}
+      {edit.dialog}
     </Workbench>
+  );
+}
+
+/** One side of a comparison: a drop zone for a dragged snapshot plus a picker. */
+function SnapshotSlot({
+  side,
+  variant,
+  value,
+  job,
+  snapshots,
+  disabled,
+  onChange,
+}: {
+  side: Side;
+  variant: "field" | "zone";
+  value: string;
+  job: Job | undefined;
+  snapshots: Job[];
+  disabled: boolean;
+  onChange: (id: string) => void;
+}) {
+  const label = sideLabel[side];
+  const drop = useDropZone(
+    acceptsSnapshot,
+    (object) => onChange(object.id),
+    disabled,
+  );
+  return (
+    <div
+      {...drop.props}
+      className={"comparison-slot comparison-slot-" + variant}
+      data-side={side}
+      data-filled={value ? true : undefined}
+      data-active={drop.active || undefined}
+      data-over={drop.over || undefined}
+    >
+      <span className="comparison-slot-label">
+        {side === "left" ? "A · 基准" : "B · 对照"}
+      </span>
+      {variant === "zone" ? (
+        <strong>
+          {drop.over
+            ? `放入“${drop.dragging?.label}”`
+            : value
+              ? (job?.request.name ?? "读取中…")
+              : "拖入排名快照"}
+        </strong>
+      ) : (
+        <select
+          aria-label={label}
+          value={value}
+          required
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.value)}
+        >
+          <option value="">
+            {drop.active ? "松开以放入…" : "选择或拖入快照…"}
+          </option>
+          {value && !snapshots.some((j) => j.id === value) && (
+            <option value={value}>{job?.request.name ?? value}</option>
+          )}
+          {snapshots.map((j) => (
+            <option key={j.id} value={j.id}>
+              {j.request.name}
+            </option>
+          ))}
+        </select>
+      )}
+      {value && (
+        <button
+          type="button"
+          className="icon-button"
+          aria-label={"清除" + label}
+          disabled={disabled}
+          onClick={() => onChange("")}
+        >
+          <X size={13} />
+        </button>
+      )}
+    </div>
   );
 }
 

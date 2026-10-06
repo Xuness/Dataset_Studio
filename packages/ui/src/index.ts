@@ -59,6 +59,12 @@ export type {
   RankedBrowseSettings,
 } from "./modules.js";
 export { MoreMenu, ContextMenu, contextMenuAt } from "./MoreMenu.js";
+export {
+  startObjectDrag,
+  useDropZone,
+  useObjectDragging,
+} from "./objectDrag.js";
+export type { DragObject } from "./objectDrag.js";
 export type { MoreMenuItem, ContextMenuState } from "./MoreMenu.js";
 export { TooltipLayer } from "./Tooltip.js";
 export { NotificationStack } from "./Notifications.js";

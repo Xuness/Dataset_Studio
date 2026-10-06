@@ -187,6 +187,11 @@
   left: 4px;
   height: min(var(--wb-bottom), 45%);
 }
+body[data-object-dragging],
+body[data-object-dragging] * {
+  cursor: grabbing !important;
+  user-select: none;
+}
 .wb-drag-ghost {
   position: fixed;
   z-index: 3000;

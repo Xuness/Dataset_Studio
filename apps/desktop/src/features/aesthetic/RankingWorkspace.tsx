@@ -8,6 +8,7 @@ import {
   ListOrdered,
   RefreshCw,
   FolderPlus,
+  Timer,
 } from "lucide-react";
 import {
   Button,
@@ -19,11 +20,18 @@ import {
   useDraft,
   WorkbenchDialog,
   WorkbenchPanelPortal,
+  useDropZone,
 } from "@studio/ui";
-import type { ModuleContext, WorkbenchLayout } from "@studio/ui";
+import type { ModuleContext, MoreMenuItem, WorkbenchLayout } from "@studio/ui";
 import type { Schema } from "@studio/contracts";
 import { FitDialog, DeriveDialog } from "./AnalysisActions.js";
 import { analysisActive, analysisState } from "./analysisPresentation.js";
+import {
+  AnalysisJobRow,
+  acceptsSnapshot,
+  isSnapshot,
+  useAnalysisJobEditing,
+} from "./AnalysisJobList.js";
 
 import {
   rankingBrowserInitial as initial,
@@ -50,6 +58,7 @@ export function RankingWorkspace({
   context,
   protectedOnly,
   onEvaluation,
+  onCompare,
   toolbarStart,
   initialFitStageId,
   initialJobId,
@@ -57,6 +66,7 @@ export function RankingWorkspace({
   context: ModuleContext;
   protectedOnly: boolean;
   onEvaluation: (stageId?: string) => void;
+  onCompare: (side: "left" | "right", snapshotId: string) => void;
   toolbarStart: ReactNode;
   initialFitStageId?: string | undefined;
   initialJobId?: string | undefined;
@@ -115,10 +125,13 @@ export function RankingWorkspace({
         ? 2000
         : 5000,
   });
-  const snapshots =
-    jobs.data?.items.filter(
-      (job) => job.state === "completed" && job.result?.kind === "fit",
-    ) ?? [];
+  const edit = useAnalysisJobEditing(context, (job) => {
+    if (job.id === activeJobId) setActiveJobId("");
+    if (job.id === saved.snapshotId)
+      selectSnapshot(snapshots.find((s) => s.id !== job.id)?.id ?? "");
+  });
+  const jobItems = jobs.data?.items.filter(edit.visible) ?? [];
+  const snapshots = jobItems.filter(isSnapshot);
   const firstId = snapshots[0]?.id;
   useEffect(() => {
     if (
@@ -366,12 +379,12 @@ export function RankingWorkspace({
     void jobs.refetch();
     setNotice("离线任务已创建，关闭页面后仍可继续。");
   }
-  async function control(action: "cancel" | "resume") {
+  async function control(action: "cancel" | "resume", id = activeJobId) {
     setBusy(true);
     setActionError(null);
     try {
-      await client.aesthetic.analysis.control(projectId, activeJobId, action);
-      await activeJob.refetch();
+      await client.aesthetic.analysis.control(projectId, id, action);
+      if (id === activeJobId) await activeJob.refetch();
       await jobs.refetch();
     } catch (error) {
       setActionError(error);
@@ -390,7 +403,13 @@ export function RankingWorkspace({
     candidate.error,
     activeJob.error,
     actionError,
+    edit.error,
   ].filter(Boolean);
+  const canvasDrop = useDropZone(
+    acceptsSnapshot,
+    (object) => selectSnapshot(object.id),
+    !draft.editable || reviewBusy,
+  );
   const outline = (
     <div className="ranking-outline">
       <details className="wb-fold" open>
@@ -399,21 +418,33 @@ export function RankingWorkspace({
         </summary>
         <div className="ranking-snapshot-list">
           {snapshots.map((job) => (
-            <button
-              type="button"
+            <AnalysisJobRow
               key={job.id}
-              aria-pressed={job.id === saved.snapshotId}
+              job={job}
+              edit={edit}
+              list="snapshots"
+              icon={<ListOrdered size={15} />}
+              detail={`已发布 · ${job.input.candidates.toLocaleString()} 张候选`}
+              pressed={job.id === saved.snapshotId}
               disabled={!draft.editable || reviewBusy}
-              onClick={() => selectSnapshot(job.id)}
-            >
-              <ListOrdered size={15} />
-              <span>
-                {job.request.name}
-                <small>
-                  已发布 · {job.input.candidates.toLocaleString()} 张候选
-                </small>
-              </span>
-            </button>
+              onOpen={() => selectSnapshot(job.id)}
+              actions={[
+                {
+                  label: "打开快照",
+                  disabled: !draft.editable || reviewBusy,
+                  action: () => selectSnapshot(job.id),
+                },
+                {
+                  label: "在实验对照中作为基准 A",
+                  separator: true,
+                  action: () => onCompare("left", job.id),
+                },
+                {
+                  label: "在实验对照中作为对照 B",
+                  action: () => onCompare("right", job.id),
+                },
+              ]}
+            />
           ))}
         </div>
         {!snapshots.length && (
@@ -438,24 +469,21 @@ export function RankingWorkspace({
       </details>
       <details className="wb-fold" open>
         <summary>
-          离线任务 <small>本页 {jobs.data?.items.length ?? 0}</small>
+          离线任务 <small>本页 {jobItems.length}</small>
         </summary>
         <div className="ranking-job-list">
-          {jobs.data?.items.map((job) => (
-            <button
-              type="button"
+          {jobItems.map((job) => (
+            <AnalysisJobRow
               key={job.id}
-              aria-pressed={job.id === activeJobId}
-              onClick={() => setActiveJobId(job.id)}
-            >
-              <span>
-                {job.request.name}
-                <small>
-                  {analysisState(job.state)} · {job.progress.toLocaleString()} /{" "}
-                  {job.total.toLocaleString()}
-                </small>
-              </span>
-            </button>
+              job={job}
+              edit={edit}
+              list="jobs"
+              icon={<Timer size={14} />}
+              detail={`${analysisState(job.state)} · ${job.progress.toLocaleString()} / ${job.total.toLocaleString()}`}
+              pressed={job.id === activeJobId}
+              onOpen={() => setActiveJobId(job.id)}
+              actions={jobActions(job)}
+            />
           ))}
         </div>
       </details>
@@ -468,6 +496,52 @@ export function RankingWorkspace({
       </button>
     </div>
   );
+  function jobActions(job: Job): MoreMenuItem[] {
+    const result = job.result;
+    return [
+      { label: "查看任务状态", action: () => setActiveJobId(job.id) },
+      ...(isSnapshot(job)
+        ? [
+            {
+              label: "打开快照",
+              disabled: !draft.editable || reviewBusy,
+              action: () => selectSnapshot(job.id),
+            },
+          ]
+        : []),
+      ...(result?.kind === "derive"
+        ? [
+            {
+              label: "打开工作集",
+              action: () =>
+                context.browser.onScope({
+                  kind: "collection",
+                  id: result.collection_id,
+                  name: job.request.name,
+                }),
+            },
+          ]
+        : []),
+      ...(analysisActive(job.state)
+        ? [
+            {
+              label: "取消离线任务",
+              disabled: busy,
+              action: () => void control("cancel", job.id),
+            },
+          ]
+        : []),
+      ...(["interrupted", "failed", "cancelled"].includes(job.state)
+        ? [
+            {
+              label: "恢复离线任务",
+              disabled: busy,
+              action: () => void control("resume", job.id),
+            },
+          ]
+        : []),
+    ];
+  }
   const inspector = (
     <RankingDetails
       context={context}
@@ -622,6 +696,15 @@ export function RankingWorkspace({
           </>
         }
       >
+        {canvasDrop.active && (
+          <div
+            {...canvasDrop.props}
+            className="aesthetic-drop-overlay"
+            data-over={canvasDrop.over || undefined}
+          >
+            <span>松开以打开排名快照“{canvasDrop.dragging?.label}”</span>
+          </div>
+        )}
         {errors.length > 0 && <ErrorDetails error={errors[0]} />}
         {notice && (
           <div className="aesthetic-notice" role="status">
@@ -841,6 +924,7 @@ export function RankingWorkspace({
           )}
         </WorkbenchPanelPortal>
       </Workbench>
+      {edit.dialog}
       {dialog === "fit" && (
         <FitDialog
           context={context}

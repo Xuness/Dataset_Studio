@@ -234,29 +234,84 @@
 .ranking-job-list {
   display: grid;
 }
-.ranking-snapshot-list > button,
-.ranking-job-list > button {
+/* Outliner rows: open, rename (F2), remove (Delete), menu and drag source. */
+.analysis-row {
   display: flex;
-  justify-content: flex-start;
-  align-items: flex-start;
-  text-align: left;
-  width: 100%;
-}
-.ranking-snapshot-list > button > span,
-.ranking-job-list > button > span {
+  align-items: stretch;
   min-width: 0;
-  overflow-wrap: anywhere;
+  border-bottom: 1px solid var(--recessed);
 }
-.ranking-snapshot-list > button[aria-pressed="true"],
-.ranking-job-list > button[aria-pressed="true"] {
-  border-left-color: var(--accent);
+.analysis-row[data-pressed] {
+  background: var(--active);
 }
-.ranking-snapshot-list small,
-.ranking-job-list small {
-  display: block;
-  margin-top: 4px;
-  color: var(--muted);
+.analysis-row:hover:not([data-pressed]) {
+  background: var(--header);
+}
+.analysis-row-main {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  min-width: 0;
+  min-height: 27px;
+  padding: 4px 9px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
   font-size: 11px;
+  text-align: left;
+}
+.analysis-row-main:hover {
+  background: transparent;
+}
+.analysis-row-main[aria-pressed="true"]:focus-visible {
+  background: var(--accent);
+  color: #fff;
+}
+.analysis-row-main > svg {
+  flex-shrink: 0;
+}
+.analysis-row-main > span {
+  width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.analysis-row-main small {
+  margin-left: 8px;
+  color: var(--muted);
+  font-size: 10px;
+}
+.ranking-snapshot-list .analysis-row-main small {
+  display: none;
+}
+.analysis-row-badge {
+  flex-shrink: 0;
+  padding: 0 5px;
+  border-radius: var(--radius);
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  line-height: 16px;
+}
+.analysis-row-rename {
+  flex: 1;
+  min-width: 0;
+  height: 21px;
+  padding: 1px 4px;
+  font-size: 11px;
+}
+.analysis-row .object-more {
+  height: auto;
+  visibility: hidden;
+}
+.analysis-row:hover .object-more,
+.analysis-row:focus-within .object-more,
+.analysis-row .object-more[aria-expanded="true"] {
+  visibility: visible;
 }
 .ranking-outline-link {
   width: 100%;
@@ -430,44 +485,6 @@
   }
 }
 /* Starship-style compact outliner, asset tiles and property editor. */
-.ranking-snapshot-list > button,
-.ranking-job-list > button {
-  min-height: 27px;
-  padding: 4px 9px;
-  border-left: 0;
-  gap: 6px;
-  font-size: 11px;
-  border-bottom: 1px solid var(--recessed);
-}
-.ranking-snapshot-list > button > span,
-.ranking-job-list > button > span {
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  overflow: hidden;
-  width: 100%;
-}
-.ranking-snapshot-list small {
-  display: none;
-}
-.ranking-job-list small {
-  display: inline;
-  font-size: 10px;
-  margin: 0 0 0 8px;
-  color: var(--muted);
-}
-.ranking-snapshot-list > button[aria-pressed="true"],
-.ranking-job-list > button[aria-pressed="true"] {
-  background: var(--active);
-}
-.ranking-snapshot-list > button[aria-pressed="true"]:focus,
-.ranking-job-list > button[aria-pressed="true"]:focus {
-  background: var(--accent);
-  color: #fff;
-}
-.ranking-snapshot-list > button:hover:not([aria-pressed="true"]),
-.ranking-job-list > button:hover:not([aria-pressed="true"]) {
-  background: var(--header);
-}
 .ranking-outline .aesthetic-actions {
   padding: 4px 7px;
   gap: 5px;
@@ -1216,4 +1233,109 @@
 .connection-limits label {
   display: grid;
   gap: 4px;
+}
+
+/* Snapshot drop targets: the ranking canvas and the comparison A / B sides. */
+.aesthetic-workspace .wb-canvas {
+  position: relative;
+}
+.aesthetic-drop-overlay,
+.comparison-drop-overlay {
+  position: absolute;
+  inset: 4px;
+  z-index: 30;
+}
+.aesthetic-drop-overlay {
+  display: grid;
+  place-items: center;
+  border: 2px dashed var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  color: var(--text-strong);
+  font-size: 13px;
+}
+.aesthetic-drop-overlay > span {
+  padding: 8px 16px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: 0 4px 14px #0009;
+}
+.aesthetic-drop-overlay[data-over] {
+  border-style: solid;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.comparison-drop-overlay {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 4px;
+}
+.comparison-slot {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 5px 6px;
+  border: 1px dashed var(--line-control);
+  border-radius: var(--radius);
+  background: var(--recessed);
+}
+.comparison-slot[data-active] {
+  border-color: var(--accent);
+}
+.comparison-slot[data-over] {
+  border-style: solid;
+  background: color-mix(in srgb, var(--accent) 22%, var(--recessed));
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.comparison-slot-label {
+  flex-shrink: 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+.comparison-slot-field select {
+  flex: 1;
+}
+.comparison-slot-zone {
+  flex-direction: column;
+  justify-content: center;
+  min-height: 132px;
+  padding: 18px 26px;
+  text-align: center;
+}
+.comparison-slot-zone[data-filled] {
+  border-style: solid;
+  border-color: var(--line-strong);
+}
+.comparison-slot-zone strong {
+  max-width: 100%;
+  color: var(--text-strong);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.comparison-slot-zone .icon-button {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+}
+.comparison-drop-overlay .comparison-slot-zone {
+  min-height: 0;
+  background: color-mix(in srgb, var(--accent) 10%, var(--recessed));
+}
+.comparison-drop-overlay .icon-button {
+  display: none;
+}
+.comparison-slots {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  width: min(680px, 100%);
+}
+.comparison-swap {
+  justify-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
 }

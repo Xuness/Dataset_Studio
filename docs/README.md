@@ -188,3 +188,5 @@ Pixiv：[结果隔离与有界组批](decisions/0055-pixiv-receipts-and-bounded-
 OpenRouter 提示词缓存与计费观测：[缓存策略、严格 Flex 和回执统计](decisions/0060-openrouter-prompt-caching.md)。
 
 评审阶段资源限制：[按阶段内存预算、在途降额与写入背压](decisions/0061-aesthetic-stage-resource-limits.md)。
+
+离线任务管理：[任务改名、删除标记与快照拖放](decisions/0062-aesthetic-job-names-removal-and-drag.md)。

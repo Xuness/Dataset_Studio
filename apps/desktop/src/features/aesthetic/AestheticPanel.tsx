@@ -42,8 +42,8 @@ export default function AestheticPanel(context: ModuleContext) {
   const [fitTarget, setFitTarget] = useState<string>();
   const [analysisTarget, setAnalysisTarget] = useState<string>();
   const [comparisonTarget, setComparisonTarget] = useState<{
-    left: string;
-    right: string;
+    left?: string;
+    right?: string;
   }>();
   const rankingSession = useDraft(
     context.client,
@@ -208,6 +208,10 @@ export default function AestheticPanel(context: ModuleContext) {
             onEvaluation={(stageId) => {
               setEvaluationTarget(stageId);
               view("evaluation");
+            }}
+            onCompare={(side, id) => {
+              setComparisonTarget({ [side]: id });
+              view("comparison");
             }}
           />
         ))}
