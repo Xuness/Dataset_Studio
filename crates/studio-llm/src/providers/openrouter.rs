@@ -4,10 +4,10 @@ use studio_domain::{Error, Result, llm::LlmInvocationSnapshot};
 pub fn apply(body: &mut Value, snapshot: &LlmInvocationSnapshot) -> Result<()> {
     let parameters = &snapshot.parameters;
     for (key, value) in parameters {
-        if let Some(key) = key.strip_prefix("openrouter.") {
-            if !matches!(key, "cache_strategy" | "cache_affinity") {
-                body[key] = value.clone();
-            }
+        if let Some(key) = key.strip_prefix("openrouter.")
+            && !matches!(key, "cache_strategy" | "cache_affinity")
+        {
+            body[key] = value.clone();
         }
     }
     if let Some(effort) = parameters.get("reasoning_effort") {

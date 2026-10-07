@@ -11,8 +11,21 @@ pub enum AnalysisPlace {
     After(String),
 }
 
+type AnalysisJobRow = (
+    String,
+    String,
+    String,
+    u64,
+    u64,
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+);
+
 fn job(db: &Connection, id: &str) -> Result<AestheticAnalysisJob> {
-    let row:(String,String,String,u64,u64,String,String,Option<String>,Option<String>,Option<String>)=db.query_row(
+    let row: AnalysisJobRow = db.query_row(
         "SELECT created_at,state,phase,progress,total,request_json,input_json,result_json,error,name FROM analysis_jobs WHERE id=?1",[id],
         |r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,crate::unsigned(r,3)?,crate::unsigned(r,4)?,r.get(5)?,r.get(6)?,r.get(7)?,r.get(8)?,r.get(9)?)))
         .optional().map_err(db_error)?.ok_or_else(||Error::new("NOT_FOUND","离线任务不存在"))?;

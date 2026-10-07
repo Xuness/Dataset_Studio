@@ -492,6 +492,8 @@ impl Runner {
         }
         failure.map_or(Ok(()), Err)
     }
+    // A spawned batch owns both its frozen inputs and its admission resources.
+    #[expect(clippy::too_many_arguments)]
     async fn evaluate(
         self: Arc<Self>,
         state: AppState,
@@ -960,6 +962,21 @@ impl Drop for Admission {
     }
 }
 
+fn message_for_batch(error: &Error) -> String {
+    format!("{}: {}", error.code, error.message)
+}
+struct TransferGuard {
+    runner: Arc<Runner>,
+    key: (String, String, u64),
+}
+impl Drop for TransferGuard {
+    fn drop(&mut self) {
+        if let Ok(mut transfers) = self.runner.transfers.lock() {
+            transfers.remove(&self.key);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1003,20 +1020,5 @@ mod tests {
         assert!(runner.configure(0).is_err());
         assert!(runner.configure(AESTHETIC_MAX_RUNNING_STAGES + 1).is_err());
         assert_eq!(Runner::open(path).unwrap().stage_limits().1, 12);
-    }
-}
-
-fn message_for_batch(error: &Error) -> String {
-    format!("{}: {}", error.code, error.message)
-}
-struct TransferGuard {
-    runner: Arc<Runner>,
-    key: (String, String, u64),
-}
-impl Drop for TransferGuard {
-    fn drop(&mut self) {
-        if let Ok(mut transfers) = self.runner.transfers.lock() {
-            transfers.remove(&self.key);
-        }
     }
 }
