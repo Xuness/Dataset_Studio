@@ -49,6 +49,7 @@ import type {
   QueryResult,
 } from "@studio/contracts";
 import { AssetImage } from "./AssetImage.js";
+import { useImageZoom, ZoomableImage, ZoomControls } from "./ZoomableImage.js";
 import { QuickFilters, adoptRefreshedFilter } from "./QuickFilters.js";
 import {
   useRankingBrowse,
@@ -539,6 +540,9 @@ function BrowserContent({
     ? items.findIndex((a) => assetIdentity(a.key) === assetIdentity(focus.key))
     : -1;
   const activeAsset = focusIndex >= 0 ? items[focusIndex]! : focus;
+  const zoom = useImageZoom(
+    view + ":" + (activeAsset ? assetIdentity(activeAsset.key) : ""),
+  );
   const waiting =
     ranked.loading ||
     query.isFetching ||
@@ -873,6 +877,7 @@ function BrowserContent({
             e.preventDefault();
             selectAt(activeAsset, focusIndex, e.shiftKey);
           }
+          zoom.onKey(e);
         } else if (
           (e.ctrlKey || e.metaKey) &&
           e.key.toLowerCase() === "a" &&
@@ -1258,12 +1263,14 @@ function BrowserContent({
           aria-label="单图查看画布"
         >
           {activeAsset && (
-            <AssetImage
-              client={client}
-              projectId={projectId}
-              asset={activeAsset}
-              edge={1600}
-            />
+            <ZoomableImage zoom={zoom}>
+              <AssetImage
+                client={client}
+                projectId={projectId}
+                asset={activeAsset}
+                edge={1600}
+              />
+            </ZoomableImage>
           )}
           {waiting && (
             <div className="image-loading" role="status">
@@ -1299,7 +1306,9 @@ function BrowserContent({
                 text={activeAsset.key.asset_id}
               />
               <span className="grow" />
-              <span>适合窗口 · 预览</span>
+              <span className="zoom-controls">
+                <ZoomControls zoom={zoom} />
+              </span>
             </div>
           )}
         </div>
@@ -1556,7 +1565,10 @@ function BrowserContent({
               <LayoutGrid size={15} />
               返回网格
             </button>
-            <span className="subtle">← → 逐张浏览 · Space 选择 · Esc 返回</span>
+            <span className="subtle">
+              ← → 逐张浏览 · 滚轮缩放 · 双击放大 · 放大后拖动平移 · Space 选择 ·
+              Esc 返回
+            </span>
             <span className="grow" />
             <span aria-label="当前图像位置">
               第 {pageNumber} 页 · {focusIndex >= 0 ? focusIndex + 1 : "—"} /{" "}

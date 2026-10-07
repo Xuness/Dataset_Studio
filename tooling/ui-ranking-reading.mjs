@@ -79,7 +79,7 @@ export async function checkRankingReading(
   await visibleTile.click();
   const scrollTop = await scroller.evaluate((e) => e.scrollTop);
   await visibleTile.press("Enter");
-  const viewport = page.locator(".ranking-image-viewport");
+  const viewport = page.locator(".ranking-full-image .zoom-viewport");
   await viewport.hover();
   await page.mouse.wheel(0, -220);
   await expect

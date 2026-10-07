@@ -1,6 +1,33 @@
 .asset-image {
   position: relative;
 }
+.zoom-viewport {
+  position: relative;
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+}
+/* The fitted .asset-image keeps its flex layout; a grid here sizes portrait images past the box. */
+.zoom-transform {
+  position: absolute;
+  inset: 0;
+  transform-origin: center;
+}
+.zoom-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.zoom-controls button {
+  gap: 4px;
+  padding: 3px 5px;
+  font-size: 11px;
+}
+.zoom-controls output {
+  min-width: 38px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
 .asset-image .offline-cache-badge {
   position: absolute;
   right: 5px;
