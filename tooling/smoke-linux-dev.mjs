@@ -20,8 +20,8 @@ await mkdir(data, { recursive: true });
 const execute = promisify(execFile);
 const log = await open(resolve(run, "startup.log"), "a");
 const child = spawn(
-  process.execPath,
-  [resolve(root, "tooling/dev.mjs"), "--engine-profile=debug"],
+  "bash",
+  [resolve(root, "启动开发版.sh"), "--engine-profile=debug"],
   {
     cwd: root,
     stdio: ["ignore", log.fd, log.fd],

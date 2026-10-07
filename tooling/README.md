@@ -48,6 +48,7 @@ Windows 开发环境需要 PowerShell 7、Node.js 22.12 或更新版本、pnpm 1
 | 入口                                      | 用途                                                             |
 | ----------------------------------------- | ---------------------------------------------------------------- |
 | `pwsh -File tooling/start-dev.ps1`        | 安装依赖、准备 DuckDB 并启动开发环境；也可双击根目录启动器       |
+| `bash ./启动开发版.sh` / `bash tooling/start-dev.sh` | Linux 源码启动，检查依赖和 DuckDB，支持 `--web`；日志写入 `.local/logs/` |
 | `pnpm dev` / `pnpm dev:web`               | 已准备依赖后的桌面 / 浏览器开发环境                              |
 | `pnpm engine:stop`                        | 结束当前开发引擎                                                 |
 | `pnpm contracts` / `pnpm contracts:check` | 生成公开契约 / 核对契约漂移                                      |
@@ -64,7 +65,7 @@ Windows 开发环境需要 PowerShell 7、Node.js 22.12 或更新版本、pnpm 1
 
 ## 开发、构建与生成
 
-- 启动与进程：[start-dev.ps1](start-dev.ps1)、[dev.mjs](dev.mjs)、[stop-engine.mjs](stop-engine.mjs)、[engine-process.mjs](engine-process.mjs)、[engine-profile.mjs](engine-profile.mjs)。
+- 启动与进程：[start-dev.ps1](start-dev.ps1)、[start-dev.sh](start-dev.sh)、[dev.mjs](dev.mjs)、[stop-engine.mjs](stop-engine.mjs)、[engine-process.mjs](engine-process.mjs)、[engine-profile.mjs](engine-profile.mjs)。
 - Rust 工具链与 sidecar：[cargo.mjs](cargo.mjs)、[cargo-run.mjs](cargo-run.mjs)、[prepare-sidecar.mjs](prepare-sidecar.mjs)。
 - 原生元数据运行库：[setup-duckdb.ps1](setup-duckdb.ps1)，下载时核对固定 SHA-256。
 - 公开契约：[contracts.mjs](contracts.mjs)；OpenAPI 和 schema.d.ts 由源码生成并纳入 Git，不手工编辑。

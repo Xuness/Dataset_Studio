@@ -7,6 +7,13 @@ if [ "$#" -eq 0 ]; then
   exit 2
 fi
 if [ "${STUDIO_LINUX_TEST_SESSION:-}" != 1 ]; then
+  # Keep the package cache stable while isolating the app's XDG directories.
+  # The public launcher performs a frozen install before opening the desktop.
+  if command -v pnpm >/dev/null 2>&1; then
+    studio_pnpm_store=$(pnpm --dir "$repo_dir" store path)
+    export npm_config_store_dir
+    npm_config_store_dir=$(dirname -- "$studio_pnpm_store")
+  fi
   mkdir -p "$repo_dir/.local/test-runs"
   run_dir=$(mktemp -d "$repo_dir/.local/test-runs/linux-session-XXXXXX")
   export STUDIO_LINUX_TEST_SESSION=1 STUDIO_LINUX_TEST_ROOT="$run_dir"
