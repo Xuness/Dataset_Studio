@@ -1,3 +1,4 @@
+import { browserOptions } from "./platform.mjs";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { mkdir, readFile, writeFile, open, rename } from "node:fs/promises";
@@ -51,7 +52,7 @@ try {
     if (vite.exitCode !== null) throw new Error("Vite stopped");
     await sleep(100);
   }
-  browser = await chromium.launch({ channel: "msedge", headless: true });
+  browser = await chromium.launch({ ...browserOptions(), headless: true });
   const context = await browser.newContext({
     viewport: { width: 1920, height: 1080 },
   });
@@ -233,7 +234,9 @@ try {
   });
   await rankingScope.selectOption(lakes.danbooru.library_id);
   await expect(rankingSubmit).toBeEnabled();
-  await page.screenshot({ path: resolve(run, "ranking-danbooru-recovered.png") });
+  await page.screenshot({
+    path: resolve(run, "ranking-danbooru-recovered.png"),
+  });
   checks.push(
     "persisted incompatible ranking input remains recoverable after reload",
   );

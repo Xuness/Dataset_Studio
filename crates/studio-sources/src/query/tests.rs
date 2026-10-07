@@ -1,5 +1,5 @@
 use super::*;
-use std::{collections::BTreeSet, fs, path::Path};
+use std::{collections::BTreeSet, fs};
 
 fn hex(n: u64) -> String {
     format!("{n:064x}")
@@ -44,7 +44,7 @@ fn fixture() -> Fixture {
             .unwrap();
     }
     drop(catalog);
-    let dll = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/duckdb/duckdb.dll");
+    let dll = crate::duckdb::bundled_library();
     let db = Session::fixture(&dll, &generation.join("analysis.duckdb")).unwrap();
     db.query("CREATE TABLE applied(seq BIGINT); INSERT INTO applied VALUES(1); CREATE TABLE assets(asset_id VARCHAR,observation_id VARCHAR,post_id BIGINT,sha256 VARCHAR); CREATE TABLE observations(observation_id VARCHAR,row_id BIGINT,post_id BIGINT,image_width BIGINT,image_height BIGINT,file_ext VARCHAR,score BIGINT,fav_count BIGINT,rating VARCHAR,tag_string VARCHAR,is_deleted BOOLEAN); CREATE TABLE current_posts(post_id BIGINT,row_id BIGINT,asset_id VARCHAR);").unwrap();
     for (record, obs, post, sha) in [
@@ -134,7 +134,7 @@ fn enable_commit_history(f: &Fixture) {
         .as_ref()
         .unwrap()
         .join("indexes/gen-query");
-    let dll = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/duckdb/duckdb.dll");
+    let dll = crate::duckdb::bundled_library();
     let db = Session::fixture(&dll, &root.join("analysis.duckdb")).unwrap();
     db.query("ALTER TABLE applied ADD COLUMN batch_id VARCHAR DEFAULT 'first'; ALTER TABLE assets ADD COLUMN commit_seq BIGINT DEFAULT 1; ALTER TABLE observations ADD COLUMN commit_seq BIGINT DEFAULT 1; CREATE TABLE objects(sha256 VARCHAR,pack_path VARCHAR,length BIGINT,stored_ext VARCHAR);").unwrap();
     for n in [1, 2, 3, 4, 6] {
@@ -151,7 +151,7 @@ fn enable_commit_history(f: &Fixture) {
 fn shared_rating_candidates_preserve_same_observation_and_incremental_changes() {
     let f = fixture();
     enable_commit_history(&f);
-    let dll = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/duckdb/duckdb.dll");
+    let dll = crate::duckdb::bundled_library();
     let generation = f
         .source
         .index_root
@@ -368,7 +368,7 @@ fn advance_day(f: &Fixture) {
         .as_ref()
         .unwrap()
         .join("indexes/gen-query");
-    let dll = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/duckdb/duckdb.dll");
+    let dll = crate::duckdb::bundled_library();
     let db = Session::fixture(&dll, &root.join("analysis.duckdb")).unwrap();
     db.query("BEGIN;").unwrap();
     for (row, post, rating) in [
@@ -558,7 +558,7 @@ fn incremental_history_requires_continuity_and_the_original_commit_anchor() {
         .as_ref()
         .unwrap()
         .join("indexes/gen-query");
-    let dll = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/duckdb/duckdb.dll");
+    let dll = crate::duckdb::bundled_library();
     let db = Session::fixture(&dll, &root.join("analysis.duckdb")).unwrap();
     db.query("DELETE FROM applied WHERE seq=2; INSERT INTO applied VALUES(3,'third')")
         .unwrap();

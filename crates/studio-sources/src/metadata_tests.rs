@@ -44,7 +44,7 @@ fn fixture() -> Fixture {
             .unwrap();
     }
     drop(sq);
-    let dll = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/duckdb/duckdb.dll");
+    let dll = crate::duckdb::bundled_library();
     let path = generation.join("analysis.duckdb");
     let db = Session::fixture(&dll, &path).unwrap();
     db.query("CREATE TABLE applied(seq BIGINT PRIMARY KEY); INSERT INTO applied VALUES (1); CREATE TABLE assets(asset_id VARCHAR PRIMARY KEY,observation_id VARCHAR,post_id BIGINT,sha256 VARCHAR,source_md5 VARCHAR,storage_profile VARCHAR); CREATE TABLE raw_metadata(observation_id VARCHAR PRIMARY KEY,source_metadata_json VARCHAR,source_metadata_format VARCHAR,source_schema_id VARCHAR)").unwrap();
@@ -397,7 +397,7 @@ fn readonly_session_rejects_writes_and_detects_generation_change() {
 #[test]
 fn external_writer_helper() {
     if let Some(path) = std::env::var_os("STUDIO_FIXTURE_WRITER") {
-        let dll = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/duckdb/duckdb.dll");
+        let dll = crate::duckdb::bundled_library();
         let path = PathBuf::from(path);
         let _db = Session::fixture(&dll, &path).unwrap();
         fs::File::create(path.with_extension("ready"))

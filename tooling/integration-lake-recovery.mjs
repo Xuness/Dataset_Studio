@@ -5,7 +5,8 @@ import { mkdir, readFile, writeFile, cp, rename } from "node:fs/promises";
 import { resolve, basename, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
-import { EngineFixture, sleep } from "./engine-fixture.mjs";
+import { EngineFixture, sleep, within } from "./engine-fixture.mjs";
+import { venvPython } from "./platform.mjs";
 import { clientFixture } from "./client-fixture.mjs";
 import { lakeWorkerPython } from "./lake-worker-runtime.mjs";
 import { verifyLakeWorkerBundle } from "./lake-worker-bundle.mjs";
@@ -53,11 +54,7 @@ try {
     "--without-pip",
     resolve(run, "empty-python"),
   ]);
-  const empty = resolve(
-    run,
-    "empty-python",
-    process.platform === "win32" ? "Scripts/python.exe" : "bin/python",
-  );
+  const empty = venvPython(resolve(run, "empty-python"));
   await assert.rejects(
     client.lakeUpdates.configure({ ...runtime, python: empty }),
   );
@@ -139,14 +136,18 @@ try {
       ])
     ).stdout,
   );
+  const replacement = venvPython(resolve(run, "replacement-python"));
+  const replacementSite = (
+    await execute(replacement, [
+      "-I",
+      "-c",
+      "import sysconfig;print(sysconfig.get_path('purelib'))",
+    ])
+  ).stdout.trim();
+  within(resolve(run, "replacement-python"), replacementSite);
   await writeFile(
-    resolve(run, "replacement-python/Lib/site-packages/studio-tests.pth"),
+    resolve(replacementSite, "studio-tests.pth"),
     sitePaths.join("\n") + "\n",
-  );
-  const replacement = resolve(
-    run,
-    "replacement-python",
-    process.platform === "win32" ? "Scripts/python.exe" : "bin/python",
   );
   await Promise.all([
     client.lakeUpdates.configure({ ...runtime, python: replacement }),
@@ -361,7 +362,7 @@ try {
   try {
     assert.equal(
       upgraded.prepare("PRAGMA user_version").get().user_version,
-      11,
+      14,
     );
     assert.equal(
       upgraded.prepare("SELECT count(*) AS n FROM lake_dispatch").get().n,

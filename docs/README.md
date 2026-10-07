@@ -8,6 +8,9 @@
 
 ## 当前模块接入
 
+- [Linux x86_64 源码桌面开发](architecture/linux-development.md) · [平台与凭据边界](decisions/0069-linux-source-desktop.md)
+  · [2026-10-07 验收范围](verification/2026-10-07-linux-source-desktop.md)
+
 2026-09-29 项目审查：[Astra 审查本机复核](verification/2026-09-29-astra-review-validation.md)、[并发与生命周期修复阶段](plans/astra-review-remediation-2026-09-29.md)。R1 查询修复见[许可与分页决定](decisions/0045-query-admission-and-merge-progress.md)及[阶段验收](verification/2026-09-29-astra-r1-query-reliability.md)。R1–R4 已完成，F6/G1 协议见 [0047](decisions/0047-lake-runtime-and-location-recovery.md)，最终边界与实测见[收尾验收](verification/2026-09-29-astra-r3-r4-closeout.md)。
 
 数据湖更新：[工作台](decisions/0039-lake-update-workbench.md)、[内置服务与图片配方](decisions/0040-owned-lake-worker-and-image-recipes.md)、[运行环境与保存策略](../services/lake-worker/README.md)。

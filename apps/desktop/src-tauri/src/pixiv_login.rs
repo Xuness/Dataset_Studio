@@ -1,4 +1,4 @@
-//! Owned, in-private login window. Secrets move from WebView2 to the loopback
+//! Owned, in-private login window. Secrets move from the system WebView to the loopback
 //! engine, never through the renderer. Only the main application may use IPC.
 use serde::de::DeserializeOwned;
 use std::{
@@ -174,13 +174,22 @@ fn login_window(
     profile: PathBuf,
     start: Url,
     visible: bool,
+    features: Option<tauri::webview::NewWindowFeatures>,
 ) -> tauri::Result<WebviewWindow> {
     let initially_visible = visible && url.as_str() != "about:blank";
     let popup_app = app.clone();
     let popup_profile = profile.clone();
     let popup_start = start.clone();
     let popup_parent = label.clone();
-    WebviewWindowBuilder::new(app, &label, WebviewUrl::External(url))
+    let builder = WebviewWindowBuilder::new(app, &label, WebviewUrl::External(url));
+    let builder = if let Some(features) = features {
+        // On Linux a related view shares the opener's ephemeral cookie store.
+        // A second independent incognito WebView would lose the login session.
+        builder.window_features(features)
+    } else {
+        builder
+    };
+    builder
         .title("Pixiv 登录 · 完成后返回 Studio 验证并保存")
         .inner_size(1080.0, 800.0)
         .min_inner_size(640.0, 500.0)
@@ -212,39 +221,33 @@ fn login_window(
             else {
                 return tauri::webview::NewWindowResponse::Deny;
             };
-            // Creating a WebView synchronously in this WebView2 callback deadlocks
-            // its UI thread. Open an owned child asynchronously, with the same
-            // private environment. This does not promise window.opener semantics.
-            let handle = popup_app.clone();
-            let parent = popup_parent.clone();
-            let profile = popup_profile.clone();
-            let start = popup_start.clone();
-            tauri::async_runtime::spawn(async move {
-                let state = handle.state::<LoginHost>();
-                let mut guard = state.flow.lock().await;
+            #[cfg(target_os = "linux")]
+            {
+                // WebKitGTK supplies a GTK object in the request. Create the
+                // related window on this UI thread, without moving it to Tokio.
+                let state = popup_app.state::<LoginHost>();
+                let Ok(mut guard) = state.flow.try_lock() else {
+                    return tauri::webview::NewWindowResponse::Deny;
+                };
                 let Some(flow) = guard.as_mut() else {
-                    return;
+                    return tauri::webview::NewWindowResponse::Deny;
                 };
                 if flow.public.phase != Phase::Waiting
-                    || !parent.starts_with(&window_label(&flow.public.id))
-                    || handle.get_webview_window(&parent).is_none()
-                    || handle
-                        .webview_windows()
-                        .keys()
-                        .filter(|k| k.starts_with(WINDOW_PREFIX))
-                        .count()
-                        >= 4
+                    || !popup_parent.starts_with(&window_label(&flow.public.id))
+                    || popup_app.get_webview_window(&popup_parent).is_none()
                 {
-                    return;
+                    return tauri::webview::NewWindowResponse::Deny;
                 }
-                let app = handle.clone();
-                let label = format!("{parent}-{}", Uuid::new_v4());
-                match tokio::task::spawn_blocking(move || {
-                    login_window(&app, label, url, profile, start, visible)
-                })
-                .await
-                {
-                    Ok(Ok(view)) if handle.get_webview_window(&parent).is_some() => {
+                match login_window(
+                    &popup_app,
+                    format!("{popup_parent}-{}", Uuid::new_v4()),
+                    url,
+                    popup_profile.clone(),
+                    popup_start.clone(),
+                    visible,
+                    Some(_features),
+                ) {
+                    Ok(view) => {
                         let permit = StdMutex::new(Some(permit));
                         view.on_window_event(move |event| {
                             if matches!(event, tauri::WindowEvent::Destroyed)
@@ -253,19 +256,74 @@ fn login_window(
                                 held.take();
                             }
                         });
+                        tauri::webview::NewWindowResponse::Create { window: view }
                     }
-                    Ok(Ok(view)) => {
-                        let _ = view.destroy();
-                    }
-                    _ => {
+                    Err(_) => {
                         flow.public.error = Some(error(
                             "LOGIN_WINDOW_FAILED",
-                            "登录链接未能打开，请使用邮箱和密码登录，或改用 Cookie 导入",
+                            "登录链接未能打开，请重试或使用 Cookie 导入",
                         ));
+                        tauri::webview::NewWindowResponse::Deny
                     }
                 }
-            });
-            tauri::webview::NewWindowResponse::Deny
+            }
+            #[cfg(not(target_os = "linux"))]
+            {
+                // Creating a WebView synchronously in this WebView2 callback deadlocks
+                // its UI thread. Open an owned child asynchronously, with the same
+                // private environment. This does not promise window.opener semantics.
+                let handle = popup_app.clone();
+                let parent = popup_parent.clone();
+                let profile = popup_profile.clone();
+                let start = popup_start.clone();
+                tauri::async_runtime::spawn(async move {
+                    let state = handle.state::<LoginHost>();
+                    let mut guard = state.flow.lock().await;
+                    let Some(flow) = guard.as_mut() else {
+                        return;
+                    };
+                    if flow.public.phase != Phase::Waiting
+                        || !parent.starts_with(&window_label(&flow.public.id))
+                        || handle.get_webview_window(&parent).is_none()
+                        || handle
+                            .webview_windows()
+                            .keys()
+                            .filter(|k| k.starts_with(WINDOW_PREFIX))
+                            .count()
+                            >= 4
+                    {
+                        return;
+                    }
+                    let app = handle.clone();
+                    let label = format!("{parent}-{}", Uuid::new_v4());
+                    match tokio::task::spawn_blocking(move || {
+                        login_window(&app, label, url, profile, start, visible, None)
+                    })
+                    .await
+                    {
+                        Ok(Ok(view)) if handle.get_webview_window(&parent).is_some() => {
+                            let permit = StdMutex::new(Some(permit));
+                            view.on_window_event(move |event| {
+                                if matches!(event, tauri::WindowEvent::Destroyed)
+                                    && let Ok(mut held) = permit.lock()
+                                {
+                                    held.take();
+                                }
+                            });
+                        }
+                        Ok(Ok(view)) => {
+                            let _ = view.destroy();
+                        }
+                        _ => {
+                            flow.public.error = Some(error(
+                                "LOGIN_WINDOW_FAILED",
+                                "登录链接未能打开，请使用邮箱和密码登录，或改用 Cookie 导入",
+                            ));
+                        }
+                    }
+                });
+                tauri::webview::NewWindowResponse::Deny
+            }
         })
         .build()
 }
@@ -436,7 +494,7 @@ pub(crate) async fn pixiv_login_status(
         refresh(&app, flow);
     }
     Ok(CollectionLoginStatus {
-        available: cfg!(windows),
+        available: cfg!(any(windows, target_os = "linux")),
         session: guard.as_ref().map(|f| f.public.clone()),
     })
 }
@@ -448,7 +506,7 @@ pub(crate) async fn pixiv_login_start(
     mut input: StartCollectionLogin,
 ) -> Result<CollectionLoginSession> {
     require_main(&window)?;
-    if !cfg!(windows) {
+    if !cfg!(any(windows, target_os = "linux")) {
         return Err(error("LOGIN_UNSUPPORTED", "当前平台请使用 Cookie 导入"));
     }
     input.label = input.label.trim().into();
@@ -491,9 +549,10 @@ pub(crate) async fn pixiv_login_start(
             profile,
             start.clone(),
             visible,
+            None,
         )?;
         // Clear only this owned InPrivate profile before the first network navigation.
-        // WebView2 clears asynchronously; wait for cookie deletion before opening Pixiv.
+        // Both native WebViews clear asynchronously; wait before opening Pixiv.
         let initialized = (|| -> tauri::Result<()> {
             let marker = tauri::webview::Cookie::build(("studio_login_reset", "1"))
                 .domain("accounts.pixiv.net")
@@ -545,7 +604,7 @@ pub(crate) async fn pixiv_login_start(
     .map_err(|_| {
         error(
             "LOGIN_WINDOW_FAILED",
-            "无法打开登录窗口，请检查 WebView2 运行环境或使用 Cookie 导入",
+            "无法打开登录窗口，请检查系统浏览器组件或使用 Cookie 导入",
         )
     })?;
     let public = CollectionLoginSession {

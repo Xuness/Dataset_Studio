@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawn } from "node:child_process";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -6,6 +7,8 @@ import { DatabaseSync } from "node:sqlite";
 import { EngineFixture, sleep } from "./engine-fixture.mjs";
 import { clientFixture } from "./client-fixture.mjs";
 import { llmFixture, network } from "./llm-fixture.mjs";
+import { finished } from "./cargo.mjs";
+import { lakeWorkerPython } from "./lake-worker-runtime.mjs";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const run = resolve(root, ".local/test-runs/integration-llm-" + Date.now());
@@ -279,6 +282,35 @@ try {
   );
   client.dispose();
   await engine.stop();
+  if (process.platform === "linux") {
+    const python = lakeWorkerPython(root);
+    assert.ok(
+      python,
+      "Prepare the lake worker runtime for Linux credential interoperability",
+    );
+    await finished(
+      spawn(
+        python,
+        [
+          "-c",
+          `
+from pathlib import Path
+import sys
+from studio_lake.updates.credentials import protect
+for path in Path(sys.argv[1]).glob('*.bin'):
+    plain = protect(path.read_bytes(), False)
+    assert plain == b'fixture-secret-value'
+    path.write_bytes(protect(plain, True))
+`,
+          resolve(run, "state/llm-credentials"),
+        ],
+        { stdio: "inherit" },
+      ),
+    );
+    checks.push(
+      "Python reads Rust envelopes and reseals them for the restarted Rust engine",
+    );
+  }
   await engine.start();
   client = new StudioClient(engine.connection);
   assert.equal((await client.llm.providers.list()).items.length, 4);
@@ -308,7 +340,7 @@ try {
     );
   assert.ok(mock.state.calls.some((c) => c.geminiKey));
   checks.push(
-    "credential-free DTOs and registry; encrypted Windows credential files; native authentication mapping",
+    "credential-free DTOs and registry; system-protected credential files; native authentication mapping",
   );
   await writeFile(
     resolve(run, "report.json"),

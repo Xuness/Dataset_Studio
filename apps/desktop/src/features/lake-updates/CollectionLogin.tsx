@@ -82,7 +82,8 @@ export function CollectionLogin({
       </p>
       {!assistant ? (
         <p className="lake-hint">
-          浏览器登录助手在 Windows 桌面版中提供；当前可使用下方的 Cookie 导入。
+          浏览器登录助手在 Windows 和 Linux 桌面版中提供；当前可使用下方的
+          Cookie 导入。
         </p>
       ) : (
         <>

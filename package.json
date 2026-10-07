@@ -5,6 +5,8 @@
   "packageManager": "pnpm@10.30.3",
   "type": "module",
   "scripts": {
+    "setup:duckdb": "node tooling/setup-duckdb.mjs",
+    "setup:lake": "node tooling/setup-lake-worker.mjs",
     "dev": "node tooling/dev.mjs",
     "dev:web": "node tooling/dev.mjs --web",
     "build": "pnpm --filter @studio/desktop build",
@@ -27,7 +29,8 @@
     "engine:stop": "node tooling/stop-engine.mjs",
     "test:lake": "node tooling/test-lake-worker.mjs",
     "test:lake-ui": "node tooling/smoke-lake-updates-ui.mjs",
-    "test:pixiv-login": "node tooling/cargo-run.mjs build -p studio-desktop --example pixiv_login_probe && node tooling/smoke-pixiv-login.mjs"
+    "test:pixiv-login": "node tooling/cargo-run.mjs build -p studio-desktop --example pixiv_login_probe && node tooling/smoke-pixiv-login.mjs",
+    "test:linux-native": "node tooling/cargo-run.mjs build -p studio-desktop --example pixiv_login_probe && node tooling/smoke-linux-native.mjs && node tooling/smoke-linux-dev.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.0",

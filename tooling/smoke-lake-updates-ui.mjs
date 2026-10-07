@@ -1,3 +1,4 @@
+import { browserOptions } from "./platform.mjs";
 import { lakeWorkerPython } from "./lake-worker-runtime.mjs";
 // Isolated real engine + embedded worker + UI. No real lakes, schedules or API credentials.
 import assert from "node:assert/strict";
@@ -297,7 +298,7 @@ try {
     if (vite.exitCode !== null) throw new Error("Vite stopped");
     await sleep(100);
   }
-  browser = await chromium.launch({ channel: "msedge", headless: true });
+  browser = await chromium.launch({ ...browserOptions(), headless: true });
   const context = await browser.newContext({
     viewport: { width: 2560, height: 1400 },
   });

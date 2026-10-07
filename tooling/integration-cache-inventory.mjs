@@ -1,3 +1,4 @@
+import { pythonCommand } from "./platform.mjs";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -12,7 +13,7 @@ const run = resolve(root, ".local/test-runs/cache-inventory-" + Date.now());
 await mkdir(run, { recursive: true });
 const python = (name, ...args) =>
   promisify(execFile)(
-    "python",
+    pythonCommand(),
     [resolve(root, "tooling", name), resolve(run, "fixture"), ...args],
     { cwd: root, windowsHide: true },
   );

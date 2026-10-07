@@ -11,6 +11,7 @@ import tarfile
 import uuid
 import zlib
 from pathlib import Path
+from duckdb_runtime import library_path
 
 repo = Path(__file__).resolve().parents[1]
 output = Path(sys.argv[1]).resolve()
@@ -59,7 +60,7 @@ catalog.close()
 class Result(ctypes.Structure):
     _fields_ = [("columns", ctypes.c_uint64), ("rows", ctypes.c_uint64), ("changed", ctypes.c_uint64), ("data", ctypes.c_void_p), ("error", ctypes.c_char_p), ("internal", ctypes.c_void_p)]
 
-library = ctypes.CDLL(str(repo / "vendor" / "duckdb" / "duckdb.dll"))
+library = ctypes.CDLL(str(library_path()))
 library.duckdb_open.argtypes = [ctypes.c_char_p, ctypes.POINTER(ctypes.c_void_p)]
 library.duckdb_connect.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)]
 library.duckdb_query.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.POINTER(Result)]

@@ -1,6 +1,8 @@
 use std::{fs, io::Write, path::PathBuf};
 use studio_application::llm::{LlmCredentials, LlmSecret};
 use studio_domain::{Error, Result, new_id, validate_id};
+#[cfg(target_os = "linux")]
+mod linux;
 #[cfg(windows)]
 mod windows;
 
@@ -65,7 +67,11 @@ impl LlmCredentials for CredentialVault {
 fn protect(input: &[u8], encrypt: bool) -> Result<Vec<u8>> {
     windows::protect(input, encrypt)
 }
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
+fn protect(input: &[u8], encrypt: bool) -> Result<Vec<u8>> {
+    linux::protect(input, encrypt)
+}
+#[cfg(not(any(windows, target_os = "linux")))]
 fn protect(_: &[u8], _: bool) -> Result<Vec<u8>> {
     Err(Error::new(
         "LLM_CREDENTIAL_UNAVAILABLE",
@@ -73,11 +79,11 @@ fn protect(_: &[u8], _: bool) -> Result<Vec<u8>> {
     ))
 }
 
-#[cfg(all(test, windows))]
+#[cfg(all(test, any(windows, target_os = "linux")))]
 mod tests {
     use super::*;
     #[test]
-    fn dpapi_survives_reopen_without_plaintext_and_rejects_corruption() {
+    fn system_credentials_survive_reopen_without_plaintext_and_reject_corruption() {
         let root = tempfile::tempdir().unwrap();
         let vault = CredentialVault::new(root.path().into());
         let secret = "fixture-secret-not-a-real-api-key";

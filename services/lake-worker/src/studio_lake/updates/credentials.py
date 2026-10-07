@@ -1,14 +1,20 @@
-"""Small secret port backed by Windows DPAPI, without plaintext fallback."""
+"""System-protected secrets: Windows DPAPI or Linux Secret Service, no plaintext fallback."""
 
 import ctypes
 from ctypes import wintypes
 import json
 import os
+import sys
 
 from .sites import UpdateError
 
+REQUEST_PREFIX = "dpapi:" if os.name == "nt" else "protected:"
+
 
 def protect(value, encrypt):
+    if sys.platform == "linux":
+        from .linux_credentials import protect as linux_protect
+        return linux_protect(value, encrypt)
     if os.name != "nt":
         raise UpdateError("UPDATE_CREDENTIAL_REQUIRED", "A platform secret provider is required")
 

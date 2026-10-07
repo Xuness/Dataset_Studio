@@ -98,7 +98,7 @@ mod tests {
                 .tempdir_in(&root)
                 .unwrap();
             let db = Session::fixture(
-                &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/duckdb/duckdb.dll"),
+                &crate::duckdb::bundled_library(),
                 &temp.path().join("case.duckdb"),
             )
             .unwrap();

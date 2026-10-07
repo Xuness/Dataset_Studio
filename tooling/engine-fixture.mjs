@@ -3,11 +3,14 @@ import { spawn } from "node:child_process";
 import { mkdir, readFile, open } from "node:fs/promises";
 import { resolve, sep } from "node:path";
 import { engineExecutable, engineProfile } from "./engine-profile.mjs";
+import { duckdbLibrary } from "./platform.mjs";
 
 export const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 export function within(root, path) {
-  const plain = (value) =>
-    resolve(value.startsWith("\\\\?\\") ? value.slice(4) : value).toLowerCase();
+  const plain = (value) => {
+    const path = resolve(value.startsWith("\\\\?\\") ? value.slice(4) : value);
+    return process.platform === "win32" ? path.toLowerCase() : path;
+  };
   assert.ok(
     plain(path).startsWith(plain(root) + sep),
     "Fixture path escapes run directory",
@@ -43,9 +46,7 @@ export class EngineFixture {
         windowsHide: true,
         env: {
           ...process.env,
-          STUDIO_DUCKDB_DLL:
-            process.env.STUDIO_DUCKDB_DLL ??
-            resolve(this.root, "vendor/duckdb/duckdb.dll"),
+          STUDIO_DUCKDB_LIBRARY: duckdbLibrary(this.root),
           ...this.options.env,
         },
       },

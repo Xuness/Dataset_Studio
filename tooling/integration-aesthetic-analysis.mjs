@@ -1,3 +1,4 @@
+import { pythonCommand } from "./platform.mjs";
 // Synthetic images and localhost provider only. All ranking, experiment, review,
 // and workset operations after evidence collection use the production offline API.
 import assert from "node:assert/strict";
@@ -20,7 +21,7 @@ const run = resolve(
 );
 await mkdir(run, { recursive: true });
 await promisify(execFile)(
-  "python",
+  pythonCommand(),
   [resolve(root, "tooling/ranking-fixture.py"), resolve(run, "fixture"), "128"],
   { cwd: root, windowsHide: true },
 );

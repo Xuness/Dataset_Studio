@@ -1,3 +1,4 @@
+import { pythonCommand, browserOptions } from "./platform.mjs";
 import { openEditor, openWindowPanel } from "./ui-workbench.mjs";
 // Real React UI against an isolated fixture engine. No user browser profile is used.
 import assert from "node:assert/strict";
@@ -24,7 +25,7 @@ const fixtureRoot = process.argv[2]
   : resolve(run, "fixture");
 if (!process.argv[2])
   await execute(
-    "python",
+    pythonCommand(),
     [resolve(root, "tooling/ranking-fixture.py"), fixtureRoot, "1024"],
     { windowsHide: true },
   );
@@ -82,7 +83,7 @@ try {
     if (vite.exitCode !== null) throw new Error("Fixture Vite exited");
     await sleep(100);
   }
-  browser = await chromium.launch({ channel: "msedge", headless: true });
+  browser = await chromium.launch({ ...browserOptions(), headless: true });
   const context = await browser.newContext({
     viewport: { width: 1540, height: 1000 },
   });

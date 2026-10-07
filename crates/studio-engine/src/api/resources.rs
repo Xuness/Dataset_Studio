@@ -202,7 +202,26 @@ fn process_memory() -> Option<ReadProcessMemory> {
         private_bytes: counters.PrivateUsage.to_string(),
     })
 }
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
+fn process_memory() -> Option<ReadProcessMemory> {
+    let status = std::fs::read_to_string("/proc/self/status").ok()?;
+    let rollup = std::fs::read_to_string("/proc/self/smaps_rollup").ok()?;
+    let kib = |text: &str, field: &str| -> Option<u64> {
+        text.lines().find_map(|line| {
+            let value = line.strip_prefix(field)?.split_whitespace().next()?;
+            value.parse::<u64>().ok()?.checked_mul(1024)
+        })
+    };
+    Some(ReadProcessMemory {
+        resident_bytes: kib(&status, "VmRSS:")?.to_string(),
+        peak_resident_bytes: kib(&status, "VmHWM:")?.to_string(),
+        private_bytes: (kib(&rollup, "Private_Clean:")?
+            + kib(&rollup, "Private_Dirty:")?
+            + kib(&rollup, "Private_Hugetlb:").unwrap_or(0))
+        .to_string(),
+    })
+}
+#[cfg(not(any(windows, target_os = "linux")))]
 fn process_memory() -> Option<ReadProcessMemory> {
     None
 }

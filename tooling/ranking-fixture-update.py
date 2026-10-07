@@ -7,6 +7,7 @@ import sqlite3
 import sys
 import tarfile
 from pathlib import Path
+from duckdb_runtime import library_path
 
 root = Path(__file__).resolve().parents[1]
 folder = Path(sys.argv[1]).resolve()
@@ -24,7 +25,7 @@ batch = f'daily-fixture-{seq}'
 class Result(c.Structure):
     _fields_ = [('columns', c.c_uint64), ('rows', c.c_uint64), ('changed', c.c_uint64), ('data', c.c_void_p), ('error', c.c_char_p), ('internal', c.c_void_p)]
 
-lib = c.CDLL(str(root / 'vendor/duckdb/duckdb.dll'))
+lib = c.CDLL(str(library_path()))
 for name, args in [('open', [c.c_char_p, c.POINTER(c.c_void_p)]), ('connect', [c.c_void_p, c.POINTER(c.c_void_p)]), ('query', [c.c_void_p, c.c_char_p, c.POINTER(Result)]), ('destroy_result', [c.POINTER(Result)]), ('disconnect', [c.POINTER(c.c_void_p)]), ('close', [c.POINTER(c.c_void_p)])]:
     getattr(lib, 'duckdb_' + name).argtypes = args
 database, connection = c.c_void_p(), c.c_void_p()

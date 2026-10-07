@@ -1,3 +1,4 @@
+import { browserOptions } from "./platform.mjs";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { mkdir, readFile, writeFile, open } from "node:fs/promises";
@@ -53,7 +54,7 @@ try {
     if (vite.exitCode !== null) throw new Error("Vite stopped");
     await sleep(100);
   }
-  browser = await chromium.launch({ channel: "msedge", headless: true });
+  browser = await chromium.launch({ ...browserOptions(), headless: true });
   const context = await browser.newContext({
     viewport: { width: 1920, height: 1080 },
   });

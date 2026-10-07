@@ -40,7 +40,15 @@
   --danger-line: #806058;
   --danger-text: #ebc7bc;
   --radius: 2px;
-  font-family: "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", sans-serif;
+  font-family:
+    "Segoe UI",
+    "Microsoft YaHei UI",
+    "Microsoft YaHei",
+    system-ui,
+    -apple-system,
+    "Noto Sans CJK SC",
+    "Noto Sans SC",
+    sans-serif;
   font-size: 13px;
   line-height: 1.5;
   font-synthesis: none;

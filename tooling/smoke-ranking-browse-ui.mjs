@@ -1,3 +1,4 @@
+import { pythonCommand, browserOptions } from "./platform.mjs";
 // Real UI with an isolated engine and headless Edge profile.
 import assert from "node:assert/strict";
 import { spawn, execFile } from "node:child_process";
@@ -21,7 +22,7 @@ const state = resolve(run, "state");
 const url = "http://127.0.0.1:1432";
 await mkdir(run, { recursive: true });
 await promisify(execFile)(
-  "python",
+  pythonCommand(),
   [
     resolve(root, "tooling/ranking-fixture.py"),
     resolve(run, "fixture"),
@@ -309,7 +310,7 @@ try {
     if (vite.exitCode !== null) throw new Error("Fixture frontend exited");
     await sleep(100);
   }
-  browser = await chromium.launch({ channel: "msedge", headless: true });
+  browser = await chromium.launch({ ...browserOptions(), headless: true });
   const context = await browser.newContext({
     viewport: { width: 1540, height: 1000 },
   });

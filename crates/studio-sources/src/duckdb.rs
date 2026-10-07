@@ -31,7 +31,7 @@ macro_rules! api {
     ($($name:ident: $ty:ty),+ $(,)?) => {
         struct Api { $($name:$ty,)+ _library:libloading::Library }
         impl Api { unsafe fn load(path:&Path)->Result<Self> {
-            let library=unsafe {libloading::Library::new(path)}.map_err(|e|Error::new("METADATA_RUNTIME_UNAVAILABLE",format!("元数据运行库不可用：{e}。请运行 tooling/setup-duckdb.ps1")))?;
+            let library=unsafe {libloading::Library::new(path)}.map_err(|e|Error::new("METADATA_RUNTIME_UNAVAILABLE",format!("元数据运行库不可用：{e}。请运行 pnpm setup:duckdb")))?;
             Ok(Self { $($name: unsafe {*library.get::<$ty>(concat!("duckdb_",stringify!($name)).as_bytes()).map_err(Error::io)?},)+ _library:library })
         }}
     }
@@ -134,20 +134,33 @@ pub(crate) struct Runtime {
 }
 impl Default for Runtime {
     fn default() -> Self {
-        let dll = std::env::var_os("STUDIO_DUCKDB_DLL")
+        let dll = std::env::var_os("STUDIO_DUCKDB_LIBRARY")
+            .or_else(|| std::env::var_os("STUDIO_DUCKDB_DLL"))
             .map(PathBuf::from)
             .unwrap_or_else(|| {
                 let local = std::env::current_exe()
                     .unwrap_or_default()
-                    .with_file_name("duckdb.dll");
+                    .with_file_name(library_name());
                 if local.is_file() || !cfg!(debug_assertions) {
                     local
                 } else {
-                    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/duckdb/duckdb.dll")
+                    bundled_library()
                 }
             });
         Self::new(dll)
     }
+}
+fn library_name() -> String {
+    format!(
+        "{}duckdb{}",
+        std::env::consts::DLL_PREFIX,
+        std::env::consts::DLL_SUFFIX
+    )
+}
+pub(crate) fn bundled_library() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../vendor/duckdb")
+        .join(library_name())
 }
 impl Runtime {
     pub(crate) fn deadline(&self) -> Option<Instant> {
@@ -852,7 +865,7 @@ mod tests {
     use super::*;
     #[test]
     fn candidate_appender_is_bounded_and_only_writes_the_temporary_catalog() {
-        let dll = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/duckdb/duckdb.dll");
+        let dll = crate::duckdb::bundled_library();
         let root = tempfile::tempdir().unwrap();
         let path = root.path().join("source.duckdb");
         drop(Session::fixture(&dll, &path).unwrap());
@@ -881,7 +894,7 @@ mod tests {
     }
     #[test]
     fn external_query_work_uses_owned_disk_space_and_cleans_it() {
-        let dll = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/duckdb/duckdb.dll");
+        let dll = crate::duckdb::bundled_library();
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("external.duckdb");
         drop(Session::fixture(&dll, &path).unwrap());
@@ -912,7 +925,7 @@ mod tests {
     }
     #[test]
     fn metadata_and_bulk_sessions_have_independent_limits_and_clean_scratch() {
-        let dll = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/duckdb/duckdb.dll");
+        let dll = crate::duckdb::bundled_library();
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("independent.duckdb");
         drop(Session::fixture(&dll, &path).unwrap());
@@ -954,7 +967,7 @@ mod tests {
     }
     #[test]
     fn streaming_batches_cover_many_chunks_and_cancel_releases_native_handles() {
-        let dll = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/duckdb/duckdb.dll");
+        let dll = crate::duckdb::bundled_library();
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("stream.duckdb");
         drop(Session::fixture(&dll, &path).unwrap());
@@ -990,7 +1003,7 @@ mod tests {
     }
     #[test]
     fn query_budget_interrupts_native_execution_and_handles_are_released() {
-        let dll = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../vendor/duckdb/duckdb.dll");
+        let dll = crate::duckdb::bundled_library();
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("budget.duckdb");
         drop(Session::fixture(&dll, &path).unwrap());

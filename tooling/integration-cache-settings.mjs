@@ -1,3 +1,4 @@
+import { pythonCommand } from "./platform.mjs";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -42,10 +43,14 @@ const digest = async (path) =>
 const oracle = async () =>
   JSON.parse(await readFile(resolve(run, "fixture.json"), "utf8"));
 async function python(script, ...args) {
-  await execute("python", [resolve(root, "tooling", script), run, ...args], {
-    cwd: root,
-    windowsHide: true,
-  });
+  await execute(
+    pythonCommand(),
+    [resolve(root, "tooling", script), run, ...args],
+    {
+      cwd: root,
+      windowsHide: true,
+    },
+  );
 }
 function inspect(project, sql, parameters = [], writable = false) {
   const db = new DatabaseSync(resolve(project.directory, "project.sqlite"), {

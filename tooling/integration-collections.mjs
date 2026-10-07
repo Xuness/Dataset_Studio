@@ -33,6 +33,15 @@ try {
     python,
     state_root: resolve(run, "control"),
   });
+  if (process.platform === "linux") {
+    assert.equal(
+      (await client.sourceCollections.status()).runtime.python,
+      python,
+    );
+    checks.push(
+      "Linux preserves the venv interpreter entry point instead of resolving its final symlink",
+    );
+  }
   await verifyLakeWorkerBundle(root, engine.dataDir);
   assert.equal(
     (await client.sourceCollections.capabilities()).contract_version,

@@ -1,3 +1,4 @@
+import { pythonCommand } from "./platform.mjs";
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
@@ -550,7 +551,7 @@ try {
 
   const lakeRoot = resolve(runDir, "ranking-fixture");
   await execute(
-    "python",
+    pythonCommand(),
     [resolve(root, "tooling/ranking-fixture.py"), lakeRoot, "1024"],
     { cwd: root, windowsHide: true },
   );

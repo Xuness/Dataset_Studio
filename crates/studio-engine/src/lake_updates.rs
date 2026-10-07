@@ -207,7 +207,22 @@ impl Backend {
         {
             return Err(Error::invalid("需要有效的 Python 与状态目录绝对路径"));
         }
-        runtime.python = runtime.python.canonicalize().map_err(Error::io)?;
+        let python_target = runtime.python.canonicalize().map_err(Error::io)?;
+        // POSIX venvs use bin/python -> the base interpreter. Resolving that
+        // final symlink changes sys.prefix and discards the installed packages.
+        // Normalize the directory, but preserve the executable entry point.
+        runtime.python = runtime
+            .python
+            .parent()
+            .ok_or_else(|| Error::invalid("无效的 Python 路径"))?
+            .canonicalize()
+            .map_err(Error::io)?
+            .join(
+                runtime
+                    .python
+                    .file_name()
+                    .ok_or_else(|| Error::invalid("无效的 Python 路径"))?,
+            );
         // Failed candidates never open state, acquire ownership, or stop the old worker.
         process::handshake(&process::request(
             self.command(&runtime, "check")?,
@@ -225,6 +240,7 @@ impl Backend {
             .map_err(Error::io)?;
         if runtime.state_root.starts_with(app.join("lake-worker"))
             || runtime.python.starts_with(&runtime.state_root)
+            || python_target.starts_with(&runtime.state_root)
         {
             return Err(Error::invalid("状态目录不能覆盖运行环境程序文件"));
         }

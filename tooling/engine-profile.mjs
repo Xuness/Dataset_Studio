@@ -1,9 +1,10 @@
 import { resolve } from "node:path";
+import { executableName } from "./platform.mjs";
 
 export function engineProfile(
   args = process.argv.slice(2),
   env = process.env,
-  fallback = "release",
+  fallback = process.platform === "linux" ? "debug" : "release",
 ) {
   const named = args
     .find((arg) => arg.startsWith("--engine-profile="))
@@ -28,4 +29,4 @@ export const engineBuildArguments = (profile) => [
   ...(profile === "release" ? ["--release"] : []),
 ];
 export const engineExecutable = (root, profile) =>
-  resolve(root, "target", profile, "studio-engine.exe");
+  resolve(root, "target", profile, executableName("studio-engine"));

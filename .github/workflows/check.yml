@@ -27,3 +27,46 @@ jobs:
       - run: pnpm check:full
       - run: pnpm test:integration:all
       - run: pnpm build:web
+  linux-source:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.3
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          architecture: x64
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: "1.94.0"
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Linux desktop and isolated test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential pkg-config curl \
+            libwebkit2gtk-4.1-dev libgtk-3-dev libssl-dev libxdo-dev \
+            libayatana-appindicator3-dev librsvg2-dev libsecret-tools gnome-keyring \
+            fonts-noto-cjk fonts-noto-color-emoji dbus-x11 xvfb xauth openbox xdotool imagemagick
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm setup:duckdb
+      - run: pnpm setup:lake --dev --python=python
+      - run: pnpm check
+      - run: node tooling/prepare-sidecar.mjs --engine-profile=debug
+      - run: node tooling/cargo-run.mjs build -p studio-desktop
+      - name: Source runtime and native WebKitGTK checks
+        run: |
+          bash tooling/linux-test-session.sh bash -c '
+            set -e
+            pnpm test:rust -p studio-llm credentials
+            pnpm test:rust -p studio-sources
+            pnpm test:lake tests/test_linux_credentials.py tests/test_empty_lakes.py tests/test_collection_media_accounts.py
+            pnpm test:integration foundation llm collections lake-updates
+            pnpm test:linux-native
+          '

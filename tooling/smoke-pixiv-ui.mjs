@@ -1,3 +1,4 @@
+import { browserOptions } from "./platform.mjs";
 // Real UI + SDK + owned engine, synthetic archive only. No remote Pixiv calls.
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
@@ -113,7 +114,7 @@ try {
     if (vite.exitCode !== null) throw new Error("Vite exited");
     await sleep(100);
   }
-  browser = await chromium.launch({ channel: "msedge", headless: true });
+  browser = await chromium.launch({ ...browserOptions(), headless: true });
   const context = await browser.newContext({
     viewport: { width: 1920, height: 1200 },
   });

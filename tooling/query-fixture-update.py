@@ -8,6 +8,7 @@ import sqlite3
 import sys
 import tarfile
 from pathlib import Path
+from duckdb_runtime import library_path
 
 repo = Path(__file__).resolve().parents[1]
 output = Path(sys.argv[1]).resolve()
@@ -34,7 +35,7 @@ class Result(ctypes.Structure):
                 ("changed", ctypes.c_uint64), ("data", ctypes.c_void_p),
                 ("error", ctypes.c_char_p), ("internal", ctypes.c_void_p)]
 
-lib = ctypes.CDLL(str(repo / "vendor/duckdb/duckdb.dll"))
+lib = ctypes.CDLL(str(library_path()))
 for name, args in {
     "duckdb_open": [ctypes.c_char_p, ctypes.POINTER(ctypes.c_void_p)],
     "duckdb_connect": [ctypes.c_void_p, ctypes.POINTER(ctypes.c_void_p)],

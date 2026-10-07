@@ -1,3 +1,4 @@
+import { pythonCommand, browserOptions } from "./platform.mjs";
 /* global document, innerWidth */
 // Isolated 16-image workflow: real SDK/HTTP/SQLite and a loopback provider.
 import assert from "node:assert/strict";
@@ -20,7 +21,7 @@ const run = resolve(
 );
 await mkdir(run, { recursive: true });
 await promisify(execFile)(
-  "python",
+  pythonCommand(),
   [resolve(root, "tooling/ranking-fixture.py"), resolve(run, "fixture"), "128"],
   { cwd: root, windowsHide: true },
 );
@@ -193,7 +194,7 @@ try {
     if (vite.exitCode !== null) throw new Error("Vite stopped");
     await sleep(100);
   }
-  browser = await chromium.launch({ channel: "msedge", headless: true });
+  browser = await chromium.launch({ ...browserOptions(), headless: true });
   const context = await browser.newContext({
     viewport: { width: 2560, height: 1440 },
   });

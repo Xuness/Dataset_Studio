@@ -1,3 +1,4 @@
+import { pythonCommand } from "./platform.mjs";
 // All network calls target this loopback mock; fixtures never open a real project.
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
@@ -19,7 +20,7 @@ const run = resolve(
 );
 await mkdir(run, { recursive: true });
 await promisify(execFile)(
-  "python",
+  pythonCommand(),
   [resolve(root, "tooling/ranking-fixture.py"), resolve(run, "fixture"), "320"],
   { cwd: root, windowsHide: true },
 );

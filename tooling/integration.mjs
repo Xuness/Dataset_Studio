@@ -1,9 +1,17 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdir, readFile, writeFile, open, rename } from "node:fs/promises";
+import {
+  mkdir,
+  readFile,
+  readdir,
+  writeFile,
+  open,
+  rename,
+} from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { engineExecutable, engineProfile } from "./engine-profile.mjs";
+import { within } from "./engine-fixture.mjs";
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const runDir = resolve(
   root,
@@ -260,12 +268,58 @@ try {
     (j) => j.status === "running" && j.completed >= 8,
   );
   const oldInstance = connection.instance_id;
+  const processState = async (pid) => {
+    try {
+      const stat = await readFile(`/proc/${pid}/stat`, "utf8");
+      const fields = stat
+        .slice(stat.lastIndexOf(")") + 2)
+        .trim()
+        .split(/\s+/);
+      return { pid, state: fields[0], started: fields[19] };
+    } catch (error) {
+      if (error.code === "ENOENT" || error.code === "ESRCH") return null;
+      throw error;
+    }
+  };
+  const workerProcesses = [];
+  if (process.platform === "linux") {
+    // Linux records children against the creating thread; Tokio may spawn on
+    // any worker thread, not the process's main thread.
+    for (const thread of await readdir(`/proc/${connection.pid}/task`)) {
+      const children = await readFile(
+        `/proc/${connection.pid}/task/${thread}/children`,
+        "utf8",
+      ).catch((error) => {
+        if (error.code === "ENOENT") return "";
+        throw error;
+      });
+      for (const pid of children.trim().split(/\s+/).filter(Boolean)) {
+        const worker = await processState(Number(pid));
+        if (worker) workerProcesses.push(worker);
+      }
+    }
+    assert.ok(
+      workerProcesses.length,
+      "Capture the running worker before testing parent death",
+    );
+  }
   await stop();
+  for (const worker of workerProcesses) {
+    const remaining = await processState(worker.pid);
+    if (
+      remaining?.started === worker.started &&
+      !["Z", "X"].includes(remaining.state)
+    ) {
+      // Clean up only the still-identical child captured from this fixture engine.
+      process.kill(worker.pid, "SIGKILL");
+      assert.fail(
+        "A worker survived its owning engine and could overlap recovery",
+      );
+    }
+  }
   const moved = resolve(runDir, "项目 移动后", p.id);
-  const plain = (path) =>
-    resolve(path.startsWith("\\\\?\\") ? path.slice(4) : path).toLowerCase();
-  assert.ok(plain(p.directory).startsWith(plain(runDir) + "\\"));
-  assert.ok(plain(moved).startsWith(plain(runDir) + "\\"));
+  within(runDir, p.directory);
+  within(runDir, moved);
   await mkdir(resolve(moved, ".."), { recursive: true });
   await rename(p.directory, moved);
   p.directory = moved;

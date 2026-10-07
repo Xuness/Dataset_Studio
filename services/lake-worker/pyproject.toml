@@ -10,6 +10,7 @@ requires-python = ">=3.11,<3.14"
 dependencies = [
   "pyarrow==24.0.0", "duckdb==1.5.4", "requests==2.33.1",
   "Pillow==12.2.0", "apsw==3.53.4.0", "tzdata>=2025,<2027",
+  "cryptography>=46,<52; sys_platform == 'linux'",
 ]
 
 [project.optional-dependencies]

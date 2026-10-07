@@ -1,3 +1,4 @@
+import { pythonCommand } from "./platform.mjs";
 // Two loopback model calls; never opens a real project or contacts a model provider.
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
@@ -17,7 +18,7 @@ const run = resolve(
 );
 await mkdir(run, { recursive: true });
 await promisify(execFile)(
-  "python",
+  pythonCommand(),
   [resolve(root, "tooling/ranking-fixture.py"), resolve(run, "fixture"), "128"],
   { cwd: root, windowsHide: true },
 );

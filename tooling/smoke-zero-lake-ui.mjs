@@ -1,3 +1,4 @@
+import { browserOptions } from "./platform.mjs";
 // UI-created empty lakes, actual archive writers, metadata selection and typed task handoff.
 import assert from "node:assert/strict";
 import { execFile, spawn } from "node:child_process";
@@ -102,7 +103,7 @@ try {
     if (vite.exitCode !== null) throw new Error("Vite exited");
     await sleep(100);
   }
-  browser = await chromium.launch({ channel: "msedge", headless: true });
+  browser = await chromium.launch({ ...browserOptions(), headless: true });
   context = await browser.newContext({
     viewport: { width: 2560, height: 1440 },
   });

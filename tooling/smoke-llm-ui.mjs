@@ -1,3 +1,4 @@
+import { browserOptions } from "./platform.mjs";
 // Isolated engine + browser context + local mock provider; no external API calls.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -42,7 +43,7 @@ try {
     if (vite.exitCode !== null) throw new Error("Fixture Vite exited");
     await sleep(100);
   }
-  browser = await chromium.launch({ channel: "msedge", headless: true });
+  browser = await chromium.launch({ ...browserOptions(), headless: true });
   const context = await browser.newContext({
     viewport: { width: 1440, height: 1050 },
   });

@@ -1,4 +1,4 @@
-//! Optional native acceptance host. Real production login bridge and WebView2,
+//! Optional native acceptance host. Real production login bridge and system WebView,
 //! synthetic cookies, a caller-owned loopback server, and an isolated profile.
 use std::path::PathBuf;
 use studio_protocol::EngineConnection;
@@ -10,6 +10,7 @@ mod pixiv_login;
 
 struct Probe {
     connection: EngineConnection,
+    run: PathBuf,
 }
 pub(crate) async fn owned_engine_connection(
     app: &tauri::AppHandle,
@@ -98,6 +99,81 @@ async fn probe_shutdown(window: tauri::WebviewWindow, app: tauri::AppHandle) -> 
     app.exit(0);
     Ok(())
 }
+#[tauri::command]
+async fn probe_open_child(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+    id: String,
+) -> Result<(), String> {
+    pixiv_login::require_main(&window).map_err(|e| e.message)?;
+    app.get_webview_window(&format!("pixiv-login-{id}"))
+        .ok_or("login missing")?
+        .eval("window.open('http://127.0.0.1:1458/login-child', '_blank')")
+        .map_err(|e| e.to_string())
+}
+#[tauri::command]
+async fn probe_child_shared(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+    id: String,
+) -> Result<bool, String> {
+    pixiv_login::require_main(&window).map_err(|e| e.message)?;
+    let prefix = format!("pixiv-login-{id}-");
+    let child = app
+        .webview_windows()
+        .into_iter()
+        .find(|(label, _)| label.starts_with(&prefix));
+    let Some((_, view)) = child else {
+        return Ok(false);
+    };
+    tokio::task::spawn_blocking(move || {
+        Ok(view
+            .cookies_for_url("https://www.pixiv.net/".parse().unwrap())
+            .map_err(|e| e.to_string())?
+            .iter()
+            .any(|c| c.name() == "PHPSESSID" && c.value() == "4242_NATIVE_LOGIN_FIXTURE"))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+#[tauri::command]
+async fn probe_native_desktop(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+) -> Result<bool, String> {
+    use tauri_plugin_clipboard_manager::ClipboardExt;
+    pixiv_login::require_main(&window).map_err(|e| e.message)?;
+    window.show().map_err(|e| e.to_string())?;
+    window
+        .set_size(tauri::LogicalSize::new(1100.0, 850.0))
+        .map_err(|e| e.to_string())?;
+    window.maximize().map_err(|e| e.to_string())?;
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    let maximized = window.is_maximized().map_err(|e| e.to_string())?;
+    window.unmaximize().map_err(|e| e.to_string())?;
+    app.clipboard()
+        .write_text("Studio 原生剪贴板 · Linux")
+        .map_err(|e| e.to_string())?;
+    let text = app.clipboard().read_text().map_err(|e| e.to_string())?;
+    Ok(maximized && text == "Studio 原生剪贴板 · Linux")
+}
+#[tauri::command]
+async fn probe_folder_dialog(
+    window: tauri::WebviewWindow,
+    app: tauri::AppHandle,
+) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+    pixiv_login::require_main(&window).map_err(|e| e.message)?;
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .file()
+        .set_title("Studio Linux folder probe")
+        .set_directory(app.state::<Probe>().run.clone())
+        .pick_folder(move |value| {
+            let _ = tx.send(value.map(|v| v.to_string()));
+        });
+    rx.await.map_err(|e| e.to_string())
+}
 fn main() {
     let run = PathBuf::from(
         std::env::var_os("STUDIO_PIXIV_LOGIN_PROBE").expect("isolated probe directory"),
@@ -123,12 +199,17 @@ fn main() {
         "http://127.0.0.1:1458/login"
     };
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_clipboard_manager::init())
         .setup(move |app| {
-            app.manage(Probe { connection });
+            app.manage(Probe {
+                connection,
+                run: run.clone(),
+            });
             app.manage(pixiv_login::LoginHost::with_window(
                 run.join("host"),
                 login_url.parse().unwrap(),
-                false,
+                std::env::var("STUDIO_NATIVE_VISIBLE").as_deref() == Ok("1"),
             ));
             Ok(())
         })
@@ -147,6 +228,10 @@ fn main() {
             probe_regular_intact,
             probe_close_login,
             probe_shutdown,
+            probe_open_child,
+            probe_child_shared,
+            probe_native_desktop,
+            probe_folder_dialog,
             pixiv_login::pixiv_login_start,
             pixiv_login::pixiv_login_status,
             pixiv_login::pixiv_login_show,

@@ -16,6 +16,7 @@ import { fileURLToPath } from "node:url";
 import { finished } from "./cargo.mjs";
 import { engineProfile, engineExecutable } from "./engine-profile.mjs";
 import { engineWaitTimeoutMs, waitForEngineExit } from "./engine-process.mjs";
+import { duckdbLibrary, executableName } from "./platform.mjs";
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const dataDir = resolve(
   process.env.STUDIO_DATA_DIR ?? resolve(root, ".local/dev"),
@@ -34,8 +35,7 @@ const env = {
   STUDIO_DATA_DIR: dataDir,
   STUDIO_DEVELOPMENT: "1",
   STUDIO_ENGINE_PROFILE: profile,
-  STUDIO_DUCKDB_DLL:
-    process.env.STUDIO_DUCKDB_DLL ?? resolve(root, "vendor/duckdb/duckdb.dll"),
+  STUDIO_DUCKDB_LIBRARY: duckdbLibrary(root),
 };
 if (process.platform === "win32" && !env.INCLUDE) {
   delete env.CC;
@@ -82,7 +82,11 @@ if (prior?.workspace === root && Number.isInteger(prior.pid)) {
     if (process.argv.includes("--web")) {
       console.log("已有开发环境，浏览器入口：http://127.0.0.1:1420");
     } else {
-      const native = resolve(root, "target/debug/studio-desktop.exe");
+      const native = resolve(
+        root,
+        "target/debug",
+        executableName("studio-desktop"),
+      );
       if (!existsSync(native))
         throw new Error(
           "未找到桌面程序。请先运行 node tooling/cargo-run.mjs build -p studio-desktop，再重新启动。",
@@ -164,7 +168,7 @@ async function buildAndConnect() {
       const fingerprint = createHash("sha256").update(bytes).digest("hex");
       const folder = resolve(local, "engine-binaries", fingerprint);
       await mkdir(folder, { recursive: true });
-      const binary = resolve(folder, "studio-engine.exe");
+      const binary = resolve(folder, executableName("studio-engine"));
       if (!existsSync(binary)) await copyFile(executable, binary);
       env.STUDIO_ENGINE_PATH = binary;
       const current = await live();

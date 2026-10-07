@@ -1,3 +1,4 @@
+import { browserOptions } from "./platform.mjs";
 // Open only a successful isolated execution fixture. No UI action may start paid evaluation.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -83,7 +84,7 @@ try {
     if (vite.exitCode !== null) throw Error("Vite stopped");
     await sleep(100);
   }
-  browser = await chromium.launch({ channel: "msedge", headless: true });
+  browser = await chromium.launch({ ...browserOptions(), headless: true });
   const context = await browser.newContext({
     viewport: { width: 1600, height: 1080 },
   });

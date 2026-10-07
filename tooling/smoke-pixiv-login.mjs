@@ -549,7 +549,9 @@ createRoot(document.getElementById('root')).render(<React.StrictMode><QueryClien
     const web = await fallbackBrowser.newPage();
     await web.goto(origin);
     await expect(
-      web.getByText("浏览器登录助手在 Windows 桌面版中提供", { exact: false }),
+      web.getByText("浏览器登录助手在 Windows 和 Linux 桌面版中提供", {
+        exact: false,
+      }),
     ).toBeVisible();
     await expect(web.getByLabel("Pixiv PHPSESSID")).toBeEnabled();
     checks.push("web mode keeps an explicit manual-import fallback");

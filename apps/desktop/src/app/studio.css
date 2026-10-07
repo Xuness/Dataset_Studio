@@ -455,7 +455,7 @@
   color: var(--text);
 }
 .hash-value {
-  font-family: Consolas, monospace;
+  font-family: Consolas, "DejaVu Sans Mono", "Noto Sans Mono", monospace;
   overflow-wrap: anywhere;
   line-height: 1.8;
 }

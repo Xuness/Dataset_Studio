@@ -410,6 +410,32 @@ async fn execute(
         .kill_on_drop(true);
     #[cfg(windows)]
     command.creation_flags(0x08000000);
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::process::CommandExt;
+        let owner = std::process::id() as libc::pid_t;
+        // Match Windows' kill-on-owner-close guarantee even after SIGKILL or a
+        // crash. Only async-signal-safe syscalls run between fork and exec.
+        unsafe {
+            command.as_std_mut().pre_exec(move || {
+                if libc::prctl(
+                    libc::PR_SET_PDEATHSIG,
+                    libc::SIGKILL as libc::c_ulong,
+                    0 as libc::c_ulong,
+                    0 as libc::c_ulong,
+                    0 as libc::c_ulong,
+                ) != 0
+                {
+                    return Err(std::io::Error::last_os_error());
+                }
+                // The owner may die between fork and installing the signal.
+                if libc::getppid() != owner {
+                    return Err(std::io::Error::from_raw_os_error(libc::ESRCH));
+                }
+                Ok(())
+            });
+        }
+    }
     let mut child = command.spawn().map_err(Error::io)?;
     #[cfg(windows)]
     let _process_group = ProcessGroup::attach(&child)?;

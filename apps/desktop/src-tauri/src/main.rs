@@ -58,7 +58,10 @@ async fn connect_owned_engine(host: &Host) -> Result<EngineConnection, String> {
             .map_err(|e| e.to_string())?
             .parent()
             .ok_or("应用位置无效")?
-            .join("studio-engine-sidecar.exe")
+            .join(format!(
+                "studio-engine-sidecar{}",
+                std::env::consts::EXE_SUFFIX
+            ))
     };
     if !engine.is_file() {
         return Err("未找到本机引擎，请从仓库运行 pnpm dev 或重新安装应用。".into());

@@ -1,3 +1,4 @@
+import { pythonCommand } from "./platform.mjs";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -18,7 +19,7 @@ const run = resolve(
 await mkdir(run, { recursive: true });
 const execute = promisify(execFile);
 await execute(
-  "python",
+  pythonCommand(),
   [
     resolve(root, "tooling/ranking-fixture.py"),
     resolve(run, "fixture"),

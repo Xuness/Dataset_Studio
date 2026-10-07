@@ -1,3 +1,4 @@
+import { pythonCommand } from "./platform.mjs";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -20,7 +21,7 @@ const fixtureRoot = process.argv[2]
   : resolve(run, "fixture");
 if (!process.argv[2])
   await execute(
-    "python",
+    pythonCommand(),
     [resolve(root, "tooling/ranking-fixture.py"), fixtureRoot, "1024"],
     { cwd: root, windowsHide: true },
   );

@@ -1,3 +1,4 @@
+import { browserOptions } from "./platform.mjs";
 // Reopen an isolated offline-analysis fixture; never use a real project.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -55,7 +56,7 @@ try {
     if (vite.exitCode !== null) throw new Error("Vite stopped");
     await sleep(100);
   }
-  browser = await chromium.launch({ channel: "msedge", headless: true });
+  browser = await chromium.launch({ ...browserOptions(), headless: true });
   const context = await browser.newContext({
     viewport: { width: 2560, height: 1440 },
   });

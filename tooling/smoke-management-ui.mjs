@@ -1,3 +1,4 @@
+import { pythonCommand, browserOptions } from "./platform.mjs";
 import { openEditor, openWindowPanel } from "./ui-workbench.mjs";
 // Isolated headless Edge; no user browser profile, clipboard or desktop window is controlled.
 import assert from "node:assert/strict";
@@ -14,7 +15,7 @@ const run = resolve(root, ".local/test-runs/smoke-management-ui-" + Date.now());
 const state = resolve(run, "state");
 await mkdir(run, { recursive: true });
 await promisify(execFile)(
-  "python",
+  pythonCommand(),
   [resolve(root, "tooling/ranking-fixture.py"), resolve(run, "fixture"), "512"],
   { cwd: root, windowsHide: true },
 );
@@ -161,7 +162,7 @@ try {
     if (vite.exitCode !== null) throw new Error("Fixture Vite exited");
     await sleep(100);
   }
-  browser = await chromium.launch({ channel: "msedge", headless: true });
+  browser = await chromium.launch({ ...browserOptions(), headless: true });
   const context = await browser.newContext({
     viewport: { width: 1540, height: 1000 },
   });
@@ -199,7 +200,9 @@ try {
   await page.locator(".recent-row").filter({ hasText: project.name }).click();
   await expect(page.locator(".asset-card")).toHaveCount(48, { timeout: 30000 });
   await page.getByRole("button", { name: "定位与显示", exact: true }).click();
-  await page.getByLabel("浏览排序", { exact: true }).selectOption("asset_key_asc");
+  await page
+    .getByLabel("浏览排序", { exact: true })
+    .selectOption("asset_key_asc");
   const firstChoice = page
     .locator(".asset-card")
     .first()

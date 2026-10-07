@@ -1,3 +1,4 @@
+import { pythonCommand } from "./platform.mjs";
 // R0/R1: real engine/SQLite/HTTP, paid calls replaced by a loopback provider.
 // Fault hooks exist only in this explicitly built test binary, never ordinary builds.
 import assert from "node:assert/strict";
@@ -40,7 +41,7 @@ try {
   await buildLog.close();
 }
 await promisify(execFile)(
-  "python",
+  pythonCommand(),
   [resolve(root, "tooling/ranking-fixture.py"), resolve(run, "fixture"), "128"],
   { cwd: root, windowsHide: true },
 );

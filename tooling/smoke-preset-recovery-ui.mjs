@@ -1,3 +1,4 @@
+import { pythonCommand, browserOptions } from "./platform.mjs";
 // Real preset APIs and streaming project events against an isolated engine.
 // Only the old browse result's expired status is replayed at the HTTP boundary.
 import assert from "node:assert/strict";
@@ -16,7 +17,7 @@ const run = resolve(root, ".local/test-runs/preset-recovery-ui-" + Date.now());
 const state = resolve(run, "state");
 await mkdir(run, { recursive: true });
 await promisify(execFile)(
-  "python",
+  pythonCommand(),
   [resolve(root, "tooling/ui-fixture.py"), resolve(run, "fixture")],
   { cwd: root, windowsHide: true },
 );
@@ -170,7 +171,7 @@ try {
     if (vite.exitCode !== null) throw new Error("Fixture Vite exited");
     await sleep(100);
   }
-  browser = await chromium.launch({ channel: "msedge", headless: true });
+  browser = await chromium.launch({ ...browserOptions(), headless: true });
   const context = await browser.newContext({
     viewport: { width: 1920, height: 1080 },
   });

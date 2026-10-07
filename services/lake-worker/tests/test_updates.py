@@ -314,9 +314,10 @@ def test_lossless_envelope_and_strict_policies():
 
 def test_credentials_encrypt_and_survive_reopen():
     import os
+    import sys
 
-    if os.name != "nt":
-        pytest.skip("Windows credential provider")
+    if os.name != "nt" and sys.platform != "linux":
+        pytest.skip("No system credential provider for this platform")
     value = {"login": "fixture", "api_key": "not-a-real-secret"}
     blob = encode("danbooru", value)
     assert b"not-a-real-secret" not in blob

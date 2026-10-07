@@ -2,6 +2,8 @@
 
 以下命令均从仓库根目录运行。日常启动、所需环境及数据目录见[仓库说明](../README.md)，架构与历史验收见[文档导航](../docs/README.md)。
 
+Linux x86_64 入口见 [Linux 开发运行](../docs/architecture/linux-development.md)：`pnpm setup:duckdb`、`pnpm setup:lake --dev`、`pnpm dev`。`bash tooling/linux-test-session.sh <命令>` 为 Linux 测试提供隔离的桌面和密钥环；`pnpm test:linux-native` 验证真实 WebKitGTK 窗口、目录选择器、剪贴板和 Pixiv 登录会话。普通 Linux 界面脚本使用 Playwright Chromium，首次运行需 `pnpm exec playwright install chromium`。Windows 原生检查保留现有入口。
+
 ## 日常验证范围
 
 本页是工具索引，不是每次开发都要执行的清单。默认按修改文件、行为及直接依赖选最小检查集；相关检查通过即停止，后续只因代码改动、失败或具体疑点补跑。

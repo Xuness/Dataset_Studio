@@ -1,3 +1,4 @@
+import { pythonCommand } from "./platform.mjs";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -58,7 +59,7 @@ const post = (id) => ({
 });
 try {
   await promisify(execFile)(
-    process.env.PYTHON ?? "python",
+    pythonCommand(),
     [resolve(root, "tooling/multibooru-fixture.py"), runDir],
     { windowsHide: true },
   );
@@ -352,7 +353,7 @@ try {
 
   // Mutate only this owned fixture after the read-only phase's stamp comparison.
   await promisify(execFile)(
-    process.env.PYTHON ?? "python",
+    pythonCommand(),
     [
       resolve(root, "tooling/query-fixture-update.py"),
       resolve(runDir, "yandere"),
