@@ -7831,6 +7831,7 @@ export interface components {
         SourceCapabilities: {
             author_metadata: boolean;
             browse: boolean;
+            identity_summaries: boolean;
             incremental: boolean;
             literal_tags: boolean;
             media: boolean;

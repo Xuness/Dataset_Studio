@@ -9,6 +9,8 @@ pub struct SourceCapabilities {
     pub metadata: bool,
     pub query: bool,
     pub post_order: bool,
+    #[serde(default)]
+    pub identity_summaries: bool,
     pub relink: bool,
     pub raw_metadata: bool,
     pub incremental: bool,

@@ -26430,6 +26430,7 @@
           "metadata",
           "query",
           "post_order",
+          "identity_summaries",
           "relink",
           "raw_metadata",
           "incremental",
@@ -26443,6 +26444,9 @@
             "type": "boolean"
           },
           "browse": {
+            "type": "boolean"
+          },
+          "identity_summaries": {
             "type": "boolean"
           },
           "incremental": {

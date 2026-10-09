@@ -1,6 +1,6 @@
 # Pinterest 独立采集下载模块与数据湖接入设计
 
-创建日期：2026-10-09。状态：第一批实施中。独立 Python 采集、下载、归档、在线发布和恢复已落地；Rust 读取、HTTP/SDK 与工作台接入正在推进。下文其他入口与后续批次仍是实施目标，以实际能力接口为准。
+创建日期：2026-10-09。状态：第一批指定 Pin 已接入。独立 Python 采集、下载、归档、在线发布和恢复，Rust 读取、HTTP/SDK 与现有工作台已贯通。第二至四批以及下文标注的扩展入口仍是实施目标，以实际能力接口为准。
 
 Pinterest 直接在 Dataset Studio 内接入，通过正式任务、下载、归档和浏览路径验证与迭代。Pinterest 独立维护自己的采集下载模块，只共享来源无关的基础能力。首批完成指定 Pin 的端到端处理，之后加入图版与推荐发现，不再以独立验证原型或视觉模型选型作为前置条件。
 
@@ -18,7 +18,7 @@ Pinterest 直接在 Dataset Studio 内接入，通过正式任务、下载、归
 
 当前 `collections` 是已经投入使用的 Pixiv 实现，并非可以直接套用的多来源采集框架。`model.py` 只接受 `pixiv_web_v1`；`planner.py` 解释作者前沿与 Pixiv 分级；`runner.py` 直接导入 Pixiv HTTP 和规范化代码。控制表还限定 `author/work`、Pixiv 账号和固定任务类型。[定义校验](../../../services/lake-worker/src/studio_lake/collections/model.py)、[前沿规划](../../../services/lake-worker/src/studio_lake/collections/planner.py)、[运行器](../../../services/lake-worker/src/studio_lake/collections/runner.py)、[控制表](../../../services/lake-worker/src/studio_lake/collections/schema.sql)
 
-现有 `media_lake` 的分层原则适用，但实现中仍固定 Pixiv 来源、清单类型、字段与规划版本；不能把 Pinterest 伪装成 Pixiv 后写进去。Rust 在线读取同样只接受既有站点与格式组合。[归档检查](../../../services/lake-worker/src/studio_lake/media_lake/library.py)、[在线表](../../../services/lake-worker/src/studio_lake/media_lake/online.sql)、[读取分派](../../../crates/studio-sources/src/online/mod.rs)
+现有 `media_lake` 的分层原则适用，但实现中仍固定 Pixiv 来源、清单类型、字段与规划版本；Pinterest 已使用独立 `pinterest/lake`。Rust 在线读取增加精确的 Pinterest 格式分支，并保留既有站点与格式组合。[归档检查](../../../services/lake-worker/src/studio_lake/media_lake/library.py)、[Pinterest 在线表](../../../services/lake-worker/src/studio_lake/pinterest/lake/online.sql)、[读取分派](../../../crates/studio-sources/src/online/mod.rs)
 
 | 层次 | 处理方式 | 具体边界 |
 | --- | --- | --- |
@@ -233,11 +233,11 @@ Pinterest 使用与现有湖一致的对象、来源资产、原始响应、批�
 
 ## API 和现有界面接入
 
-新增独立路由前缀 `/v1/pinterest-collections`，提供 `capabilities`、湖创建登记、任务预览创建、任务列表详情、细项、覆盖与动作接口；周期计划在相应阶段开放。Pinterest 独立 DTO 和 SDK 客户端拥有其任务定义，不要求旧 `CollectionScope` 增加大量仅某站点有意义的可空字段。
+独立路由前缀 `/v1/pinterest-collections` 已提供 `status`、`capabilities`、湖创建与分页列表、任务预览创建、任务列表详情、细项与动作接口。已有湖的采集登记、单独覆盖报告与周期计划尚未开放。Pinterest 独立 DTO 和 SDK 客户端拥有其任务定义，不要求旧 `CollectionScope` 增加大量仅某站点有意义的可空字段。
 
 已有 Pixiv 路由和 JSON 形状保持兼容。全局工作台与调度加入 `family=pinterest` 的明确分支，调用独立服务；全局摘要只依赖湖、作业 ID、状态、阶段、计数和操作能力。联合列表的来源筛选与新增 family 通过能力版本和显式查询范围暴露，旧默认查询不突然返回旧客户端无法解析的新变体。列表继续在数据库中有界合并，不逐来源读取全量任务后在内存排序。
 
-下例是目标定义示意，仅适用于未来 Pinterest 接口：
+下例是首批支持的完整定义。`POST /jobs/preview` 直接提交定义；`POST /jobs` 提交 `{"request_key":"<fresh UUID>","definition":...}`：
 
 ```json
 {
@@ -248,7 +248,7 @@ Pinterest 使用与现有湖一致的对象、来源资产、原始响应、批�
   "seeds": [{ "kind": "pin", "id": "858146903966145189" }],
   "scope": { "media_types": ["image"], "ai_policy": "record_only" },
   "discovery": { "entrypoints": [], "max_depth": 0 },
-  "metadata": { "detail_enrichment": "sample" },
+  "metadata": { "detail_enrichment": "none" },
   "media": {
     "image_policy": { "profile": "original", "existing": "match_profile", "allow_sample": false },
     "retain_original": true,
@@ -257,8 +257,8 @@ Pinterest 使用与现有湖一致的对象、来源资产、原始响应、批�
   "run_budget": {
     "api_requests": 100,
     "admitted_pins": 100,
-    "admitted_boards": 5,
-    "detail_requests": 20,
+    "admitted_boards": 0,
+    "detail_requests": 100,
     "download_bytes": 1073741824,
     "wall_seconds": 3600
   }
@@ -283,9 +283,9 @@ Pinterest 使用与现有湖一致的对象、来源资产、原始响应、批�
 | [控制库](../../../services/lake-worker/src/studio_lake/updates/state.py)、[全局分派](../../../services/lake-worker/src/studio_lake/updates/dispatch.py)、[全局运行器](../../../services/lake-worker/src/studio_lake/updates/runner.py) | 注册 Pinterest 湖与独立执行器，复用每湖排他、公平时间片、资源池、搬盘互斥与后台生命周期 |
 | [传输层](../../../services/lake-worker/src/studio_lake/updates/transfer.py)、[资源池](../../../services/lake-worker/src/studio_lake/updates/resources.py) | 返回实际 MD5 与强 ETag，登记 Pinterest 来源限额，避免来源业务进入公共传输 |
 | [归档入口](../../../services/lake-worker/src/studio_lake/library.py)、[既有多媒体归档](../../../services/lake-worker/src/studio_lake/media_lake/library.py) | 新格式分派；只提取需要共享的封装与提交底层，保留 Pixiv schema 与回放验证 |
-| [存储维护工具](../../../tooling/lake-storage.mjs) | 识别新格式并调用 Pinterest 独立 build、verify、compare 路径 |
+| [存储维护工具](../../../tooling/lake-storage.mjs) | 后续增加 Pinterest build、verify、compare 路径；首批独立重建由 `pinterest.lake.online.rebuild` 实现并回归验证 |
 | [Rust 来源声明](../../../crates/studio-sources/src/profiles.rs)、[在线读取](../../../crates/studio-sources/src/online/mod.rs)、[查询字段](../../../crates/studio-sources/src/query/fields.rs) | 增加来源描述与 Pinterest reader 路由，保留公共查询、预览、raw 和导出边界 |
-| `crates/studio-protocol/src/pinterest_collections.rs`、`crates/studio-engine/src/api/pinterest_collections.rs` | 新 DTO、路由及到独立 worker 服务的操作分派；应用层仅暴露来源无关的执行端口 |
+| `crates/studio-protocol/src/pinterest.rs`、`crates/studio-engine/src/api/pinterest.rs` | 独立 DTO、路由及 worker 服务分派；domain 操作与 application 端口不依赖 HTTP 或控制数据库 |
 | `packages/client/src/pinterestCollections.ts`、[现有工作台](../../../apps/desktop/src/features/lake-updates/LakeWorkspace.tsx) | 新 SDK、来源表单与任务详情，接入联合列表；网络调用继续经 client 与 SDK |
 | `services/lake-worker/tests/test_pinterest_*.py`、`tooling/integration-pinterest.mjs` | 正式模块的解析、下载、恢复、归档重建与 HTTP/SDK 集成回归；不是第二套采集原型 |
 
@@ -295,7 +295,7 @@ Pinterest 使用与现有湖一致的对象、来源资产、原始响应、批�
 
 | 批次 | 交付范围 | 完成条件 |
 | --- | --- | --- |
-| 第一批 指定 Pin | 新湖格式与 reader、独立控制/API、普通静态 Pin 详情、原图下载、哈希、归档发布、最小工作台入口 | 从空目录建湖，在项目中提交 Pin 后可浏览、查看来源和读取原文件；重复提交与一次中断恢复不重复发布，归档可独立重建 |
+| 第一批 指定 Pin（已接入） | 新湖格式与 reader、独立控制/API、普通静态 Pin 详情、原图下载、哈希、归档发布、最小工作台入口 | 从空目录建湖，在项目中提交 Pin 后可浏览、查看来源和读取原文件；重复提交与中断恢复不重复发布，归档可独立重建 |
 | 第二批 图版与分区 | 图版解析、成员分页、分区、发现证据、由列表项形成清单与元数据补取选项、积压限制与断点续抓 | 多页成员可处理；暂停或预算耗尽后接续，不因重复 Pin 丢关系，不将成员变化或占位条目误算为图片；由列表形成的清单与抽样详情一致 |
 | 第三批 推荐与搜索 | More ideas、单 Pin 推荐、Pin/图版搜索、Ideas 主题，入口预算与固定优先级 | 推荐与成员分别保存；重复游标、空页、字段集差异和响应变化有可检查结果；入口收益按 Pin、哈希与成本分别统计 |
 | 第四批 持续运行 | 增量复查、历史复用、周期计划及更完整的诊断 | 统计变化不误判内容替换；换图产生新媒体身份；计划不与未结束作业重叠，旧 Pixiv 与三湖运行保持兼容 |
@@ -313,3 +313,19 @@ Pinterest 使用与现有湖一致的对象、来源资产、原始响应、批�
 验证按实际改动选择 Python 用例、Rust 来源测试和 Pinterest API 集成套件；公共 DTO 变化时生成契约。最小工作台入口做一次相关界面验证即可，不以全湖扫描、全套后端测试或容量压测作为每次提交门槛。
 
 题材范围、登录入口、复杂媒体下载和后续视觉分析可以通过能力与配置继续扩展。当前代码接入以第一批完整路径为起点，来源访问与媒体角色的不确定性由真实任务证据反馈到独立 Pinterest 模块中修正。
+
+## 首批使用与验证边界（2026-10-09）
+
+在现有数据湖工作台选择“创建 / 登记数据湖 → Pinterest”，使用两个独立空目录，可同时添加到当前项目。随后在“新建更新 → Pinterest”输入 1–500 个 Pin ID 或完整链接，检查摘要后启动。无需账号；摘要检查不联网。共享运行器按每湖互斥与全局资源预算执行。
+
+目前只保留原图字节。指定 Pin 均获取一次 `detailed` 响应，`metadata.detail_enrichment=none/sample` 不会额外请求扩展字段，`all` 明确拒绝。Board、分区、推荐、搜索、登录、定期复查、跨轮文件复用和衍生图片配方未开放。预算耗尽保留进度；本批没有“追加预算”命令，可取消剩余工作，为未完成 Pin 新建任务。已有 Pinterest 湖可以作为项目只读来源添加，尚无采集控制器接管或专用搬盘界面。
+
+`client.pinterestCollections` 与 `/v1/pinterest-collections` 对应。任务动作提交 `action` 与 `expected_revision`；工作台会先读取最新状态。统一湖/任务列表只有显式传入 `include_pinterest=true` 才返回新来源和 `family=pinterest`。独立 `identity_summaries` 能力允许浏览卡片显示 Pin 身份，不要求开启 Pin 排序。当前查询字段仅包括存储 SHA-256、扩展名、大小、宽高；Pin、Board 和账号的联合筛选尚未开放。
+
+项目元数据以 `pin_origin` 表达 Pin、媒体、清单与角色，保存账号和原始保存账号分别显示，不映射为画师。实际下载 MD5、CDN ETag 与来源图像签名分别保存；缺少字段、显式 null、false 和 0 保持区别。原始响应读取先验证对象、来源资产与 Pin 的归属，再按同一保留版本返回有界正文。
+
+首批验证覆盖解析、下载和真实解码，Pin/媒体两阶段各 7 个中断点、暂停/取消恢复、旧控制库备份迁移、URL 获取复用与字节去重、归档独立重建；另外通过 Rust 在线读取与格式拒绝测试、Pinterest/Pixiv HTTP/SDK 集成、2560×1440 界面检查、类型/Lint/边界检查。界面验证包含创建空湖并挂接项目、Pin 身份展示、原文归属、任务控制，以及服务端成功但浏览器丢失响应后复用同一个提交键。
+
+一次正式 `Service + Runner` 的匿名真实样本取得 Pin `858146903966145189`：原图 399×600、77,302 字节，1 次详情请求和 1 次原图 GET；实际 MD5 为 `622dfab81fc759e66957127fdcb86e2c`，与该响应的强 ETag 相同，归档/发布水位均为 3。它只证明该样本时点的完整链路，不代表大范围覆盖、长期源站稳定性或吞吐。
+
+复跑入口：`pnpm test:lake tests/test_pinterest_manifest.py tests/test_pinterest_pipeline.py`、`pnpm test:rust -p studio-sources online::tests`、`pnpm test:rust -p studio-sources pinterest_metadata`、`pnpm test:integration pinterest`、`node tooling/smoke-pinterest-ui.mjs`。集成与 UI 使用隔离构造响应，不访问源站；运行摘要与截图保留在本机 `.local/reports/pinterest-phase1-20261009/`，不随 Git 分发。

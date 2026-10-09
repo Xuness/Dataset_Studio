@@ -3,10 +3,12 @@ import { Database, X } from "lucide-react";
 import type { Schema } from "@studio/contracts";
 import { rangeLabel, states } from "./model.js";
 import { collectionRange, collectionStates } from "./collectionModel.js";
+import { pinterestRange, pinterestStates } from "./pinterestModel.js";
 import "./lake-updates.css";
 export function LakeActivity({
   status,
   collections,
+  pinterest,
   disconnected,
   onOpen,
   onProjectTasks,
@@ -14,8 +16,9 @@ export function LakeActivity({
 }: {
   status: Schema["LakeUpdateServiceStatus"] | undefined;
   collections?: Schema["CollectionServiceStatus"] | undefined;
+  pinterest?: Schema["PinterestStatus"] | undefined;
   disconnected: boolean;
-  onOpen: (id?: string, family?: "update" | "collection") => void;
+  onOpen: (id?: string, family?: "update" | "collection" | "pinterest") => void;
   onProjectTasks?: (() => void) | undefined;
   onPreparations: () => void;
 }) {
@@ -34,6 +37,18 @@ export function LakeActivity({
             "waiting_resources",
             "pausing",
             "publishing",
+            "cancelling",
+          ].includes(s),
+        )
+        .reduce((n, [, count]) => n + count, 0) +
+      Object.entries(pinterest?.counts ?? {})
+        .filter(([s]) =>
+          [
+            "running",
+            "queued",
+            "waiting_retry",
+            "waiting_resources",
+            "pausing",
             "cancelling",
           ].includes(s),
         )
@@ -57,6 +72,11 @@ export function LakeActivity({
             "needs_review",
             "completed_with_gaps",
           ].includes(s),
+        )
+        .reduce((n, [, count]) => n + count, 0) +
+      Object.entries(pinterest?.counts ?? {})
+        .filter(([s]) =>
+          ["waiting_budget", "needs_review", "completed_with_gaps"].includes(s),
         )
         .reduce((n, [, count]) => n + count, 0);
   const jobs = [
@@ -133,6 +153,18 @@ export function LakeActivity({
                 <span>{collectionStates[j.state]}</span>
               </button>
             ))}
+            {pinterest?.active.map((j) => (
+              <button
+                key={j.id}
+                onClick={() => {
+                  setExpanded(false);
+                  onOpen(j.id, "pinterest");
+                }}
+              >
+                <span>Pinterest · {pinterestRange(j.definition)}</span>
+                <span>{pinterestStates[j.state] ?? j.state}</span>
+              </button>
+            ))}
             {jobs.length ? (
               jobs.map((j) => (
                 <button
@@ -146,7 +178,7 @@ export function LakeActivity({
                   <span>{states[j.state]}</span>
                 </button>
               ))
-            ) : !collections?.active.length ? (
+            ) : !collections?.active.length && !pinterest?.active.length ? (
               <p>
                 {attention
                   ? "有待处理的数据湖任务，可打开工作台查看。"

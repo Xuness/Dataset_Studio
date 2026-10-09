@@ -122,6 +122,15 @@ function Field({
             {ratingLabel(field.value.value)}
           </span>
         ) : !field.value &&
+          ["explicit_null", "not_in_response"].includes(
+            field.missing_reason ?? "",
+          ) ? (
+          <span className="metadata-unknown">
+            {field.missing_reason === "explicit_null"
+              ? "来源明确返回空值"
+              : "本次响应未包含此字段"}
+          </span>
+        ) : !field.value &&
           field.missing_reason?.startsWith("normalization_issue:") ? (
           <span
             className="metadata-unknown"
@@ -237,6 +246,22 @@ export function MetadataInspector({
               onFilter={onFilterOrigin}
             />
           )}
+          {record?.pin_origin && (
+            <section
+              className="metadata-primary"
+              aria-label="Pinterest Pin 资料"
+            >
+              <h4>Pin {record.pin_origin.pin_id}</h4>
+              <p>原始图片</p>
+              <a
+                href={`https://www.pinterest.com/pin/${encodeURIComponent(record.pin_origin.pin_id)}/`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                在 Pinterest 中打开
+              </a>
+            </section>
+          )}
           {observation && (
             <div className="metadata-primary">
               <p className="metadata-basis">
@@ -308,11 +333,13 @@ export function MetadataInspector({
                       )}
                     {data.records.map((r) => (
                       <option key={r.record_id} value={r.record_id}>
-                        {r.work_id
-                          ? `作品 ${r.work_id} · 第 ${(r.ordinal ?? 0) + 1} 页`
-                          : r.post_id
-                            ? `条目 #${r.post_id}`
-                            : "无条目编号"}{" "}
+                        {r.pin_origin
+                          ? `Pin ${r.pin_origin.pin_id} · 原图`
+                          : r.work_id
+                            ? `作品 ${r.work_id} · 第 ${(r.ordinal ?? 0) + 1} 页`
+                            : r.post_id
+                              ? `条目 #${r.post_id}`
+                              : "无条目编号"}{" "}
                         · {r.record_id.slice(0, 10)}
                       </option>
                     ))}
@@ -369,6 +396,11 @@ export function MetadataInspector({
                                 key={o.observation_id}
                                 value={o.observation_id}
                               >
+                                {o.source_kind === "pinterest_pin_detail"
+                                  ? "Pin 详情 · "
+                                  : o.source_kind === "pinterest_media_manifest"
+                                    ? "原图记录 · "
+                                    : ""}
                                 {o.observed_at?.slice(0, 10) ?? "时间未知"} ·{" "}
                                 {o.relation === "asset_origin"
                                   ? "直接关联"
@@ -401,7 +433,9 @@ export function MetadataInspector({
                             </button>
                           )}
                         </div>
-                        {observation.relation === "same_post" && (
+                        {["same_post", "same_pin"].includes(
+                          observation.relation,
+                        ) && (
                           <p className="metadata-message">
                             此观察属于同一来源条目，图片内容可能已变化。
                           </p>

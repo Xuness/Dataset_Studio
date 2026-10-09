@@ -29,6 +29,8 @@ Linux x86_64 入口见 [Linux 开发运行](../docs/architecture/linux-developme
 
 Pixiv 后端：`node tooling/source-collections.mjs` 调用同一个采集服务；`pnpm test:integration collections` 使用离线夹具验证 HTTP/SDK、来源读取和任务控制。`node tooling/validate-pixiv-public.mjs --author 10109777 --output '<isolated output>'` 是显式联网的小样本验证，不属于自动测试。`lake-storage build --site pixiv` 支持只靠归档重建在线 3。参数、会话边界和使用例见[采集接入说明](../docs/architecture/source-collections.md)。
 
+Pinterest 首批：`pnpm test:integration pinterest` 使用 [pinterest-fixture.py](pinterest-fixture.py) 经正式运行器生成隔离归档，验证独立 API/SDK、原文件读取、固定版本与 Pin/raw 归属。`node tooling/smoke-pinterest-ui.mjs` 使用端口 1463，在 2560×1440 验证建湖挂接、指定 Pin 表单、任务控制与提交响应丢失恢复，不调用源站。正式能力及后续边界见 [Pinterest 接入设计](../docs/plans/Dataset%20Scraping/pinterest-backend-and-lake-design.md)。
+
 Pixiv 归档规模验证：使用项目 Python 执行 `tooling/benchmark-pixiv-archive.py --output '<new child of .local/test-runs>' --works 10000 100000`。合成详情、媒体清单和共用小 PNG，验证生产组批 writer、发布与独立重建；不访问源站，不代表完整调度器或大图下载吞吐。结果和边界见[审查修复验收](../docs/verification/2026-10-03-pixiv-review-upgrade.md)。
 
 三站更新服务已纳入 `services/lake-worker`，运行源码随引擎打包，不需要另一个 Store 仓库。首次运行 `pwsh -File tooling/setup-lake-worker.ps1 -Dev` 安装本项目的 Python 依赖，也可用 `STUDIO_LAKE_TEST_PYTHON` 指定已有环境。`pnpm test:lake <文件或过滤器>` 覆盖相关编码、归档或恢复行为；`pnpm test:integration lake-updates` 验证内置运行器与 HTTP/SDK；`pnpm test:lake-ui` 验证真实界面和命名策略预设。按变更范围选择，不默认连续执行。夹具仅使用 `.local/test-runs/` 隔离湖，无正式 API 抓取。完整 Python 服务测试属于 `pnpm check:full`。在线读取回归用 `pnpm test:integration online`。

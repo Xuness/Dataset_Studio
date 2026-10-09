@@ -18,9 +18,11 @@ Ctrl+Z 撤销图片选择，Ctrl+Y 或 Ctrl+Shift+Z 重做。“设置 → 编�
 
 分级基础缓存按数据湖共享，组合筛选使用候选记录缩小查询范围；项目结果按长期、临时或仅本次会话管理。顶部“设置”统一提供容量、缓存管理和查询内存选项。缓存管理可查看所有项目（包括已关闭项目）的查询、固定输入引用和排名索引，并按项调整保留或清理。固定工作集上的成果分级筛选跨每日数据湖更新复用；涉及最新来源字段的条件仍按需刷新。行为与兼容规则见[缓存分层与设置决策](docs/decisions/0008-cache-tiers-settings.md)、[固定查询与缓存明细](docs/decisions/0021-fixed-query-dependencies-and-cache-inventory.md)及[实施与验收清单](docs/plans/cache-settings-v0.7.md)。
 
-“工具 → 数据湖”支持从空目录创建 Danbooru、Yandere、Gelbooru、Pixiv 数据湖并加入项目。Booru 可以按 ID 或标签组合采集，复用相容的近期查询覆盖，并在独立的帖子元数据目录中选择尚未下载图片的条目。API 抓取、图片编码、断点恢复及归档发布由内置的 `services/lake-worker` 维护，无需 Danbooru-Store 源码或已有发行归档。操作见[从零建湖与按需采集](docs/architecture/zero-lake-collection.md)，保存策略与运行环境见[数据湖更新服务](services/lake-worker/README.md)。
+“工具 → 数据湖”支持从空目录创建 Danbooru、Yandere、Gelbooru、Pixiv、Pinterest 数据湖并加入项目。Booru 可以按 ID 或标签组合采集，复用相容的近期查询覆盖，并在独立的帖子元数据目录中选择尚未下载图片的条目。API 抓取、图片编码、断点恢复及归档发布由内置的 `services/lake-worker` 维护，无需 Danbooru-Store 源码或已有发行归档。操作见[从零建湖与按需采集](docs/architecture/zero-lake-collection.md)，保存策略与运行环境见[数据湖更新服务](services/lake-worker/README.md)。
 
 Pixiv 使用独立多媒体湖，已接入作者/作品采集、范围内标签筛选、增量复查、周期计划、账号设置和任务工作台。近期详情与完整媒体清单可以复用于后续补图；作者目录、作品元数据和媒体下载分别保留进度。使用方法和公开样本边界见[来源采集接入](docs/architecture/source-collections.md)。
+
+Pinterest 已接入匿名指定 Pin 采集、静态原图保存、独立归档和项目浏览。原文件哈希与 Pin 来源分别保留；视频、复杂故事等未支持媒体记录缺口。Board、推荐与搜索在后续阶段开放，当前使用方法及样本验证见 [Pinterest 接入设计](docs/plans/Dataset%20Scraping/pinterest-backend-and-lake-design.md)。
 
 ## 启动
 

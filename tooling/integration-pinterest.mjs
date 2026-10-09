@@ -74,6 +74,15 @@ try {
   });
   assert.equal(source.kind, "pinterest");
   assert.equal(source.descriptor.capabilities.post_order, false);
+  assert.equal(source.descriptor.capabilities.identity_summaries, true);
+  const summaries = await client.assetSummaries(project.id, [
+    { source_id: source.id, asset_id: refs.sha256 },
+  ]);
+  assert.equal(summaries.items[0].summary.status, "available");
+  assert.equal(summaries.items[0].summary.site_name, "Pinterest");
+  assert.ok(
+    summaries.items[0].summary.post_ids.includes(refs.records[0].pin_id),
+  );
   assert.equal(source.descriptor.capabilities.author_metadata, false);
   const base = `/v1/projects/${project.id}/sources/${source.id}/assets/${refs.sha256}`;
   const metadata = await engine.api(

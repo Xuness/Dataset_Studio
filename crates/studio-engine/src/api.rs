@@ -370,7 +370,7 @@ fn enrich_summaries_at(
     }
     for (sid, ids) in groups {
         let source = s.store.source(pid, &sid)?;
-        if !s.sources.has(&source, |c| c.post_order) {
+        if !s.sources.has(&source, |c| c.identity_summaries) {
             continue;
         }
         let result = (|| {

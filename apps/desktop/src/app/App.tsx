@@ -105,6 +105,7 @@ import {
   useLakePreference,
   useLakeStatus,
   useCollectionStatus,
+  usePinterestStatus,
 } from "../features/lake-updates/queries.js";
 import type { LakeInvocation } from "../features/lake-updates/LakeWorkspace.js";
 const LakeWorkspace = lazy(
@@ -238,6 +239,10 @@ function Studio({
     client,
     !!lakeStatus.data?.configured,
   );
+  const pinterestStatus = usePinterestStatus(
+    client,
+    !!lakeStatus.data?.configured,
+  );
   const [lakeInvocation, setLakeInvocation] = useState<LakeInvocation | null>(
     null,
   );
@@ -245,7 +250,7 @@ function Studio({
     jobId?: string,
     lakeId?: string,
     view?: "jobs" | "preparations",
-    family?: "update" | "collection",
+    family?: "update" | "collection" | "pinterest",
   ) {
     if (!application.editable) return;
     application.controller.set({ open: true, active: true });
@@ -2310,6 +2315,7 @@ function Studio({
           onPreparations={() => openLakes(undefined, undefined, "preparations")}
           status={lakeStatus.data}
           collections={collectionStatus.data}
+          pinterest={pinterestStatus.data}
           disconnected={lakeStatus.isError}
           onOpen={(id, family) => openLakes(id, undefined, "jobs", family)}
           onProjectTasks={project ? () => setTasksVisible(true) : undefined}

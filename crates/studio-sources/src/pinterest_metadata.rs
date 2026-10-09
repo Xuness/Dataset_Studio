@@ -450,7 +450,7 @@ impl<'a> Read<'a> {
                 row_id: id.clone(),
                 post_id: Some(origin.pin_id.clone()),
                 relation: relation.into(),
-                source_key: Some(origin.manifest_id.clone()),
+                source_key: (id == &origin.media_id).then(|| origin.manifest_id.clone()),
                 source_kind: Some(kind.into()),
                 observed_at: Some(at),
                 time_quality: Some("captured_at".into()),

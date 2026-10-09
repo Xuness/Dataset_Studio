@@ -3,6 +3,7 @@ import type { StudioClient } from "@studio/client";
 import type { Schema } from "@studio/contracts";
 import { CollectionComposer } from "./CollectionComposer.js";
 import { UpdateComposer } from "./UpdateComposer.js";
+import { PinterestComposer } from "./PinterestComposer.js";
 import type { CollectionDefinition, WorkspaceLake } from "./collectionModel.js";
 import type { Lake } from "./model.js";
 
@@ -28,15 +29,19 @@ export function NewUpdateComposer({
   onCreated: (
     id: string,
     kind: "job" | "schedule",
-    family: "update" | "collection",
+    family: "update" | "collection" | "pinterest",
   ) => void;
 }) {
+  const initialSite =
+    lakes.find((l) => l.id === initialLake)?.site ?? lakes[0]?.site;
   const [family, setFamily] = useState(
-    preset ||
-      lakes.find((l) => l.id === initialLake)?.site === "pixiv" ||
-      !updateLakes(lakes).length
+    preset
       ? "collection"
-      : "update",
+      : initialSite === "pinterest"
+        ? "pinterest"
+        : initialSite === "pixiv"
+          ? "collection"
+          : "update",
   );
   const header = (
     <label className="collection-source-picker">
@@ -48,10 +53,20 @@ export function NewUpdateComposer({
       >
         <option value="update">Danbooru / Yandere / Gelbooru</option>
         <option value="collection">Pixiv</option>
+        <option value="pinterest">Pinterest</option>
       </select>
     </label>
   );
-  return family === "collection" ? (
+  return family === "pinterest" ? (
+    <PinterestComposer
+      client={client}
+      lakes={lakes.filter((l) => l.site === "pinterest")}
+      initialLake={initialLake}
+      sourceHeader={header}
+      onClose={onClose}
+      onCreated={(id) => onCreated(id, "job", "pinterest")}
+    />
+  ) : family === "collection" ? (
     <CollectionComposer
       client={client}
       lakes={lakes.filter((l) => l.site === "pixiv")}

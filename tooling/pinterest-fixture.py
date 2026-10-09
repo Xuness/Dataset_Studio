@@ -34,7 +34,8 @@ def main():
         db.close()
     # Leave a known exhausted budget for API action tests. It cannot send a request after the daemon starts.
     spec = {**fixture.spec, "seeds": [{"kind": "pin", "id": "3001"}, {"kind": "pin", "id": "3002"}],
-            "run_budget": {"api_requests": 1, "detail_requests": 1}}
+            "metadata": {"detail_enrichment": "none"},
+            "run_budget": {"api_requests": 1, "detail_requests": 1, "admitted_pins": 1}}
     fixture.job = fixture.service.create({"request_key": str(uuid.uuid4()), "definition": spec})
     budget_job = fixture.run()
     assert budget_job["state"] == "waiting_budget", budget_job

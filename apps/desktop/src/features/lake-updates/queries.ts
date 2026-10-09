@@ -34,6 +34,15 @@ export function useCollectionStatus(client: StudioClient, enabled: boolean) {
     refetchInterval: 5000,
   });
 }
+export function usePinterestStatus(client: StudioClient, enabled: boolean) {
+  return useQuery({
+    queryKey: [...lakeKey(client), "pinterest-status"],
+    queryFn: ({ signal }) => client.pinterestCollections.status(signal),
+    enabled,
+    retry: false,
+    refetchInterval: 5000,
+  });
+}
 export function useLakePreference<T>(
   client: StudioClient,
   key: string,

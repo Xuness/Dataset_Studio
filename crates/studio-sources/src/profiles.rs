@@ -117,6 +117,7 @@ pub fn descriptor(kind: &str) -> Result<SourceDescriptor> {
             metadata: true,
             query: true,
             post_order: kind != "pinterest",
+            identity_summaries: true,
             relink: true,
             raw_metadata: true,
             incremental: true,

@@ -106,6 +106,7 @@ impl SourceRegistry {
             || c.query != provider.query.is_some()
             || (provider.require_metadata_on_attach && (!c.query || !c.metadata))
             || (c.raw_metadata && !c.metadata)
+            || (c.identity_summaries && !c.metadata)
             || (!provider.descriptor.projections.is_empty() && provider.projection.is_none())
         {
             return Err(Error::invalid("来源注册的身份、能力与实现不一致"));
