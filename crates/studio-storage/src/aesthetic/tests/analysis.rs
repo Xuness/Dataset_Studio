@@ -66,27 +66,37 @@ fn frozen_watermark_excludes_later_paid_results_and_rebuild_is_idempotent() {
         "IDEMPOTENCY_CONFLICT"
     );
     complete(&db, &job.id);
-    let rows = db.ranking_page(&job.id, 0, None, 256).unwrap();
+    let rows = db.ranking_page(&job.id, 0, &[], 256).unwrap();
     assert_eq!(rows.len(), 32);
     let read = db.read().unwrap();
     let plan = {
         let mut statement = read
             .prepare(&format!(
                 "EXPLAIN QUERY PLAN {}",
-                crate::aesthetic::analysis::ranking_page_sql(true)
+                crate::aesthetic::analysis::ranking_page_sql(2)
             ))
             .unwrap();
         statement
-            .query_map(params![job.id, 0, "g", 64], |r| r.get::<_, String>(3))
+            .query_map(params![job.id, 0, 64, "g", "s"], |r| r.get::<_, String>(3))
             .unwrap()
             .collect::<std::result::Result<Vec<_>, _>>()
             .unwrap()
     };
     assert!(
-        plan.iter().any(|line| line.contains("ranking_rating")),
+        plan.iter().all(|line| !line.starts_with("SCAN ranking_rows"))
+            && plan.iter().filter(|line| line.contains("ranking_rating")).count() == 2,
         "{plan:?}"
     );
     drop(read);
+    let mixed = db.ranking_page(&job.id, 0, &["s", "g"], 256).unwrap();
+    assert_eq!(mixed.len(), rows.len());
+    assert!(mixed.windows(2).all(|w| w[0].position < w[1].position));
+    let page = db.ranking_page(&job.id, mixed[2].position, &["g", "s"], 2).unwrap();
+    assert_eq!(
+        page.iter().map(|r| r.ordinal).collect::<Vec<_>>(),
+        [mixed[3].ordinal, mixed[4].ordinal]
+    );
+    assert!(db.ranking_page(&job.id, 0, &["s", "q"], 64).unwrap().is_empty());
     assert_eq!(rows.iter().map(|r| u64::from(r.exposures)).sum::<u64>(), 16);
     assert_eq!(rows.iter().filter(|r| r.protected).count(), 1);
     assert!(rows.iter().all(|r| r.rating_rank_min.is_none()));
@@ -99,7 +109,7 @@ fn frozen_watermark_excludes_later_paid_results_and_rebuild_is_idempotent() {
     let next = db.analysis_create(fit_request(&stage)).unwrap();
     complete(&db, &next.id);
     assert_eq!(
-        db.ranking_page(&next.id, 0, None, 256)
+        db.ranking_page(&next.id, 0, &[], 256)
             .unwrap()
             .iter()
             .map(|r| u64::from(r.exposures))
@@ -231,7 +241,7 @@ fn partial_projection_recovers_without_publishing_or_network_retries() {
     let job = db.analysis_create(fit_request(&stage)).unwrap();
     db.analysis_start(&job.id).unwrap();
     assert_eq!(
-        db.ranking_page(&job.id, 0, None, 64).unwrap_err().code,
+        db.ranking_page(&job.id, 0, &[], 64).unwrap_err().code,
         "RESULT_NOT_READY"
     );
     drop(db);
@@ -245,7 +255,7 @@ fn partial_projection_recovers_without_publishing_or_network_retries() {
     db.analysis_control(&job.id, "resume").unwrap();
     complete(&db, &job.id);
     assert_eq!(db.stage(&stage).unwrap().attempts, 1);
-    assert_eq!(db.ranking_page(&job.id, 0, None, 64).unwrap().len(), 16);
+    assert_eq!(db.ranking_page(&job.id, 0, &[], 64).unwrap().len(), 16);
 }
 #[test]
 fn experiments_and_review_watermarks_are_frozen_and_review_has_no_score_effect() {
@@ -270,7 +280,7 @@ fn experiments_and_review_watermarks_are_frozen_and_review_has_no_score_effect()
         .unwrap();
     let job = db.analysis_create(request).unwrap();
     complete(&db, &job.id);
-    let rows = db.ranking_page(&job.id, 0, None, 64).unwrap();
+    let rows = db.ranking_page(&job.id, 0, &[], 64).unwrap();
     let row = rows.iter().find(|r| !r.protected).unwrap();
     let derive = db
         .analysis_create(AestheticAnalysisCreate {

@@ -290,18 +290,20 @@ export function FitDialog({
 export function DeriveDialog({
   context,
   snapshotId,
-  rating,
+  ratings,
   onClose,
   onCreated,
 }: {
   context: ModuleContext;
   snapshotId: string;
-  rating: string;
+  ratings: string[];
   onClose: () => void;
   onCreated: (job: Job) => void;
 }) {
   const action = useAction();
-  const [name, setName] = useState(rating.toUpperCase() + " 类排名工作集");
+  const [name, setName] = useState(
+    ratings.map((r) => r.toUpperCase()).join("/") + " 类排名工作集",
+  );
   const [mode, setMode] = useState<"percent" | "count">("percent");
   const [percent, setPercent] = useState(25);
   const [topCount, setTopCount] = useState(1000);
@@ -336,7 +338,7 @@ export function DeriveDialog({
       ? countJob.data.result
       : null;
   const filter = {
-    ratings: [rating],
+    ratings,
     ...(mode === "percent" ? { top_percent: percent } : { rank_to: topCount }),
     include_protected: protect,
   };
@@ -421,7 +423,13 @@ export function DeriveDialog({
           </label>
           <label>
             Rating
-            <input value={rating.toUpperCase()} readOnly />
+            <input
+              value={ratings.map((r) => r.toUpperCase()).join("、")}
+              readOnly
+              title={
+                ratings.length > 1 ? "排名范围在每个 Rating 内分别计算" : undefined
+              }
+            />
           </label>
           <label>
             排名范围

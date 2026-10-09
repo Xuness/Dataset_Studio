@@ -237,6 +237,32 @@ try {
   );
   assert.equal(explicitRating.items.length, 5);
   assert.ok(explicitRating.items.every((row) => row.rating === "e"));
+  const mixedRatings = ["g", "e"];
+  const mixed = [];
+  for (let after; ; ) {
+    const page = await client.aesthetic.analysis.rows(project.id, snapshot.id, {
+      ...(after ? { after } : {}),
+      rating: mixedRatings.join(","),
+      limit: 5,
+    });
+    mixed.push(...page.items);
+    if (!page.next_cursor) break;
+    after = page.next_cursor;
+  }
+  assert.deepEqual(
+    mixed.map((r) => r.position),
+    rows
+      .filter((r) => mixedRatings.includes(r.rating))
+      .map((r) => r.position)
+      .sort((a, b) => a - b),
+  );
+  await assert.rejects(
+    () =>
+      client.aesthetic.analysis.rows(project.id, snapshot.id, {
+        rating: "g,x",
+      }),
+    (error) => error.code === "INVALID_INPUT",
+  );
   assert.equal(new Set(rows.map((r) => r.position)).size, 64);
   assert.ok(rows.every((r) => r.exposures === 4 && r.rating_rank_min !== null));
   assert.equal(
@@ -250,7 +276,7 @@ try {
     "IDEMPOTENCY_CONFLICT",
   );
   checks.push(
-    "watermarked offline snapshot with Rating ranks, ties, stable pagination and idempotency",
+    "watermarked offline snapshot with Rating ranks, ties, stable single and multi-Rating pagination and idempotency",
   );
 
   const experiment = await client.aesthetic.analysis.createExperiment(
@@ -524,7 +550,7 @@ try {
   const db = new DatabaseSync(resolve(project.directory, "project.sqlite"), {
     readOnly: true,
   });
-  assert.equal(db.prepare("PRAGMA user_version").get().user_version, 14);
+  assert.equal(db.prepare("PRAGMA user_version").get().user_version, 15);
   const provenance = JSON.parse(
     db
       .prepare(

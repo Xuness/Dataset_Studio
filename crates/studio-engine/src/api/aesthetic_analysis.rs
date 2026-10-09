@@ -122,7 +122,7 @@ async fn select(
         let mut items = Vec::new();
         let mut scanned = 0;
         while scanned < 4096 && items.len() < limit {
-            let page = db.ranking_page(&id, cursor.after, None, 256)?;
+            let page = db.ranking_page(&id, cursor.after, &[], 256)?;
             if page.is_empty() {
                 break;
             }
@@ -323,7 +323,7 @@ async fn snapshot(
         blocking(move || s.store.evaluation(&pid)?.ranking_snapshot(&id)).await?,
     )?))
 }
-#[utoipa::path(operation_id="aesthetic_ranking_rows",get,path="/snapshots/{id}/rows",params(("project_id"=String,Path),("id"=String,Path),("after"=Option<String>,Query),("limit"=Option<usize>,Query),("rating"=Option<String>,Query)),responses((status=200,body=AestheticRankingRows)))]
+#[utoipa::path(operation_id="aesthetic_ranking_rows",get,path="/snapshots/{id}/rows",params(("project_id"=String,Path),("id"=String,Path),("after"=Option<String>,Query),("limit"=Option<usize>,Query),("rating"=Option<String>,Query,description="g、s、q、e 之一或以逗号分隔的多个；省略时包含全部")),responses((status=200,body=AestheticRankingRows)))]
 async fn rows(
     State(s): State<AppState>,
     Path((pid, id)): Path<(String, String)>,
@@ -331,10 +331,25 @@ async fn rows(
 ) -> ApiResult<AestheticRankingRows> {
     let after = ordinal(page.after.as_deref())?;
     let limit = page.limit.unwrap_or(64).clamp(1, 128);
+    let mut ratings = Vec::new();
+    for r in page.rating.iter().flat_map(|v| v.split(',')).filter(|r| !r.is_empty()) {
+        if !matches!(r, "g" | "s" | "q" | "e") {
+            return Err(domain::Error::invalid("Rating 需为 g、s、q、e，多个以逗号分隔").into());
+        }
+        if !ratings.contains(&r) {
+            ratings.push(r);
+        }
+    }
+    // Every rating selected is the same page as no filter, which reads the primary key.
+    if ratings.len() == 4 {
+        ratings.clear();
+    }
+    let ratings: Vec<String> = ratings.into_iter().map(str::to_owned).collect();
     let mut items = blocking(move || {
+        let ratings: Vec<&str> = ratings.iter().map(String::as_str).collect();
         s.store
             .evaluation(&pid)?
-            .ranking_page(&id, after, page.rating.as_deref(), limit + 1)
+            .ranking_page(&id, after, &ratings, limit + 1)
     })
     .await?;
     let more = items.len() > limit;

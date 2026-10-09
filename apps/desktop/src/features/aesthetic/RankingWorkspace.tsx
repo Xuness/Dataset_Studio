@@ -21,6 +21,7 @@ import {
   WorkbenchDialog,
   WorkbenchPanelPortal,
   useDropZone,
+  RatingPicker,
 } from "@studio/ui";
 import type { ModuleContext, MoreMenuItem, WorkbenchLayout } from "@studio/ui";
 import type { Schema } from "@studio/contracts";
@@ -43,6 +44,7 @@ import {
 import {
   rankingBrowserInitial as initial,
   decodeRankingBrowser as decode,
+  rankingRatings,
 } from "./rankingBrowserState.js";
 import { RankingCanvas } from "./RankingCanvas.js";
 import { RankingDetails, RankingEvidence } from "./RankingPanels.js";
@@ -102,6 +104,7 @@ export function RankingWorkspace({
     null,
   );
   const saved = draft.value;
+  const ratingKey = saved.ratings.join(",");
   const effectiveLayout: WorkbenchLayout = {
     ...layout.value,
     panels: { ...initialLayout.panels, ...layout.value.panels },
@@ -178,7 +181,7 @@ export function RankingWorkspace({
       "aesthetic",
       "ranking-rows",
       saved.snapshotId,
-      saved.rating,
+      ratingKey,
       saved.after,
       saved.pageSize,
       protectedOnly,
@@ -189,7 +192,7 @@ export function RankingWorkspace({
           projectId,
           saved.snapshotId,
           {
-            filter: { ratings: [saved.rating], protected_only: true },
+            filter: { ratings: saved.ratings, protected_only: true },
             after: saved.after || null,
             limit: saved.pageSize,
           },
@@ -207,7 +210,7 @@ export function RankingWorkspace({
           saved.snapshotId,
           {
             ...(saved.after ? { after: saved.after } : {}),
-            rating: saved.rating,
+            rating: ratingKey,
             limit: saved.pageSize,
           },
           signal,
@@ -363,12 +366,15 @@ export function RankingWorkspace({
     const job = activeJob.data;
     if (job?.state !== "completed") return;
     if (job.result?.kind === "fit") {
-      const groups = job.result.groups;
-      draft.controller.set((value) => ({
+      const compared = job.result.groups
+        .filter((g) => g.compared > 0)
+        .map((g) => g.rating);
+      draft.controller.set((value) => {
+        const kept = value.ratings.filter((r) => compared.includes(r));
+        const first = rankingRatings.find((r) => compared.includes(r));
+        return {
         ...value,
-        rating: groups.some((g) => g.rating === value.rating && g.compared > 0)
-          ? value.rating
-          : (groups.find((g) => g.compared > 0)?.rating ?? value.rating),
+        ratings: kept.length ? kept : first ? [first] : value.ratings,
         snapshotId: job.id,
         after: "",
         past: [],
@@ -376,7 +382,8 @@ export function RankingWorkspace({
         ordinal: null,
         image: false,
         scrollTop: 0,
-      }));
+        };
+      });
       setNotice("排名快照已发布，可按 Rating 浏览。");
     }
     if (job.result?.kind === "derive") {
@@ -409,7 +416,9 @@ export function RankingWorkspace({
   }
   const summary =
     snapshot.data?.result?.kind === "fit" ? snapshot.data.result : null;
-  const group = summary?.groups.find((value) => value.rating === saved.rating);
+  const groups =
+    summary?.groups.filter((value) => saved.ratings.includes(value.rating)) ??
+    [];
   const errors = [
     draft.error,
     jobs.error,
@@ -600,12 +609,13 @@ export function RankingWorkspace({
     />
   );
   const job = activeJob.data;
-  function updateRating(rating: string) {
-    if (reviewBusy) return;
+  function updateRatings(values: string[]) {
+    const ratings = rankingRatings.filter((r) => values.includes(r));
+    if (reviewBusy || !ratings.length) return;
     pendingPage.current = null;
     draft.controller.set((value) => ({
       ...value,
-      rating,
+      ratings,
       after: "",
       past: [],
       page: 1,
@@ -704,11 +714,13 @@ export function RankingWorkspace({
           <>
             <span>{snapshot.data?.request.name ?? "尚未选择快照"}</span>
             <span>
-              {group?.fully_connected
-                ? "当前 Rating 比较关系已连通"
-                : group
-                  ? `${group.components} 个分量 · 分量内名次`
-                  : "选择一份已发布快照"}
+              {!groups.length
+                ? "选择一份已发布快照"
+                : groups.every((g) => g.fully_connected)
+                  ? groups.length > 1
+                    ? "所选 Rating 比较关系均已连通 · 名次在各 Rating 内计算"
+                    : "当前 Rating 比较关系已连通"
+                  : `${groups.reduce((n, g) => n + g.components, 0)} 个分量 · 分量内名次`}
             </span>
             <DraftStatus controller={draft.controller} quiet />
           </>
@@ -808,24 +820,18 @@ export function RankingWorkspace({
             </div>
           )}
         <div className="ranking-view-tools">
-          <label>
-            Rating
-            <select
-              aria-label="排名 Rating"
-              value={saved.rating}
-              disabled={!draft.editable || reviewBusy}
-              onChange={(e) => updateRating(e.target.value)}
-            >
-              {["g", "s", "q", "e"].map((rating) => (
-                <option key={rating} value={rating}>
-                  {rating.toUpperCase()}
-                </option>
-              ))}
-            </select>
-          </label>
+          <span className="ranking-rating-label">Rating · 可多选</span>
+          <RatingPicker
+            label="排名 Rating"
+            allowAny={false}
+            values={saved.ratings}
+            disabled={!draft.editable || reviewBusy}
+            onChange={updateRatings}
+          />
           <span>
             {protectedOnly ? "有效保护候选" : "排名图片"}
-            {group && ` · ${group.candidates.toLocaleString()} 张候选`}
+            {groups.length > 0 &&
+              ` · ${groups.reduce((n, g) => n + g.candidates, 0).toLocaleString()} 张候选`}
           </span>
           <span className="grow" />
           <button type="button" onClick={() => openPanel("inspector")}>
@@ -846,7 +852,7 @@ export function RankingWorkspace({
             image={saved.image}
             thumbnailSize={saved.thumbnailSize}
             scrollTop={saved.scrollTop}
-            pageKey={`${saved.snapshotId}:${saved.rating}:${saved.after}:${saved.pageSize}`}
+            pageKey={`${saved.snapshotId}:${ratingKey}:${saved.after}:${saved.pageSize}`}
             loading={rows.isPending}
             disabled={!draft.editable || reviewBusy || rows.isFetching}
             previous={previous}
@@ -861,7 +867,7 @@ export function RankingWorkspace({
             onScroll={(scrollTop) =>
               draft.controller.set((old) =>
                 old.snapshotId === saved.snapshotId &&
-                old.rating === saved.rating &&
+                old.ratings.join(",") === ratingKey &&
                 old.after === saved.after &&
                 old.pageSize === saved.pageSize
                   ? { ...old, scrollTop }
@@ -923,7 +929,7 @@ export function RankingWorkspace({
                 const current = draft.controller.getSnapshot().value;
                 if (
                   current.snapshotId !== saved.snapshotId ||
-                  current.rating !== saved.rating ||
+                  current.ratings.join(",") !== ratingKey ||
                   current.after !== saved.after ||
                   (current.ordinal ?? items[0]?.ordinal) !== selected.ordinal
                 )
@@ -955,7 +961,7 @@ export function RankingWorkspace({
         <DeriveDialog
           context={context}
           snapshotId={saved.snapshotId}
-          rating={saved.rating}
+          ratings={saved.ratings}
           onClose={() => setDialog(null)}
           onCreated={created}
         />

@@ -22,11 +22,13 @@ export function RatingPicker({
   onChange,
   label = "分级",
   allowAny = true,
+  disabled = false,
 }: {
   values: string[];
   onChange: (values: string[]) => void;
   label?: string;
   allowAny?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <div className="rating-picker" role="group" aria-label={label}>
@@ -34,6 +36,7 @@ export function RatingPicker({
         <button
           type="button"
           aria-pressed={!values.length}
+          disabled={disabled}
           onClick={() => onChange([])}
         >
           不限
@@ -46,6 +49,7 @@ export function RatingPicker({
           title={rating.title}
           aria-label={label + " " + rating.value.toUpperCase()}
           aria-pressed={values.includes(rating.value)}
+          disabled={disabled}
           onClick={() =>
             onChange(
               values.includes(rating.value)
@@ -64,6 +68,7 @@ export function RatingPicker({
             type="button"
             key={v}
             aria-pressed="true"
+            disabled={disabled}
             onClick={() => onChange(values.filter((other) => other !== v))}
           >
             {v} ×

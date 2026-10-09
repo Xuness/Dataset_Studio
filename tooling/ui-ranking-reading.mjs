@@ -9,13 +9,45 @@ const selected = (page) =>
 async function saved(page) {
   await expect(page.locator(".status-bar")).toContainText("项目已保存");
 }
+async function chooseRatings(page, ratings) {
+  // Add before removing: the picker keeps at least one Rating selected.
+  for (const add of [true, false])
+    for (const rating of ["g", "s", "q", "e"]) {
+      const button = page.getByLabel("排名 Rating " + rating.toUpperCase(), {
+        exact: true,
+      });
+      const pressed = (await button.getAttribute("aria-pressed")) === "true";
+      if (ratings.includes(rating) === add && pressed !== add)
+        await button.click();
+    }
+  for (const rating of ["g", "s", "q", "e"])
+    await expect(
+      page.getByLabel("排名 Rating " + rating.toUpperCase(), { exact: true }),
+    ).toHaveAttribute("aria-pressed", String(ratings.includes(rating)));
+}
+async function candidateCount(page) {
+  const text = await page.locator(".ranking-view-tools").innerText();
+  return Number(/([\d,]+) 张候选/.exec(text)?.[1].replaceAll(",", "") ?? 0);
+}
 export async function checkRankingReading(
   page,
   { engine, rootPath, run, checks },
 ) {
   await page.locator('[data-aesthetic-view="ranking"]').click();
   await tab(page, "详情").click();
-  await page.getByLabel("排名 Rating", { exact: true }).selectOption("g");
+  await chooseRatings(page, ["e"]);
+  const only = await candidateCount(page);
+  await chooseRatings(page, ["g", "e"]);
+  await expect.poll(() => candidateCount(page)).toBeGreaterThan(only);
+  await page.getByLabel("排名 Rating E", { exact: true }).click();
+  await page.getByLabel("排名 Rating G", { exact: true }).click();
+  await expect(
+    page.getByLabel("排名 Rating G", { exact: true }),
+  ).toHaveAttribute("aria-pressed", "true");
+  await chooseRatings(page, ["g"]);
+  checks.push(
+    "ranking browser combines several Ratings and keeps at least one selected",
+  );
   await page.getByLabel("排名每页图片数").selectOption("12");
   const size = page.getByLabel("排名缩略图大小");
   await size.focus();

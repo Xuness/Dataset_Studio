@@ -114,11 +114,19 @@ fn mutable(db: &Connection, id: &str) -> Result<()> {
     }
     Ok(())
 }
-pub(super) fn ranking_page_sql(rating: bool) -> &'static str {
-    if rating {
-        "SELECT data FROM ranking_rows WHERE snapshot_id=?1 AND rating=?3 AND position>?2 ORDER BY position LIMIT ?4"
-    } else {
-        "SELECT data FROM ranking_rows WHERE snapshot_id=?1 AND position>?2 AND ?3 IS NULL ORDER BY position LIMIT ?4"
+/// Parameters: ?1 snapshot, ?2 after, ?3 limit, ?4.. ratings. Several ratings merge
+/// per-rating index pages, so each branch reads at most `limit` rows.
+pub(super) fn ranking_page_sql(ratings: usize) -> String {
+    match ratings {
+        0 => "SELECT data FROM ranking_rows WHERE snapshot_id=?1 AND position>?2 ORDER BY position LIMIT ?3".into(),
+        1 => "SELECT data FROM ranking_rows WHERE snapshot_id=?1 AND rating=?4 AND position>?2 ORDER BY position LIMIT ?3".into(),
+        n => format!(
+            "SELECT data FROM ({}) ORDER BY position LIMIT ?3",
+            (0..n)
+                .map(|i| format!("SELECT * FROM (SELECT data,position FROM ranking_rows WHERE snapshot_id=?1 AND rating=?{} AND position>?2 ORDER BY position LIMIT ?3)", i + 4))
+                .collect::<Vec<_>>()
+                .join(" UNION ALL ")
+        ),
     }
 }
 impl EvaluationDb {
@@ -398,19 +406,21 @@ impl EvaluationDb {
         &self,
         id: &str,
         after: u64,
-        rating: Option<&str>,
+        ratings: &[&str],
         limit: usize,
     ) -> Result<Vec<AestheticRankingRow>> {
         let db = self.read()?;
         ready(&db, id)?;
         let mut stmt = db
-            .prepare(ranking_page_sql(rating.is_some()))
+            .prepare(&ranking_page_sql(ratings.len()))
             .map_err(db_error)?;
+        let mut values: Vec<&dyn rusqlite::ToSql> = Vec::with_capacity(3 + ratings.len());
+        let after = after as i64;
+        let limit = limit.clamp(1, 256) as u32;
+        values.extend([&id as &dyn rusqlite::ToSql, &after, &limit]);
+        values.extend(ratings.iter().map(|r| r as &dyn rusqlite::ToSql));
         let rows = stmt
-            .query_map(
-                params![id, after as i64, rating, limit.clamp(1, 256) as u32],
-                |r| r.get::<_, String>(0),
-            )
+            .query_map(values.as_slice(), |r| r.get::<_, String>(0))
             .map_err(db_error)?
             .collect::<std::result::Result<Vec<_>, _>>()
             .map_err(db_error)?;

@@ -81,12 +81,12 @@ export default function AestheticPanel(context: ModuleContext) {
       target.editable &&
       source.value.snapshotId &&
       (source.value.snapshotId !== target.value.snapshotId ||
-        source.value.rating !== target.value.rating)
+        source.value.ratings.join(",") !== target.value.ratings.join(","))
     ) {
       target.controller.set((old) => ({
         ...old,
         snapshotId: source.value.snapshotId,
-        rating: source.value.rating,
+        ratings: source.value.ratings,
         after: "",
         past: [],
         page: 1,
@@ -188,7 +188,7 @@ export default function AestheticPanel(context: ModuleContext) {
               rankingSession.controller.set({
                 ...rankingBrowserInitial,
                 snapshotId: snapshot?.id ?? "",
-                rating: rating ?? "g",
+                ratings: [rating ?? "g"],
               });
               await rankingSession.controller.flush();
               setFitTarget(snapshot ? undefined : stageId);

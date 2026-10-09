@@ -3348,6 +3348,7 @@
           {
             "name": "rating",
             "in": "query",
+            "description": "g、s、q、e 之一或以逗号分隔的多个；省略时包含全部",
             "required": false,
             "schema": {
               "type": "string"

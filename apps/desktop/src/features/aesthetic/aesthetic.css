@@ -583,6 +583,14 @@
   padding: 1px 7px;
   height: 22px;
 }
+.ranking-view-tools .rating-picker {
+  gap: 3px;
+}
+.ranking-view-tools .rating-picker button {
+  min-height: 22px;
+  padding: 1px 8px;
+  font-size: 11px;
+}
 .ranking-pagebar {
   min-height: 26px;
   padding: 3px 8px;

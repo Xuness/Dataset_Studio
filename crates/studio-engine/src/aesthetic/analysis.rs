@@ -249,7 +249,7 @@ fn run(
             ranked.include_protected = false;
             loop {
                 check(cancel)?;
-                let page = db.ranking_page(snapshot_id, after, None, 256)?;
+                let page = db.ranking_page(snapshot_id, after, &[], 256)?;
                 if page.is_empty() {
                     break;
                 }
@@ -306,7 +306,7 @@ fn run(
             if !published {
                 loop {
                     check(cancel)?;
-                    let page = db.ranking_page(snapshot_id, after, None, 256)?;
+                    let page = db.ranking_page(snapshot_id, after, &[], 256)?;
                     if page.is_empty() {
                         break;
                     }

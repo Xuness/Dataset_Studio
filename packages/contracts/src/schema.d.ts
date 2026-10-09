@@ -10189,6 +10189,7 @@ export interface operations {
             query?: {
                 after?: string;
                 limit?: number;
+                /** @description g、s、q、e 之一或以逗号分隔的多个；省略时包含全部 */
                 rating?: string;
             };
             header?: never;

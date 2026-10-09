@@ -490,8 +490,18 @@ assert.equal(
   decodeRankingBrowser({ ...legacyBrowser, past: Array(65).fill("") }),
   null,
 );
+assert.deepEqual(
+  decodeRankingBrowser({ ...legacyBrowser, ratings: undefined, rating: "q" })
+    .ratings,
+  ["q"],
+);
+assert.deepEqual(
+  decodeRankingBrowser({ ...legacyBrowser, ratings: ["e", "g"] }).ratings,
+  ["g", "e"],
+);
+assert.equal(decodeRankingBrowser({ ...legacyBrowser, ratings: [] }), null);
 checks.push(
-  "comparison direction uses actual A/B percentiles, preserves unknowns, and old ranking sessions restore with bounded display defaults",
+  "comparison direction uses actual A/B percentiles, preserves unknowns, and old ranking sessions restore with bounded display defaults and single-Rating drafts",
 );
 const { commonQueryFields } = await compiled(
   "packages/client/src/queryFields.ts",
