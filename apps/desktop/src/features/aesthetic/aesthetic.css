@@ -295,8 +295,12 @@
   color: var(--muted);
   font-size: 10px;
 }
+/* Snapshots of one stage differ only by settings: show them on a second line. */
 .ranking-snapshot-list .analysis-row-main small {
-  display: none;
+  display: block;
+  margin: 1px 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .analysis-row-badge {
   flex-shrink: 0;

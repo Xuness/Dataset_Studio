@@ -15,18 +15,17 @@ const initial = {
   view: "ranking" as
     "ranking" | "evaluation" | "protected" | "comparison" | "experiments",
 };
+const views: [typeof initial.view, string][] = [
+  ["ranking", "排名浏览"],
+  ["evaluation", "评审阶段"],
+  ["protected", "保护复核"],
+  ["comparison", "实验对照"],
+  ["experiments", "实验配置"],
+];
 function decode(value: unknown): typeof initial | null {
   if (!value || typeof value !== "object") return null;
   const v = value as typeof initial;
-  return [
-    "ranking",
-    "evaluation",
-    "protected",
-    "comparison",
-    "experiments",
-  ].includes(v.view)
-    ? v
-    : null;
+  return views.some(([view]) => view === v.view) ? v : null;
 }
 export default function AestheticPanel(context: ModuleContext) {
   const session = useDraft(
@@ -106,20 +105,26 @@ export default function AestheticPanel(context: ModuleContext) {
   }
   const toolbarStart = (
     <>
-      <label className="aesthetic-mode-control">
-        <select
-          aria-label="美学工作视图"
-          value={session.value.view}
-          disabled={!session.editable}
-          onChange={(event) => view(event.target.value as typeof initial.view)}
-        >
-          <option value="ranking">排名浏览</option>
-          <option value="evaluation">评审阶段</option>
-          <option value="protected">保护复核</option>
-          <option value="comparison">实验对照</option>
-          <option value="experiments">实验配置</option>
-        </select>
-      </label>
+      <div
+        className="aesthetic-view-tabs"
+        role="group"
+        aria-label="美学工作视图"
+      >
+        {views.map(([value, label]) => (
+          <button
+            key={value}
+            type="button"
+            data-aesthetic-view={value}
+            aria-pressed={session.value.view === value}
+            disabled={!session.editable}
+            onClick={() => {
+              if (session.value.view !== value) view(value);
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
       <span className="wb-tool-separator" />
       <button
         type="button"

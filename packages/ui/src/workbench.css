@@ -384,17 +384,31 @@ body[data-object-dragging] * {
 .wb-folder-icon {
   color: var(--accent-folder);
 }
-.aesthetic-mode-control {
+/* Workspace views switch the whole center; tabs keep every view one click away. */
+.aesthetic-view-tabs {
   display: inline-flex;
-  align-items: center;
+  align-items: stretch;
+  align-self: stretch;
+  margin: -6px 0;
 }
-.aesthetic-mode-control > select {
-  height: 28px;
-  min-width: 112px;
+.aesthetic-view-tabs > button {
+  min-height: 0;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
   font-size: 12px;
-  padding: 3px 9px;
-  background: var(--field);
-  border: 1px solid var(--line);
+  white-space: nowrap;
+}
+.aesthetic-view-tabs > button:hover:not(:disabled) {
+  background: var(--panel-raised);
+  color: var(--text);
+}
+.wb-toolbar .aesthetic-view-tabs > button[aria-pressed="true"] {
+  background: var(--active);
+  color: var(--text);
+  box-shadow: inset 0 -2px var(--accent);
 }
 .wb-panel-header {
   position: relative;

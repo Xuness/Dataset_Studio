@@ -96,9 +96,7 @@ try {
   await expect(
     page.getByRole("heading", { name: "美学排序", exact: true }),
   ).toHaveCount(1);
-  await page
-    .getByLabel("美学工作视图", { exact: true })
-    .selectOption("evaluation");
+  await page.locator('[data-aesthetic-view="evaluation"]').click();
   await page
     .locator(".aesthetic-stage-list button")
     .filter({ hasText: "4 批有效" })

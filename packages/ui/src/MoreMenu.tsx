@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from "react";
-import type { MouseEvent as ReactMouseEvent, RefObject } from "react";
+import type {
+  MouseEvent as ReactMouseEvent,
+  ReactNode,
+  RefObject,
+} from "react";
 import { Check, MoreHorizontal } from "lucide-react";
 export type MoreMenuItem = {
   label: string;
@@ -155,11 +159,17 @@ export function MoreMenu({
   items,
   disabled = false,
   contextMenu = false,
+  icon,
+  buttonLabel,
 }: {
   label: string;
   items: MoreMenuItem[];
   disabled?: boolean;
   contextMenu?: boolean;
+  /** Replaces the overflow glyph for menus that are not row overflows. */
+  icon?: ReactNode;
+  /** Accessible name and tooltip of the trigger; defaults to "<label>更多操作". */
+  buttonLabel?: string;
 }) {
   const trigger = useRef<HTMLButtonElement>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
@@ -208,8 +218,8 @@ export function MoreMenu({
         ref={trigger}
         type="button"
         className="icon-button object-more"
-        aria-label={label + "更多操作"}
-        title={label + "更多操作"}
+        aria-label={buttonLabel ?? label + "更多操作"}
+        title={buttonLabel ?? label + "更多操作"}
         aria-haspopup="menu"
         aria-expanded={popover.open}
         disabled={disabled}
@@ -224,7 +234,7 @@ export function MoreMenu({
           }
         }}
       >
-        <MoreHorizontal size={16} />
+        {icon ?? <MoreHorizontal size={16} />}
       </button>
       <MenuList
         label={label}

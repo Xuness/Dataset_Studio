@@ -15,7 +15,7 @@ import type {
   ReactNode,
 } from "react";
 import type { StudioClient } from "@studio/client";
-import { PanelLeft, RotateCcw, X } from "lucide-react";
+import { PanelLeft, PanelsTopLeft, RotateCcw, X } from "lucide-react";
 import { MoreMenu } from "./MoreMenu.js";
 import { ResizeGrip } from "./ResizeGrip.js";
 import { DraftStatus } from "./drafts.js";
@@ -221,6 +221,13 @@ export function Workbench({
       active: { ...layout.active, [position]: id },
     });
   }
+  const hidden = (p: WorkbenchPanel) =>
+    !layout.panels[p.id] || layout.panels[p.id] === "hidden";
+  const restore = (p: WorkbenchPanel) =>
+    move(
+      p.id,
+      p.defaultPosition ?? (p.id.includes("inspector") ? "right" : "left"),
+    );
   function activate(position: DockPosition, id: string) {
     onLayout({ ...layout, active: { ...layout.active, [position]: id } });
   }
@@ -483,27 +490,19 @@ export function Workbench({
   const statusLine = (
     <>
       <span className="wb-status-content">{status}</span>
-      {panels
-        .filter((p) => !layout.panels[p.id] || layout.panels[p.id] === "hidden")
-        .map((p) => (
-          <button
-            type="button"
-            key={p.id}
-            className="wb-restore-panel"
-            disabled={disabled}
-            title={"显示" + p.title + "面板"}
-            onClick={() =>
-              move(
-                p.id,
-                p.defaultPosition ??
-                  (p.id.includes("inspector") ? "right" : "left"),
-              )
-            }
-          >
-            <PanelLeft size={13} />
-            {p.title}
-          </button>
-        ))}
+      {panels.filter(hidden).map((p) => (
+        <button
+          type="button"
+          key={p.id}
+          className="wb-restore-panel"
+          disabled={disabled}
+          title={"显示" + p.title + "面板"}
+          onClick={() => restore(p)}
+        >
+          <PanelLeft size={13} />
+          {p.title}
+        </button>
+      ))}
     </>
   );
   return (
@@ -517,7 +516,22 @@ export function Workbench({
       }}
     >
       <section className="wb-shell" aria-label={title}>
-        {toolbar && <div className="wb-toolbar">{toolbar}</div>}
+        {toolbar && (
+          <div className="wb-toolbar">
+            {toolbar}
+            <MoreMenu
+              label="面板"
+              buttonLabel="显示或隐藏面板"
+              icon={<PanelsTopLeft size={15} />}
+              disabled={disabled}
+              items={panels.map((p) => ({
+                label: p.title,
+                checked: !hidden(p),
+                action: () => (hidden(p) ? restore(p) : move(p.id, "hidden")),
+              }))}
+            />
+          </div>
+        )}
         <div
           ref={body}
           className="wb-body"

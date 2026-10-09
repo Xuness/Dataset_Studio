@@ -25,12 +25,19 @@ import {
 import type { ModuleContext, MoreMenuItem, WorkbenchLayout } from "@studio/ui";
 import type { Schema } from "@studio/contracts";
 import { FitDialog, DeriveDialog } from "./AnalysisActions.js";
-import { analysisActive, analysisState } from "./analysisPresentation.js";
+import {
+  analysisActive,
+  analysisState,
+  fitConfig,
+  fitDescription,
+  fitParameters,
+} from "./analysisPresentation.js";
 import {
   AnalysisJobRow,
   acceptsSnapshot,
   isSnapshot,
   useAnalysisJobEditing,
+  useStageNames,
 } from "./AnalysisJobList.js";
 
 import {
@@ -132,6 +139,14 @@ export function RankingWorkspace({
   });
   const jobItems = edit.arrange(jobs.data?.items.filter(edit.visible) ?? []);
   const snapshots = jobItems.filter(isSnapshot);
+  const stageNames = useStageNames(context, snapshots);
+  function snapshotDetail(job: Job) {
+    const config = fitConfig(job);
+    const stage = stageNames.get(job.input.stage_id);
+    return [config && fitParameters(config), stage && "来自 " + stage]
+      .filter(Boolean)
+      .join(" · ");
+  }
   const firstId = snapshots[0]?.id;
   useEffect(() => {
     if (
@@ -425,7 +440,8 @@ export function RankingWorkspace({
               edit={edit}
               list="snapshots"
               icon={<ListOrdered size={15} />}
-              detail={`已发布 · ${job.input.candidates.toLocaleString()} 张候选`}
+              detail={snapshotDetail(job)}
+              hint={fitDescription(job, stageNames.get(job.input.stage_id))}
               pressed={job.id === saved.snapshotId}
               disabled={!draft.editable || reviewBusy}
               onOpen={() => selectSnapshot(job.id)}

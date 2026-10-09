@@ -44,9 +44,7 @@ let browser, vite, page;
 const stagePath = (id) =>
   `/v1/projects/${report.projectId}/aesthetic/stages/${id}`;
 async function selectStage(id) {
-  await page
-    .getByLabel("美学工作视图", { exact: true })
-    .selectOption("evaluation");
+  await page.locator('[data-aesthetic-view="evaluation"]').click();
   await page.getByLabel("阶段归档范围").selectOption("active");
   const stage = await engine.api(stagePath(id));
   await page.getByLabel("搜索评审阶段").fill(stage.name);

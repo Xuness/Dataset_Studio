@@ -55,6 +55,52 @@ export function analysisActive(value: string) {
   return !["completed", "cancelled", "interrupted", "failed"].includes(value);
 }
 
+const estimators: Record<string, string> = {
+  davidson_v2: "Davidson v2",
+  davidson_v1: "Davidson v1",
+  borda_v1: "Borda",
+};
+export function estimatorLabel(kind: string) {
+  return estimators[kind] ?? kind;
+}
+/** Fit settings of a snapshot, or null for other job kinds. */
+export function fitConfig(
+  job: Schema["AestheticAnalysisJob"],
+): Schema["AestheticFit"] | null {
+  const spec = job.request.spec;
+  return spec.kind === "fit" ? spec.config : null;
+}
+/** Short parameter line that tells snapshots of one stage apart. */
+export function fitParameters(config: Schema["AestheticFit"]) {
+  const { kind, regularization, tie_strength } = config.estimator;
+  return kind === "borda_v1"
+    ? estimatorLabel(kind)
+    : `${estimatorLabel(kind)} · 正则 ${regularization} · 并列 ${tie_strength}`;
+}
+/** Full fit settings for a tooltip, one item per line. */
+export function fitDescription(
+  job: Schema["AestheticAnalysisJob"],
+  stageName: string | undefined,
+) {
+  const config = fitConfig(job);
+  if (!config) return job.request.name;
+  const { kind, iterations, regularization, tie_strength } = config.estimator;
+  return [
+    job.request.name,
+    `来源阶段：${stageName ?? job.input.stage_id}（${job.input.observations.toLocaleString()} 批证据）`,
+    `估计器：${estimatorLabel(kind)}`,
+    ...(kind === "borda_v1"
+      ? []
+      : [
+          `迭代上限：${iterations}`,
+          `正则化：${regularization}`,
+          `并列强度：${tie_strength}`,
+        ]),
+    `整批分半诊断：${config.stability_seed == null ? "关闭" : "开启"}`,
+    `候选：${job.input.candidates.toLocaleString()} 张`,
+  ].join("\n");
+}
+
 export function aestheticTime(value: string | null | undefined): string {
   if (!value) return "—";
   const time = new Date(/^\d+$/.test(value) ? Number(value) : value);

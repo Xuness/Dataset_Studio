@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQueryClient } from "@tanstack/react-query";
 import {
   ErrorDetails,
   MoreMenu,
@@ -26,6 +26,30 @@ const JOB = "aesthetic.job";
 export const isSnapshot = (job: Job) =>
   job.state === "completed" && job.result?.kind === "fit";
 export const acceptsSnapshot = (object: DragObject) => object.kind === SNAPSHOT;
+/** Names of the source stages of one page of jobs, read stage by stage. */
+export function useStageNames(context: ModuleContext, jobs: Job[]) {
+  const ids = [...new Set(jobs.map((job) => job.input.stage_id))].filter(
+    Boolean,
+  );
+  const stages = useQueries({
+    queries: ids.map((id) => ({
+      queryKey: ["project", context.projectId, "aesthetic", "stage-name", id],
+      queryFn: ({ signal }: { signal: AbortSignal }) =>
+        context.client.aesthetic.stage(context.projectId, id, signal),
+      staleTime: 60_000,
+      retry: false,
+    })),
+  });
+  const names = new Map<string, string>();
+  stages.forEach((stage, index) => {
+    if (stage.data)
+      names.set(
+        ids[index]!,
+        stage.data.name + (stage.data.archived ? "（已归档）" : ""),
+      );
+  });
+  return names;
+}
 const noun = (job: Job) =>
   isSnapshot(job)
     ? "排名快照"
@@ -206,6 +230,7 @@ export function AnalysisJobRow({
   edit,
   icon,
   detail,
+  hint,
   badge,
   pressed,
   disabled = false,
@@ -220,6 +245,8 @@ export function AnalysisJobRow({
   edit: AnalysisJobEditing;
   icon?: ReactNode;
   detail?: ReactNode;
+  /** Hover text; defaults to the name. */
+  hint?: string | undefined;
   /** Short always-visible marker, such as the comparison side. */
   badge?: string | undefined;
   pressed: boolean;
@@ -273,7 +300,7 @@ export function AnalysisJobRow({
       data-pressed={pressed || undefined}
       data-drop={insertion ?? undefined}
       data-dragged={dragged?.id === job.id || undefined}
-      title={name}
+      title={hint ?? name}
     >
       {editing ? (
         <span className="analysis-row-main">

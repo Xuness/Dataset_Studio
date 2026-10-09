@@ -8,6 +8,7 @@ import {
   rankingAsset,
   rankingLabel,
   analysisActive,
+  fitParameters,
 } from "./analysisPresentation.js";
 type Job = Schema["AestheticAnalysisJob"];
 
@@ -79,12 +80,28 @@ export function FitDialog({
       ].map((stage) => [stage.id, stage]),
     ).values(),
   ];
-  const [name, setName] = useState("排名快照");
   const [estimator, setEstimator] = useState("davidson_v2");
   const [iterations, setIterations] = useState(128);
   const [regularization, setRegularization] = useState(0.001);
   const [tieStrength, setTieStrength] = useState(0.1);
   const [split, setSplit] = useState(true);
+  // Until edited, the name follows the source stage and settings so several
+  // snapshots of one stage stay distinguishable.
+  const [customName, setCustomName] = useState<string | null>(null);
+  const sourceStage = availableStages.find((stage) => stage.id === stageId);
+  const name =
+    customName ??
+    (sourceStage
+      ? `${sourceStage.name} · ${fitParameters({
+          stage_id: stageId,
+          estimator: {
+            kind: estimator,
+            iterations,
+            regularization,
+            tie_strength: tieStrength,
+          },
+        })}`.slice(0, 120)
+      : "排名快照");
   return (
     <WorkbenchDialog
       title="生成排名快照"
@@ -131,7 +148,7 @@ export function FitDialog({
               required
               maxLength={120}
               disabled={action.busy}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => setCustomName(e.target.value)}
             />
           </label>
           <label>
@@ -150,7 +167,8 @@ export function FitDialog({
                   value={stage.id}
                   disabled={!stage.accepted}
                 >
-                  {stage.name} · {stage.accepted} 批有效
+                  {stage.name}
+                  {stage.archived && "（已归档）"} · {stage.accepted} 批有效
                 </option>
               ))}
             </select>

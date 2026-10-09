@@ -13,9 +13,7 @@ export async function checkRankingReading(
   page,
   { engine, rootPath, run, checks },
 ) {
-  await page
-    .getByLabel("美学工作视图", { exact: true })
-    .selectOption("ranking");
+  await page.locator('[data-aesthetic-view="ranking"]').click();
   await tab(page, "详情").click();
   await page.getByLabel("排名 Rating", { exact: true }).selectOption("g");
   await page.getByLabel("排名每页图片数").selectOption("12");
@@ -204,9 +202,7 @@ export async function checkRankingReading(
     "lost review response is retried with the persisted idempotency key after reload; save-and-next crosses pages without replacing another image's draft",
   );
 
-  await page
-    .getByLabel("美学工作视图", { exact: true })
-    .selectOption("protected");
+  await page.locator('[data-aesthetic-view="protected"]').click();
   await expect(page.locator(".ranking-image-tile").first()).toBeVisible();
   await page.locator(".ranking-image-tile").first().click();
   const protectedLabel = await selected(page).getAttribute("aria-label");
@@ -227,9 +223,7 @@ export async function checkRankingReading(
     "effective protection updates immediately while the review queue remains pinned until explicit refresh",
   );
 
-  await page
-    .getByLabel("美学工作视图", { exact: true })
-    .selectOption("ranking");
+  await page.locator('[data-aesthetic-view="ranking"]').click();
   await page
     .getByRole("button", { name: "返回排名网格", exact: true })
     .first()
@@ -309,15 +303,17 @@ export async function checkComparison(page, { engine, rootPath, run, checks }) {
   const left = jobs.find((j) => j.request.name === "Davidson");
   const right = jobs.find((j) => j.request.name === "Borda");
   assert.ok(left && right);
-  await page
-    .getByLabel("美学工作视图", { exact: true })
-    .selectOption("comparison");
+  await page.locator('[data-aesthetic-view="comparison"]').click();
   await tab(page, "对照设置").click();
   await page.getByLabel("基准快照 A", { exact: true }).selectOption(left.id);
   await page.getByLabel("对照快照 B", { exact: true }).selectOption(right.id);
   const name = "UI 快照对照 " + Date.now();
   await page.getByLabel("对照名称", { exact: true }).fill(name);
-  await page.getByRole("button", { name: "生成离线对照", exact: true }).click();
+  // The settings panel and the empty canvas each offer this action.
+  await page
+    .locator(".wb-zone form")
+    .getByRole("button", { name: "生成离线对照", exact: true })
+    .click();
   await expect(page.locator(".ranking-task-state")).toContainText("已完成", {
     timeout: 60000,
   });
@@ -358,8 +354,11 @@ export async function checkComparison(page, { engine, rootPath, run, checks }) {
         .evaluate((image) => image.complete && image.naturalWidth > 0),
     )
     .toBe(true);
+  // Snapshot rows A and B are pressed too; check the opened comparison row.
   await expect(
-    page.locator('.ranking-snapshot-list button[aria-pressed="true"]'),
+    page
+      .locator('.ranking-snapshot-list button[aria-pressed="true"]')
+      .filter({ hasText: name }),
   ).toContainText("已完成");
   await saved(page);
   await page.screenshot({ path: resolve(run, "comparison-2560.png") });
@@ -377,7 +376,5 @@ export async function checkComparison(page, { engine, rootPath, run, checks }) {
   checks.push(
     "real SDK comparison publishes a bounded image table, explains comparable changes and restores the selected result and cursor after reload",
   );
-  await page
-    .getByLabel("美学工作视图", { exact: true })
-    .selectOption("ranking");
+  await page.locator('[data-aesthetic-view="ranking"]').click();
 }

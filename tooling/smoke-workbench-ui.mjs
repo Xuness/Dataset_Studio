@@ -116,15 +116,14 @@ try {
     .filter({ hasText: "离线美学后端验收" })
     .click();
   await page.getByRole("button", { name: "美学排序", exact: true }).click();
-  await page
-    .getByLabel("美学工作视图", { exact: true })
-    .selectOption("ranking");
+  await page.locator('[data-aesthetic-view="ranking"]').click();
   await page.getByRole("button", { name: "恢复默认布局", exact: true }).click();
   await page
     .getByRole("button", { name: "刷新排名工作台", exact: true })
     .click();
-  await expect(page.getByLabel("美学工作视图", { exact: true })).toHaveValue(
-    "ranking",
+  await expect(page.locator('[data-aesthetic-view="ranking"]')).toHaveAttribute(
+    "aria-pressed",
+    "true",
   );
   await expect(page.locator(".ranking-image-tile").first()).toBeVisible();
   await page.getByLabel("排名每页图片数").selectOption("12");
@@ -176,9 +175,19 @@ try {
   ).toHaveCount(2);
   await page.getByRole("button", { name: "隐藏详情面板", exact: true }).click();
   await expect(
-    page.getByRole("button", { name: "显示详情", exact: true }),
+    page.locator('.wb-restore-panel[title="显示详情面板"]'),
   ).toBeVisible();
-  await page.getByRole("button", { name: "显示详情", exact: true }).click();
+  const panelMenu = page
+    .locator(".aesthetic-workspace .wb-toolbar")
+    .getByRole("button", { name: "显示或隐藏面板", exact: true });
+  await panelMenu.click();
+  await expect(
+    page.getByRole("menuitemcheckbox", { name: "详情", exact: true }),
+  ).toHaveAttribute("aria-checked", "false");
+  await page
+    .getByRole("menuitemcheckbox", { name: "详情", exact: true })
+    .click();
+  await expect(page.locator(".wb-restore-panel")).toHaveCount(0);
   await page.getByRole("button", { name: "恢复默认布局", exact: true }).click();
   await expect(page.locator(".aesthetic-workspace .wb-right")).toBeVisible();
   const grip = page.getByRole("separator", { name: "详情面板宽度" });
@@ -247,15 +256,11 @@ try {
   assert.ok(
     reviews.items.some((review) => review.request.reviewer === "UI fixture"),
   );
-  await page
-    .getByLabel("美学工作视图", { exact: true })
-    .selectOption("protected");
+  await page.locator('[data-aesthetic-view="protected"]').click();
   await expect(page.locator(".ranking-image-tile").first()).toBeVisible();
   await expect(page.locator(".ranking-pagebar")).toContainText("复核水位");
   await page.screenshot({ path: resolve(run, "protection-review.png") });
-  await page
-    .getByLabel("美学工作视图", { exact: true })
-    .selectOption("ranking");
+  await page.locator('[data-aesthetic-view="ranking"]').click();
   checks.push(
     "append-only protection review and effective protection browse with fixed watermark",
   );
@@ -291,7 +296,7 @@ try {
   );
   await page.getByRole("button", { name: "隐藏项目面板", exact: true }).click();
   await expect(
-    page.getByRole("button", { name: "显示项目", exact: true }),
+    page.locator('.wb-restore-panel[title="显示项目面板"]'),
   ).toBeVisible();
   await page.getByRole("button", { name: "恢复默认布局", exact: true }).click();
   await expect(page.locator(".project-panel")).toBeVisible();
@@ -316,9 +321,7 @@ try {
   await page
     .getByRole("button", { name: "关闭新建评审阶段", exact: true })
     .click();
-  await page
-    .getByLabel("美学工作视图", { exact: true })
-    .selectOption("ranking");
+  await page.locator('[data-aesthetic-view="ranking"]').click();
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.screenshot({ path: resolve(run, "ranking-1280.png") });
   assert.ok(

@@ -93,7 +93,7 @@ async function openModule() {
   await page.getByRole("button", { name: "美学排序", exact: true }).click();
 }
 async function view(name) {
-  await page.getByLabel("美学工作视图", { exact: true }).selectOption(name);
+  await page.locator(`[data-aesthetic-view="${name}"]`).click();
 }
 async function screenshot(name) {
   await page.screenshot({ path: resolve(run, name + ".png") });
@@ -536,8 +536,9 @@ try {
     .getByRole("button", { name: "查看排名", exact: true })
     .first()
     .click();
-  await expect(page.getByLabel("美学工作视图", { exact: true })).toHaveValue(
-    "ranking",
+  await expect(page.locator('[data-aesthetic-view="ranking"]')).toHaveAttribute(
+    "aria-pressed",
+    "true",
   );
   await expect(page.locator(".ranking-image-grid img").first()).toBeVisible();
   await expect(page.locator(".ranking-validity")).toContainText(
@@ -550,9 +551,9 @@ try {
   await page
     .getByRole("button", { name: "在实验对照中打开", exact: true })
     .click();
-  await expect(page.getByLabel("美学工作视图", { exact: true })).toHaveValue(
-    "comparison",
-  );
+  await expect(
+    page.locator('[data-aesthetic-view="comparison"]'),
+  ).toHaveAttribute("aria-pressed", "true");
   await expect(page.getByLabel("基准快照 A")).toHaveValue(jobs[0].id);
   await expect(page.getByLabel("对照快照 B")).toHaveValue(jobs[1].id);
   checks.push(
