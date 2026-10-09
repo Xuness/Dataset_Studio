@@ -9,11 +9,16 @@ import "./rankingBrowse.css";
 export function rankableScope(
   projectId: string,
   scope: BrowseScope,
+  revision?: number,
 ): ScopeRef | null {
   if (scope.kind === "collection")
     return {
       project_id: projectId,
-      target: { kind: "workset", collection_id: scope.id },
+      target: {
+        kind: "workset",
+        collection_id: scope.id,
+        ...(revision !== undefined ? { revision } : {}),
+      },
     };
   if (scope.kind === "result")
     return {
@@ -29,9 +34,13 @@ export function useRankingBrowse(
   scope: BrowseScope,
   persisted: RankedBrowseSettings | null,
   onChange: (value: RankedBrowseSettings) => void,
+  revision?: number,
 ) {
-  const identity = JSON.stringify(browseScopeIdentity(scope));
-  const target = rankableScope(projectId, scope);
+  const identity = JSON.stringify({
+    ...browseScopeIdentity(scope),
+    ...(scope.kind === "collection" ? { revision } : {}),
+  });
+  const target = rankableScope(projectId, scope, revision);
   const info = useQuery({
     queryKey: ["project", projectId, "ranking-browse-info", identity],
     queryFn: ({ signal }) =>
@@ -62,12 +71,36 @@ export function useRankingBrowse(
     staleTime: Infinity,
   });
   const viewKey = info.data?.ranking?.view_key ?? identity;
+  let changedMembers = false;
+  if (scope.kind === "collection" && persisted?.sourceScopeKey) {
+    try {
+      const previous: unknown = JSON.parse(persisted.sourceScopeKey);
+      changedMembers =
+        !!previous &&
+        typeof previous === "object" &&
+        "kind" in previous &&
+        previous.kind === "collection" &&
+        "id" in previous &&
+        previous.id === scope.id &&
+        (!("revision" in previous) || previous.revision !== revision);
+    } catch {
+      /* Unrecognized saved state uses the default order. */
+    }
+  }
   const previous =
     persisted?.scopeKey === viewKey ||
     persisted?.scopeKey === identity ||
     legacy.data?.ranking?.view_key === viewKey
       ? persisted
-      : persisted?.views?.[viewKey];
+      : changedMembers && persisted
+        ? {
+            ...persisted,
+            startPostId: null,
+            startRank: null,
+            startRating: null,
+            startCursor: null,
+          }
+        : persisted?.views?.[viewKey];
   const settings: RankedBrowseSettings = previous
     ? {
         ...previous,

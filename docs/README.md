@@ -201,3 +201,5 @@ OpenRouter 提示词缓存与计费观测：[缓存策略、严格 Flex 和回�
 离线任务排序：[账本中的自定义顺序与列表拖动排序](decisions/0064-aesthetic-job-order.md)。
 
 Pixiv 浏览排序：[作品 ID、页码、旧湖索引与保留快照](decisions/0072-pixiv-post-order.md)。
+
+工作集成员编辑：[加入、移除、成员版本与历史输入保护](decisions/0073-workset-membership-edits.md)。

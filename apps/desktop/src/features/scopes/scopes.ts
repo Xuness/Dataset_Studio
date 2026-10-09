@@ -54,7 +54,11 @@ export function scopeOptions(
       count: collection.count,
       scope: {
         project_id: projectId,
-        target: { kind: "workset", collection_id: collection.id },
+        target: {
+          kind: "workset",
+          collection_id: collection.id,
+          revision: collection.revision,
+        },
       },
     });
   for (const result of results)

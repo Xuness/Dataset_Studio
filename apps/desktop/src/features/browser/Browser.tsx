@@ -38,6 +38,7 @@ import type {
   BrowseScope,
   BrowseViewProps,
   ContextMenuState,
+  MoreMenuItem,
 } from "@studio/ui";
 import { assetIdentity } from "@studio/client";
 import type { StudioClient } from "@studio/client";
@@ -112,6 +113,7 @@ export function Browser(props: BrowserProps) {
     props.scope,
     props.rankedBrowse,
     props.onRankedBrowse,
+    props.collectionRevision,
   );
   const leasedScope =
     ranked.active && ranked.target ? JSON.stringify(ranked.target) : null;
@@ -138,7 +140,11 @@ export function Browser(props: BrowserProps) {
     order,
     ranked.key,
     ranked.info?.artifact_id,
-    props.scope.kind === "selection" ? props.selectionRevision : null,
+    props.scope.kind === "selection"
+      ? props.selectionRevision
+      : props.scope.kind === "collection"
+        ? (props.collectionRevision ?? 0)
+        : null,
   ]);
   const position = props.position
     ? {
@@ -177,6 +183,8 @@ function BrowserContent({
   thumbnailSize,
   onThumbnailSize,
   selectionRevision,
+  collectionRevision,
+  onCollectionMembers,
   filters,
   onOpenQuery,
   onRefreshed,
@@ -191,7 +199,11 @@ function BrowserContent({
   const [refreshError, setRefreshError] = useState<unknown>(null);
   const scopeKey = JSON.stringify([
     browseScopeIdentity(scope),
-    scope.kind === "selection" ? selectionRevision : null,
+    scope.kind === "selection"
+      ? selectionRevision
+      : scope.kind === "collection"
+        ? (collectionRevision ?? 0)
+        : null,
     pageSize,
     ranked.active ? ranked.key : order,
   ]);
@@ -200,6 +212,23 @@ function BrowserContent({
   );
   const [notice, setNotice] = useState("");
   const [cardMenu, setCardMenu] = useState<ContextMenuState | null>(null);
+  const membershipItems = (asset: Asset): MoreMenuItem[] =>
+    onCollectionMembers
+      ? [
+          {
+            label: "加入已有工作集…",
+            disabled: busy,
+            separator: true,
+            action: () => onCollectionMembers("add", [asset.key]),
+          },
+          {
+            label:
+              scope.kind === "collection" ? "从此工作集移除…" : "从工作集移除…",
+            disabled: busy,
+            action: () => onCollectionMembers("remove", [asset.key]),
+          },
+        ]
+      : [];
   const thumbnailZoom = useRef({ size: thumbnailSize, set: onThumbnailSize });
   thumbnailZoom.current = { size: thumbnailSize, set: onThumbnailSize };
   useEffect(() => {
@@ -852,7 +881,7 @@ function BrowserContent({
       : scope.kind === "collection"
         ? {
             title: "这个工作集没有图片",
-            text: "可以从其他范围重新选择图片并保存为工作集。",
+            text: "可以从其他范围选择图片，再使用“加入已有工作集”添加到这里。",
           }
         : scope.kind === "result"
           ? {
@@ -1024,7 +1053,7 @@ function BrowserContent({
             <div className="browser-refresh-note">
               <span>
                 {validity.data?.current && validity.data.newer_available
-                  ? "数据湖已有更新；当前视图保持不变，可手动读取最新数据。"
+                  ? "范围或数据湖已有更新；当前结果保留原版本，可手动读取最新数据。"
                   : "视图需要刷新；将按最新来源检查条件。"}
               </span>
               <Button
@@ -1287,6 +1316,7 @@ function BrowserContent({
               projectId={projectId}
               edge={1600}
               menuItems={[
+                ...membershipItems(activeAsset),
                 {
                   label: activeAsset.selected ? "取消选择" : "选择",
                   shortcut: "Space",
@@ -1398,6 +1428,7 @@ function BrowserContent({
                           disabled: busy,
                           action: () => selectAt(asset, index, false),
                         },
+                        ...membershipItems(asset),
                         {
                           label: "在检查器中查看属性",
                           separator: true,

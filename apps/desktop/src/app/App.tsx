@@ -98,6 +98,8 @@ import {
   EXPORT_OPERATOR,
 } from "../features/exports/ExportDialog.js";
 import { DetachedSources } from "../features/management/DetachedSources.js";
+import { CollectionMembersDialog } from "../features/worksets/CollectionMembersDialog.js";
+import type { CollectionMembersIntent } from "../features/worksets/CollectionMembersDialog.js";
 import { LakeActivity } from "../features/lake-updates/LakeActivity.js";
 import {
   useLakePreference,
@@ -272,6 +274,9 @@ function Studio({
   const [dialog, setDialog] = useState<DialogKind>(null);
   // Scope option value the export dialog opens with; null when closed.
   const [exportScope, setExportScope] = useState<string | null>(null);
+  const [memberEdit, setMemberEdit] = useState<
+    (CollectionMembersIntent & { projectId: string }) | null
+  >(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [settingsPage, setSettingsPage] = useState<SettingsPageId | null>(null);
   const [error, setError] = useState("");
@@ -552,6 +557,25 @@ function Studio({
       ? view.scope.id
       : "selection";
   const selected = selection.data?.count ?? 0;
+  function editCollectionMembers(
+    operation: "add" | "remove",
+    keys?: AssetKey[],
+  ) {
+    const parent = activeResult.data?.spec.input_scope?.target;
+    const collectionId =
+      view.scope.kind === "collection"
+        ? view.scope.id
+        : parent?.kind === "workset"
+          ? parent.collection_id
+          : undefined;
+    setMemberEdit({
+      projectId: currentId,
+      operation,
+      ...(keys ? { keys } : {}),
+      ...(operation === "remove" && collectionId ? { collectionId } : {}),
+      scopeValue: selected > 0 ? "selection" : defaultScope,
+    });
+  }
   function targetForScope(scope: BrowseScope): ObjectTarget {
     if (scope.kind === "source") return { kind: "source", id: scope.id };
     if (scope.kind === "collection") return { kind: "workset", id: scope.id };
@@ -1168,6 +1192,13 @@ function Studio({
       onPick: pick,
       onScopeOperation: operateViewScope,
       selectionRevision: selection.data?.revision ?? 0,
+      collectionRevision:
+        view.scope.kind === "collection"
+          ? (collections.data?.items.find(
+              (c) => view.scope.kind === "collection" && c.id === view.scope.id,
+            )?.revision ?? 0)
+          : 0,
+      onCollectionMembers: editCollectionMembers,
       busy,
       view: view.view,
       setView: (mode) => updateView({ view: mode }),
@@ -1802,6 +1833,18 @@ function Studio({
             </Button>
             <Button
               disabled={!selected || busy}
+              onClick={() => editCollectionMembers("add")}
+            >
+              加入已有工作集…
+            </Button>
+            <Button
+              disabled={!selected || busy}
+              onClick={() => editCollectionMembers("remove")}
+            >
+              从工作集移除…
+            </Button>
+            <Button
+              disabled={!selected || busy}
               onClick={() => setExportScope("selection")}
             >
               <FolderOutput size={14} />
@@ -1929,6 +1972,20 @@ function Studio({
             >
               <FolderPlus size={14} />
               保存当前范围
+            </button>
+            <button
+              disabled={!hasTaskInput || busy}
+              onClick={() => editCollectionMembers("add")}
+              title="将选择或当前范围加入已有工作集"
+            >
+              加入已有工作集…
+            </button>
+            <button
+              disabled={!hasTaskInput || busy}
+              onClick={() => editCollectionMembers("remove")}
+              title="从工作集中移除选择或当前范围的图片"
+            >
+              从工作集移除…
             </button>
             <button
               disabled={!hasTaskInput || busy}
@@ -2329,6 +2386,30 @@ function Studio({
                 },
               },
             });
+          }}
+        />
+      )}
+      {memberEdit && project && memberEdit.projectId === project.id && (
+        <CollectionMembersDialog
+          key={project.id}
+          client={client}
+          projectId={project.id}
+          intent={memberEdit}
+          options={inputs}
+          onClose={() => setMemberEdit(null)}
+          onApplied={(result) => {
+            if (
+              result.changed &&
+              view.scope.kind === "collection" &&
+              view.scope.id === result.collection.id
+            )
+              workspace.controller?.set((v) => ({
+                ...v,
+                position: null,
+                ...(memberEdit.operation === "remove"
+                  ? { focusKey: null }
+                  : {}),
+              }));
           }}
         />
       )}

@@ -211,6 +211,14 @@ export function QuickFilters({
     (!scoped || !!scopeSources.data) &&
     JSON.stringify([...sourceIds].sort()) !==
       JSON.stringify([...result.data.spec.source_ids].sort());
+  const memberTarget = option?.scope.target;
+  const resultTarget = result.data?.spec.input_scope?.target;
+  const membershipChanged =
+    ownedView &&
+    memberTarget?.kind === "workset" &&
+    resultTarget?.kind === "workset" &&
+    memberTarget.collection_id === resultTarget.collection_id &&
+    memberTarget.revision !== resultTarget.revision;
   const migrationInfo = useQuery({
     queryKey: ["project", projectId, "quick-filter-upgrade", value.resultId],
     queryFn: ({ signal }) =>
@@ -539,7 +547,9 @@ export function QuickFilters({
               </span>
               <span className="grow" />
               {value.resultId &&
-                (signature !== value.submitted || sourceSetChanged) && (
+                (signature !== value.submitted ||
+                  sourceSetChanged ||
+                  membershipChanged) && (
                   <span className="filter-unapplied">条件尚未应用</span>
                 )}
               <Button
@@ -576,6 +586,11 @@ export function QuickFilters({
             </div>
           </fieldset>
         </form>
+      )}
+      {membershipChanged && (
+        <p className="filter-note" role="status">
+          工作集成员已更新，当前筛选结果保留原版本。可重新应用筛选，或清除筛选返回工作集。
+        </p>
       )}
       {!usable && (
         <p className="filter-note">

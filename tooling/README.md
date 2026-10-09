@@ -23,6 +23,8 @@ Linux x86_64 入口见 [Linux 开发运行](../docs/architecture/linux-developme
 
 查看器回归：`node tooling/test-image-viewer.mjs` 在 2560×1440、100% 缩放下加载实际共享组件，验证美学大图快捷键，以及普通图、小图、1 像素图和长图的 1:1 与连续缩放。文件对话框和剪贴板使用测试替身，不触碰桌面，也不构成原生平台能力验收。
 
+工作集成员编辑：`pnpm test:rust -p studio-storage collection_edits::tests` 覆盖成员版本和有界差异；`pnpm test:integration worksets` 使用隔离合成湖验证完整后端流程。随后用输出的运行目录执行 `node tooling/smoke-workset-members-ui.mjs <运行目录>` 验证操作栏、右键菜单、撤销、响应丢失重试和空工作集。格式与历史输入语义见 [0073](../docs/decisions/0073-workset-membership-edits.md)。
+
 数据湖存储维护：`node tooling/lake-storage.mjs` 提供 `build / verify / compare / release / activate / cleanup / handoff / retire`。构建不需要旧生产者索引；`handoff` 和 `retire` 默认预览，`--apply` 才提交交接或回收。`cleanup` 只清理本工具未启用的准备库并先归档小型证据。操作约束与命令示例见 [0050](../docs/decisions/0050-archive-rebuild-and-producer-retirement.md)。
 
 Pixiv 后端：`node tooling/source-collections.mjs` 调用同一个采集服务；`pnpm test:integration collections` 使用离线夹具验证 HTTP/SDK、来源读取和任务控制。`node tooling/validate-pixiv-public.mjs --author 10109777 --output '<isolated output>'` 是显式联网的小样本验证，不属于自动测试。`lake-storage build --site pixiv` 支持只靠归档重建在线 3。参数、会话边界和使用例见[采集接入说明](../docs/architecture/source-collections.md)。

@@ -63,6 +63,11 @@ export type BrowseViewProps = {
   onPick: (keys: AssetKey[], remove?: boolean) => void;
   onScopeOperation: (operation: ScopeOperation) => void;
   selectionRevision: number;
+  collectionRevision?: number;
+  onCollectionMembers?: (
+    operation: "add" | "remove",
+    keys?: AssetKey[],
+  ) => void;
   busy: boolean;
   view: "grid" | "image";
   setView: (view: "grid" | "image") => void;
