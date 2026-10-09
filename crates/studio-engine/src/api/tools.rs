@@ -49,7 +49,7 @@ pub(super) async fn submit(
             if crate::exports::is_export(&request.run.operator_id) {
                 let params =
                     studio_operators::export::ExportParameters::parse(&request.run.parameters)?;
-                crate::exports::validate_destination(&s.store, &pid, &params.destination)?;
+                crate::exports::validate_destination(&s.store, &params.destination)?;
             }
             if let Some(old) = s.store.retry_registered_job(&pid, &request)? {
                 return Ok(old.into());

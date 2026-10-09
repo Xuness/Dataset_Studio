@@ -9,6 +9,7 @@ const suites = [
   "foundation",
   "scopes",
   "tools",
+  "exports",
   "resources",
   "artifact-scale",
   "query-cache",

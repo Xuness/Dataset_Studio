@@ -11,6 +11,25 @@ fn same_path(a: &Option<PathBuf>, b: &Option<PathBuf>) -> bool {
     }
 }
 impl SqliteStore {
+    /// Shared lake roots, including sources attached only to closed projects.
+    /// Reading this registry must not acquire or migrate other project databases.
+    pub fn source_location_roots(&self) -> Result<Vec<PathBuf>> {
+        let registry = self.registry.lock().map_err(lock_error)?;
+        let mut statement = registry
+            .prepare("SELECT json FROM source_locations ORDER BY id")
+            .map_err(db_error)?;
+        let rows = statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(db_error)?;
+        let mut roots = std::collections::BTreeSet::new();
+        for row in rows {
+            let source: Source =
+                serde_json::from_str(&row.map_err(db_error)?).map_err(Error::io)?;
+            roots.extend([source.index_root, source.media_root].into_iter().flatten());
+        }
+        Ok(roots.into_iter().collect())
+    }
+
     pub(super) fn attach_location(&self, source: &Source) -> Result<()> {
         let old: Option<String> = self
             .registry

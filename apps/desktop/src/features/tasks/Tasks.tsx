@@ -338,8 +338,8 @@ function TaskRow({
               : "查看任务"}
           </Button>
         )}
-        {object.state === "deleted" ? null : p.succeeded &&
-          job.operator === "core.export_files" ? (
+        {object.state === "deleted" ? null : job.operator ===
+          "core.export_files" ? (
           <Button
             disabled={!!pending || disconnected}
             onClick={() =>

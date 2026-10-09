@@ -179,9 +179,11 @@ export function ExportDialog({
           将导出「{input?.label ?? "尚未选择范围"}」的{" "}
           {input?.count?.toLocaleString("zh-CN") ?? "待确定数量的"}{" "}
           项。提交时固定成员，文件名为“序号_原文件名”，序号按图像身份的固定顺序，不是排名顺序。
-          目标中已有同名且大小相同的文件会跳过（可中断后重试）；大小不同则改名为
-          _2、_3。 数据湖目录只读，不能作为目标；单张超过 64 MiB 的原图会记入
-          export-errors.jsonl。
+          已有原图按大小和内容身份检查，标签或 JSON 按本次内容检查；一致时复用，
+          冲突时将图片与元数据一起改名为
+          _2、_3。已登记的数据湖目录不能作为目标。 单张超过 64
+          MiB，或原图、元数据导出失败时，会记录在
+          export-errors.jsonl；其余原图继续导出，任务会报告未完整导出的数量。
         </p>
         {error && (
           <p className="dialog-error" role="alert">

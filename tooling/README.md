@@ -19,6 +19,8 @@ Linux x86_64 入口见 [Linux 开发运行](../docs/architecture/linux-developme
 
 跨模块影响广泛或明确要求完整验收时才使用 `pnpm check:full`、`pnpm test:integration:all`；CI 保留这两个完整入口。普通开发不重复安装依赖、生成契约或构建 Release；前端构建按打包、资源、依赖变化决定。已经由完整入口覆盖且代码未再改变的检查不重复执行。历史计划中的阶段验收要求以 [AGENTS.md](../AGENTS.md) 的当前规则为准。
 
+原图导出回归：`pnpm test:integration exports` 使用两个隔离合成湖，覆盖共享目录保护、图片与元数据冲突、元数据中断后的部分完成及同任务重试。文件发布、取消清理和流式错误日志的单元回归为 `pnpm test:rust -p studio-engine exports::files::tests`。
+
 数据湖存储维护：`node tooling/lake-storage.mjs` 提供 `build / verify / compare / release / activate / cleanup / handoff / retire`。构建不需要旧生产者索引；`handoff` 和 `retire` 默认预览，`--apply` 才提交交接或回收。`cleanup` 只清理本工具未启用的准备库并先归档小型证据。操作约束与命令示例见 [0050](../docs/decisions/0050-archive-rebuild-and-producer-retirement.md)。
 
 Pixiv 后端：`node tooling/source-collections.mjs` 调用同一个采集服务；`pnpm test:integration collections` 使用离线夹具验证 HTTP/SDK、来源读取和任务控制。`node tooling/validate-pixiv-public.mjs --author 10109777 --output '<isolated output>'` 是显式联网的小样本验证，不属于自动测试。`lake-storage build --site pixiv` 支持只靠归档重建在线 3。参数、会话边界和使用例见[采集接入说明](../docs/architecture/source-collections.md)。

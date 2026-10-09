@@ -37,7 +37,7 @@ pub(super) async fn save_original(
     Ok(Json(
         blocking(move || {
             let source = s.store.source(&pid, &sid)?;
-            let path = crate::exports::validate_save_path(&s.store, &pid, &body.path)?;
+            let path = crate::exports::validate_save_path(&s.store, &body.path)?;
             let media = crate::exports::read_original(
                 &s.sources,
                 &source,
