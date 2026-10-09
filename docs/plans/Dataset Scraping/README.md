@@ -1,6 +1,6 @@
 # 多来源图片采集规划
 
-创建日期：2026-09-30。更新日期：2026-10-09。Pixiv 已完成采集核心、后端、现有界面接入、增量复查与周期计划。[接入说明](../../architecture/source-collections.md)、[最新决定](../../decisions/0053-pixiv-public-operation-and-incremental-refresh.md)与[公开生产验收](../../verification/2026-10-03-pixiv-public-production.md)描述现状，以下草案保留设计过程；[阶段 1–3 验收](../../verification/2026-10-03-pixiv-stages-1-3.md)是此前的小样本基线。Pinterest 已形成采集与质量研究方案，并完成有限 CDN 媒体样本检查，当前优先验证原始媒体获取链路。
+创建日期：2026-09-30。更新日期：2026-10-09。Pixiv 已完成采集核心、后端、现有界面接入、增量复查与周期计划。[接入说明](../../architecture/source-collections.md)、[最新决定](../../decisions/0053-pixiv-public-operation-and-incremental-refresh.md)与[公开生产验收](../../verification/2026-10-03-pixiv-public-production.md)描述现状，以下草案保留设计过程；[阶段 1–3 验收](../../verification/2026-10-03-pixiv-stages-1-3.md)是此前的小样本基线。Pinterest 已形成采集与质量研究方案，完成有限 CDN 媒体样本检查和匿名入口实测，并提出以图版为主干的聚焦采集方案；题材范围与预筛策略待确定。
 
 本目录记录 Dataset Studio 后续扩展图片来源的采集规划，供来源采集器、数据处理和调度设计使用。当前已有 Danbooru、Gelbooru、Yandere 数据湖及下载补全机制；新的来源需要自行发现作品、获取媒体并保存原始元数据。
 
@@ -38,7 +38,7 @@ Pixiv 已明确优先基于网页端、以作者为扩展核心并纳入登录�
 | 来源           | 当前进度                                             | 后续重点                                            |
 | -------------- | ---------------------------------------------------- | --------------------------------------------------- |
 | Pixiv          | 采集、增量复查、周期计划、现有浏览／任务／设置已接入 | 提供凭据后验收真实登录与显示条件；扩展来源发现入口  |
-| Pinterest      | 采集方案已整理，完成有限 CDN 样本检查，尚未接入 | 原始媒体取得、详情访问、图版与推荐覆盖、质量验证 |
+| Pinterest      | 采集方案已整理，完成有限 CDN 样本检查与匿名入口实测，尚未接入 | 确定题材范围与预筛策略，入口收益试验，原始媒体验证 |
 | Rule34         | 后续 Booru 扩展候选，尚未展开专项设计           | 复用 Booru 接入经验，并评估重叠与新增收益         |
 | Konachan       | 待展开                                               | 帖子目录遍历、原图、标签字典与历史更新              |
 | Anime-Pictures | 待展开                                               | 列表与详情补全、访问可用性、原件取得状态            |
@@ -49,6 +49,7 @@ Pixiv 已明确优先基于网页端、以作者为扩展核心并纳入登录�
 ## 文档入口
 
 - [Pinterest 采集研究与方案](pinterest-collector-design.md)：发现入口、推荐循环、会话、质量证据、覆盖口径和分阶段验证。
+- [Pinterest 发现策略与入口实测](pinterest-discovery-strategy.md)：图版、图片签名与兴趣主题三层组织，匿名入口实测，聚焦采集循环、两段式媒体取得及待决定问题。
 - [Pinterest 原图获取与验证](pinterest-original-media.md)：原始媒体与创作者原件的区别、候选解析、文件验证、回退规则及有限样本结果。
 - [Pixiv 采集器设计草案](pixiv-collector-design.md)：发现入口、子模块分工、请求链路、媒体归档、更新与失败恢复、待确认问题。
 - [Pixiv 验证与项目接入推进建议](pixiv-validation-and-integration-plan.md)：可独立运行的采集核心、本阶段三条工作线与后续前端、接口边界、集成次序与验收条件。
