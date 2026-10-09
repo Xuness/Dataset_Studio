@@ -1079,7 +1079,7 @@ function BrowserContent({
             title={
               ranked.active
                 ? "排名沿用计算时的评分，名次在各分级内计算"
-                : postOrderAllowed
+                : order.startsWith("post_id_")
                   ? "同图关联多个帖子时取最小 ID；无帖子 ID 的图像排在末尾"
                   : "按图片内容的 SHA-256 排序"
             }

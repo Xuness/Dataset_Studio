@@ -230,6 +230,62 @@ try {
   checks.push(
     "legacy shared identity order recovers Booru ID default; all three Booru lakes retain manual ID/identity choices across Pixiv, mixed browsing and reload",
   );
+  // Derived Booru scopes must not inherit the unrelated Pixiv lake's limits.
+  const expectPostIds = async (ids) => {
+    await expect(async () => {
+      const titles = await page
+        .locator(".asset-grid .asset-caption > span")
+        .allTextContents();
+      assert.deepEqual(
+        titles.map((title) => Number(title.match(/#(\d+)$/)?.[1])),
+        ids,
+      );
+    }).toPass();
+  };
+  for (const kind of ["yandere", "danbooru", "gelbooru"]) {
+    await openSource(kind + " fixture", "post_id_desc");
+    if (!(await page.getByLabel("包含标签", { exact: true }).isVisible()))
+      await page
+        .getByRole("button", { name: "Rating / Tag 筛选", exact: true })
+        .click();
+    await page.getByLabel("包含标签", { exact: true }).fill("common");
+    await page.getByRole("button", { name: "应用筛选", exact: true }).click();
+    await expect(async () =>
+      assert.equal(
+        (await client.drafts.get(project.id, "studio.session")).draft.value
+          .scope.kind,
+        "result",
+      ),
+    ).toPass();
+    await expect(browseOrder).toHaveValue("post_id_desc");
+    const ids = booru[kind].images
+      .filter((image) => image.current.some((o) => o.tags?.includes("common")))
+      .map((image) => Math.min(...image.post_ids))
+      .sort((a, b) => a - b);
+    await expectPostIds(ids.toReversed().slice(0, 48));
+    await browseOrder.selectOption("post_id_asc");
+    await expectPostIds(ids.slice(0, 48));
+    await page.getByRole("button", { name: "下一页", exact: true }).click();
+    await expectPostIds(ids.slice(48, 96));
+    await persistedOrder("booruOrder", "post_id_asc");
+    await expect(async () =>
+      assert.equal(
+        (await client.drafts.get(project.id, "studio.session")).draft.value
+          .position?.pageNumber,
+        2,
+      ),
+    ).toPass();
+    await page.reload();
+    await expect(browseOrder).toHaveValue("post_id_asc");
+    await expectPostIds(ids.slice(48, 96));
+    await page.getByRole("button", { name: "清除筛选", exact: true }).click();
+    await expect(browseOrder).toHaveValue("post_id_asc");
+    await browseOrder.selectOption("post_id_desc");
+  }
+  checks.push(
+    "Booru Tag results retain post-ID sorting with an unrelated Pixiv lake; rendered IDs stay ordered across direction changes, pagination, reload and clearing filters",
+  );
+  await openSource("Pixiv fixture", "asset_key_asc");
   await page
     .getByRole("button", { name: "Rating / Tag 筛选", exact: true })
     .click();

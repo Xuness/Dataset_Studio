@@ -1060,12 +1060,59 @@ function Studio({
       onSettings={() => setSettingsPage("editing")}
     />
   ) : null;
-  const browserSources = (sources.data?.items ?? []).filter(
-    (source) => view.scope.kind !== "source" || source.id === view.scope.id,
-  );
+  const browserTarget: ScopeRef["target"] | null =
+    view.scope.kind === "result"
+      ? { kind: "query_result", result_id: view.scope.id }
+      : view.scope.kind === "collection"
+        ? { kind: "workset", collection_id: view.scope.id }
+        : view.scope.kind === "selection" && selection.data
+          ? { kind: "selection", revision: selection.data.revision }
+          : null;
+  const browserScopeSources = useQuery({
+    queryKey: [
+      "project",
+      currentId,
+      "browser-sources",
+      browserTarget,
+      browserTarget?.kind === "workset"
+        ? collections.data?.items.find(
+            (c) => c.id === browserTarget.collection_id,
+          )?.count
+        : null,
+    ],
+    queryFn: ({ signal }) =>
+      client.sourceAccess.requirements(
+        currentId,
+        { project_id: currentId, target: browserTarget! },
+        [],
+        signal,
+      ),
+    enabled: !!project && !!browserTarget,
+  });
+  // Results, worksets and selections use their own sources, not every lake
+  // attached to the project. An unrelated Pixiv lake must not change Booru order.
+  const browserSourceIds =
+    view.scope.kind === "source"
+      ? [view.scope.id]
+      : view.scope.kind === "all"
+        ? (sources.data?.items.map((source) => source.id) ?? [])
+        : (browserScopeSources.data?.sources.map(
+            (source) => source.source_id,
+          ) ?? []);
+  const browserSourcesPending =
+    sources.isPending ||
+    (!!browserTarget && browserScopeSources.isPending) ||
+    (view.scope.kind === "selection" && selection.isPending);
+  const browserSourcesError =
+    sources.error ??
+    (browserTarget ? browserScopeSources.error : null) ??
+    (view.scope.kind === "selection" ? selection.error : null);
   const booruBrowse =
-    browserSources.length > 0 &&
-    browserSources.every((source) => sourceSupports(source, "post_order"));
+    browserSourceIds.length > 0 &&
+    browserSourceIds.every((id) => {
+      const source = sources.data?.items.find((source) => source.id === id);
+      return !!source && sourceSupports(source, "post_order");
+    });
   const browserOrder = booruBrowse
     ? workspace.value.booruOrder
     : workspace.value.order.startsWith("post_id_")
@@ -1784,12 +1831,23 @@ function Studio({
         <DraftStatus controller={workspace.controller} />
       )}
       <Suspense fallback={<p className="tool-hint">正在载入功能…</p>}>
-        {workspace.editable && ActiveModule && (
-          <ActiveModule
-            key={workspace.value.moduleId + project.id}
-            {...moduleContext}
-          />
-        )}
+        {workspace.editable &&
+          ActiveModule &&
+          (workspace.value.moduleId === "core.browser" &&
+          (browserSourcesPending || browserSourcesError) ? (
+            browserSourcesError ? (
+              <ErrorDetails error={browserSourcesError} />
+            ) : (
+              <p className="tool-hint" role="status">
+                正在读取浏览范围…
+              </p>
+            )
+          ) : (
+            <ActiveModule
+              key={workspace.value.moduleId + project.id}
+              {...moduleContext}
+            />
+          ))}
       </Suspense>
     </div>
   ) : null;
