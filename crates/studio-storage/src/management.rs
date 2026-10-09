@@ -87,7 +87,7 @@ pub(super) fn view(kind: ObjectKind) -> Result<String> {
         ),
         ObjectKind::Job => (
             "jobs",
-            "CASE t.operator WHEN 'danbooru.metarecall' THEN 'Danbooru 元数据排名' WHEN 'core.manifest' THEN '数据清单' WHEN 'core.scalar' THEN '标量计算' ELSE t.operator END",
+            "CASE t.operator WHEN 'danbooru.metarecall' THEN 'Danbooru 元数据排名' WHEN 'core.manifest' THEN '数据清单' WHEN 'core.scalar' THEN '标量计算' WHEN 'core.export_files' THEN '导出原图' ELSE t.operator END",
             "CASE WHEN COALESCE(m.deleted,0)=1 THEN 'deleted' ELSE t.status END",
             "t.total",
             "t.created_at",

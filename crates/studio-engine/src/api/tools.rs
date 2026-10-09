@@ -46,6 +46,11 @@ pub(super) async fn submit(
             let mut request: domain::ToolSubmission = body.into();
             request.scope.validate_project(&pid)?;
             request.run = studio_operators::registry()?.normalize(request.run)?;
+            if crate::exports::is_export(&request.run.operator_id) {
+                let params =
+                    studio_operators::export::ExportParameters::parse(&request.run.parameters)?;
+                crate::exports::validate_destination(&s.store, &pid, &params.destination)?;
+            }
             if let Some(old) = s.store.retry_registered_job(&pid, &request)? {
                 return Ok(old.into());
             }

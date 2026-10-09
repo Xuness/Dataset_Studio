@@ -99,7 +99,7 @@ fn raw(kind: ObjectKind, incoming: bool) -> String {
         queries.join(" UNION ALL ")
     )
 }
-const NAME: &str = "COALESCE(m.name,CASE q.kind WHEN 'source' THEN (SELECT json_extract(json,'$.name') FROM sources WHERE id=q.id) WHEN 'workset' THEN (SELECT name FROM collections WHERE id=q.id) WHEN 'artifact' THEN (SELECT name FROM artifacts WHERE id=q.id) WHEN 'query' THEN (SELECT name FROM query_definitions WHERE id=q.id) WHEN 'job' THEN (SELECT CASE operator WHEN 'danbooru.metarecall' THEN 'Danbooru 元数据排名' WHEN 'core.manifest' THEN '数据清单' WHEN 'core.scalar' THEN '标量计算' ELSE operator END FROM jobs WHERE id=q.id) WHEN 'query_result' THEN '查询结果 · '||substr(q.id,1,8) WHEN 'selection' THEN '当前选择' WHEN 'selection_history' THEN '撤销记录 · '||(SELECT label FROM selection_history WHERE CAST(id AS TEXT)=q.id) ELSE NULL END,q.kind||' · '||substr(q.id,1,8))";
+const NAME: &str = "COALESCE(m.name,CASE q.kind WHEN 'source' THEN (SELECT json_extract(json,'$.name') FROM sources WHERE id=q.id) WHEN 'workset' THEN (SELECT name FROM collections WHERE id=q.id) WHEN 'artifact' THEN (SELECT name FROM artifacts WHERE id=q.id) WHEN 'query' THEN (SELECT name FROM query_definitions WHERE id=q.id) WHEN 'job' THEN (SELECT CASE operator WHEN 'danbooru.metarecall' THEN 'Danbooru 元数据排名' WHEN 'core.manifest' THEN '数据清单' WHEN 'core.scalar' THEN '标量计算' WHEN 'core.export_files' THEN '导出原图' ELSE operator END FROM jobs WHERE id=q.id) WHEN 'query_result' THEN '查询结果 · '||substr(q.id,1,8) WHEN 'selection' THEN '当前选择' WHEN 'selection_history' THEN '撤销记录 · '||(SELECT label FROM selection_history WHERE CAST(id AS TEXT)=q.id) ELSE NULL END,q.kind||' · '||substr(q.id,1,8))";
 #[derive(Serialize, Deserialize)]
 struct Cursor {
     signature: String,

@@ -4,6 +4,7 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 use studio_application::{Operator, OperatorRegistry};
 use studio_domain::*;
+pub mod export;
 pub mod ranking;
 pub mod ranking_v2;
 
@@ -11,6 +12,7 @@ pub fn registry() -> Result<OperatorRegistry> {
     let mut registry = OperatorRegistry::default();
     registry.register(Arc::new(Manifest))?;
     registry.register(Arc::new(Scalar))?;
+    registry.register(Arc::new(export::Export))?;
     registry.register(Arc::new(ranking::MetaRecall))?;
     registry.register(Arc::new(ranking_v2::MetaRecallV2))?;
     Ok(registry)
@@ -262,7 +264,7 @@ mod tests {
     #[test]
     fn registry_and_parameter_versions_are_enforced() {
         let mut registry = registry().unwrap();
-        assert_eq!(registry.descriptors().len(), 4);
+        assert_eq!(registry.descriptors().len(), 5);
         assert!(
             registry
                 .descriptors()

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdir, writeFile, unlink } from "node:fs/promises";
+import { mkdir, readFile, writeFile, unlink } from "node:fs/promises";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
@@ -58,13 +58,17 @@ try {
   assert.deepEqual(
     operators.items.map((o) => o.id),
     [
+      "core.export_files",
       "core.manifest",
       "core.scalar",
       "danbooru.metarecall",
       "danbooru.metarecall_v2",
     ],
   );
-  assert.equal(operators.items[1].outputs.length, 2);
+  assert.equal(
+    operators.items.find((o) => o.id === "core.scalar").outputs.length,
+    2,
+  );
   const p = await engine.api("/v1/projects", "POST", {
     name: "工具与成果验证",
   });
@@ -403,6 +407,81 @@ try {
   );
   checks.push(
     "unreferenced secondary artifact released; corruption isolated to its artifact without blocking project or neighboring results",
+  );
+  const exportDir = resolve(runDir, "export");
+  await mkdir(exportDir, { recursive: true });
+  const exportScope = {
+    project_id: p.id,
+    target: {
+      kind: "selection",
+      revision: (await engine.api(base + "/selection")).revision,
+    },
+  };
+  await engine.expectError(
+    base + "/tools/jobs",
+    "POST",
+    {
+      idempotency_key: crypto.randomUUID(),
+      scope: exportScope,
+      run: run("core.export_files", { destination: resolve(runDir, "nope") }),
+    },
+    "DESTINATION_UNAVAILABLE",
+  );
+  const exportSubmitted = await engine.api(base + "/tools/jobs", "POST", {
+    idempotency_key: crypto.randomUUID(),
+    scope: exportScope,
+    run: run("core.export_files", { destination: exportDir, metadata: "tags" }),
+  });
+  const exportJob = await done(p.id, exportSubmitted.id);
+  const exportRows = (
+    await readFile(resolve(exportDir, "manifest.jsonl"), "utf8")
+  )
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  assert.equal(exportRows.length, exportJob.total);
+  assert.ok(
+    exportRows.every(
+      (row, i) =>
+        row.status === "written" &&
+        row.file.startsWith(String(i + 1).padStart(6, "0") + "_"),
+    ),
+  );
+  // The demo lake has no tags, so no sidecar is written and nothing fails.
+  assert.ok(exportRows.every((row) => !row.metadata_file && !row.error));
+  const exportedFile = await readFile(resolve(exportDir, exportRows[0].file));
+  assert.equal(exportRows[0].bytes, exportedFile.length);
+  assert.equal(exportedFile.subarray(1, 4).toString(), "PNG");
+  const assetPath =
+    base +
+    "/sources/" +
+    exportRows[0].asset.source_id +
+    "/assets/" +
+    exportRows[0].asset.asset_id;
+  const original = await fetch(
+    engine.connection.endpoint + assetPath + "/original",
+    { headers: { Authorization: "Bearer " + engine.connection.token } },
+  );
+  assert.equal(original.headers.get("content-type"), "image/png");
+  assert.ok(Buffer.from(await original.arrayBuffer()).equals(exportedFile));
+  const saved = await engine.api(assetPath + "/original/save", "POST", {
+    path: resolve(runDir, "saved.png"),
+  });
+  assert.equal(saved.bytes, exportedFile.length);
+  await engine.expectError(
+    assetPath + "/original/save",
+    "POST",
+    { path: "relative.png" },
+    "INVALID_INPUT",
+  );
+  const exportPlan = (await engine.api(base + "/artifacts")).items.find(
+    (a) => a.job_id === exportSubmitted.id,
+  );
+  assert.equal(exportPlan.kind, "file_export");
+  assert.equal(exportPlan.state, "ready");
+  assert.equal(exportPlan.count, exportJob.total);
+  checks.push(
+    "file export writes numbered originals and manifest outside the lake; images without tags get no sidecar; original read/save match exported bytes",
   );
   await writeFile(
     resolve(runDir, "report.json"),

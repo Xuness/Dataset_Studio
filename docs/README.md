@@ -17,7 +17,7 @@
 
 从零建湖与按需采集：[操作指南](architecture/zero-lake-collection.md)、[空湖初始化与来源身份](decisions/0065-empty-lake-initialization.md)、[标签发现与本地组合筛选](decisions/0066-booru-tag-discovery.md)、[查询覆盖复用与元数据目录](decisions/0067-query-coverage-and-metadata-catalog.md)、[工作台与 Pixiv 复用](decisions/0068-zero-lake-workbench-and-pixiv-reuse.md)、[阶段验收](verification/2026-10-07-zero-lake-collection.md)、[分阶段实施计划](plans/zero-lake-collection-2026-10-07.md)。
 
-数据湖浏览：[Booru 与通用图像排序偏好分离](decisions/0056-booru-browse-order.md)。
+数据湖浏览：[Booru 与通用图像排序偏好分离](decisions/0056-booru-browse-order.md)。原图查看、另存与文件导出：[ADR 0071](decisions/0071-original-media-export.md)。
 
 全湖元数据排名：[批量读取与固定输入复用](decisions/0057-bulk-ranking-and-snapshot-reuse.md)、[千万级性能验收](verification/2026-10-04-metarecall-full-lake-performance.md)、[固定排名成员引用与直接分页](decisions/0058-fixed-ranking-membership-recipes.md)、[工作集保存与读取验收](verification/2026-10-04-ranked-workset-read-performance.md)、[未排名图片置底验收](verification/2026-10-04-ranked-workset-unranked-last.md)。
 

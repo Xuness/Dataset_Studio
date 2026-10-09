@@ -1935,6 +1935,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{project_id}/jobs/{job_id}/export/reveal": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["reveal_export"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects/{project_id}/jobs/{job_id}/ranking": {
         parameters: {
             query?: never;
@@ -2585,6 +2601,38 @@ export interface paths {
         get: operations["metadata"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/sources/{source_id}/assets/{asset_id}/original": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["original"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/projects/{project_id}/sources/{source_id}/assets/{asset_id}/original/save": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["save_original"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7256,6 +7304,10 @@ export interface components {
             expected_revision: number;
             id?: string | null;
         };
+        SaveOriginal: {
+            /** @description Absolute file path chosen by the user; never inside an attached lake. */
+            path: string;
+        };
         SaveQuery: {
             /** Format: int64 */
             expected_revision?: number | null;
@@ -7269,6 +7321,11 @@ export interface components {
             name: string;
             notes: string;
             run: components["schemas"]["OperatorRun"];
+        };
+        SavedOriginal: {
+            /** Format: int64 */
+            bytes: number;
+            path: string;
         };
         ScalarInput: {
             /** @enum {string} */
@@ -10770,6 +10827,28 @@ export interface operations {
             };
         };
     };
+    reveal_export: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RevealedLocation"];
+                };
+            };
+        };
+    };
     ranking_job_result: {
         parameters: {
             query?: never;
@@ -11970,6 +12049,57 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiError"];
+                };
+            };
+        };
+    };
+    original: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                source_id: string;
+                asset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Original stored bytes, at most 64 MiB */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": unknown;
+                };
+            };
+        };
+    };
+    save_original: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                source_id: string;
+                asset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveOriginal"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SavedOriginal"];
                 };
             };
         };

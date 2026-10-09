@@ -2,6 +2,7 @@ mod aesthetic;
 mod api;
 mod artifacts;
 mod cache_config;
+mod exports;
 mod jobs;
 mod lake_locations;
 mod lake_updates;
@@ -400,7 +401,12 @@ async fn serve(root: PathBuf, port: u16, cache_dir: Option<PathBuf>) -> Result<(
         Err(error) => tracing::warn!(%error,"background recovery unavailable"),
     });
     let preview_scheduler = tokio::spawn(previews.clone().run());
-    let scheduler = tokio::spawn(jobs::scheduler(store.clone(), resources, sources));
+    let scheduler = tokio::spawn(jobs::scheduler(
+        store.clone(),
+        resources,
+        sources,
+        queries.source_indexes.clone(),
+    ));
     tracing::info!(endpoint=%connection.endpoint,api_version=API_VERSION,"engine ready");
     let abort = scheduler.abort_handle();
     let query_shutdown = queries.clone();

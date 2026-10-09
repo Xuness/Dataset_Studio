@@ -387,6 +387,56 @@ export class StudioClient {
       options.signal ? { signal: options.signal } : {},
     );
   }
+  /** Original stored bytes (at most 64 MiB) for full-size viewing and copying. */
+  async original(projectId: string, key: AssetKey, signal?: AbortSignal) {
+    let response: Response;
+    try {
+      response = await fetch(
+        this.connection.endpoint + metadataPath(projectId, key) + "/original",
+        {
+          headers: { Authorization: "Bearer " + this.connection.token },
+          cache: "no-store",
+          ...(signal ? { signal } : {}),
+        },
+      );
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError")
+        throw error;
+      throw new StudioError(
+        "ENGINE_DISCONNECTED",
+        "本机引擎连接中断，请重连。",
+      );
+    }
+    if (!response.ok) {
+      const body: unknown = await response.json().catch(() => null);
+      throw new StudioError(
+        record(body) && typeof body.code === "string"
+          ? body.code
+          : "MEDIA_UNAVAILABLE",
+        record(body) && typeof body.message === "string"
+          ? body.message
+          : "原图暂不可用",
+      );
+    }
+    return response.blob();
+  }
+  /** The engine writes the original to a user-chosen absolute file path. */
+  saveOriginal(projectId: string, key: AssetKey, path: string) {
+    return this.request<Schema["SavedOriginal"]>(
+      metadataPath(projectId, key) + "/original/save",
+      { method: "POST", body: JSON.stringify({ path }) },
+    );
+  }
+  revealExport(projectId: string, jobId: string) {
+    return this.request<Schema["RevealedLocation"]>(
+      "/v1/projects/" +
+        encodeURIComponent(projectId) +
+        "/jobs/" +
+        encodeURIComponent(jobId) +
+        "/export/reveal",
+      { method: "POST" },
+    );
+  }
   asset(projectId: string, key: AssetKey, signal?: AbortSignal) {
     return this.request<Schema["Asset"]>(
       metadataPath(projectId, key),

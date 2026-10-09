@@ -406,7 +406,7 @@ pub(super) async fn reveal(
         .await?,
     ))
 }
-fn open_location(path: &std::path::Path) -> domain::Result<()> {
+pub(super) fn open_location(path: &std::path::Path) -> domain::Result<()> {
     #[cfg(windows)]
     {
         let mut command = std::process::Command::new("explorer.exe");

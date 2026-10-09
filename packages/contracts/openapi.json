@@ -5274,6 +5274,44 @@
         }
       }
     },
+    "/v1/projects/{project_id}/jobs/{job_id}/export/reveal": {
+      "post": {
+        "tags": [
+          "originals"
+        ],
+        "operationId": "reveal_export",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevealedLocation"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/projects/{project_id}/jobs/{job_id}/ranking": {
       "get": {
         "tags": [
@@ -7464,6 +7502,104 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ApiError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/sources/{source_id}/assets/{asset_id}/original": {
+      "get": {
+        "tags": [
+          "originals"
+        ],
+        "operationId": "original",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "source_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "asset_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Original stored bytes, at most 64 MiB",
+            "content": {
+              "application/octet-stream": {}
+            }
+          }
+        }
+      }
+    },
+    "/v1/projects/{project_id}/sources/{source_id}/assets/{asset_id}/original/save": {
+      "post": {
+        "tags": [
+          "originals"
+        ],
+        "operationId": "save_original",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "source_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "asset_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveOriginal"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SavedOriginal"
                 }
               }
             }
@@ -24351,6 +24487,19 @@
         },
         "additionalProperties": false
       },
+      "SaveOriginal": {
+        "type": "object",
+        "required": [
+          "path"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "Absolute file path chosen by the user; never inside an attached lake."
+          }
+        },
+        "additionalProperties": false
+      },
       "SaveQuery": {
         "type": "object",
         "required": [
@@ -24406,6 +24555,23 @@
           }
         },
         "additionalProperties": false
+      },
+      "SavedOriginal": {
+        "type": "object",
+        "required": [
+          "path",
+          "bytes"
+        ],
+        "properties": {
+          "bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "path": {
+            "type": "string"
+          }
+        }
       },
       "ScalarInput": {
         "oneOf": [

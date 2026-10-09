@@ -1,3 +1,4 @@
+use crate::source_indexes::SourceIndexService;
 use crate::sources::SourceService;
 use crate::worker;
 use futures::StreamExt;
@@ -82,6 +83,7 @@ pub async fn scheduler(
     store: Arc<SqliteStore>,
     resources: Arc<dyn ReadResources>,
     sources: Arc<SourceService>,
+    indexes: Arc<SourceIndexService>,
 ) {
     loop {
         let store2 = store.clone();
@@ -113,6 +115,7 @@ pub async fn scheduler(
                     job.clone(),
                     resources.clone(),
                     sources.clone(),
+                    indexes.clone(),
                 )
                 .await
                 {
@@ -291,6 +294,7 @@ async fn execute(
     job: Job,
     resources: Arc<dyn ReadResources>,
     sources: Arc<SourceService>,
+    indexes: Arc<SourceIndexService>,
 ) -> Result<()> {
     let _attempt = ActiveAttempt::enter(&job)?;
     let _heartbeat = if is_ranking_operator(&job.operator) {
@@ -314,6 +318,7 @@ async fn execute(
     let j = job.clone();
     let cancel = _attempt.1.clone();
     let preparation_resources = resources.clone();
+    let export_sources = sources.clone();
     let (plan_path, plan) = tokio::task::spawn_blocking(move || {
         prepare(&s, &j, preparation_resources.as_ref(), &sources, &cancel)
     })
@@ -350,6 +355,29 @@ async fn execute(
         .await
         .map_err(Error::io)??;
         return Ok(());
+    }
+    if crate::exports::is_export(&plan.run.operator_id) {
+        // File exports read originals in the engine; the worker has no source access.
+        store.update_job(&job.project_id, &job.id, "running", 0, None, None)?;
+        let s = store.clone();
+        let flag = _attempt.1.clone();
+        return tokio::task::spawn_blocking(move || -> Result<()> {
+            let context = crate::exports::ExportContext {
+                store: &s,
+                sources: &export_sources,
+                indexes: &indexes,
+                job: &job,
+                cancelled: &flag,
+            };
+            if !crate::exports::run(&context, &plan)? {
+                return Ok(());
+            }
+            let validated = worker::validate_once(&plan.output_path, &plan, &mut |_, _, _| Ok(()))?;
+            fs::rename(&plan.output_path, &final_path).map_err(Error::io)?;
+            crate::artifacts::publish(&s, &job, &plan, &final_path, Some(validated))
+        })
+        .await
+        .map_err(Error::io)?;
     }
     let _computation_lease = if plan.version == 2 {
         store.job_stage(

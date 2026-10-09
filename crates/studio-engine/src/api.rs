@@ -28,6 +28,7 @@ pub(crate) mod lake_inputs;
 mod lake_updates;
 mod llm;
 mod management;
+mod originals;
 mod query;
 mod query_views;
 mod ranking;
@@ -1470,6 +1471,9 @@ async fn shutdown(State(s): State<AppState>) -> Json<OkResponse> {
         assets,
         asset_detail,
         media,
+        originals::original,
+        originals::save_original,
+        originals::reveal_export,
         metadata,
         observations,
         raw_metadata,
@@ -1833,6 +1837,18 @@ pub fn routes() -> axum::Router<AppState> {
         .route(
             "/v1/projects/{pid}/sources/{sid}/assets/{aid}/media",
             get(media),
+        )
+        .route(
+            "/v1/projects/{pid}/sources/{sid}/assets/{aid}/original",
+            get(originals::original),
+        )
+        .route(
+            "/v1/projects/{pid}/sources/{sid}/assets/{aid}/original/save",
+            post(originals::save_original),
+        )
+        .route(
+            "/v1/projects/{pid}/jobs/{jid}/export/reveal",
+            post(originals::reveal_export),
         )
         .route(
             "/v1/projects/{pid}/sources/{sid}/assets/{aid}/metadata",

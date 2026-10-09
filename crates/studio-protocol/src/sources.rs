@@ -99,3 +99,15 @@ pub struct SourceRequirementsResult {
     pub supported: bool,
     pub sources: Vec<SourceRequirementStatus>,
 }
+
+#[derive(Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SaveOriginal {
+    /// Absolute file path chosen by the user; never inside an attached lake.
+    pub path: String,
+}
+#[derive(Serialize, ToSchema)]
+pub struct SavedOriginal {
+    pub path: String,
+    pub bytes: u64,
+}
