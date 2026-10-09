@@ -3,7 +3,7 @@ import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
 import { Maximize, ZoomIn, ZoomOut } from "lucide-react";
 import "./media.css";
 
-// Large enough for 1:1 on big originals; previews swap to the original when zoomed.
+// Ordinary wheel/button zoom limit; exact 1:1 can lie outside this range.
 export const maxZoom = 16;
 const fit = { zoom: 1, x: 0, y: 0 };
 export type ImageZoom = ReturnType<typeof useImageZoom>;
@@ -13,30 +13,37 @@ export function useImageZoom(resetKey: string) {
   const current = state.key === resetKey ? state : { key: resetKey, ...fit };
   const scale = useCallback(
     (factor: number) =>
-      setState((old) => ({
-        key: resetKey,
-        zoom: Math.max(
-          1,
-          Math.min(maxZoom, (old.key === resetKey ? old.zoom : 1) * factor),
-        ),
-        x: 0,
-        y: 0,
-      })),
+      setState((old) => {
+        const value = old.key === resetKey ? old.zoom : 1;
+        return {
+          key: resetKey,
+          // A 1:1 value can lie outside the usual wheel range. Keep steps
+          // continuous when returning from it instead of jumping to a limit.
+          zoom: Math.max(
+            Math.min(1, value),
+            Math.min(Math.max(maxZoom, value), value * factor),
+          ),
+          x: 0,
+          y: 0,
+        };
+      }),
     [resetKey],
   );
   const reset = useCallback(
     () => setState({ key: resetKey, ...fit }),
     [resetKey],
   );
-  // Unlike wheel steps, an explicit zoom (1:1) may show small images below fit.
+  // Exact 1:1 is independent of the wheel range, including icons and long strips.
   const set = useCallback(
-    (zoom: number) =>
+    (zoom: number) => {
+      if (!Number.isFinite(zoom) || zoom <= 0) return;
       setState({
         key: resetKey,
-        zoom: Math.max(0.05, Math.min(maxZoom, zoom)),
+        zoom,
         x: 0,
         y: 0,
-      }),
+      });
+    },
     [resetKey],
   );
   return {

@@ -45,6 +45,15 @@ export function AssetViewer({
       aria-label={ariaLabel ?? title}
       onKeyDown={(event) => {
         if (
+          event.defaultPrevented ||
+          event.nativeEvent.isComposing ||
+          (event.target as HTMLElement).closest(
+            "input,textarea,select,[contenteditable=true]",
+          )
+        )
+          return;
+        if (viewer.onKey(event)) return;
+        if (
           event.altKey ||
           event.ctrlKey ||
           event.metaKey ||
@@ -57,7 +66,7 @@ export function AssetViewer({
         } else if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
           event.preventDefault();
           navigation.onNavigate(event.key === "ArrowLeft" ? -1 : 1);
-        } else viewer.onKey(event);
+        }
       }}
     >
       <div className="ranking-image-toolbar">

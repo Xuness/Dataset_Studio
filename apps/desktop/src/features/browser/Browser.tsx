@@ -871,6 +871,8 @@ function BrowserContent({
           )
         )
           return;
+        if (view === "image" && (e.ctrlKey || e.metaKey) && viewer.onKey(e))
+          return;
         const button = (e.target as HTMLElement).closest("button");
         if (
           button &&

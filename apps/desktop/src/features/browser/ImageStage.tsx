@@ -7,12 +7,7 @@ import type { StudioClient } from "@studio/client";
 import type { Asset } from "@studio/contracts";
 import { AssetImage } from "./AssetImage.js";
 import { useImageActions } from "./originals.js";
-import {
-  maxZoom,
-  useImageZoom,
-  ZoomableImage,
-  ZoomControls,
-} from "./ZoomableImage.js";
+import { useImageZoom, ZoomableImage, ZoomControls } from "./ZoomableImage.js";
 
 export const viewerHint =
   "← → 切换 · 滚轮缩放 · 双击放大 · 拖动平移 · 1 原始尺寸 · 0 适应 · Ctrl+C 复制 · Ctrl+S 另存原图 · 右键更多 ";
@@ -136,11 +131,17 @@ export function ImageStage({
     const element = image.current;
     if (!actualPending || original?.state !== "ready" || !element) return;
     const fit = () => {
-      const box = element.closest(".zoom-viewport");
-      if (!box || !element.naturalWidth) return;
+      if (
+        !element.naturalWidth ||
+        !element.clientWidth ||
+        !element.clientHeight
+      )
+        return;
+      // client dimensions exclude the transform's scale while respecting each
+      // viewer's padding/insets (the ranking viewer has a 12px inner margin).
       const scale = Math.min(
-        box.clientWidth / element.naturalWidth,
-        box.clientHeight / element.naturalHeight,
+        element.clientWidth / element.naturalWidth,
+        element.clientHeight / element.naturalHeight,
       );
       setZoom(scale > 0 ? 1 / scale : 1);
       clearActual();
@@ -235,7 +236,7 @@ export function ImageTools({ viewer }: { viewer: ImageViewer }) {
         type="button"
         aria-label="原始尺寸"
         title="原始尺寸 1:1（1）"
-        disabled={!asset || zoom.zoom >= maxZoom}
+        disabled={!asset}
         onClick={viewer.requestActual}
       >
         <Scan size={15} />
