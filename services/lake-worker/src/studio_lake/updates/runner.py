@@ -57,6 +57,15 @@ class Runner:
         from ..collections.runner import Runner as CollectionRunner
 
         self.collections = CollectionRunner(state, resources=self.resources, stop=self.stop)
+        from ..pinterest.runner import Runner as PinterestRunner
+
+        self.pinterest = PinterestRunner(state, resources=self.resources, stop=self.stop)
+        self.executors = {"update": self.run_slice, "collection": self.collections.run, "pinterest": self.pinterest.run}
+        self.executor_failures = {
+            "update": lambda identity, execution: dispatch.failed(self.state, identity, execution),
+            "collection": lambda identity, execution: self.collections.update_state(identity, "waiting_retry", "COLLECTION_EXECUTOR_FAILED", retry=60),
+            "pinterest": lambda identity, execution: self.pinterest.update_state(identity, "needs_review", "PINTEREST_EXECUTOR_FAILED"),
+        }
 
     def refresh_settings(self, force=False):
         with self.settings_lock:
@@ -767,10 +776,7 @@ class Runner:
                     try:
                         future.result()
                     except Exception:
-                        if family == "collection":
-                            self.collections.update_state(identity, "waiting_retry", "COLLECTION_EXECUTOR_FAILED", retry=60)
-                        else:
-                            dispatch.failed(self.state, identity, execution)
+                        self.executor_failures[family](identity, execution)
             if cleaning is not None and cleaning[0].done():
                 future, identity, _ = cleaning
                 cleaning = None
@@ -788,7 +794,7 @@ class Runner:
                 self.state, excluded, self.resources.config["active_lakes"] - len(active)
             ):
                 dispatch.submitted(self.state, job["lake_id"])
-                execute = self.collections.run if job["family"] == "collection" else self.run_slice
+                execute = self.executors[job["family"]]
                 active[job["lake_id"]] = (pool.submit(execute, job["id"]), job["id"], job["execution"], job["family"])
             atomic_json(
                 self.state.root / "heartbeat.json",

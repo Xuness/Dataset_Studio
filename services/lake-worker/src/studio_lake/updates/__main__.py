@@ -19,6 +19,10 @@ from .read_model import activity
 def dispatch(state, command, args):
     if not isinstance(args, dict):
         raise UpdateError("INVALID_INPUT", "Command arguments must be an object")
+    if command.startswith("pinterest_"):
+        from ..pinterest.service import Service
+
+        return Service(state).dispatch(command.removeprefix("pinterest_"), args)
     if command.startswith("collection_"):
         from ..collections.service import Service
 
@@ -276,7 +280,7 @@ def handshake():
     return {"worker_version": __version__, "runtime_check": 1, "sqlite": apsw.sqlitelibversion(),
             "duckdb": duckdb.__version__, "pyarrow": pyarrow.__version__,
             "requests": requests.__version__, "pillow": Image.__version__,
-            "features": {"collections": 2}, "archive_versions": [1, 2], "online_versions": [2, 3]}
+            "features": {"collections": 2, "pinterest": 1}, "archive_versions": [1, 2, 3], "online_versions": [2, 3, 4]}
 
 
 if __name__ == "__main__":

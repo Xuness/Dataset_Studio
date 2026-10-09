@@ -20,7 +20,7 @@ dev = ["pytest>=8,<10", "ruff>=0.12,<1", "pytz>=2025,<2027"]
 where = ["src"]
 
 [tool.setuptools.package-data]
-studio_lake = ["media_lake/*.sql", "collections/*.sql"]
+studio_lake = ["media_lake/*.sql", "collections/*.sql", "pinterest/*.sql", "pinterest/lake/*.sql"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

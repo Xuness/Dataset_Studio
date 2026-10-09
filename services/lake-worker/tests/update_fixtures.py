@@ -2,6 +2,7 @@
 
 
 def remove_collection_schema(db):
+    remove_pinterest_schema(db)
     db.execute("DROP INDEX IF EXISTS update_job_created")
     names = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'collection_%'")}
     for (name,) in db.execute("SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE 'collection_%'").fetchall():
@@ -17,7 +18,14 @@ def remove_collection_schema(db):
 
 def remove_collection_recovery(db):
     """Recreate the v10 column shape before testing a real older-version upgrade."""
+    remove_pinterest_schema(db)
     db.execute("DROP TABLE collection_quarantines")
     db.execute("DROP TABLE collection_batches")
     db.execute("ALTER TABLE collection_tasks DROP COLUMN download_generation")
     db.execute("ALTER TABLE collection_outbox DROP COLUMN outcome_state")
+
+
+def remove_pinterest_schema(db):
+    """Historical control fixtures predate the separately versioned Pinterest tables."""
+    for name in ("pinterest_downloads", "pinterest_applied", "pinterest_counts", "pinterest_tasks", "pinterest_jobs", "pinterest_requests", "pinterest_lakes"):
+        db.execute('DROP TABLE IF EXISTS "' + name + '"')

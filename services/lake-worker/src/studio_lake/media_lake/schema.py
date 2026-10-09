@@ -1,6 +1,5 @@
 """One schema definition for validation, Arrow archives and online publication."""
 
-from datetime import datetime, timezone
 from functools import lru_cache
 import json
 from pathlib import Path
@@ -9,6 +8,7 @@ import apsw
 import pyarrow as pa
 
 from ..util import IntegrityError, digest
+from ..canonical import canonical as canonical, utc as utc
 
 FACTS = (
     "visibility_contexts", "captures", "authors", "author_observations", "works",
@@ -24,17 +24,6 @@ MAX_BATCH_METADATA_BYTES = 64 * 1024**2
 
 class InvalidCanonicalResult(IntegrityError):
     """A new result violates canonical constraints; existing archive I/O is separate."""
-
-
-def canonical(value):
-    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
-
-
-def utc(value=None):
-    date = datetime.now(timezone.utc) if value is None else datetime.fromisoformat(value.replace("Z", "+00:00"))
-    if date.tzinfo is None:
-        raise IntegrityError("A source timestamp requires a timezone")
-    return date.astimezone(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
 
 
 def sql(name):

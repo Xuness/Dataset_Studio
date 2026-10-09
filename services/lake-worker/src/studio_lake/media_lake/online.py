@@ -5,12 +5,12 @@ from pathlib import Path
 import uuid
 
 import apsw
-import pyarrow.parquet as pq
 
 from . import ONLINE_VERSION
 from .schema import FACTS, MAX_BATCH_METADATA_BYTES, MAX_BATCH_ROWS, InvalidCanonicalResult, arrow_schema, canonical, check_rows, sql, utc
 from .records import apply_facts, counts, insert_fact, publication_row, project, validate_relations
 from ..online_schema import set_state, settings
+from ..archive_io import read_facts
 from ..online_storage import connect
 from ..util import FileLock, IntegrityError, atomic_json, contained, digest, read_json, same_directory, sync_file
 
@@ -52,27 +52,7 @@ def initialize(library, index, *, generation=None, activate=True):
 
 
 def load_records(directory, manifest):
-    result, total, bytes_count = {}, 0, 0
-    for name in FACTS:
-        info = manifest["files"].get(name + ".parquet")
-        if not info:
-            continue
-        if info.get("schema") != "canonical-media-v2:" + name or info.get("role") != "facts":
-            raise IntegrityError("Unknown canonical Parquet schema")
-        path = contained(directory, name + ".parquet")
-        parquet = pq.ParquetFile(path)
-        if not parquet.schema_arrow.equals(arrow_schema(name), check_metadata=True):
-            raise IntegrityError("Archive schema differs from its declared record set")
-        total += parquet.metadata.num_rows
-        if total > MAX_BATCH_ROWS or parquet.metadata.num_rows != info.get("rows"):
-            raise IntegrityError("Archive row count exceeds its declared budget")
-        rows = []
-        for chunk in parquet.iter_batches(batch_size=256):
-            bytes_count += chunk.nbytes
-            if bytes_count > MAX_BATCH_METADATA_BYTES:
-                raise IntegrityError("Archive metadata exceeds batch budget")
-            rows.extend(chunk.to_pylist())
-        result[name] = rows
+    result = read_facts(directory, manifest, FACTS, arrow_schema, "canonical-media-v2:", MAX_BATCH_ROWS, MAX_BATCH_METADATA_BYTES)
     check_rows(result)
     return result
 

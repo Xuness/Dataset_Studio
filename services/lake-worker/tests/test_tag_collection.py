@@ -13,6 +13,7 @@ from studio_lake.updates.state import SCHEMA_VERSION, State
 from studio_lake.util import FileLock
 from test_empty_lakes import arguments
 from test_updates import FakeSite, Images, Resources, Runner, job, post
+from update_fixtures import remove_pinterest_schema
 
 
 class TagSite(FakeSite):
@@ -137,6 +138,7 @@ def test_old_runner_cannot_share_new_tag_control_and_upgrade_preserves_jobs(tmp_
     lib, state, _, _, _ = setup(tmp_path)
     legacy = job(state, lib, dict(kind="ids", ids=[11]))
     with state.db() as db:
+        remove_pinterest_schema(db)
         db.execute("PRAGMA user_version=11")
     with FileLock(state.root / "runner.lock", timeout=0):
         with pytest.raises(UpdateError, match="旧版"):

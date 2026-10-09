@@ -56,6 +56,10 @@ class Library:
                 from .media_lake.library import MediaLibrary
 
                 return object.__new__(MediaLibrary)
+            if read_json(config.root / "library.json").get("format_version") == 3:
+                from .pinterest.lake.library import PinterestLibrary
+
+                return object.__new__(PinterestLibrary)
         return object.__new__(cls)
 
     def __init__(self, config):

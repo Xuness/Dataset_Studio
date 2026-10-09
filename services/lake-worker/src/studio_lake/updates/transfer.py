@@ -103,6 +103,8 @@ class Partial:
         saved = {
             "state": "downloaded",
             "sha256": self.sha.hexdigest(),
+            "md5": self.md5.hexdigest(),
+            "etag": self.etag,
             "download_bytes": self.size,
             "selected_url_kind": self.identity["kind"],
             "original_md5_verified": bool(self.identity["md5"]),

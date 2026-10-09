@@ -7,12 +7,12 @@ import shutil
 import sqlite3
 import uuid
 
-import pyarrow as pa
 import pyarrow.parquet as pq
 
 from . import ARCHIVE_VERSION, FEATURES, ONLINE_VERSION, SCHEMA_SET
 from .schema import FACTS, MAX_BATCH_METADATA_BYTES, arrow_schema, canonical, check_rows, sql, utc
 from .. import __version__
+from ..archive_io import accept_batch, write_facts
 from ..library import Batch as LegacyBatch, Library, read_object
 from ..sqlite_control import Connection
 from ..util import FileLock, IntegrityError, atomic_json, contained, digest, failpoint, file_hash, read_json, stable_id, sync_directory, sync_file
@@ -205,19 +205,7 @@ class MediaLibrary(Library):
                     or digest(canonical(intent["definition"]).encode()) != source["definition_sha256"]
                     or intent.get("planner_version") != "pixiv-plan-v1" or intent.get("job_id") != source["job_id"]):
                 raise IntegrityError("Invalid archived collection intent")
-        final = self.root / "segments" / manifest["batch_id"]
-        if directory != final:
-            if final.exists():
-                raise IntegrityError("Sealed batch destination is already occupied")
-            directory.rename(final)
-            sync_directory(final.parent)
-        failpoint("collection_after_rename")
-        with self.journal() as db, db:
-            if fence:
-                fence(replay)
-            db.execute("INSERT INTO commits(batch_id,dedupe_key,manifest_json,committed_at) VALUES(?,?,?,?)",
-                       (manifest["batch_id"], manifest["dedupe_key"], manifest_text, utc()))
-            seq = db.execute("SELECT last_insert_rowid()").fetchone()[0]
+        def journal_writer(db, seq):
             if is_intent:
                 db.execute("INSERT INTO collection_runs VALUES(?,?,?,?,?)",
                            (source["job_id"], source["definition_sha256"], manifest["batch_id"], "pixiv-plan-v1", manifest["created_at"]))
@@ -231,8 +219,8 @@ class MediaLibrary(Library):
                     raise IntegrityError("Collection checkpoint compare-and-swap failed")
                 db.execute("INSERT INTO collection_checkpoints VALUES(?,?,?,?,?,?) ON CONFLICT(job_id,stream_key) DO UPDATE SET revision=excluded.revision,cursor_json=excluded.cursor_json,seq=excluded.seq,batch_id=excluded.batch_id",
                            (source["job_id"], point["stream_key"], point["next_revision"], canonical(dict(cursor=point["next_cursor"], exhausted=point["exhausted"], capture_id=point["capture_id"])), seq, manifest["batch_id"]))
-        failpoint("collection_after_commit")
-        return seq
+        return accept_batch(self, directory, manifest, journal_writer,
+                            fence=(lambda: fence(replay)) if fence else None, fault_prefix="collection", fault=failpoint)
 
     def recover(self, deep=False, *, fence=None):
         output = []
@@ -350,7 +338,7 @@ class MediaBatch(LegacyBatch):
         if self.objects:
             self.records["objects"] = self.objects
         check_rows(self.records)
-        files, total_bytes = {}, 0
+        files = {}
 
         def descriptor(path, role, schema, rows):
             return dict(role=role, schema=schema, rows=rows, bytes=path.stat().st_size, sha256=file_hash(path))
@@ -364,18 +352,7 @@ class MediaBatch(LegacyBatch):
             shutil.copyfile(self.pack_staging_path, self.path / "media.tar")
             sync_file(self.path / "media.tar")
             files["media.tar"] = descriptor(self.path / "media.tar", "objects", "pax-tar-v1", len(self.objects))
-        for name in FACTS:
-            rows = self.records.get(name, [])
-            if not rows:
-                continue
-            table = pa.Table.from_pylist(rows, schema=arrow_schema(name))
-            total_bytes += table.nbytes
-            if total_bytes > MAX_BATCH_METADATA_BYTES:
-                raise IntegrityError("Canonical batch exceeds metadata budget")
-            path = self.path / (name + ".parquet")
-            pq.write_table(table, path, compression="zstd", version="2.6", store_schema=True, row_group_size=4096)
-            sync_file(path)
-            files[path.name] = descriptor(path, "facts", "canonical-media-v2:" + name, len(rows))
+        files.update(write_facts(self.path, self.records, FACTS, arrow_schema, "canonical-media-v2:", MAX_BATCH_METADATA_BYTES))
         if self.definition is not None:
             path = self.path / "collection_intent.json"
             atomic_json(path, dict(version=1, job_id=self.source["job_id"], definition=self.definition, planner_version="pixiv-plan-v1"))

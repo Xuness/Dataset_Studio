@@ -25,7 +25,12 @@ def candidates(state, active, limit, at=None):
             "OR (state='cancelled' AND json_extract(counters_json,'$.cleanup')='pending')) "
             "AND retry_at_ms<=? ORDER BY updated_at,job_row LIMIT 1) LEFT JOIN lake_dispatch d ON d.lake_id=l.id "
             "WHERE NOT EXISTS (SELECT 1 FROM lake_relocations r WHERE r.lake_id=l.id AND r.phase NOT IN ('complete','cancelled'))" + excluded +
-            ") ORDER BY service_order,created_at,id LIMIT ?", (at, *active, int(at * 1000), *active, limit),
+            " UNION ALL SELECT j.id,j.lake_id,j.execution_epoch,'pinterest',j.created_at,coalesce(d.sequence,0) "
+            "FROM lakes l JOIN pinterest_jobs j ON j.id=(SELECT id FROM pinterest_jobs WHERE lake_id=l.id "
+            "AND state IN ('queued','running','waiting_retry','waiting_resources','pausing','cancelling') "
+            "AND retry_at<=? ORDER BY updated_at,job_row LIMIT 1) LEFT JOIN lake_dispatch d ON d.lake_id=l.id "
+            "WHERE NOT EXISTS (SELECT 1 FROM lake_relocations r WHERE r.lake_id=l.id AND r.phase NOT IN ('complete','cancelled'))" + excluded +
+            ") ORDER BY service_order,created_at,id LIMIT ?", (at, *active, int(at * 1000), *active, at, *active, limit),
         ).fetchall()
 
 

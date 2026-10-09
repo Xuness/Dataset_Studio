@@ -96,6 +96,8 @@ def test_broken_transfer_resumes_validated_range_and_counts_only_new_bytes(tmp_p
     http = HTTP([ranged()])
     result, progress = fetch(tmp_path, http)
     assert result["state"] == "downloaded" and result["original_md5_verified"]
+    assert result["md5"] == hashlib.md5(DATA).hexdigest()
+    assert result["etag"] == '"original-v1"'
     assert Path(result["download_path"]).read_bytes() == DATA
     assert http.calls[0][1]["headers"] == {
         "Accept-Encoding": "identity",
@@ -123,6 +125,8 @@ def test_resume_requires_source_hash_or_strong_validator(tmp_path, kind, md5, et
     http = HTTP([ranged(etag=etag) if resume else Response()])
     result, _ = fetch(tmp_path, http, kind=kind, md5=md5)
     assert result["state"] == "downloaded"
+    assert result["md5"] == hashlib.md5(DATA).hexdigest()
+    assert result["etag"] == (etag if resume else None)
     assert ("Range" in http.calls[0][1]["headers"]) == resume
     assert Path(result["download_path"]).read_bytes() == DATA
 

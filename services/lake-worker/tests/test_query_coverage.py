@@ -11,6 +11,7 @@ from studio_lake.updates.sites import UpdateError
 from studio_lake.util import FileLock
 from test_tag_collection import setup, scope
 from test_updates import job
+from update_fixtures import remove_pinterest_schema
 
 
 def reusable_scope(**kwargs):
@@ -154,6 +155,7 @@ def test_query_cache_migration_is_atomic_and_fences_active_owners(tmp_path, monk
     with state.db() as db:
         db.execute("DROP TABLE discovery_pages")
         db.execute("DROP TABLE source_access_epochs")
+        remove_pinterest_schema(db)
         db.execute("PRAGMA user_version=12")
     with FileLock(state.root / "runner.lock", timeout=0):
         with pytest.raises(UpdateError, match="旧版"):
