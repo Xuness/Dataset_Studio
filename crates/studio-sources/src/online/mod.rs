@@ -78,6 +78,32 @@ pub fn available(source: &Source) -> bool {
 fn error(value: impl std::fmt::Display) -> Error {
     Error::new("SOURCE_FORMAT_ERROR", value.to_string())
 }
+pub(super) fn read_post_id(
+    row: &rusqlite::Row<'_>,
+    column: usize,
+) -> rusqlite::Result<Option<i128>> {
+    use rusqlite::types::ValueRef;
+    match row.get_ref(column)? {
+        ValueRef::Null => Ok(None),
+        ValueRef::Integer(value) => Ok(Some(value as i128)),
+        ValueRef::Text(value) => std::str::from_utf8(value)
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .map(Some)
+            .ok_or_else(|| {
+                rusqlite::Error::InvalidColumnType(
+                    column,
+                    "post_id".into(),
+                    rusqlite::types::Type::Text,
+                )
+            }),
+        value => Err(rusqlite::Error::InvalidColumnType(
+            column,
+            "post_id".into(),
+            value.data_type(),
+        )),
+    }
+}
 pub(crate) fn sql_error(value: rusqlite::Error) -> Error {
     if value.sqlite_error_code() == Some(rusqlite::ErrorCode::FileLockingProtocolFailed) {
         PROTOCOL_ERRORS.fetch_add(1, Ordering::Relaxed);
@@ -220,6 +246,7 @@ pub struct Snapshot {
     pub latest_sequence: u64,
     pub count: u64,
     pub revision: String,
+    pub(crate) post_order_ready: bool,
     cancelled: Arc<AtomicBool>,
     deadline: Instant,
 }
@@ -328,6 +355,9 @@ impl Snapshot {
         };
         // Read-only main plus request-local views: all metadata relations resolve
         // at one retained version, while each request holds only a short WAL read.
+        let post_order_ready = version != 3
+            || (state(&db, "pixiv_post_order_version").is_ok_and(|v| v == "1")
+                && number(&db, "pixiv_post_order_seq").is_ok_and(|seq| seq >= sequence));
         if version == 3 {
             db.execute_batch(&format!("CREATE TEMP VIEW visible_objects AS SELECT * FROM main.objects WHERE first_seq<={sequence} AND media_category='image';
                 CREATE TEMP VIEW visible_assets AS SELECT * FROM main.assets WHERE commit_seq<={sequence};
@@ -336,13 +366,18 @@ impl Snapshot {
                 CREATE TEMP VIEW visible_media AS SELECT * FROM main.media_entries WHERE commit_seq<={sequence};
                 CREATE TEMP VIEW current_works AS SELECT * FROM main.work_versions WHERE valid_from<={sequence} AND (valid_until IS NULL OR valid_until>{sequence});
                 CREATE TEMP VIEW current_media_assets AS SELECT * FROM main.media_asset_versions WHERE valid_from<={sequence} AND (valid_until IS NULL OR valid_until>{sequence});
-                CREATE TEMP VIEW object_order AS SELECT sha256,NULL AS post_id FROM visible_objects;")).map_err(sql_error)?;
+                ")).map_err(sql_error)?;
+            if post_order_ready {
+                db.execute_batch(&format!("CREATE TEMP VIEW object_order AS SELECT sha256,post_id,page_ordinal FROM main.pixiv_object_order WHERE valid_from<={sequence} AND (valid_until IS NULL OR valid_until>{sequence});")).map_err(sql_error)?;
+            } else {
+                db.execute_batch("CREATE TEMP VIEW object_order AS SELECT sha256,NULL AS post_id,0 AS page_ordinal FROM visible_objects;").map_err(sql_error)?;
+            }
         } else {
             db.execute_batch(&format!("CREATE TEMP VIEW visible_objects AS SELECT * FROM main.objects WHERE first_seq<={sequence};
             CREATE TEMP VIEW visible_assets AS SELECT * FROM main.assets WHERE commit_seq<={sequence};
             CREATE TEMP VIEW visible_observations AS SELECT * FROM main.observations WHERE commit_seq<={sequence};
             CREATE TEMP VIEW current_posts AS SELECT post_id,row_id,asset_id FROM main.post_versions WHERE valid_from<={sequence} AND (valid_until IS NULL OR valid_until>{sequence});
-            CREATE TEMP VIEW object_order AS SELECT sha256,post_id FROM main.object_versions WHERE valid_from<={sequence} AND (valid_until IS NULL OR valid_until>{sequence});")).map_err(sql_error)?;
+            CREATE TEMP VIEW object_order AS SELECT sha256,post_id,0 AS page_ordinal FROM main.object_versions WHERE valid_from<={sequence} AND (valid_until IS NULL OR valid_until>{sequence});")).map_err(sql_error)?;
         }
         Ok(Self {
             db,
@@ -352,6 +387,7 @@ impl Snapshot {
             latest_sequence,
             count: count as u64,
             revision: format!("online-v{version}:{}:{sequence}", pointer.generation),
+            post_order_ready,
             cancelled,
             deadline: until,
         })
@@ -512,12 +548,39 @@ impl Snapshot {
         keys.iter()
             .map(|k| {
                 query
-                    .query_row([&k.asset_id], |r| r.get(0))
+                    .query_row([&k.asset_id], |r| read_post_id(r, 0))
                     .optional()
-                    .map(|v| v.flatten())
+                    .map(|v| v.flatten().and_then(|id| i64::try_from(id).ok()))
                     .map_err(sql_error)
             })
             .collect()
+    }
+    pub fn post_positions(&self, keys: &[AssetKey]) -> Result<Vec<(Option<i128>, i64)>> {
+        self.require_post_order()?;
+        let mut query = self
+            .db
+            .prepare_cached("SELECT post_id,page_ordinal FROM object_order WHERE sha256=?1")
+            .map_err(sql_error)?;
+        keys.iter()
+            .map(|key| {
+                query
+                    .query_row([&key.asset_id], |row| {
+                        Ok((read_post_id(row, 0)?, row.get(1)?))
+                    })
+                    .optional()
+                    .map(|row| row.unwrap_or((None, 0)))
+                    .map_err(sql_error)
+            })
+            .collect()
+    }
+    pub(crate) fn require_post_order(&self) -> Result<()> {
+        if !self.post_order_ready && self.count > 0 {
+            return Err(Error::new(
+                "SOURCE_INDEX_NOT_READY",
+                "Pixiv 作品排序索引尚未就绪，请更新数据湖在线索引",
+            ));
+        }
+        Ok(())
     }
     pub(crate) fn strings(&self, sql: &str, limit: usize) -> Result<Vec<Vec<Option<String>>>> {
         let mut stmt = self.db.prepare(sql).map_err(sql_error)?;

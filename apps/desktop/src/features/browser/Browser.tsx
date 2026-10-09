@@ -386,7 +386,10 @@ function BrowserContent({
         ? 60000
         : 0,
     enabled: !ranked.loading,
-    retry: 1,
+    retry: (attempt, error) =>
+      attempt <
+      ("code" in error && error.code === "SOURCE_INDEX_NOT_READY" ? 300 : 1),
+    retryDelay: 1000,
     refetchInterval: (q) =>
       q.state.status !== "error" &&
       (q.state.data?.preparing ||
@@ -1080,7 +1083,7 @@ function BrowserContent({
               ranked.active
                 ? "排名沿用计算时的评分，名次在各分级内计算"
                 : order.startsWith("post_id_")
-                  ? "同图关联多个帖子时取最小 ID；无帖子 ID 的图像排在末尾"
+                  ? "按帖子 / 作品 ID 排序；同图取最小 ID，Pixiv 作品内按页码递增；无 ID 的图像排在末尾"
                   : "按图片内容的 SHA-256 排序"
             }
             value={ranked.active ? "ranking:" + ranked.settings.sort : order}
@@ -1107,10 +1110,10 @@ function BrowserContent({
               </optgroup>
             )}
             {postOrderAllowed && (
-              <option value="post_id_desc">帖子 ID 降序</option>
+              <option value="post_id_desc">帖子 / 作品 ID 降序</option>
             )}
             {postOrderAllowed && (
-              <option value="post_id_asc">帖子 ID 升序</option>
+              <option value="post_id_asc">帖子 / 作品 ID 升序</option>
             )}
             <option value="asset_key_asc">图像身份升序</option>
             <option value="asset_key_desc">图像身份降序</option>

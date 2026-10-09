@@ -58,7 +58,7 @@ impl BrowseIndexReader {
         order: QueryOrder,
         after: Option<&str>,
         limit: usize,
-    ) -> Result<Vec<(AssetKey, Option<i64>)>> {
+    ) -> Result<Vec<(AssetKey, Option<i128>)>> {
         if let BrowseBackend::Online(view) = &self.db {
             let source = Source {
                 id: source_id.into(),
@@ -125,7 +125,7 @@ impl BrowseIndexReader {
                             source_id: source_id.into(),
                             asset_id: hex::encode(r.get::<_, Vec<u8>>(0)?),
                         },
-                        r.get(1)?,
+                        r.get::<_, Option<i64>>(1)?.map(i128::from),
                     ))
                 })
                 .map_err(err)?
@@ -152,6 +152,16 @@ impl BrowseIndexReader {
                     .map_err(err)
             })
             .collect()
+    }
+    pub fn post_positions(&self, keys: &[AssetKey]) -> Result<Vec<(Option<i128>, i64)>> {
+        if let BrowseBackend::Online(view) = &self.db {
+            return view.post_positions(keys);
+        }
+        Ok(self
+            .post_ids(keys)?
+            .into_iter()
+            .map(|id| (id.map(i128::from), 0))
+            .collect())
     }
 }
 impl BrowseIndex {

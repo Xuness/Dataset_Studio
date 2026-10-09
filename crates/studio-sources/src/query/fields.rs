@@ -114,7 +114,7 @@ pub(crate) fn directory(source: &Source) -> Result<FieldDirectory> {
                     Integer => vec![Eq, Ne, Gte, Lte, IsMissing, IsPresent],
                     _ => vec![Eq, Ne, IsMissing, IsPresent],
                 },
-                sortable: false,
+                sortable: id == "work.id",
                 cost: "bounded_media_relation_query".into(),
             });
         }
@@ -126,7 +126,12 @@ pub(crate) fn directory(source: &Source) -> Result<FieldDirectory> {
                 ObservationRule::CurrentPost,
                 ObservationRule::AnyObservation,
             ],
-            orders: vec![QueryOrder::AssetKeyAsc, QueryOrder::AssetKeyDesc],
+            orders: vec![
+                QueryOrder::PostIdDesc,
+                QueryOrder::PostIdAsc,
+                QueryOrder::AssetKeyAsc,
+                QueryOrder::AssetKeyDesc,
+            ],
             max_conditions: 12,
             direct_query: true,
         });

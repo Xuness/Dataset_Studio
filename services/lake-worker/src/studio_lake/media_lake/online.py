@@ -108,6 +108,19 @@ class Publisher:
         if owner.exists() and not same_directory(read_json(owner).get("root"), self.lib.root):
             raise IntegrityError("Online publisher points at a previous media location")
 
+    def prepare_post_order(self, stop=None):
+        from .post_order import ensure
+
+        with FileLock(self.index / ".online.lock"):
+            self.check_location()
+            db = connect(self.path)
+            try:
+                if settings(db)["generation"] != self.pointer["generation"]:
+                    raise IntegrityError("Online generation changed")
+                ensure(db, stop=stop)
+            finally:
+                db.close()
+
     def validate(self, records, manifest):
         """Use rollback-only writes under the publisher lock, including a bounded pending suffix.
 
@@ -148,6 +161,9 @@ class Publisher:
             try:
                 if settings(db)["generation"] != self.pointer["generation"]:
                     raise IntegrityError("Online generation changed")
+                from .post_order import ensure
+
+                ensure(db, stop=stop)
                 # Read journal pages, not an unbounded list of historical commits.
                 with self.lib.journal() as journal:
                     head = journal.execute("SELECT coalesce(max(seq),0) FROM commits").fetchone()[0]
@@ -203,12 +219,15 @@ class Publisher:
                     stop("facts:" + name, seq)
         validate_relations(db, records, self.lib.info["library_id"])
         project(db, records, seq, stop)
+        from .post_order import project as project_order
+
+        project_order(db, records, seq)
         if stop:
             stop("before_watermark", seq)
         with db:
             db.execute("UPDATE publications SET state='published',published_at=?,counts_json=? WHERE seq=?",
                        (utc(), canonical(counts(db, seq)), seq))
-            set_state(db, served_seq=seq)
+            set_state(db, served_seq=seq, pixiv_post_order_seq=seq)
             db.execute("DELETE FROM pending_publication WHERE seq=?", (seq,))
             db.execute("DELETE FROM build_progress WHERE name LIKE ?", (f"publication:{seq}:%",))
         if stop:

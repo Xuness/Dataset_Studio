@@ -29,6 +29,27 @@ class Runner:
         self.stop = stop or threading.Event()
         self.client_factory, self.image_http = client_factory, image_http
 
+    def prepare_browse_indexes(self):
+        """Upgrade registered lakes without network access or publishing new facts."""
+        from ..media_lake.online import Publisher
+
+        with self.state.db() as db:
+            identities = [row[0] for row in db.execute("SELECT lake_id FROM collection_lakes ORDER BY lake_id")]
+        def cancelled(*_):
+            if self.stop.is_set():
+                raise UpdateError("CANCELLED", "Browse index preparation stopped")
+        for identity in identities:
+            if self.stop.is_set():
+                break
+            try:
+                with locations.access(self.state, identity):
+                    Publisher(self.state.library(identity)).prepare_post_order(cancelled)
+            except Exception as error:
+                # An offline lake must not prevent other sources/jobs from starting.
+                with (self.state.root / "collection-errors.jsonl").open("a", encoding="utf-8") as log:
+                    log.write(canonical(dict(at=utc(), library_id=identity, operation="prepare_post_order",
+                                             code=exception_code(error), exception=type(error).__name__)) + "\n")
+
     def update_state(self, identity, state, reason=None, retry=0):
         with self.state.db() as db:
             db.execute("BEGIN IMMEDIATE")

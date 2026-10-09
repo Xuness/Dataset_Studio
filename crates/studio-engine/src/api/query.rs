@@ -432,10 +432,20 @@ pub(super) async fn result_assets(
             s.queries.validate_result(&s.store, &result, &_permit)?;
             let order = q.order.map(Into::into).unwrap_or(result.spec.order);
             let mut projected_next = None;
-            let page = if order.by_post() && s.store.query_storage_kind(&pid, &rid)? == "ranking" {
+            let live_post_positions = order.by_post()
+                && (s.store.query_storage_kind(&pid, &rid)? == "ranking"
+                    || result
+                        .spec
+                        .source_ids
+                        .iter()
+                        .map(|id| s.store.source(&pid, id))
+                        .collect::<domain::Result<Vec<_>>>()?
+                        .iter()
+                        .any(|source| source.kind == "pixiv"));
+            let page = if live_post_positions {
                 let signature = hex::encode(Sha256::digest(
                     serde_json::to_vec(&(
-                        "ranking-post-view",
+                        "source-post-view-v2",
                         &pid,
                         &rid,
                         order,

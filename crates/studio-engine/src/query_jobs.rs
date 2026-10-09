@@ -229,7 +229,12 @@ impl QueryRunner {
                     cancelled.clone(),
                     &mut |hits, processed| {
                         let keys = hits.iter().map(|h| h.key.clone()).collect::<Vec<_>>();
-                        let posts = hits.iter().map(|h| h.post_id).collect::<Vec<_>>();
+                        // Legacy membership storage holds i64 Booru IDs. Pixiv
+                        // browse order is projected from its retained source version.
+                        let posts = hits
+                            .iter()
+                            .map(|h| h.post_id.and_then(|id| i64::try_from(id).ok()))
+                            .collect::<Vec<_>>();
                         let mut staging = stage.borrow_mut();
                         staging.append(&keys, &posts, processed)?;
                         if last_progress.get().elapsed() >= Duration::from_millis(600) {

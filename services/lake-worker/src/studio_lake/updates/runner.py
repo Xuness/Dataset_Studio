@@ -743,6 +743,7 @@ class Runner:
                 try:
                     if ready is not None and not ready():
                         return
+                    pool.submit(self.collections.prepare_browse_indexes)
                     self.schedule(pool, background_io)
                 finally:
                     # Stop all work before ThreadPoolExecutor waits, including coordinator failures.

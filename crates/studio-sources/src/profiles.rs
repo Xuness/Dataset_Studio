@@ -108,7 +108,7 @@ pub fn descriptor(kind: &str) -> Result<SourceDescriptor> {
             media: true,
             metadata: true,
             query: true,
-            post_order: kind != "pixiv",
+            post_order: true,
             relink: true,
             raw_metadata: true,
             incremental: true,

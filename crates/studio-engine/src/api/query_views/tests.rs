@@ -114,7 +114,7 @@ impl Pages {
                             source_id: source.id.clone(),
                             asset_id: format!("{n:064x}"),
                         },
-                        post_id: (n % 7 != 0).then_some((n % 5) as i64),
+                        post_id: (n % 7 != 0).then_some((n % 5) as i128),
                     })
                     .collect::<Vec<_>>();
                 rows.sort_by(|a, b| compare(order, a, b));

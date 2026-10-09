@@ -233,7 +233,7 @@ impl Snapshot {
                     source_id: source.id.clone(),
                     asset_id: row.get(0).map_err(sql_error)?,
                 },
-                post_id: row.get(1).map_err(sql_error)?,
+                post_id: read_post_id(row, 1).map_err(sql_error)?,
             });
             if batch.len() == 512 {
                 sink(&batch, batch.len() as u64)?;
@@ -458,6 +458,9 @@ impl Snapshot {
         limit: usize,
     ) -> Result<SourceQueryPage> {
         crate::query::fields::directory(source)?.validate(spec)?;
+        if spec.order.by_post() {
+            self.require_post_order()?;
+        }
         let limit = limit.clamp(1, 129);
         let mut predicates = self.predicates(spec)?;
         if predicates.impossible {
@@ -481,29 +484,36 @@ impl Snapshot {
             }
             let key = bind(&mut predicates.values, Value::Text(after.into()));
             if spec.order.by_post() {
-                let post: Option<Option<i64>> = self
+                let post: Option<(Option<i128>, i64)> = self
                     .db
                     .query_row(
-                        "SELECT post_id FROM object_order WHERE sha256=?1",
+                        "SELECT post_id,page_ordinal FROM object_order WHERE sha256=?1",
                         [after],
-                        |r| r.get(0),
+                        |r| Ok((read_post_id(r, 0)?, r.get(1)?)),
                     )
                     .optional()
                     .map_err(sql_error)?;
                 match post.ok_or_else(|| Error::invalid("游标不属于该视图"))? {
-                    Some(post) => {
-                        let p = bind(&mut predicates.values, Value::Integer(post));
-                        after_clause =
-                            format!("(v.post_id IS NULL OR (v.post_id,o.sha256){op}({p},{key}))");
+                    (Some(post), ordinal) => {
+                        let value = if self.pointer.schema_version == 3 {
+                            Value::Text(format!("{post:020}"))
+                        } else {
+                            Value::Integer(i64::try_from(post).map_err(error)?)
+                        };
+                        let p = bind(&mut predicates.values, value);
+                        let page = bind(&mut predicates.values, Value::Integer(ordinal));
+                        after_clause = format!(
+                            "(v.post_id IS NULL OR v.post_id{op}{p} OR (v.post_id={p} AND (v.page_ordinal>{page} OR (v.page_ordinal={page} AND o.sha256{op}{key}))))"
+                        );
                     }
-                    None => after_clause = format!("v.post_id IS NULL AND o.sha256{op}{key}"),
+                    (None, _) => after_clause = format!("v.post_id IS NULL AND o.sha256{op}{key}"),
                 }
             } else {
                 after_clause = format!("o.sha256{op}{key}");
             }
         }
         let order = if spec.order.by_post() {
-            format!("v.post_id {direction} NULLS LAST,o.sha256 {direction}")
+            format!("v.post_id {direction} NULLS LAST,v.page_ordinal ASC,o.sha256 {direction}")
         } else {
             format!("o.sha256 {direction}")
         };
@@ -536,7 +546,7 @@ impl Snapshot {
                             source_id: source.id.clone(),
                             asset_id: r.get(0)?,
                         },
-                        post_id: r.get(1)?,
+                        post_id: read_post_id(r, 1)?,
                     })
                 })
                 .map_err(sql_error)?
@@ -627,7 +637,10 @@ impl Snapshot {
         order: QueryOrder,
         after: Option<&str>,
         limit: usize,
-    ) -> Result<Vec<(String, Option<i64>)>> {
+    ) -> Result<Vec<(String, Option<i128>)>> {
+        if order.by_post() && self.pointer.schema_version == 3 {
+            return self.pixiv_ordered_window(order, after, limit);
+        }
         let direction = if order.descending() { "DESC" } else { "ASC" };
         let op = if order.descending() { "<" } else { ">" };
         if !order.by_post() {
@@ -638,7 +651,9 @@ impl Snapshot {
             };
             let mut statement = self.db.prepare(&format!("SELECT o.sha256,v.post_id FROM visible_objects o CROSS JOIN object_order v ON v.sha256=o.sha256 WHERE {condition} ORDER BY o.sha256 {direction} LIMIT ?2")).map_err(sql_error)?;
             return statement
-                .query_map(params![after, limit as i64], |r| Ok((r.get(0)?, r.get(1)?)))
+                .query_map(params![after, limit as i64], |r| {
+                    Ok((r.get(0)?, read_post_id(r, 1)?))
+                })
                 .map_err(sql_error)?
                 .collect::<std::result::Result<Vec<_>, _>>()
                 .map_err(sql_error);
@@ -678,7 +693,7 @@ impl Snapshot {
             output.extend(
                 statement
                     .query_map(params![post, after, remaining as i64], |r| {
-                        Ok((r.get(0)?, r.get(1)?))
+                        Ok((r.get(0)?, read_post_id(r, 1)?))
                     })
                     .map_err(sql_error)?
                     .collect::<std::result::Result<Vec<_>, _>>()
@@ -686,6 +701,59 @@ impl Snapshot {
             );
         }
         Ok(output)
+    }
+    fn pixiv_ordered_window(
+        &self,
+        order: QueryOrder,
+        after: Option<&str>,
+        limit: usize,
+    ) -> Result<Vec<(String, Option<i128>)>> {
+        self.require_post_order()?;
+        let direction = if order.descending() { "DESC" } else { "ASC" };
+        let op = if order.descending() { "<" } else { ">" };
+        let position: (Option<String>, i64) = if let Some(after) = after {
+            self.db
+                .query_row(
+                    "SELECT post_id,page_ordinal FROM object_order WHERE sha256=?1",
+                    [after],
+                    |row| Ok((row.get(0)?, row.get(1)?)),
+                )
+                .map_err(sql_error)?
+        } else {
+            (None, 0)
+        };
+        // Separate equal-work/page, remaining pages, subsequent works and NULLs
+        // into index seeks. OR across these ranges sorts the remaining lake.
+        let conditions = match (after, position.0.as_ref()) {
+            (Some(_), Some(_)) => vec![
+                format!("post_id=?1 AND page_ordinal=?2 AND sha256{op}?3"),
+                "post_id=?1 AND page_ordinal>?2".into(),
+                format!("post_id IS NOT NULL AND post_id{op}?1"),
+                "post_id IS NULL".into(),
+            ],
+            (Some(_), None) => vec![format!("post_id IS NULL AND sha256{op}?3")],
+            (None, _) => vec!["post_id IS NOT NULL".into(), "post_id IS NULL".into()],
+        };
+        let mut rows = Vec::new();
+        for condition in conditions {
+            if rows.len() == limit {
+                break;
+            }
+            let mut query = self.db.prepare(&format!(
+                "SELECT sha256,post_id FROM object_order WHERE {condition} ORDER BY post_id {direction},page_ordinal ASC,sha256 {direction} LIMIT ?4"
+            )).map_err(sql_error)?;
+            rows.extend(
+                query
+                    .query_map(
+                        params![position.0, position.1, after, (limit - rows.len()) as i64],
+                        |row| Ok((row.get(0)?, read_post_id(row, 1)?)),
+                    )
+                    .map_err(sql_error)?
+                    .collect::<std::result::Result<Vec<_>, _>>()
+                    .map_err(sql_error)?,
+            );
+        }
+        Ok(rows)
     }
     pub fn stream_query(
         &self,

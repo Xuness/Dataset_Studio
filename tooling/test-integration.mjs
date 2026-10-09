@@ -36,6 +36,7 @@ const suites = [
   "lake-updates",
   "lake-recovery",
   "collections",
+  "pixiv-order",
 ];
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 

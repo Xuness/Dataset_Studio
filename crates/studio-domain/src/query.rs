@@ -69,7 +69,7 @@ pub enum QueryOrder {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueryHit {
     pub key: AssetKey,
-    pub post_id: Option<i64>,
+    pub post_id: Option<i128>,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SourceQueryPage {

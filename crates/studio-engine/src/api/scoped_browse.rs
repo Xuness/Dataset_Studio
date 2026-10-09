@@ -26,9 +26,16 @@ impl Page {
 pub(super) fn compare(
     order: QueryOrder,
     a: &AssetKey,
-    ap: Option<i64>,
+    ap: Option<i128>,
     b: &AssetKey,
-    bp: Option<i64>,
+    bp: Option<i128>,
+) -> Ordering {
+    compare_positions(order, (a, ap, 0), (b, bp, 0))
+}
+fn compare_positions(
+    order: QueryOrder,
+    (a, ap, ao): (&AssetKey, Option<i128>, i64),
+    (b, bp, bo): (&AssetKey, Option<i128>, i64),
 ) -> Ordering {
     let posts = match (ap, bp) {
         (Some(a), Some(b)) => {
@@ -44,9 +51,15 @@ pub(super) fn compare(
     };
     posts.then_with(|| {
         if order.descending() {
-            (&b.source_id, &b.asset_id).cmp(&(&a.source_id, &a.asset_id))
+            b.source_id
+                .cmp(&a.source_id)
+                .then_with(|| ao.cmp(&bo))
+                .then_with(|| b.asset_id.cmp(&a.asset_id))
         } else {
-            (&a.source_id, &a.asset_id).cmp(&(&b.source_id, &b.asset_id))
+            a.source_id
+                .cmp(&b.source_id)
+                .then_with(|| ao.cmp(&bo))
+                .then_with(|| a.asset_id.cmp(&b.asset_id))
         }
     })
 }
@@ -56,7 +69,7 @@ struct SourceStream {
     index: BrowseIndexReader,
     after: Option<String>,
     exhausted: bool,
-    rows: VecDeque<(AssetKey, Option<i64>, bool)>,
+    rows: VecDeque<(AssetKey, Option<i128>, bool)>,
 }
 impl SourceStream {
     fn fill(
@@ -193,10 +206,12 @@ pub(super) fn page(
                 .filter(|key| key.source_id == stream.source.id)
                 .cloned()
                 .collect::<Vec<_>>();
-            let posts = stream.index.post_ids(&source_keys)?;
+            let posts = stream.index.post_positions(&source_keys)?;
             ordered.extend(source_keys.into_iter().zip(posts));
         }
-        ordered.sort_by(|(a, ap), (b, bp)| compare(order, a, *ap, b, *bp));
+        ordered.sort_by(|(a, (ap, ao)), (b, (bp, bo))| {
+            compare_positions(order, (a, *ap, *ao), (b, *bp, *bo))
+        });
         let start = if let Some(last) = &cursor.last_key {
             ordered
                 .iter()

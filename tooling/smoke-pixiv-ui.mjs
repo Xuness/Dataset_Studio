@@ -71,6 +71,10 @@ try {
     media_root: refs.lake.media_root,
     index_root: refs.lake.index_root,
   });
+  await engine.api(`/v1/projects/${project.id}/sources`, "POST", {
+    kind: "demo",
+    name: "Unordered fixture",
+  });
   for (const [kind, lake] of Object.entries(booru))
     await client.sourceAccess.attach(project.id, {
       kind,
@@ -158,7 +162,7 @@ try {
   await page.locator(".recent-row").filter({ hasText: project.name }).click();
   await page
     .locator(".source-tree-row button.tree-row")
-    .filter({ hasText: "Pixiv fixture" })
+    .filter({ hasText: "Unordered fixture" })
     .click();
   await expect(page.locator(".asset-grid article").first()).toBeVisible();
   await expect(page.getByLabel("浏览排序", { exact: true })).toHaveValue(
@@ -198,7 +202,7 @@ try {
   await persistedOrder("booruOrder", "post_id_desc");
   await browseOrder.selectOption("post_id_asc");
   await persistedOrder("booruOrder", "post_id_asc");
-  await openSource("Pixiv fixture", "asset_key_asc");
+  await openSource("Unordered fixture", "asset_key_asc");
   await browseOrder.selectOption("asset_key_desc");
   await persistedOrder("order", "asset_key_desc");
   await persistedOrder("booruOrder", "post_id_asc");
@@ -217,18 +221,18 @@ try {
   await openSource("danbooru fixture", "post_id_asc");
   await browseOrder.selectOption("asset_key_asc");
   await persistedOrder("booruOrder", "asset_key_asc");
-  await openSource("Pixiv fixture", "asset_key_desc");
+  await openSource("Unordered fixture", "asset_key_desc");
   await page.reload();
   await expect(browseOrder).toHaveValue("asset_key_desc");
   await openSource("danbooru fixture", "asset_key_asc");
   await browseOrder.selectOption("post_id_desc");
   await persistedOrder("booruOrder", "post_id_desc");
-  await openSource("Pixiv fixture", "asset_key_desc");
+  await openSource("Unordered fixture", "asset_key_desc");
   await browseOrder.selectOption("asset_key_asc");
   await persistedOrder("order", "asset_key_asc");
   await persistedOrder("booruOrder", "post_id_desc");
   checks.push(
-    "legacy shared identity order recovers Booru ID default; all three Booru lakes retain manual ID/identity choices across Pixiv, mixed browsing and reload",
+    "legacy identity preference recovers the post-ID default; source capabilities isolate ID/identity choices across unsupported sources, mixed browsing and reload",
   );
   // Derived Booru scopes must not inherit the unrelated Pixiv lake's limits.
   const expectPostIds = async (ids) => {
@@ -283,9 +287,13 @@ try {
     await browseOrder.selectOption("post_id_desc");
   }
   checks.push(
-    "Booru Tag results retain post-ID sorting with an unrelated Pixiv lake; rendered IDs stay ordered across direction changes, pagination, reload and clearing filters",
+    "Booru Tag results retain post-ID sorting with an unrelated unsupported lake; rendered IDs stay ordered across direction changes, pagination, reload and clearing filters",
   );
-  await openSource("Pixiv fixture", "asset_key_asc");
+  await openSource("Pixiv fixture", "post_id_desc");
+  await browseOrder.selectOption("post_id_asc");
+  await persistedOrder("booruOrder", "post_id_asc");
+  await page.reload();
+  await expect(browseOrder).toHaveValue("post_id_asc");
   await page
     .getByRole("button", { name: "Rating / Tag 筛选", exact: true })
     .click();
@@ -306,7 +314,7 @@ try {
     applyQuickFilter.click(),
   ]);
   const quickFilter = await quickFilterResponse.json();
-  assert.equal(quickFilter.spec.order, "asset_key_asc");
+  assert.equal(quickFilter.spec.order, "post_id_asc");
   assert.deepEqual(quickFilter.spec.conditions[0].value.value, [
     "missing_fixture_tag",
   ]);
@@ -321,11 +329,11 @@ try {
   );
   await expect(page.locator(".asset-grid article")).toHaveCount(0);
   await page.getByRole("button", { name: "清除筛选", exact: true }).click();
-  await expect(browseOrder).toHaveValue("asset_key_asc");
+  await expect(browseOrder).toHaveValue("post_id_asc");
   await expect(page.locator(".asset-grid article").first()).toBeVisible();
-  await persistedOrder("booruOrder", "post_id_desc");
+  await persistedOrder("booruOrder", "post_id_asc");
   checks.push(
-    "Pixiv quick filters use the effective identity order without changing Booru preference",
+    "Pixiv exposes post-ID order, persists it across reload, and retains it through Tag results and clearing filters",
   );
   await page.locator(".asset-grid .asset-thumb").first().click();
   await page.getByRole("tab", { name: "检查器", exact: true }).click();
