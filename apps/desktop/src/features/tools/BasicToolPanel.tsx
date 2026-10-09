@@ -131,7 +131,12 @@ export default function BasicToolPanel(context: ModuleContext) {
       ...data,
       items: data.items.filter(
         (o) =>
-          !["danbooru.metarecall", "danbooru.metarecall_v2"].includes(o.id),
+          ![
+            "danbooru.metarecall",
+            "danbooru.metarecall_v2",
+            // File export has its own dialog with a folder picker.
+            "core.export_files",
+          ].includes(o.id),
       ),
     }),
   });

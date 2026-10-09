@@ -32,7 +32,6 @@ import {
   useWorkbenchPanels,
   ContextMenu,
   contextMenuAt,
-  useClipboardWriter,
 } from "@studio/ui";
 import type {
   ModuleContext,
@@ -49,7 +48,14 @@ import type {
   QueryResult,
 } from "@studio/contracts";
 import { AssetImage } from "./AssetImage.js";
-import { useImageZoom, ZoomableImage, ZoomControls } from "./ZoomableImage.js";
+import {
+  ImageStage,
+  ImageTools,
+  useImageViewer,
+  viewerHint,
+} from "./ImageStage.js";
+import { useImageActions } from "./originals.js";
+import { useMarquee } from "./marquee.js";
 import { QuickFilters, adoptRefreshedFilter } from "./QuickFilters.js";
 import {
   useRankingBrowse,
@@ -215,7 +221,6 @@ function BrowserContent({
     document.addEventListener("wheel", wheel, { passive: false });
     return () => document.removeEventListener("wheel", wheel);
   }, []);
-  const writeClipboard = useClipboardWriter();
   const [pendingFocus, setPendingFocus] = useState<"first" | "last" | null>(
     null,
   );
@@ -540,9 +545,17 @@ function BrowserContent({
     ? items.findIndex((a) => assetIdentity(a.key) === assetIdentity(focus.key))
     : -1;
   const activeAsset = focusIndex >= 0 ? items[focusIndex]! : focus;
-  const zoom = useImageZoom(
-    view + ":" + (activeAsset ? assetIdentity(activeAsset.key) : ""),
+  const viewer = useImageViewer(client, projectId, activeAsset ?? null, view);
+  useMarquee(
+    scrollRef,
+    gridRef,
+    view === "grid" && items.length > 0,
+    (indexes, remove) => {
+      const keys = indexes.flatMap((i) => (items[i] ? [items[i].key] : []));
+      if (keys.length && !busy) onPick(keys, remove);
+    },
   );
+  const imageActions = useImageActions(client, projectId);
   const waiting =
     ranked.loading ||
     query.isFetching ||
@@ -877,7 +890,7 @@ function BrowserContent({
             e.preventDefault();
             selectAt(activeAsset, focusIndex, e.shiftKey);
           }
-          zoom.onKey(e);
+          viewer.onKey(e);
         } else if (
           (e.ctrlKey || e.metaKey) &&
           e.key.toLowerCase() === "a" &&
@@ -1263,14 +1276,24 @@ function BrowserContent({
           aria-label="单图查看画布"
         >
           {activeAsset && (
-            <ZoomableImage zoom={zoom}>
-              <AssetImage
-                client={client}
-                projectId={projectId}
-                asset={activeAsset}
-                edge={1600}
-              />
-            </ZoomableImage>
+            <ImageStage
+              viewer={viewer}
+              client={client}
+              projectId={projectId}
+              edge={1600}
+              menuItems={[
+                {
+                  label: activeAsset.selected ? "取消选择" : "选择",
+                  shortcut: "Space",
+                  disabled: busy || waiting,
+                  action: () => selectAt(activeAsset, focusIndex, false),
+                },
+                {
+                  label: "在检查器中查看属性",
+                  action: () => onInspect(activeAsset),
+                },
+              ]}
+            />
           )}
           {waiting && (
             <div className="image-loading" role="status">
@@ -1306,8 +1329,8 @@ function BrowserContent({
                 text={activeAsset.key.asset_id}
               />
               <span className="grow" />
-              <span className="zoom-controls">
-                <ZoomControls zoom={zoom} />
+              <span className="zoom-controls" title={viewerHint}>
+                <ImageTools viewer={viewer} />
               </span>
             </div>
           )}
@@ -1376,13 +1399,17 @@ function BrowserContent({
                           action: () => onInspect(asset),
                         },
                         {
+                          label: "另存原图…",
+                          separator: true,
+                          action: () => void imageActions.save(asset),
+                        },
+                        {
+                          label: "复制图像",
+                          action: () => void imageActions.copy(asset),
+                        },
+                        {
                           label: "复制图像身份",
-                          action: () =>
-                            void writeClipboard({
-                              text: asset.key.asset_id,
-                            }).catch(() =>
-                              setNotice("未能写入剪贴板，可在检查器中复制。"),
-                            ),
+                          action: () => imageActions.copyIdentity(asset),
                         },
                       ]),
                     );

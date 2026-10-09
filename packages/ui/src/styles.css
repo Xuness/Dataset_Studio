@@ -993,3 +993,86 @@ input[type="number"].wb-scrub-active {
   cursor: col-resize !important;
   user-select: none;
 }
+
+/* Ctrl+P command search (CommandPalette). */
+.command-palette {
+  top: 12vh;
+  margin: 0 auto;
+  width: min(620px, calc(100vw - 32px));
+  max-height: min(520px, 72vh);
+  padding: 0;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--text);
+  box-shadow: 0 14px 40px #000000b0;
+}
+.command-palette[open] {
+  display: flex;
+  flex-direction: column;
+}
+.command-palette::backdrop {
+  background: #00000059;
+}
+.command-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  color: var(--text-secondary);
+}
+.command-search input {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--line-control);
+  border-radius: 3px;
+  background: var(--field);
+  color: var(--text-strong);
+  font-size: 13px;
+}
+.command-list {
+  margin: 0;
+  padding: 4px;
+  overflow: auto;
+  list-style: none;
+}
+.command-list li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 8px;
+  border-radius: 3px;
+  font-size: 12px;
+  cursor: default;
+}
+.command-list li[aria-selected="true"] {
+  background: var(--accent);
+  color: #ffffff;
+}
+.command-list li[aria-disabled="true"] {
+  color: var(--text-disabled);
+}
+.command-list .menu-check {
+  display: inline-flex;
+  flex: 0 0 14px;
+}
+.command-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.command-group {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+.command-list li[aria-selected="true"] .command-group,
+.command-list li[aria-selected="true"] .menu-shortcut {
+  color: #dbe9f7;
+}
+.command-list .command-empty {
+  color: var(--text-secondary);
+}

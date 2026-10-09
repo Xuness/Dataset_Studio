@@ -4,11 +4,13 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { App } from "./app/App.js";
 import {
   ClipboardProvider,
+  PlatformFilesProvider,
   TooltipLayer,
   installNumberScrub,
   installColumnResize,
 } from "@studio/ui";
 import { nativeClipboard, writeClipboard } from "./platform/clipboard.js";
+import { platformFiles } from "./platform/files.js";
 import "@studio/ui/styles.css";
 import "./app/studio.css";
 import "./app/workbench-theme.css";
@@ -46,9 +48,11 @@ createRoot(element).render(
       write={writeClipboard}
       captureSelection={nativeClipboard}
     >
-      <QueryClientProvider client={queries}>
-        <App />
-      </QueryClientProvider>
+      <PlatformFilesProvider value={platformFiles}>
+        <QueryClientProvider client={queries}>
+          <App />
+        </QueryClientProvider>
+      </PlatformFilesProvider>
       <TooltipLayer />
     </ClipboardProvider>
   </React.StrictMode>,

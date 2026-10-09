@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { createContext, useContext, useEffect, useRef } from "react";
 import { CheckCircle2, CircleAlert, Info, X } from "lucide-react";
 
 export type Notice = {
@@ -8,6 +8,13 @@ export type Notice = {
   detail?: string;
   action?: { label: string; run: () => void };
 };
+export type Notify = (notice: Omit<Notice, "id"> & { id?: string }) => void;
+const NotifyContext = createContext<Notify>(() => {});
+/** Lets feature modules raise notices in the shell's notification stack. */
+export const NotifyProvider = NotifyContext.Provider;
+export function useNotify() {
+  return useContext(NotifyContext);
+}
 
 function NoticeItem({
   notice,

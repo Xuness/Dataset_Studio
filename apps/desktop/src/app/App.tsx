@@ -13,10 +13,12 @@ import {
   useSyncExternalStore,
   lazy,
 } from "react";
+import type { RefObject } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   FolderOpen,
   FolderPlus,
+  FolderOutput,
   Plus,
   ChevronDown,
   ChevronRight,
@@ -51,11 +53,13 @@ import {
   MoreMenu,
   WorkbenchStatusTarget,
   NotificationStack,
+  NotifyProvider,
+  CommandPalette,
   jobPresentation,
   browseScopeIdentity,
 } from "@studio/ui";
 import { EditorTabs } from "./EditorTabs.js";
-import type { Notice, WorkbenchLayout } from "@studio/ui";
+import type { Command, Notice, Notify, WorkbenchLayout } from "@studio/ui";
 import { MenuBar } from "./MenuBar.js";
 import type { MenuItems } from "./MenuBar.js";
 import type { ModuleContext, BrowseScope } from "@studio/ui";
@@ -89,6 +93,10 @@ import {
 } from "../features/management/ManagementPanel.js";
 import type { ManagementMode } from "../features/management/ManagementPanel.js";
 import { WorksetTree } from "../features/management/WorksetTree.js";
+import {
+  ExportDialog,
+  EXPORT_OPERATOR,
+} from "../features/exports/ExportDialog.js";
 import { DetachedSources } from "../features/management/DetachedSources.js";
 import { LakeActivity } from "../features/lake-updates/LakeActivity.js";
 import {
@@ -129,6 +137,10 @@ const studioWorkbenchDefaults: WorkbenchLayout = {
 export function App() {
   const [closeError, setCloseError] = useState("");
   const [statusHost, setStatusHost] = useState<HTMLElement | null>(null);
+  // Studio owns the notice stack; the provider sits here so feature modules
+  // can raise notices without re-nesting Studio's render tree.
+  const notifyHost = useRef<Notify>(() => {});
+  const notify = useCallback<Notify>((n) => notifyHost.current(n), []);
   const cache = useQueryClient();
   const engine = useQuery({
     queryKey: ["engine"],
@@ -182,12 +194,15 @@ export function App() {
     );
   return (
     <WorkbenchStatusTarget.Provider value={statusHost}>
-      <Studio
-        key={engine.data.connection.instance_id}
-        client={engine.data}
-        onReconnect={reconnect}
-        onStatusHost={setStatusHost}
-      />
+      <NotifyProvider value={notify}>
+        <Studio
+          key={engine.data.connection.instance_id}
+          client={engine.data}
+          onReconnect={reconnect}
+          onStatusHost={setStatusHost}
+          notifyHost={notifyHost}
+        />
+      </NotifyProvider>
       {closeError && (
         <div className="error-banner" role="alert">
           <ErrorDetails error={closeError} compact />
@@ -201,10 +216,12 @@ function Studio({
   client,
   onReconnect,
   onStatusHost,
+  notifyHost,
 }: {
   client: StudioClient;
   onReconnect: () => void;
   onStatusHost: (host: HTMLElement | null) => void;
+  notifyHost: RefObject<Notify>;
 }) {
   const queryClient = useQueryClient();
   const application = useLakePreference(
@@ -253,6 +270,9 @@ function Studio({
     }
   }, [health.isError, health.errorUpdatedAt, onReconnect]);
   const [dialog, setDialog] = useState<DialogKind>(null);
+  // Scope option value the export dialog opens with; null when closed.
+  const [exportScope, setExportScope] = useState<string | null>(null);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const [settingsPage, setSettingsPage] = useState<SettingsPageId | null>(null);
   const [error, setError] = useState("");
   const [operationNotice, setOperationNotice] = useState("");
@@ -444,6 +464,7 @@ function Studio({
       )
         continue;
       const p = jobPresentation(job);
+      const exported = job.operator === EXPORT_OPERATOR;
       finished.push({
         id: job.id + ":" + job.status,
         tone: p.succeeded
@@ -451,15 +472,34 @@ function Studio({
           : job.status === "failed"
             ? "error"
             : "info",
-        title: p.title,
-        detail: p.succeeded ? p.count : p.detail,
-        action: {
-          label: "查看任务",
-          run: () => {
-            setTaskFocus(job.id);
-            setTasksVisible(true);
-          },
-        },
+        title: exported
+          ? p.succeeded
+            ? "原图导出完成"
+            : job.status === "failed"
+              ? "原图导出未完成"
+              : "原图导出已取消"
+          : p.title,
+        detail: p.succeeded
+          ? exported
+            ? job.total.toLocaleString("zh-CN") + " 项已写入目标文件夹"
+            : p.count
+          : exported && job.error
+            ? job.error
+            : p.detail,
+        action:
+          exported && p.succeeded
+            ? {
+                label: "打开文件夹",
+                run: () =>
+                  void client.revealExport(currentId, job.id).catch(() => {}),
+              }
+            : {
+                label: "查看任务",
+                run: () => {
+                  setTaskFocus(job.id);
+                  setTasksVisible(true);
+                },
+              },
       });
     }
     if (finished.length)
@@ -471,6 +511,15 @@ function Studio({
       );
   }, [jobs.data, currentId]);
   useEffect(() => setNotices([]), [currentId]);
+  const notify = useCallback<Notify>((notice) => {
+    const id = notice.id ?? crypto.randomUUID();
+    setNotices((old) =>
+      [...old.filter((n) => n.id !== id), { ...notice, id }].slice(-4),
+    );
+  }, []);
+  useEffect(() => {
+    notifyHost.current = notify;
+  }, [notifyHost, notify]);
   const queryModel = useProjectQueries(client, currentId);
   const activeResultId = view.scope.kind === "result" ? view.scope.id : "";
   const activeResult = useQuery({
@@ -1226,6 +1275,9 @@ function Studio({
             tabOrder.length
         ]!,
       );
+    } else if (key === "p") {
+      event.preventDefault();
+      setPaletteOpen(true);
     } else if (key === "w" && !event.shiftKey && tabOrder.length) {
       event.preventDefault();
       closeView(activeTab);
@@ -1266,6 +1318,45 @@ function Studio({
       document.removeEventListener("mousedown", block);
     };
   }, []);
+  function paletteCommands(): Command[] {
+    const commands: Command[] = Object.entries(menus).flatMap(
+      ([group, items]) =>
+        items.map((item) => ({
+          id: group + ":" + item.label,
+          label: item.label.replace(/…$/, ""),
+          group,
+          run: item.action,
+          ...(item.shortcut ? { shortcut: item.shortcut } : {}),
+          ...(item.checked !== undefined ? { checked: item.checked } : {}),
+          ...(item.disabled ? { disabled: true } : {}),
+        })),
+    );
+    if (!project || lakesActive) return commands;
+    const browse = (scope: BrowseScope) => () => updateView({ scope });
+    for (const source of sources.data?.items ?? [])
+      commands.push({
+        id: "source:" + source.id,
+        label: "浏览数据湖 · " + source.name,
+        group: "数据湖",
+        run: browse({ kind: "source", id: source.id, name: source.name }),
+      });
+    for (const item of collections.data?.items ?? [])
+      commands.push(
+        {
+          id: "workset:" + item.id,
+          label: "浏览工作集 · " + item.name,
+          group: "工作集",
+          run: browse({ kind: "collection", id: item.id, name: item.name }),
+        },
+        {
+          id: "export:" + item.id,
+          label: "导出工作集原图 · " + item.name,
+          group: "工作集",
+          run: () => setExportScope(item.id),
+        },
+      );
+    return commands;
+  }
   const menus: MenuItems = {
     项目: [
       { label: "新建项目…", action: () => setDialog("new") },
@@ -1323,6 +1414,11 @@ function Studio({
         action: () => setDialog("collection"),
         disabled: lakesActive || !hasFixedInput,
       },
+      {
+        label: "导出原图…",
+        action: () => setExportScope(selected > 0 ? "selection" : defaultScope),
+        disabled: lakesActive || !hasTaskInput,
+      },
     ],
     视图: [
       {
@@ -1354,7 +1450,13 @@ function Studio({
     ],
     窗口: [
       {
+        label: "命令搜索…",
+        shortcut: "Ctrl+P",
+        action: () => setPaletteOpen(true),
+      },
+      {
         label: "项目资源抽屉",
+        separator: true,
         shortcut: "Ctrl+Space",
         checked: resourcesOpen,
         action: () => setResourcesOpen((v) => !v),
@@ -1513,6 +1615,7 @@ function Studio({
             })
           }
           onManage={openManagement}
+          onExport={(item) => setExportScope(item.id)}
         />
       </div>
       <div className="project-foot">
@@ -1650,6 +1753,13 @@ function Studio({
               <FolderPlus size={14} />
               保存为工作集
             </Button>
+            <Button
+              disabled={!selected || busy}
+              onClick={() => setExportScope("selection")}
+            >
+              <FolderOutput size={14} />
+              导出原图
+            </Button>
           </div>
         </div>
       ) : (
@@ -1770,6 +1880,16 @@ function Studio({
             >
               <FileText size={14} />
               生成清单
+            </button>
+            <button
+              disabled={!hasTaskInput || busy}
+              onClick={() =>
+                setExportScope(selected > 0 ? "selection" : defaultScope)
+              }
+              title="把当前范围或选择的原图导出到文件夹"
+            >
+              <FolderOutput size={14} />
+              导出原图
             </button>
             <span className="grow" />
             <button
@@ -2113,6 +2233,43 @@ function Studio({
             setDialog(null);
             void queryClient.invalidateQueries({
               queryKey: ["project", currentId],
+            });
+          }}
+        />
+      )}
+      {paletteOpen && (
+        <CommandPalette
+          commands={paletteCommands()}
+          onClose={() => setPaletteOpen(false)}
+        />
+      )}
+      {exportScope !== null && project && (
+        <ExportDialog
+          client={client}
+          projectId={project.id}
+          options={inputs}
+          defaultScope={exportScope}
+          onClose={() => setExportScope(null)}
+          onSubmitted={(job, count) => {
+            setExportScope(null);
+            void queryClient.invalidateQueries({
+              queryKey: ["project", currentId, "jobs"],
+            });
+            notify({
+              tone: "info",
+              title: "已开始导出原图",
+              detail:
+                (count === null
+                  ? ""
+                  : count.toLocaleString("zh-CN") + " 项，") +
+                "进度见项目任务。",
+              action: {
+                label: "查看任务",
+                run: () => {
+                  setTaskFocus(job.id);
+                  setTasksVisible(true);
+                },
+              },
             });
           }}
         />

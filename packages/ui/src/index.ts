@@ -67,8 +67,22 @@ export {
 export type { DragObject, DropLocate } from "./objectDrag.js";
 export type { MoreMenuItem, ContextMenuState } from "./MoreMenu.js";
 export { TooltipLayer } from "./Tooltip.js";
-export { NotificationStack } from "./Notifications.js";
-export type { Notice } from "./Notifications.js";
+export {
+  NotificationStack,
+  NotifyProvider,
+  useNotify,
+} from "./Notifications.js";
+export type { Notice, Notify } from "./Notifications.js";
+export {
+  browserFiles,
+  copyImageWithBrowser,
+  downloadBlob,
+  PlatformFilesProvider,
+  usePlatformFiles,
+} from "./platformFiles.js";
+export type { PlatformFiles } from "./platformFiles.js";
+export { CommandPalette } from "./CommandPalette.js";
+export type { Command } from "./CommandPalette.js";
 export { installNumberScrub } from "./numberScrub.js";
 export { installColumnResize } from "./columnResize.js";
 export {

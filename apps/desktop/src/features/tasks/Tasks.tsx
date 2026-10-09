@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Download,
+  FolderOpen,
   X,
   CheckCircle2,
   LoaderCircle,
@@ -337,7 +338,22 @@ function TaskRow({
               : "查看任务"}
           </Button>
         )}
-        {object.state === "deleted" ? null : p.succeeded && !p.ranking ? (
+        {object.state === "deleted" ? null : p.succeeded &&
+          job.operator === "core.export_files" ? (
+          <Button
+            disabled={!!pending || disconnected}
+            onClick={() =>
+              void client
+                .revealExport(job.project_id, job.id)
+                .catch((e: unknown) =>
+                  onError(e instanceof Error ? e.message : String(e)),
+                )
+            }
+          >
+            <FolderOpen size={13} />
+            打开文件夹
+          </Button>
+        ) : p.succeeded && !p.ranking ? (
           <Button
             disabled={!!pending || disconnected || !resultAvailable}
             onClick={() => void act("download")}

@@ -2,12 +2,12 @@ import { useEffect, useRef } from "react";
 import { ChevronLeft, ChevronRight, LayoutGrid } from "lucide-react";
 import type { ModuleContext } from "@studio/ui";
 import type { Asset } from "@studio/contracts";
-import { AssetImage } from "../browser/AssetImage.js";
 import {
-  useImageZoom,
-  ZoomableImage,
-  ZoomControls,
-} from "../browser/ZoomableImage.js";
+  ImageStage,
+  ImageTools,
+  useImageViewer,
+  viewerHint,
+} from "../browser/ImageStage.js";
 type Navigation = {
   disabled: boolean;
   previous: boolean;
@@ -31,7 +31,7 @@ export function AssetViewer({
   onGrid: () => void;
 }) {
   const region = useRef<HTMLDivElement>(null);
-  const zoom = useImageZoom(`${asset.key.source_id}:${asset.key.asset_id}`);
+  const viewer = useImageViewer(context.client, context.projectId, asset);
   useEffect(() => {
     if (!document.activeElement?.closest(".ranking-review-panel"))
       region.current?.focus({ preventScroll: true });
@@ -57,7 +57,7 @@ export function AssetViewer({
         } else if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
           event.preventDefault();
           navigation.onNavigate(event.key === "ArrowLeft" ? -1 : 1);
-        } else zoom.onKey(event);
+        } else viewer.onKey(event);
       }}
     >
       <div className="ranking-image-toolbar">
@@ -84,20 +84,15 @@ export function AssetViewer({
           <ChevronRight size={16} />
         </button>
         <span className="wb-tool-separator" />
-        <ZoomControls zoom={zoom} />
+        <ImageTools viewer={viewer} />
       </div>
-      <ZoomableImage zoom={zoom}>
-        <AssetImage
-          client={context.client}
-          projectId={context.projectId}
-          asset={asset}
-          edge={2048}
-        />
-      </ZoomableImage>
-      <div className="ranking-viewer-hint">
-        ← → 切换图片 · 滚轮缩放 · 双击放大 · 放大后拖动平移 · + - 0 缩放 · Esc
-        返回
-      </div>
+      <ImageStage
+        viewer={viewer}
+        client={context.client}
+        projectId={context.projectId}
+        edge={1600}
+      />
+      <div className="ranking-viewer-hint">{viewerHint}· Esc 返回</div>
     </div>
   );
 }

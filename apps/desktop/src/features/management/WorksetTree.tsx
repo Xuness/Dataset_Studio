@@ -14,12 +14,14 @@ export function WorksetTree({
   activeId,
   onBrowse,
   onManage,
+  onExport,
 }: {
   client: StudioClient;
   projectId: string;
   activeId: string | null;
   onBrowse: (item: ManagedObject) => void;
   onManage: (target: ObjectTarget, mode?: ManagementMode) => void;
+  onExport?: (item: ManagedObject) => void;
 }) {
   const list = useObjectList(client, projectId, "workset");
   return (
@@ -74,8 +76,12 @@ export function WorksetTree({
                 label: "重命名与备注…",
                 action: () => onManage(item, "rename"),
               },
+              ...(onExport
+                ? [{ label: "导出原图…", action: () => onExport(item) }]
+                : []),
               {
                 label: "删除工作集…",
+                separator: true,
                 danger: true,
                 action: () => onManage(item, "remove"),
               },

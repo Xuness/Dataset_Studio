@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { KeyboardEvent, ReactNode } from "react";
+import type { KeyboardEvent, MouseEvent, ReactNode } from "react";
 import { Maximize, ZoomIn, ZoomOut } from "lucide-react";
 import "./media.css";
 
-const maxZoom = 4;
+// Large enough for 1:1 on big originals; previews swap to the original when zoomed.
+export const maxZoom = 16;
 const fit = { zoom: 1, x: 0, y: 0 };
 export type ImageZoom = ReturnType<typeof useImageZoom>;
 /** Zoom relative to the fitted image; returns to fit whenever `resetKey` changes. */
@@ -27,11 +28,23 @@ export function useImageZoom(resetKey: string) {
     () => setState({ key: resetKey, ...fit }),
     [resetKey],
   );
+  // Unlike wheel steps, an explicit zoom (1:1) may show small images below fit.
+  const set = useCallback(
+    (zoom: number) =>
+      setState({
+        key: resetKey,
+        zoom: Math.max(0.05, Math.min(maxZoom, zoom)),
+        x: 0,
+        y: 0,
+      }),
+    [resetKey],
+  );
   return {
     zoom: current.zoom,
     x: current.x,
     y: current.y,
     scale,
+    set,
     reset,
     toggle: () =>
       setState({ key: resetKey, zoom: current.zoom > 1 ? 1 : 2, x: 0, y: 0 }),
@@ -52,9 +65,13 @@ export function useImageZoom(resetKey: string) {
 export function ZoomableImage({
   zoom,
   children,
+  overlay,
+  onContextMenu,
 }: {
   zoom: ImageZoom;
   children: ReactNode;
+  overlay?: ReactNode;
+  onContextMenu?: (event: MouseEvent<HTMLDivElement>) => void;
 }) {
   const viewport = useRef<HTMLDivElement>(null);
   const drag = useRef<{
@@ -86,6 +103,7 @@ export function ZoomableImage({
       data-pan-y={zoom.y}
       style={{ cursor: zoom.zoom > 1 ? "grab" : "default" }}
       onDoubleClick={zoom.toggle}
+      onContextMenu={onContextMenu}
       onPointerDown={(event) => {
         if (event.button !== 0 || zoom.zoom <= 1) return;
         event.preventDefault();
@@ -125,6 +143,7 @@ export function ZoomableImage({
       >
         {children}
       </div>
+      {overlay}
     </div>
   );
 }
