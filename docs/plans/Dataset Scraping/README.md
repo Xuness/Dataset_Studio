@@ -1,12 +1,14 @@
 # 多来源图片采集规划
 
-创建日期：2026-09-30。更新日期：2026-10-03。Pixiv 已完成采集核心、后端、现有界面接入、增量复查与周期计划。[接入说明](../../architecture/source-collections.md)、[最新决定](../../decisions/0053-pixiv-public-operation-and-incremental-refresh.md)与[公开生产验收](../../verification/2026-10-03-pixiv-public-production.md)描述现状，以下草案保留设计过程；[阶段 1–3 验收](../../verification/2026-10-03-pixiv-stages-1-3.md)是此前的小样本基线。
+创建日期：2026-09-30。更新日期：2026-10-09。Pixiv 已完成采集核心、后端、现有界面接入、增量复查与周期计划。[接入说明](../../architecture/source-collections.md)、[最新决定](../../decisions/0053-pixiv-public-operation-and-incremental-refresh.md)与[公开生产验收](../../verification/2026-10-03-pixiv-public-production.md)描述现状，以下草案保留设计过程；[阶段 1–3 验收](../../verification/2026-10-03-pixiv-stages-1-3.md)是此前的小样本基线。Pinterest 已形成采集与质量研究方案，并完成有限 CDN 媒体样本检查，当前优先验证原始媒体获取链路。
 
 本目录记录 Dataset Studio 后续扩展图片来源的采集规划，供来源采集器、数据处理和调度设计使用。当前已有 Danbooru、Gelbooru、Yandere 数据湖及下载补全机制；新的来源需要自行发现作品、获取媒体并保存原始元数据。
 
 各来源维护独立采集器，由统一调度层协调资源和运行状态。Pixiv 已接入统一多媒体湖及现有工作台，其他来源随后分别设计。
 
 Pixiv 已明确优先基于网页端、以作者为扩展核心并纳入登录认证。先细化网页取数、作者关系扩展和内容可见性，再根据实际取得的数据结构设计存储湖与接入。
+
+下一重点扩展来源为 Pinterest。先解决原始媒体与缩略图的区分，再研究图版、推荐与搜索的发现收益及质量证据；Rule34 保留为后续 Booru 扩展候选。
 
 ## 已对齐的方向
 
@@ -36,7 +38,8 @@ Pixiv 已明确优先基于网页端、以作者为扩展核心并纳入登录�
 | 来源           | 当前进度                                             | 后续重点                                            |
 | -------------- | ---------------------------------------------------- | --------------------------------------------------- |
 | Pixiv          | 采集、增量复查、周期计划、现有浏览／任务／设置已接入 | 提供凭据后验收真实登录与显示条件；扩展来源发现入口  |
-| Pinterest      | 已识别为独立设计对象                                 | Pin、画板与分区的关系，推荐扩展，原始外链与媒体版本 |
+| Pinterest      | 采集方案已整理，完成有限 CDN 样本检查，尚未接入 | 原始媒体取得、详情访问、图版与推荐覆盖、质量验证 |
+| Rule34         | 后续 Booru 扩展候选，尚未展开专项设计           | 复用 Booru 接入经验，并评估重叠与新增收益         |
 | Konachan       | 待展开                                               | 帖子目录遍历、原图、标签字典与历史更新              |
 | Anime-Pictures | 待展开                                               | 列表与详情补全、访问可用性、原件取得状态            |
 | Zerochan       | 调研中提出的补充候选，尚未确定接入                   | 是否纳入后续范围及对应采集成本                      |
@@ -45,12 +48,16 @@ Pixiv 已明确优先基于网页端、以作者为扩展核心并纳入登录�
 
 ## 文档入口
 
+- [Pinterest 采集研究与方案](pinterest-collector-design.md)：发现入口、推荐循环、会话、质量证据、覆盖口径和分阶段验证。
+- [Pinterest 原图获取与验证](pinterest-original-media.md)：原始媒体与创作者原件的区别、候选解析、文件验证、回退规则及有限样本结果。
 - [Pixiv 采集器设计草案](pixiv-collector-design.md)：发现入口、子模块分工、请求链路、媒体归档、更新与失败恢复、待确认问题。
 - [Pixiv 验证与项目接入推进建议](pixiv-validation-and-integration-plan.md)：可独立运行的采集核心、本阶段三条工作线与后续前端、接口边界、集成次序与验收条件。
 - [Pixiv 后端与统一数据湖设计草案](pixiv-backend-and-lake-design.md)：统一架构复用、作品与媒体关系、归档与在线投影、后端模块、提交恢复及格式兼容。
 - [Pixiv 后端与数据湖契约 v1](contracts/README.md)：三份实施契约、目标 SQL、API Schema 与正反例；当前开发依据。
 
 ## 后续工作
+
+Pinterest 先验证“当前 Pin 详情 → 原始媒体字段 → 实际文件”的完整链路。已完成的 CDN 样本检查不能替代详情访问、多媒体角色及原始媒体取得率验证；通过后再进行入口收益与审美质量试验，随后设计入湖契约。
 
 阶段 1–3 的版本分派和归档协议见 [ADR 0052](../../decisions/0052-pixiv-collections-and-canonical-media.md)，公开运行及现有界面接入见 [ADR 0053](../../decisions/0053-pixiv-public-operation-and-incremental-refresh.md)。真实登录和显示条件在凭据提供后验收；搜索、榜单、新作入口是作者／作品种子及关系扩展之外的后续入口，不影响已实现范围的周期运行。
 
