@@ -12,8 +12,10 @@ TERMINAL = frozenset(("completed", "completed_with_gaps", "cancelled"))
 SITE_LIMITS = dict(download_concurrency=2, api_requests_per_second=0.5, image_requests_per_second=1.0)
 DEFAULT_BUDGET = dict(api_requests=100, admitted_pins=100, admitted_boards=20, detail_requests=100,
                       download_bytes=1024**3, wall_seconds=3600)
-PAGE_KINDS = frozenset(("board_page", "section_page", "board_sections"))
+PAGE_KINDS = frozenset(("board_page", "section_page", "board_sections", "board_more_ideas", "related_pins", "search_page", "topic_page"))
 NETWORK_KINDS = PAGE_KINDS | {"pin_detail", "pin_enrichment", "board_resolve", "section_resolve"}
+ENTRYPOINTS = frozenset(("board_more_ideas", "related_pins", "pin_boards", "topic_boards"))
+SEED_KINDS = ("pin", "board", "section", "search_pins", "search_boards", "topic")
 
 
 def invalid(message):
@@ -64,7 +66,11 @@ def source_id(value, kind):
     if not isinstance(value, str) or len(value) > 2048:
         invalid("Pinterest source IDs and links must be bounded strings")
     value = value.strip()
-    if re.fullmatch(r"[1-9][0-9]{0,19}", value):
+    if kind in ("search_pins", "search_boards"):
+        if not value or len(value) > 512 or any(ord(c) < 32 for c in value):
+            invalid("Search queries must contain 1–512 printable characters")
+        return value
+    if kind != "topic" and re.fullmatch(r"[1-9][0-9]{0,19}", value):
         return value
     try:
         url = urlsplit(value)
@@ -72,7 +78,8 @@ def source_id(value, kind):
         if (url.scheme == "https" and url.hostname in {"pinterest.com", "www.pinterest.com"}
                 and not url.username and not url.password and url.port in (None, 443)
                 and len(parts) == (2 if kind == "board" else 3)
-                and parts[0] not in {"pin", "ideas", "search", "settings"}
+                and ((kind == "topic" and parts[0] == "ideas" and re.fullmatch(r"[1-9][0-9]{0,19}", parts[-1]))
+                     or (kind != "topic" and parts[0] not in {"pin", "ideas", "search", "settings"}))
                 and all(p and p not in (".", "..") and not re.search(r"[/?#\\\x00-\x20]", p) for p in parts)):
             return "https://www.pinterest.com/" + "/".join(parts) + "/"
     except ValueError:
@@ -97,7 +104,7 @@ def definition(value):
     ids = []
     for seed in seeds:
         fields(seed, ("kind", "id"))
-        if seed["kind"] not in ("pin", "board", "section"):
+        if seed["kind"] not in SEED_KINDS:
             invalid("Unsupported Pinterest seed kind")
         item = dict(kind=seed["kind"], id=source_id(seed["id"], seed["kind"]))
         if item not in ids:
@@ -110,9 +117,13 @@ def definition(value):
     discovery = dict(entrypoints=[], max_depth=0, include_sections=True, max_pending_downloads=128,
                      entry_requests={k: 100 for k in sorted(PAGE_KINDS)})
     discovery.update(supplied_discovery)
-    if discovery["entrypoints"] != []:
+    if (not isinstance(discovery["entrypoints"], list)
+            or any(not isinstance(k, str) or k not in ENTRYPOINTS for k in discovery["entrypoints"])):
         invalid("Unsupported Pinterest discovery entrypoint")
-    integer(discovery["max_depth"], 0, 0)
+    discovery["entrypoints"] = sorted(set(discovery["entrypoints"]))
+    integer(discovery["max_depth"], 0, 3)
+    if discovery["entrypoints"] and discovery["max_depth"] == 0:
+        invalid("Optional discovery requires a positive maximum depth")
     integer(discovery["max_pending_downloads"], 1, 1000)
     if type(discovery["include_sections"]) is not bool:
         invalid("include_sections must be a boolean")

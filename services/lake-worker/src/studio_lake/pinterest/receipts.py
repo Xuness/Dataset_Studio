@@ -76,7 +76,14 @@ def replay(state, lib, job_id):
             for admission in value.get("admissions", []):
                 db.execute("INSERT INTO pinterest_admitted VALUES(?,?,?,?) ON CONFLICT DO NOTHING",
                     (job_id, admission["kind"], admission["source_id"], row["receipt_id"]))
-            for name, count in value.get("metrics", {}).items():
+            metrics = dict(value.get("metrics", {}))
+            for item in value.get("seen", []):
+                changed = db.execute("INSERT INTO pinterest_seen VALUES(?,?,?,?) ON CONFLICT DO NOTHING",
+                    (job_id, item["entrypoint"], item["kind"], item["value"])).rowcount
+                if changed:
+                    name = item["entrypoint"] + ":unique_" + item["kind"]
+                    metrics[name] = metrics.get(name, 0) + 1
+            for name, count in metrics.items():
                 db.execute("INSERT INTO pinterest_metrics VALUES(?,?,?) ON CONFLICT(job_id,name) DO UPDATE SET value=value+excluded.value",
                            (job_id, name, count))
             if "checkpoint" in value:

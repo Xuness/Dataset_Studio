@@ -105,9 +105,9 @@ def test_sampling_mismatch_switches_remaining_candidates_to_detail(tmp_path):
     result = fixture.run()
     assert result["state"] == "completed_with_gaps"
     assert result["metrics"]["manifest_discrepancies"] == 1
-    assert result["metrics"]["sampled_manifests"] == 2
-    assert fixture.enrichment_calls == ["123", "124"]
-    assert fixture.pin_calls.count("124") == 2
+    assert result["metrics"]["sampled_manifests"] == 1
+    assert fixture.enrichment_calls == ["123"]
+    assert fixture.pin_calls.count("124") == 1
     streams = fixture.service.page(dict(job_id=result["id"]), "streams")["items"]
     assert streams[0]["force_detail"] == 1
     db = connect(tmp_path / "index" / "online.sqlite")

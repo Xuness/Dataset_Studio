@@ -117,8 +117,8 @@ class Runner:
     def _intent(self, lib, job):
         identity = str(uuid.uuid5(uuid.UUID(job["id"]), "pinterest-intent-v1"))
         spec = json.loads(job["definition_json"])
-        replay = dict(kind="intent", receipt_id=identity,
-            next_tasks=planner.intent(spec))
+        replay = dict(kind="intent", receipt_id=identity, next_tasks=[])
+        replay["next_tasks"].extend(planner.intent(spec, job["id"], replay))
         with lib.journal() as db:
             exists = db.execute("SELECT 1 FROM pinterest_runs WHERE job_id=?", (job["id"],)).fetchone()
         if not exists:
@@ -129,8 +129,8 @@ class Runner:
             db.execute("BEGIN IMMEDIATE")
             row = db.execute("SELECT * FROM pinterest_tasks WHERE job_id=? AND (state IN ('running','queued') OR "
                 "(state='waiting_retry' AND retry_at<=?)) ORDER BY CASE state WHEN 'running' THEN 0 ELSE 1 END,"
-                "CASE kind WHEN 'media_download' THEN 0 WHEN 'pin_detail' THEN 1 "
-                "WHEN 'pin_enrichment' THEN CASE json_extract(input_json,'$.purpose') WHEN 'sample' THEN 2 ELSE 7 END "
+                "CASE kind WHEN 'media_download' THEN 1 WHEN 'pin_detail' THEN 2 "
+                "WHEN 'pin_enrichment' THEN CASE json_extract(input_json,'$.purpose') WHEN 'sample' THEN 0 ELSE 7 END "
                 "WHEN 'pin_admit' THEN 3 WHEN 'board_admit' THEN 4 WHEN 'board_resolve' THEN 4 WHEN 'section_resolve' THEN 4 ELSE 5 END,"
                 "coalesce((SELECT last_turn FROM pinterest_streams s WHERE s.scan_id=json_extract(input_json,'$.scan_id')),0),task_row LIMIT 1", (identity, time.time())).fetchone()
             if not row:
@@ -179,7 +179,8 @@ class Runner:
                 replay.update(state="done" if parsed["state"] == "ready" else "needs_review", reason=parsed["reason"])
                 if task["kind"] == "pin_detail":
                     replay["admissions"] = [dict(kind="pin", source_id=task["pin_id"])]
-                    planner.downloads(replay, parsed, entry.get("scan_id"))
+                    planner.downloads(replay, parsed, entry.get("scan_id"), confirmed_detail=True)
+                    planner.detail_expansion(self.state, job, entry, records, replay)
                     if json.loads(job["definition_json"])["metadata"]["detail_enrichment"] == "all" and parsed["state"] == "ready":
                         replay["next_tasks"].append(planner.task("pin_enrichment", task["pin_id"], pin_id=task["pin_id"], purpose="all"))
                 elif records.get("pin_observations"):
@@ -194,6 +195,13 @@ class Runner:
             elif response.status in (404, 410):
                 replay["state"] = "unavailable"
         else:
+            with self.state.db() as db:
+                scan = db.execute("SELECT force_detail FROM pinterest_streams WHERE scan_id=? AND job_id=?", (entry.get("scan_id"), job["id"])).fetchone()
+            if scan and scan[0] and not entry.get("confirmed_detail"):
+                replay.update(state="superseded", reason="list_manifest_requires_detail")
+                replay["next_tasks"].append(planner.task("pin_detail", entry["pin_id"], pin_id=entry["pin_id"], scan_id=entry["scan_id"]))
+                receipts.save_prepared(root, replay, {})
+                return dict(replay=replay, records={}, media=None)
             result, path = downloader.acquire(self.state, lib, job, task, entry, self.resources, cancelled, http=self.image_http)
             records = {}
             if result["state"] == "downloaded":
@@ -203,6 +211,12 @@ class Runner:
                     media_id=entry["media_id"], acquisition_id=result["acquisition_id"], sha256=result["download_sha256"],
                     representation="original", recipe_id="original", acquired_at=result["acquired_at"])]
                 planner.metric(replay, "acquisition_reuses" if result.get("reused") else "original_downloads")
+                planner.metric(replay, "new_byte_objects" if lib.lookup_object(result["download_sha256"]) is None else "existing_byte_bindings")
+                if entry.get("scan_id"):
+                    with self.state.db() as db:
+                        origin = db.execute("SELECT entrypoint FROM pinterest_streams WHERE scan_id=?", (entry["scan_id"],)).fetchone()
+                    if origin:
+                        replay.setdefault("seen", []).append(dict(entrypoint=origin[0], kind="objects", value=result["download_sha256"]))
             else:
                 state = "waiting_retry" if result["state"] == "failed" and task["attempts"] < 3 else "needs_review"
                 replay.update(state=state, reason=result.get("reason"), retry_at=result.get("retry_at", 0))

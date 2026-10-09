@@ -35,7 +35,14 @@ try {
   assert.equal(activity.counts.waiting_budget, 1);
   assert.equal(activity.active[0].id, refs.budget_job.id);
   assert.equal(capabilities.contract_version, 2);
-  assert.deepEqual(capabilities.seed_kinds, ["pin", "board", "section"]);
+  assert.deepEqual(capabilities.seed_kinds, [
+    "pin",
+    "board",
+    "section",
+    "search_pins",
+    "search_boards",
+    "topic",
+  ]);
   assert.equal(capabilities.discovery, true);
   const streams = await api.streams(refs.discovery_job.id, { limit: 1 });
   assert.equal(streams.items[0].state, "exhausted");

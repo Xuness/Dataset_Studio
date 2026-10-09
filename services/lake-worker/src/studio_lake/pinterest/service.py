@@ -247,7 +247,7 @@ class Service:
                 return dict(counts=counts, active=[self.job(r["id"], db) for r in rows])
         if command == "capabilities":
             model.fields(args)
-            return dict(contract_version=CONTRACT_VERSION, site="pinterest", collector=COLLECTOR, seed_kinds=["pin", "board", "section"],
+            return dict(contract_version=CONTRACT_VERSION, site="pinterest", collector=COLLECTOR, seed_kinds=list(model.SEED_KINDS),
                 media_types=["static_image", "single_image_story"], access_modes=["anonymous"], archive_format=3, online_format=4,
                 discovery=True, schedules=False, image_profiles=["original"], max_seeds=500)
         if command == "lakes":

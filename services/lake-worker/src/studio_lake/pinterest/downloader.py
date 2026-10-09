@@ -40,6 +40,8 @@ def acquire(state, lib, job, task, entry, resources, cancelled, *, http=None):
         raise UpdateError("UPDATE_SPACE", "Waiting for a shared Pinterest download slot")
     resources.plan(directory, key, plan)
     sessions = MediaSessions(http)
+    with state.db() as db:
+        origin = db.execute("SELECT entrypoint FROM pinterest_streams WHERE scan_id=? AND job_id=?", (entry.get("scan_id"), job["id"])).fetchone()
     try:
         path, receipt = directory / (key + ".downloaded"), directory / (key + ".download.json")
         saved = read_json(receipt) if receipt.exists() and path.exists() else None
@@ -49,6 +51,9 @@ def acquire(state, lib, job, task, entry, resources, cancelled, *, http=None):
                 if delta:
                     with state.db() as db:
                         db.execute("UPDATE pinterest_jobs SET download_bytes=download_bytes+? WHERE id=?", (delta, job["id"]))
+                        if origin:
+                            db.execute("INSERT INTO pinterest_metrics VALUES(?,?,?) ON CONFLICT(job_id,name) DO UPDATE SET value=value+excluded.value",
+                                       (job["id"], origin[0] + ":download_bytes", delta))
 
             saved = transfer.fetch(directory, key, entry["normalized_url"], "original", {"post_id": entry["pin_id"]},
                 SimpleNamespace(name="pinterest", rate_root=state.root), resources, cancelled, sessions, progress)

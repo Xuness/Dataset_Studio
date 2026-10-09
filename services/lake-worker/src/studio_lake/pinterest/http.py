@@ -72,8 +72,9 @@ class Client:
                 if self.cancelled():
                     raise UpdateError("CANCELLED", "Pinterest collection paused")
                 with self.session.get("https://www.pinterest.com" + endpoint,
-                        params=dict(source_url=source, data=canonical(dict(options=options, context={}))),
-                        headers={"X-Pinterest-Source-Url": source}, timeout=(10, 35), stream=True, allow_redirects=False) as response:
+                        params=dict(source_url=source, data=canonical(dict(options=options, context={}))) if endpoint.startswith("/resource/") else None,
+                        headers={"X-Pinterest-Source-Url": source, "Accept": "application/json" if endpoint.startswith("/resource/") else "text/html"},
+                        timeout=(10, 35), stream=True, allow_redirects=False) as response:
                     body, started = bytearray(), time.monotonic()
                     length = response.headers.get("Content-Length", "")
                     if str(length).isdigit() and int(length) > MAX_RESPONSE:
@@ -118,6 +119,21 @@ def request_parameters(kind, entry):
         resource, options = "BoardSections", dict(board_id=subject)
     elif kind == "section_page":
         resource, options = "BoardSectionPins", dict(section_id=subject)
+    elif kind == "board_more_ideas":
+        resource, options = "BoardContentRecommendation", dict(id=subject, type="board", add_vase=True)
+    elif kind == "related_pins":
+        resource, options = "RelatedPinFeed", dict(pin=subject, add_vase=True, pins_only=True)
+        source = "/pin/" + subject + "/"
+    elif kind == "search_page":
+        resource, options = "BaseSearch", dict(query=subject, scope=entry["parameters"]["scope"], rs="typed")
+        source = "/search/" + options["scope"] + "/?q=" + quote(subject, safe="")
+    elif kind == "topic_page":
+        path = urlsplit(subject).path
+        if entry.get("cursor") is None:
+            return path, dict(field_set_key="__PWS_INITIAL_PROPS__"), path
+        resource = "BestPinsFeedAlt"
+        options = dict(entry["parameters"]["topic_options"])
+        source = path
     else:
         raise UpdateError("INVALID_INPUT", "Unsupported Pinterest resource kind")
     if kind in model.PAGE_KINDS:

@@ -7,7 +7,7 @@ from ..canonical import canonical
 from ..util import digest, stable_id
 
 
-def capture_facts(response, receipt_id, subject):
+def capture_facts(response, receipt_id, subject, *, parsed_payload=None):
     capture_id = stable_id("pinterest-capture-v1", receipt_id)
     context_id = stable_id("pinterest-context-v1", response.context)
     records = dict(visibility_contexts=[dict(context_id=context_id, policy_json=canonical(response.context),
@@ -20,6 +20,8 @@ def capture_facts(response, receipt_id, subject):
     except (ValueError, UnicodeError):
         payload = None
         raw_format = "text"
+    if parsed_payload is not None:
+        payload = parsed_payload
     data = payload.get("resource_response") if isinstance(payload, dict) else None
     if response.status != 200:
         error = "pin_http_" + str(response.status)
@@ -52,7 +54,7 @@ def relation(records, pin_id, entity_id, role):
         records["source_relations"].append(row)
 
 
-def pin_facts(records, pin, response, *, kind="detail"):
+def pin_facts(records, pin, response, *, kind="detail", field_set=None):
     pin_id = pin["id"]
     capture_id, context_id = (records["captures"][0][k] for k in ("capture_id", "context_id"))
     parsed = media_manifest.parse(pin, observation_kind=kind)
@@ -61,7 +63,7 @@ def pin_facts(records, pin, response, *, kind="detail"):
     records.setdefault("pins", []).append(dict(pin_id=pin_id))
     records.setdefault("pin_observations", []).append(dict(observation_id=observation, pin_id=pin_id, capture_id=capture_id,
         observed_at=response.observed_at, normalizer_version=NORMALIZER, observation_kind=kind,
-        field_set=response.parameters.get("options", {}).get("field_set_key", response.endpoint), title=pin.get("title") if isinstance(pin.get("title"), str) else None,
+        field_set=field_set or response.parameters.get("options", {}).get("field_set_key", response.endpoint), title=pin.get("title") if isinstance(pin.get("title"), str) else None,
         description=pin.get("description") if isinstance(pin.get("description"), str) else None,
         image_signature=pin.get("image_signature") if isinstance(pin.get("image_signature"), str) else None,
         fields_json=canonical(pin), present_fields_json=canonical(sorted(pin)),

@@ -144,7 +144,7 @@ def test_recovery_replays_saved_evidence_without_refetch_or_duplicate_publicatio
 def test_new_definition_rejects_unsupported_source_semantics(tmp_path):
     fixture = Fixture(tmp_path)
     for change in (dict(collector="pixiv_web_v1"), dict(seeds=[dict(kind="author", id="123")]),
-                   dict(access=dict(mode="authenticated")), dict(discovery=dict(entrypoints=["related_pins"], max_depth=1))):
+                   dict(access=dict(mode="authenticated")), dict(discovery=dict(entrypoints=["home_feed"], max_depth=1))):
         with pytest.raises(UpdateError):
             fixture.service.preview(dict(definition={**fixture.spec, **change}))
     assert not fixture.pin_calls
