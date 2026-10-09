@@ -1596,7 +1596,7 @@ async fn shutdown(State(s): State<AppState>) -> Json<OkResponse> {
         source_collections::workspace_lakes, source_collections::workspace_jobs, source_collections::workspace_schedules,
         source_collections::register_lake,
         pinterest::status, pinterest::capabilities, pinterest::lakes, pinterest::create_lake, pinterest::preview,
-        pinterest::create, pinterest::jobs, pinterest::job, pinterest::items, pinterest::action,
+        pinterest::create, pinterest::jobs, pinterest::job, pinterest::items, pinterest::streams, pinterest::action,
         lake_updates::relocations, lake_updates::prepare_relocation, lake_updates::apply_relocation, lake_updates::cancel_relocation,
         lake_updates::pipeline, lake_updates::save_pipeline,
         lake_updates::register, lake_updates::create_lake, lake_updates::catalog, lake_updates::credentials, lake_updates::clear_credentials, lake_updates::probe,

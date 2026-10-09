@@ -68,6 +68,27 @@ def replay(state, lib, job_id):
             db.execute("BEGIN IMMEDIATE")
             if db.execute("SELECT 1 FROM pinterest_applied WHERE receipt_id=?", (row["receipt_id"],)).fetchone():
                 continue
+            for stream in value.get("streams", []):
+                db.execute("""INSERT INTO pinterest_streams(scan_id,job_id,entrypoint,subject_id,root_json,
+                    parameters_json,depth,state,updated_at) VALUES(?,?,?,?,?,?,?,'active',?)
+                    ON CONFLICT(scan_id) DO NOTHING""", (stream["scan_id"], job_id, stream["entrypoint"], stream["subject_id"],
+                    canonical(stream["root"]), canonical(stream["parameters"]), stream["depth"], utc()))
+            for admission in value.get("admissions", []):
+                db.execute("INSERT INTO pinterest_admitted VALUES(?,?,?,?) ON CONFLICT DO NOTHING",
+                    (job_id, admission["kind"], admission["source_id"], row["receipt_id"]))
+            for name, count in value.get("metrics", {}).items():
+                db.execute("INSERT INTO pinterest_metrics VALUES(?,?,?) ON CONFLICT(job_id,name) DO UPDATE SET value=value+excluded.value",
+                           (job_id, name, count))
+            if "checkpoint" in value:
+                point = value["checkpoint"]
+                db.execute("INSERT INTO pinterest_stream_pages VALUES(?,?,?) ON CONFLICT DO NOTHING",
+                           (point["scan_id"], point["page_key"], row["receipt_id"]))
+                db.execute("UPDATE pinterest_streams SET state=?,cursor_json=?,reason=?,pages=pages+1,members=members+?,last_turn=?,updated_at=? WHERE scan_id=? AND job_id=?",
+                    (point["state"], canonical(point["cursor"]), point["reason"], point["members"], row["seq"], utc(), point["scan_id"], job_id))
+            if "sample" in value:
+                sample = value["sample"]
+                db.execute("UPDATE pinterest_streams SET samples_checked=samples_checked+1,mismatches=mismatches+?,force_detail=max(force_detail,?) WHERE scan_id=? AND job_id=?",
+                           (int(sample["differs"]), int(sample["differs"]), sample["scan_id"], job_id))
             if value["kind"] == "intent":
                 for item in value["next_tasks"]:
                     task(db, job_id, item["kind"], item["pin_id"], item["input"])

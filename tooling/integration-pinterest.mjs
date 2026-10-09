@@ -34,9 +34,26 @@ try {
   const activity = await api.status();
   assert.equal(activity.counts.waiting_budget, 1);
   assert.equal(activity.active[0].id, refs.budget_job.id);
-  assert.equal(capabilities.contract_version, 1);
-  assert.deepEqual(capabilities.seed_kinds, ["pin"]);
-  assert.equal(capabilities.discovery, false);
+  assert.equal(capabilities.contract_version, 2);
+  assert.deepEqual(capabilities.seed_kinds, ["pin", "board", "section"]);
+  assert.equal(capabilities.discovery, true);
+  const streams = await api.streams(refs.discovery_job.id, { limit: 1 });
+  assert.equal(streams.items[0].state, "exhausted");
+  assert.equal(streams.items[0].pages, 2);
+  assert.equal(streams.items[0].total, null);
+  const boardPreview = await api.preview({
+    ...refs.job.definition,
+    seeds: [{ kind: "board", id: "https://www.pinterest.com/test/board/" }],
+    metadata: { detail_enrichment: "all", sample_size: 2 },
+    discovery: {
+      entrypoints: [],
+      max_depth: 0,
+      include_sections: true,
+      max_pending_downloads: 16,
+    },
+  });
+  assert.equal(boardPreview.known_pins, 0);
+  assert.equal(boardPreview.network_requests, 0);
   assert.equal((await api.job(refs.job.id)).state, "completed");
   assert.equal(
     (await client.sourceCollections.workspaceLakes()).items.length,

@@ -52,7 +52,7 @@ def verify_manifest(lib, directory, manifest, *, hash_media=True):
         if digest(canonical(intent).encode()) != manifest["definition_sha256"]:
             raise IntegrityError("Pinterest frozen definition hash mismatch")
     elif (replay.get("state") not in ("done", "needs_review", "unavailable", "waiting_retry")
-          or not isinstance(replay.get("next_tasks"), list) or len(replay["next_tasks"]) > 500):
+          or not isinstance(replay.get("next_tasks"), list) or len(replay["next_tasks"]) > 1000):
         raise IntegrityError("Invalid Pinterest task replay")
     return replay
 

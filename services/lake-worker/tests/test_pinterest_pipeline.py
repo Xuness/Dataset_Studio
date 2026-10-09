@@ -143,7 +143,7 @@ def test_recovery_replays_saved_evidence_without_refetch_or_duplicate_publicatio
 
 def test_new_definition_rejects_unsupported_source_semantics(tmp_path):
     fixture = Fixture(tmp_path)
-    for change in (dict(collector="pixiv_web_v1"), dict(seeds=[dict(kind="board", id="123")]),
+    for change in (dict(collector="pixiv_web_v1"), dict(seeds=[dict(kind="author", id="123")]),
                    dict(access=dict(mode="authenticated")), dict(discovery=dict(entrypoints=["related_pins"], max_depth=1))):
         with pytest.raises(UpdateError):
             fixture.service.preview(dict(definition={**fixture.spec, **change}))
@@ -208,7 +208,8 @@ def test_control_upgrade_backs_up_v14_and_preserves_older_rows(tmp_path):
         db.execute("PRAGMA user_version=14")
     upgraded = State(state.root)
     with upgraded.db() as db:
-        assert db.execute("PRAGMA user_version").fetchone()[0] == 15
+        from studio_lake.updates.state import SCHEMA_VERSION
+        assert db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
         assert db.execute("SELECT value FROM settings WHERE key='old-fixture'").fetchone()[0] == "unchanged"
         assert db.execute("SELECT revision,next_at FROM schedules WHERE id='old-schedule'").fetchone() == (7, 1000)
     backups = list((state.root / "backups").glob("control-v14-*.sqlite"))

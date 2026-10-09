@@ -84,4 +84,11 @@ export class PinterestCollectionClient {
       body: JSON.stringify(value),
     });
   }
+  streams(id: string, options: Page & { state?: string | undefined } = {}) {
+    const { signal, ...values } = options;
+    return this.request<Schema["PinterestStreams"]>(
+      `${jobPath(id)}/streams?${query(values)}`,
+      { signal: signal ?? null },
+    );
+  }
 }

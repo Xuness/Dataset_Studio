@@ -991,6 +991,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/pinterest-collections/jobs/{id}/streams": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["pinterest_streams"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/pinterest-collections/lakes": {
         parameters: {
             query?: never;
@@ -6696,9 +6712,15 @@ export interface components {
             version: number;
         };
         PinterestDiscovery: {
+            entry_requests?: {
+                [key: string]: number;
+            } | null;
             entrypoints: string[];
+            include_sections?: boolean | null;
             /** Format: int32 */
             max_depth: number;
+            /** Format: int32 */
+            max_pending_downloads?: number | null;
         };
         PinterestImagePolicy: {
             allow_sample: boolean;
@@ -6725,6 +6747,11 @@ export interface components {
             api_requests: number;
             /** Format: int64 */
             archive_seq: number;
+            /** Format: int64 */
+            budget_round: number;
+            budget_usage: {
+                [key: string]: number;
+            };
             cleanup_state: string;
             counts: components["schemas"]["PinterestCount"][];
             created_at: string;
@@ -6732,15 +6759,23 @@ export interface components {
             definition_sha256: string;
             desired_state: string;
             /** Format: int64 */
+            detail_requests: number;
+            /** Format: int64 */
             download_bytes: number;
             /** Format: double */
             elapsed_seconds: number;
+            /** Format: int64 */
+            enrichment_pending: number;
             error_code?: string | null;
             error_message?: string | null;
             /** Format: int64 */
             execution_epoch: number;
             id: string;
             library_id: string;
+            media_complete: boolean;
+            metrics: {
+                [key: string]: number;
+            };
             phase: string;
             /** Format: double */
             retry_at: number;
@@ -6767,6 +6802,8 @@ export interface components {
         };
         PinterestMetadataPlan: {
             detail_enrichment: string;
+            /** Format: int32 */
+            sample_size?: number | null;
         };
         PinterestPreview: {
             definition: components["schemas"]["PinterestDefinition"];
@@ -6795,6 +6832,34 @@ export interface components {
             counts: {
                 [key: string]: number;
             };
+        };
+        PinterestStream: {
+            /** Format: int32 */
+            depth: number;
+            entrypoint: string;
+            /** Format: int32 */
+            force_detail: number;
+            has_cursor: boolean;
+            /** Format: int64 */
+            members: number;
+            /** Format: int64 */
+            mismatches: number;
+            /** Format: int64 */
+            pages: number;
+            reason?: string | null;
+            root: components["schemas"]["PinterestSeed"];
+            /** Format: int64 */
+            samples_checked: number;
+            scan_id: string;
+            state: string;
+            subject_id: string;
+            /** Format: int64 */
+            total?: number | null;
+            updated_at: string;
+        };
+        PinterestStreams: {
+            items: components["schemas"]["PinterestStream"][];
+            next_cursor?: string | null;
         };
         Preference: {
             key: string;
@@ -9591,6 +9656,31 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PinterestItems"];
+                };
+            };
+        };
+    };
+    pinterest_streams: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+                state?: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PinterestStreams"];
                 };
             };
         };

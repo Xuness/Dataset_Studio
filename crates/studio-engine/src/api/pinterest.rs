@@ -80,6 +80,16 @@ pub(super) async fn items(
     args["job_id"] = json!(id);
     invoke(s, Op::Items, args).await
 }
+#[utoipa::path(get,path="/v1/pinterest-collections/jobs/{id}/streams",params(("id"=String,Path),PinterestItemsQuery),responses((status=200,body=PinterestStreams)),operation_id="pinterest_streams")]
+pub(super) async fn streams(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+    Query(q): Query<PinterestItemsQuery>,
+) -> ApiResult<PinterestStreams> {
+    let mut args = json!(q);
+    args["job_id"] = json!(id);
+    invoke(s, Op::Streams, args).await
+}
 #[utoipa::path(post,path="/v1/pinterest-collections/jobs/{id}/actions",params(("id"=String,Path)),request_body=PinterestJobAction,responses((status=200,body=PinterestJob)),operation_id="pinterest_action")]
 pub(super) async fn action(
     State(s): State<AppState>,
@@ -99,5 +109,6 @@ pub(super) fn routes() -> axum::Router<AppState> {
         .route("/jobs", get(jobs).post(create))
         .route("/jobs/{id}", get(job))
         .route("/jobs/{id}/items", get(items))
+        .route("/jobs/{id}/streams", get(streams))
         .route("/jobs/{id}/actions", post(action))
 }

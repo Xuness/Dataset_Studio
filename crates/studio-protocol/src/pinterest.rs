@@ -24,11 +24,19 @@ pub struct PinterestScope {
 pub struct PinterestDiscovery {
     pub entrypoints: Vec<String>,
     pub max_depth: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub include_sections: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_pending_downloads: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entry_requests: Option<std::collections::BTreeMap<String, u32>>,
 }
 #[derive(Clone, Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PinterestMetadataPlan {
     pub detail_enrichment: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sample_size: Option<u32>,
 }
 #[derive(Clone, Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
@@ -125,6 +133,12 @@ pub struct PinterestJob {
     pub error_code: Option<String>,
     pub error_message: Option<String>,
     pub api_requests: u64,
+    pub detail_requests: u64,
+    pub budget_round: u64,
+    pub budget_usage: std::collections::BTreeMap<String, f64>,
+    pub metrics: std::collections::BTreeMap<String, u64>,
+    pub media_complete: bool,
+    pub enrichment_pending: u64,
     pub download_bytes: u64,
     pub elapsed_seconds: f64,
     pub archive_seq: u64,
@@ -152,6 +166,29 @@ pub struct PinterestJobs {
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct PinterestItems {
     pub items: Vec<PinterestItem>,
+    pub next_cursor: Option<String>,
+}
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct PinterestStream {
+    pub scan_id: String,
+    pub entrypoint: String,
+    pub subject_id: String,
+    pub root: PinterestSeed,
+    pub depth: u32,
+    pub state: String,
+    pub reason: Option<String>,
+    pub pages: u64,
+    pub members: u64,
+    pub total: Option<u64>,
+    pub force_detail: u32,
+    pub samples_checked: u64,
+    pub mismatches: u64,
+    pub has_cursor: bool,
+    pub updated_at: String,
+}
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct PinterestStreams {
+    pub items: Vec<PinterestStream>,
     pub next_cursor: Option<String>,
 }
 #[derive(Serialize, Deserialize, ToSchema)]

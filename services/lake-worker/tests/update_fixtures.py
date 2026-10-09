@@ -27,5 +27,6 @@ def remove_collection_recovery(db):
 
 def remove_pinterest_schema(db):
     """Historical control fixtures predate the separately versioned Pinterest tables."""
-    for name in ("pinterest_downloads", "pinterest_applied", "pinterest_counts", "pinterest_tasks", "pinterest_jobs", "pinterest_requests", "pinterest_lakes"):
+    for name in ("pinterest_stream_pages", "pinterest_streams", "pinterest_admitted", "pinterest_metrics",
+                 "pinterest_downloads", "pinterest_applied", "pinterest_counts", "pinterest_tasks", "pinterest_jobs", "pinterest_requests", "pinterest_lakes"):
         db.execute('DROP TABLE IF EXISTS "' + name + '"')

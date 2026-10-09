@@ -10,6 +10,7 @@ pub enum PinterestOperation {
     Jobs,
     Job,
     Items,
+    Streams,
     Action,
 }
 impl PinterestOperation {
@@ -24,6 +25,7 @@ impl PinterestOperation {
             Self::Jobs => "pinterest_jobs",
             Self::Job => "pinterest_job",
             Self::Items => "pinterest_items",
+            Self::Streams => "pinterest_streams",
             Self::Action => "pinterest_action",
         }
     }

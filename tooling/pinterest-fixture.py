@@ -1,5 +1,7 @@
 """Offline fixture through the production Pinterest runner; never calls the source site."""
+# ruff: noqa: E402
 import hashlib
+import json
 import sys
 import uuid
 from pathlib import Path
@@ -8,6 +10,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / "services/lake-worker/src"), str(ROOT / "services/lake-worker/tests")]
 
 from pinterest_fixtures import Fixture
+from test_pinterest_manifest import pin
+from studio_lake.canonical import utc
+from studio_lake.pinterest.http import Response, request_parameters
 from studio_lake.online_storage import connect
 from studio_lake.util import atomic_json, read_json
 
@@ -39,7 +44,27 @@ def main():
     fixture.job = fixture.service.create({"request_key": str(uuid.uuid4()), "definition": spec})
     budget_job = fixture.run()
     assert budget_job["state"] == "waiting_budget", budget_job
+    old_factory = fixture.factory
+    def factory(root, context, *, cancelled):
+        client = old_factory(root, context, cancelled=cancelled)
+        def request(kind, entry):
+            value = pin("858146903966145189" if entry["cursor"] is None else "1089097122423035272")
+            value.update(type="pin")
+            details(value)
+            body = dict(resource_response=dict(status="success", data=[value]),
+                        resource=dict(options=dict(bookmarks=["next"] if entry["cursor"] is None else ["-end-"])))
+            endpoint, options, source = request_parameters(kind, entry)
+            return Response(json.dumps(body).encode(), endpoint, dict(options=options, source_url=source), 200, utc(), context)
+        client.request = request
+        return client
+    fixture.factory = factory
+    fixture.job = fixture.service.create(dict(request_key=str(uuid.uuid4()), definition={**fixture.spec,
+        "seeds": [dict(kind="board", id="1001")], "metadata": dict(detail_enrichment="none"),
+        "discovery": dict(include_sections=False)}))
+    discovery_job = fixture.run()
+    assert discovery_job["state"] == "completed", discovery_job
     atomic_json(root / "pinterest.json", {"lake": fixture.lake, "job": result, "budget_job": budget_job,
+        "discovery_job": discovery_job,
         "records": records, "first_version": first_version, "sha256": hashlib.sha256(fixture.data).hexdigest(),
         "md5": hashlib.md5(fixture.data).hexdigest(), "bytes": len(fixture.data), "original_hex": fixture.data.hex()})
 

@@ -2336,6 +2336,62 @@
         }
       }
     },
+    "/v1/pinterest-collections/jobs/{id}/streams": {
+      "get": {
+        "tags": [
+          "pinterest"
+        ],
+        "operationId": "pinterest_streams",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PinterestStreams"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/pinterest-collections/lakes": {
       "get": {
         "tags": [
@@ -21975,14 +22031,42 @@
           "max_depth"
         ],
         "properties": {
+          "entry_requests": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
           "entrypoints": {
             "type": "array",
             "items": {
               "type": "string"
             }
           },
+          "include_sections": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
           "max_depth": {
             "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "max_pending_downloads": {
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int32",
             "minimum": 0
           }
@@ -22083,6 +22167,12 @@
           "updated_at",
           "retry_at",
           "api_requests",
+          "detail_requests",
+          "budget_round",
+          "budget_usage",
+          "metrics",
+          "media_complete",
+          "enrichment_pending",
           "download_bytes",
           "elapsed_seconds",
           "archive_seq",
@@ -22109,6 +22199,21 @@
             "format": "int64",
             "minimum": 0
           },
+          "budget_round": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "budget_usage": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "number",
+              "format": "double"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
           "cleanup_state": {
             "type": "string"
           },
@@ -22130,6 +22235,11 @@
           "desired_state": {
             "type": "string"
           },
+          "detail_requests": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
           "download_bytes": {
             "type": "integer",
             "format": "int64",
@@ -22138,6 +22248,11 @@
           "elapsed_seconds": {
             "type": "number",
             "format": "double"
+          },
+          "enrichment_pending": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           },
           "error_code": {
             "type": [
@@ -22161,6 +22276,20 @@
           },
           "library_id": {
             "type": "string"
+          },
+          "media_complete": {
+            "type": "boolean"
+          },
+          "metrics": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            },
+            "propertyNames": {
+              "type": "string"
+            }
           },
           "phase": {
             "type": "string"
@@ -22253,6 +22382,14 @@
         "properties": {
           "detail_enrichment": {
             "type": "string"
+          },
+          "sample_size": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
           }
         },
         "additionalProperties": false
@@ -22367,6 +22504,111 @@
             "propertyNames": {
               "type": "string"
             }
+          }
+        }
+      },
+      "PinterestStream": {
+        "type": "object",
+        "required": [
+          "scan_id",
+          "entrypoint",
+          "subject_id",
+          "root",
+          "depth",
+          "state",
+          "pages",
+          "members",
+          "force_detail",
+          "samples_checked",
+          "mismatches",
+          "has_cursor",
+          "updated_at"
+        ],
+        "properties": {
+          "depth": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "entrypoint": {
+            "type": "string"
+          },
+          "force_detail": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "has_cursor": {
+            "type": "boolean"
+          },
+          "members": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "mismatches": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "pages": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "root": {
+            "$ref": "#/components/schemas/PinterestSeed"
+          },
+          "samples_checked": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "scan_id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "subject_id": {
+            "type": "string"
+          },
+          "total": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        }
+      },
+      "PinterestStreams": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PinterestStream"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },

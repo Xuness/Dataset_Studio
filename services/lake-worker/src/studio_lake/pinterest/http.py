@@ -2,9 +2,9 @@
 
 from contextlib import nullcontext
 from dataclasses import asdict, dataclass
-import secrets
+import hashlib
 import time
-import uuid
+from urllib.parse import quote, urlsplit
 
 import requests
 
@@ -35,22 +35,34 @@ class Response:
 class Client:
     def __init__(self, root, context, *, cancelled=lambda: False, session=None):
         self.rate_root, self.name = root, "pinterest"
-        self.context = {**context, "session_instance": str(uuid.uuid4())}
+        # An anonymous job keeps one explicit session identity across execution slices/restarts.
+        self.context = {**context, "session_instance": context["session_id"]}
         self.cancelled, self.injected = cancelled, session is not None
         self.session = session or requests.Session()
         if session is None:
             self.session.trust_env = False
-            self.session.cookies.set("csrftoken", secrets.token_hex(32), domain="www.pinterest.com", path="/", secure=True)
+            token = hashlib.sha256(context["session_id"].encode()).hexdigest()
+            self.session.cookies.set("csrftoken", token, domain="www.pinterest.com", path="/", secure=True)
             self.session.headers.update({"User-Agent": "Mozilla/5.0 Dataset-Studio/0.2",
                 "Accept": "application/json, text/javascript, */*; q=0.01", "Accept-Language": context["language"],
                 "X-Requested-With": "XMLHttpRequest", "X-Pinterest-AppState": "active",
-                "X-Pinterest-PWS-Handler": "www/pin/[id].js", "Referer": "https://www.pinterest.com/"})
+                "X-Pinterest-PWS-Handler": "www/pin/[id].js", "Accept-Encoding": "gzip, deflate",
+                "Referer": "https://www.pinterest.com/"})
 
-    def pin(self, identity):
+    def pin(self, identity, *, expanded=False):
         identity = model.pin_id(identity)
         options = dict(id=identity, field_set_key="detailed")
+        if expanded:
+            options.update(field_set_key="auth_web_main_pin", add_fields="pin.gen_ai_topics", fetch_visual_search_objects=True)
         source = "/pin/" + identity + "/"
         endpoint = "/resource/PinResource/get/"
+        return self.resource(endpoint, options, source)
+
+    def request(self, kind, entry):
+        endpoint, options, source = request_parameters(kind, entry)
+        return self.resource(endpoint, options, source)
+
+    def resource(self, endpoint, options, source):
         parameters = dict(options=options, source_url=source, context={})
         lane = nullcontext() if self.injected or self.rate_root is None else rate.admission(
             self.rate_root, self.name, self.cancelled, delay=1 / model.SITE_LIMITS["api_requests_per_second"])
@@ -87,6 +99,30 @@ class Client:
 
     def close(self):
         self.session.close()
+
+
+def request_parameters(kind, entry):
+    """Only frozen source inputs select endpoints; never accept a caller-controlled host."""
+    subject = entry["subject_id"]
+    source = "/"
+    if kind in ("board_resolve", "section_resolve"):
+        parts = urlsplit(subject).path.strip("/").split("/")
+        if kind == "board_resolve":
+            resource, options = "Board", dict(username=parts[0], slug=parts[1], field_set_key="detailed")
+        else:
+            resource, options = "BoardSection", dict(username=parts[0], board_slug=parts[1], section_slug=parts[2])
+        source = "/" + "/".join(quote(p, safe="") for p in parts) + "/"
+    elif kind == "board_page":
+        resource, options = "BoardFeed", dict(board_id=subject, field_set_key="react_grid_pin", prepend=False, page_size=25)
+    elif kind == "board_sections":
+        resource, options = "BoardSections", dict(board_id=subject)
+    elif kind == "section_page":
+        resource, options = "BoardSectionPins", dict(section_id=subject)
+    else:
+        raise UpdateError("INVALID_INPUT", "Unsupported Pinterest resource kind")
+    if kind in model.PAGE_KINDS:
+        options["bookmarks"] = entry.get("cursor")
+    return "/resource/" + resource + "Resource/get/", options, source
 
 
 class MediaSessions:

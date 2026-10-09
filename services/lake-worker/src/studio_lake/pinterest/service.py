@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import uuid
 
-from . import COLLECTOR, CONTRACT_VERSION, model
+from . import COLLECTOR, CONTRACT_VERSION, budget, model
 from .lake.library import PinterestLibrary
 from ..canonical import canonical, utc
 from ..config import Config
@@ -85,8 +85,10 @@ class Service:
         spec = model.definition(args["definition"])
         self.lake(spec["library_id"])
         return dict(definition=spec, definition_sha256=digest(canonical(spec).encode()),
-                    known_pins=len(spec["seeds"]), network_requests=0,
-                    warnings=["Only static originals and supported single-image stories are downloaded; other shapes retain a gap."])
+                    known_pins=sum(s["kind"] == "pin" for s in spec["seeds"]), network_requests=0,
+                    warnings=["Only static originals and supported single-image stories are downloaded; other shapes retain a gap.",
+                        "Board links are resolved during the job. A scan describes this access context, not an atomic board snapshot."]
+                        + (["List manifests will not be checked against detail responses."] if spec["metadata"]["detail_enrichment"] == "none" else []))
 
     def create(self, args):
         model.fields(args, ("request_key", "definition"))
@@ -127,6 +129,8 @@ class Service:
             with self.state.db() as db:
                 return self.job(identity, db)
         row = self.row(identity, db)
+        usage = budget.usage(db, row)
+        baseline = json.loads(row.pop("budget_baseline_json"))
         spec = json.loads(row.pop("definition_json"))
         row.pop("context_json")
         row.pop("request_key")
@@ -136,11 +140,17 @@ class Service:
         for item in counts:
             item.pop("job_id", None)
         actions = {"completed": [], "cancelled": [], "completed_with_gaps": ["retry", "cancel"],
-                   "paused": ["resume", "cancel"], "pausing": ["cancel"], "cancelling": [],
-                   "waiting_budget": ["pause", "cancel"], "needs_review": ["resume", "cancel"]}.get(row["state"], ["pause", "cancel"])
+                   "paused": ["resume", "continue", "cancel"], "pausing": ["cancel"], "cancelling": [],
+                   "waiting_budget": ["continue", "pause", "cancel"], "needs_review": ["resume", "cancel"]}.get(row["state"], ["pause", "cancel"])
         if row["state"] == "needs_review" and not db.execute("SELECT 1 FROM pinterest_tasks WHERE job_id=? AND state='running' LIMIT 1", (identity,)).fetchone():
             actions = ["retry", "resume", "cancel"]
-        return dict(**row, definition=spec, counts=counts, phase=row["state"], actions=actions)
+        metrics = {r[0]: r[1] for r in db.execute("SELECT name,value FROM pinterest_metrics WHERE job_id=?", (identity,))}
+        media_pending = sum(r["n"] for r in counts if r["kind"] != "pin_enrichment" and r["state"] in ("queued", "running", "waiting_retry", "waiting_budget"))
+        media_gaps = sum(r["n"] for r in counts if r["kind"] != "pin_enrichment" and r["state"] in ("needs_review", "unavailable"))
+        return dict(**row, definition=spec, counts=counts, phase=row["state"], actions=actions,
+            metrics=metrics, budget_usage={k: v - baseline.get(k, 0) for k, v in usage.items()},
+            media_complete=media_pending == 0 and media_gaps == 0 and row["state"] in ("completed", "waiting_budget"),
+            enrichment_pending=sum(r["n"] for r in counts if r["kind"] == "pin_enrichment" and r["state"] != "done"))
 
     @staticmethod
     def cursor(filters, position):
@@ -161,16 +171,17 @@ class Service:
             model.invalid("Pinterest page cursor does not match this query")
 
     def page(self, args, kind):
-        model.fields(args, ("job_id",) if kind == "items" else (), ("cursor", "limit", "library_id", "state"))
+        model.fields(args, ("job_id",) if kind in ("items", "streams") else (), ("cursor", "limit", "library_id", "state"))
         limit = model.integer(args.get("limit", 50), 1, 100)
         filters = {k: v for k, v in args.items() if k not in ("limit", "cursor")}
         filters["kind"] = kind
         after = self.position(args.get("cursor"), filters)
-        table, position = ("pinterest_tasks", "task_row") if kind == "items" else ("pinterest_jobs", "job_row")
+        table, position = {"items": ("pinterest_tasks", "task_row"), "streams": ("pinterest_streams", "rowid"),
+                           "jobs": ("pinterest_jobs", "job_row")}[kind]
         clauses, values = [position + ">?"], [after]
         for key, column in (("job_id", "job_id"), ("library_id", "lake_id"), ("state", "state")):
             if args.get(key) is not None:
-                if (kind == "items" and key == "library_id") or (kind != "items" and key == "job_id"):
+                if (kind != "jobs" and key == "library_id") or (kind == "jobs" and key == "job_id"):
                     model.invalid("Unsupported Pinterest page filter")
                 if key != "state":
                     model.identity(args[key])
@@ -179,10 +190,16 @@ class Service:
                 clauses.append(column + "=?")
                 values.append(args[key])
         with self.state.db() as db:
-            rows = [dict(r) for r in db.execute("SELECT * FROM " + table + " WHERE " + " AND ".join(clauses) + " ORDER BY " + position + " LIMIT ?", (*values, limit + 1))]
+            rows = [dict(r) for r in db.execute("SELECT rowid,* FROM " + table + " WHERE " + " AND ".join(clauses) + " ORDER BY " + position + " LIMIT ?", (*values, limit + 1))]
             items, size = [], 0
             for row in rows[:limit]:
-                value = self.job(row["id"], db) if kind == "jobs" else {k: row[k] for k in ("task_id", "kind", "pin_id", "state", "attempts", "reason", "updated_at")}
+                if kind == "jobs":
+                    value = self.job(row["id"], db)
+                elif kind == "streams":
+                    value = {k: row[k] for k in ("scan_id", "entrypoint", "subject_id", "depth", "state", "reason", "pages", "members", "force_detail", "samples_checked", "mismatches", "updated_at")}
+                    value.update(root=json.loads(row["root_json"]), total=None, has_cursor=row["cursor_json"] not in (None, "null"))
+                else:
+                    value = {k: row[k] for k in ("task_id", "kind", "pin_id", "state", "attempts", "reason", "updated_at")}
                 encoded = len(canonical(value).encode())
                 if items and size + encoded > 1800 * 1024:
                     break
@@ -194,7 +211,7 @@ class Service:
         model.fields(args, ("job_id", "action", "expected_revision"))
         model.integer(args["expected_revision"])
         action = args["action"]
-        if action not in ("pause", "resume", "cancel", "retry"):
+        if action not in ("pause", "resume", "continue", "cancel", "retry"):
             model.invalid("Unknown Pinterest action")
         with self.state.db() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -205,8 +222,12 @@ class Service:
                 raise UpdateError("PINTEREST_CONFLICT", "This action is not available for the current Pinterest state")
             if row["state"] == "cancelled" or (row["state"] in model.TERMINAL and action in ("pause", "resume")):
                 raise UpdateError("PINTEREST_CONFLICT", "This action is not available for a finished job")
-            desired = dict(pause="paused", resume="running", cancel="cancelled", retry="running")[action]
-            state = dict(pause="pausing", resume="queued", cancel="cancelling", retry="queued")[action]
+            desired = dict(pause="paused", resume="running", **{"continue": "running"}, cancel="cancelled", retry="running")[action]
+            state = dict(pause="pausing", resume="queued", **{"continue": "queued"}, cancel="cancelling", retry="queued")[action]
+            if action == "continue":
+                db.execute("UPDATE pinterest_jobs SET budget_round=budget_round+1,budget_baseline_json=? WHERE id=?",
+                           (canonical(budget.usage(db, row)), row["id"]))
+                db.execute("UPDATE pinterest_tasks SET state='queued',reason=NULL WHERE job_id=? AND state='waiting_budget'", (row["id"],))
             if action == "retry":
                 # Active claims and accepted receipts must be replayed before a new generation is possible.
                 if db.execute("SELECT 1 FROM pinterest_tasks WHERE job_id=? AND state='running' LIMIT 1", (row["id"],)).fetchone():
@@ -226,9 +247,9 @@ class Service:
                 return dict(counts=counts, active=[self.job(r["id"], db) for r in rows])
         if command == "capabilities":
             model.fields(args)
-            return dict(contract_version=CONTRACT_VERSION, site="pinterest", collector=COLLECTOR, seed_kinds=["pin"],
+            return dict(contract_version=CONTRACT_VERSION, site="pinterest", collector=COLLECTOR, seed_kinds=["pin", "board", "section"],
                 media_types=["static_image", "single_image_story"], access_modes=["anonymous"], archive_format=3, online_format=4,
-                discovery=False, schedules=False, image_profiles=["original"], max_seeds=500)
+                discovery=True, schedules=False, image_profiles=["original"], max_seeds=500)
         if command == "lakes":
             model.fields(args, (), ("cursor", "limit"))
             limit = model.integer(args.get("limit", 100), 1, 200)
@@ -241,7 +262,7 @@ class Service:
         if command == "job":
             model.fields(args, ("job_id",))
             return self.job(args["job_id"])
-        if command in ("jobs", "items"):
+        if command in ("jobs", "items", "streams"):
             return self.page(args, command)
         handler = {"lake_create": self.create_lake, "preview": self.preview, "create": self.create, "action": self.action}.get(command)
         if handler is None:
