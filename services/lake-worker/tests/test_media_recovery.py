@@ -37,7 +37,7 @@ def test_grayscale_with_rgb_profile_retains_color_and_alpha(mode, fmt):
             assert all(abs(channel - expected) <= 2 for channel in decoded.getpixel((0, 0)))
 
 
-def test_bad_color_transform_is_one_review_item_and_other_images_publish(tmp_path):
+def test_bad_color_transform_is_one_exclusion_and_other_images_publish(tmp_path):
     lib, state = setup(tmp_path, "gelbooru")
     stream = io.BytesIO()
     # A LAB profile cannot describe CMYK pixels. Do not silently discard it.
@@ -50,21 +50,31 @@ def test_bad_color_transform_is_one_review_item_and_other_images_publish(tmp_pat
     by_url = {r["file_url"]: payloads[r["id"]] for r in records}
 
     class MixedImages:
+        calls = 0
+
         def get(self, url, **_):
+            self.calls += 1
             return ImageResponse(by_url[url])
 
     task = state.create({"library_id": lib.info["library_id"],
                          "range": {"kind": "id_range", "start": 11, "end": 14},
                          "media": policy()}, "color-failure")
-    runner = Runner(state, {"gelbooru": FakeSite("gelbooru", records)}, image_http=MixedImages())
+    images = MixedImages()
+    runner = Runner(state, {"gelbooru": FakeSite("gelbooru", records)}, image_http=images)
     done = runner.run(task["id"])
-    assert done["state"] == "needs_review" and done["error_code"] == "UPDATE_MEDIA_INCOMPLETE", done
-    assert done["counts"] == {"stored": 2, "needs_review": 1}
-    bad = state.items(task["id"], status="needs_review")["items"][0]
+    # MD5-verified bytes fail identically on every attempt: an exclusion, not a blocking review.
+    assert done["state"] == "completed_with_exclusions" and done["error_code"] is None, done
+    assert done["counts"] == {"stored": 2, "unavailable": 1}
+    bad = state.items(task["id"], status="unavailable")["items"][0]
     assert bad["post_id"] == 11 and bad["reason"] == "image_color_profile_error"
     directory, key = paths(lib, task, bad)
     assert (directory / (key + ".downloaded")).read_bytes() == payloads[11]
     assert not runner.resources.reservations and not (state.root / "errors.jsonl").exists()
+    calls = images.calls
+    state.action(task["id"], "retry")
+    again = runner.run(task["id"])
+    # Retry re-processes the retained original locally under the current rules.
+    assert again["counts"] == {"stored": 2, "unavailable": 1} and images.calls == calls, again
 
 
 def test_404_is_retryable_and_manual_retry_reuses_saved_metadata(tmp_path):

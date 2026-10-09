@@ -1,6 +1,6 @@
 # 0051 — PNG 尾部附加数据与完整 ICC 的兼容解码
 
-日期：2026-10-02。状态：已实现，扩展 [ADR 0048](0048-bounded-png-metadata-recovery.md)。
+日期：2026-10-02。状态：已实现，扩展 [ADR 0048](0048-bounded-png-metadata-recovery.md)；尾部数据预算与证据保存方式由 [ADR 0070](0070-png-metadata-degradation-and-deterministic-media-exclusions.md) 修订。
 
 ## 问题
 

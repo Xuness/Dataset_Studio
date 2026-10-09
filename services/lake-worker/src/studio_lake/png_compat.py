@@ -1,12 +1,14 @@
 """Bounded PNG metadata recovery without changing Pillow's process-wide guards.
 
 Known metadata recoveries apply only to a decoder copy. Original chunks and
-bytes after IEND remain in provenance; pixel/animation chunks are always strict.
-Large or recovered complete ICC profiles are restored to the individual image.
+bytes after IEND remain in provenance (inline when small, otherwise by length and
+SHA-256); pixel, animation and colour-affecting chunks are always strict. Large or
+recovered complete ICC profiles are restored to the individual image.
 """
 
 from dataclasses import dataclass, field
 import io
+import hashlib
 from pathlib import Path
 import struct
 import zlib
@@ -20,9 +22,13 @@ MAX_ICC_BYTES = 4 * 1024**2
 MAX_METADATA_BYTES = 16 * 1024**2
 MAX_CHUNKS = 100_000
 MAX_RECOVERY_CHUNKS = 128
+# Larger removed bytes keep offset, length and SHA-256; the MD5-verified source is the original.
+MAX_INLINE_EVIDENCE = 64 * 1024
 METADATA_CRC = {b"iCCP", b"eXIf", b"tEXt", b"zTXt", b"iTXt"}
 CRITICAL = {b"IHDR", b"PLTE", b"IDAT", b"IEND"}
 ANIMATION = {b"acTL", b"fcTL", b"fdAT"}
+# Ancillary chunks that change decoded pixels or colour are never removed for decoding.
+RENDERING = {b"tRNS", b"gAMA", b"cHRM", b"sRGB", b"iCCP", b"sBIT", b"cICP", b"mDCv", b"cLLi"}
 
 
 class PngCompatibilityError(ValueError):
@@ -50,6 +56,30 @@ def read_exact(source, count):
     if len(data) != count:
         raise PngCompatibilityError("PNG chunk is truncated")
     return data
+
+
+class Crc:
+    def __init__(self, value):
+        self.value = value
+
+    def update(self, block):
+        self.value = zlib.crc32(block, self.value)
+
+
+def stream(source, count, *hashes):
+    while count:
+        block = read_exact(source, min(count, 1024**2))
+        for h in hashes:
+            h.update(block)
+        count -= len(block)
+
+
+def chunk_evidence(raw=None, size=None, sha256=None):
+    """Inline small removed chunks; larger ones are identified by length and SHA-256."""
+    if raw is not None and len(raw) <= MAX_INLINE_EVIDENCE:
+        return {"original_chunk": typed_value(raw)}
+    return {"original_chunk_bytes": len(raw) if raw is not None else size,
+            "original_chunk_sha256": sha256 or digest(raw)}
 
 
 def complete_icc(profile):
@@ -107,6 +137,7 @@ def scan(source, size):
     result = Inspection()
     offset, chunks = 8, 0
     seen_idat = seen_iend = seen_icc = seen_animation = False
+    retained_icc = None
     while offset < size:
         chunks += 1
         if chunks > MAX_CHUNKS:
@@ -122,33 +153,54 @@ def scan(source, size):
             raise PngCompatibilityError("PNG has an unknown critical chunk")
         if (offset == 8) != (kind == b"IHDR") or kind == b"IHDR" and length != 13:
             raise PngCompatibilityError("PNG IHDR is missing, duplicated or malformed")
-        metadata = bool(kind[0] & 32) and kind not in ANIMATION
-        if metadata:
+        ancillary = bool(kind[0] & 32) and kind not in ANIMATION
+        opaque = ancillary and kind not in RENDERING
+        # Opaque chunks beyond the metadata budget are hashed, not held or decoded.
+        oversized = opaque and result.metadata_bytes + length + 12 > MAX_METADATA_BYTES
+        duplicate_icc = kind == b"iCCP" and seen_icc
+        if ancillary and not oversized:
             result.metadata_bytes += length + 12
             if result.metadata_bytes > MAX_METADATA_BYTES:
                 raise PngCompatibilityError("PNG metadata exceeds the 16 MiB budget")
-        payload = b""
+        payload, whole = b"", None
         crc = zlib.crc32(kind)
-        if metadata or kind in {b"IHDR", b"acTL"}:
+        if (ancillary and not oversized) or kind in {b"IHDR", b"acTL"}:
             if kind == b"acTL" and length != 8:
                 raise PngCompatibilityError("PNG animation control is malformed")
             payload = read_exact(source, length)
             crc = zlib.crc32(payload, crc)
         else:
-            remaining = length
-            while remaining:
-                block = read_exact(source, min(remaining, 1024**2))
-                crc = zlib.crc32(block, crc)
-                remaining -= len(block)
+            running = Crc(crc)
+            whole = hashlib.sha256(header) if oversized else None
+            stream(source, length, running, *([whole] if whole else []))
+            crc = running.value
         original_crc = read_exact(source, 4)
         expected, actual = struct.unpack(">I", original_crc)[0], crc & 0xFFFFFFFF
-        actions = []
+        actions, extra = [], {}
         replacement = None
-        if expected != actual:
-            if kind not in METADATA_CRC:
+        if oversized:
+            whole.update(original_crc)
+            actions.append("oversized_opaque_chunk_removed_for_decode")
+            replacement = b""
+        elif duplicate_icc:
+            # PNG allows one iCCP. The first is retained, as libpng does; later ones are evidence.
+            actions.append("duplicate_icc_removed_for_decode")
+            replacement = b""
+            try:
+                duplicate, _ = icc_profile(payload, expected == actual)
+                extra = {"profile_sha256": digest(duplicate),
+                         "matches_retained_profile": duplicate == retained_icc}
+            except PngCompatibilityError as error:
+                extra = {"profile_error": str(error)}
+        elif expected != actual:
+            if kind in METADATA_CRC:
+                actions.append("metadata_crc_recomputed_for_decode")
+                replacement = header + payload + struct.pack(">I", actual)
+            elif opaque:
+                actions.append("opaque_chunk_crc_mismatch_removed_for_decode")
+                replacement = b""
+            else:
                 raise PngCompatibilityError(f"PNG {kind.decode('ascii')} checksum mismatch")
-            actions.append("metadata_crc_recomputed_for_decode")
-            replacement = header + payload + struct.pack(">I", actual)
         if kind == b"IHDR":
             result.width, result.height = struct.unpack(">II", payload[:8])
             if not result.width or not result.height:
@@ -162,15 +214,13 @@ def scan(source, size):
                 raise PngCompatibilityError("PNG animation frame count is invalid")
         elif kind == b"IDAT":
             seen_idat = True
-        elif kind == b"iCCP":
-            if seen_icc:
-                raise PngCompatibilityError("PNG has duplicate ICC profiles")
+        elif kind == b"iCCP" and not duplicate_icc:
             seen_icc = True
-            profile, incomplete = icc_profile(payload, expected == actual)
+            retained_icc, incomplete = icc_profile(payload, expected == actual)
             if incomplete:
                 actions.append("incomplete_icc_stream_complete_profile_retained")
-            if incomplete or len(profile) > PngImagePlugin.MAX_TEXT_CHUNK:
-                result.icc = profile
+            if incomplete or len(retained_icc) > PngImagePlugin.MAX_TEXT_CHUNK:
+                result.icc = retained_icc
                 actions.append("icc_decoded_separately")
                 replacement = b""
         elif kind == b"IEND":
@@ -178,22 +228,29 @@ def scan(source, size):
                 raise PngCompatibilityError("PNG IEND is malformed")
             seen_iend = True
         if replacement is not None:
+            original = (chunk_evidence(size=length + 12, sha256=whole.hexdigest()) if oversized
+                        else chunk_evidence(header + payload + original_crc))
             edit(result, offset, end, replacement, {"type": kind.decode("ascii"),
                  "actions": actions, "original_crc": expected, "computed_crc": actual,
-                 "original_chunk": typed_value(header + payload + original_crc)})
+                 **original, **extra})
         offset = end
         if seen_iend:
             break
     if not seen_idat or not seen_iend:
         raise PngCompatibilityError("PNG pixel data or end marker is missing")
     if offset < size:
-        result.metadata_bytes += size - offset
-        if result.metadata_bytes > MAX_METADATA_BYTES:
-            raise PngCompatibilityError("PNG metadata exceeds the 16 MiB budget")
-        trailing = read_exact(source, size - offset)
+        # Bytes after IEND are opaque and never decoded; the download size limit bounds them.
+        count = size - offset
+        if count <= MAX_INLINE_EVIDENCE:
+            trailing = read_exact(source, count)
+            sha256, original = digest(trailing), {"original_bytes": typed_value(trailing)}
+        else:
+            hashed = hashlib.sha256()
+            stream(source, count, hashed)
+            sha256, original = hashed.hexdigest(), {}
         edit(result, offset, size, b"", {"type": "trailing_data",
-             "actions": ["trailing_data_retained_outside_decode"], "bytes": len(trailing),
-             "sha256": digest(trailing), "original_bytes": typed_value(trailing)})
+             "actions": ["trailing_data_retained_outside_decode"], "bytes": count,
+             "sha256": sha256, **original})
     return result
 
 
@@ -216,8 +273,9 @@ def open_image(data):
         parts.append(view[offset:])
         decode_data = b"".join(parts)
         recovery = {"source_decode_sha256": digest(decode_data), "source_png_compatibility": {
-            "version": 2, "original_bytes_changed": False, "changes": inspected.changes,
-            "icc_limit_bytes": MAX_ICC_BYTES, "metadata_limit_bytes": MAX_METADATA_BYTES}}
+            "version": 3, "original_bytes_changed": False, "changes": inspected.changes,
+            "icc_limit_bytes": MAX_ICC_BYTES, "metadata_limit_bytes": MAX_METADATA_BYTES,
+            "inline_evidence_limit_bytes": MAX_INLINE_EVIDENCE}}
     image = Image.open(io.BytesIO(decode_data))
     if inspected is not None and inspected.icc is not None:
         image.info["icc_profile"] = inspected.icc

@@ -2,6 +2,7 @@
 
 import base64
 from concurrent.futures import ThreadPoolExecutor
+import hashlib
 import io
 import json
 import struct
@@ -11,8 +12,10 @@ import pytest
 from PIL import Image, ImageCms, ImageFile, PngImagePlugin
 
 from studio_lake.image_policy import prepare_image
+from studio_lake import png_compat
 from studio_lake.png_compat import (MAX_ICC_BYTES, MAX_METADATA_BYTES, MAX_RECOVERY_CHUNKS,
                                     PngCompatibilityError, inspect_path, open_image, scan)
+from studio_lake.updates.media import paths
 from studio_lake.updates.runner import Runner
 from studio_lake.util import digest
 from test_image_policy import policy
@@ -101,11 +104,11 @@ def test_large_icc_is_bounded_restored_and_preserved_without_global_changes(tmp_
         assert decoded.info["icc_profile"] == icc
 
 
-@pytest.mark.parametrize("kind", [b"IHDR", b"IDAT", b"IEND", b"PLTE", b"tRNS", b"acTL", b"fcTL", b"fdAT"])
-def test_pixel_palette_transparency_and_animation_crc_failures_remain_errors(kind):
+@pytest.mark.parametrize("kind", [b"IHDR", b"IDAT", b"IEND", b"PLTE", b"tRNS", b"gAMA", b"acTL", b"fcTL", b"fdAT"])
+def test_pixel_palette_colour_and_animation_crc_failures_remain_errors(kind):
     data = png()
     offset = 8
-    if kind in {b"PLTE", b"tRNS", b"acTL", b"fcTL", b"fdAT"}:
+    if kind in {b"PLTE", b"tRNS", b"gAMA", b"acTL", b"fcTL", b"fdAT"}:
         payload = struct.pack(">II", 1, 0) if kind == b"acTL" else b"\0" * 4
         damaged = add(data, kind, payload, bad=True)
     else:
@@ -135,11 +138,11 @@ def test_trailing_bytes_retained_exactly_without_entering_the_decoder(recipe, tm
     original = png() + trailing
     path = tmp_path / "trailing.png"
     path.write_bytes(original)
-    assert inspect_path(path).memory_bytes >= len(trailing)
+    inspect_path(path)
     stored, _, details = prepare_image(original, recipe)
     evidence = details["source_png_compatibility"]
     changed = evidence["changes"][0]
-    assert evidence["version"] == 2 and evidence["original_bytes_changed"] is False
+    assert evidence["version"] == 3 and evidence["original_bytes_changed"] is False
     assert changed["offset"] == len(png()) and changed["bytes"] == len(trailing)
     assert changed["sha256"] == digest(trailing)
     assert base64.b64decode(changed["original_bytes"]["base64"]) == trailing
@@ -213,10 +216,19 @@ def test_unfinished_icc_recovery_still_rejects_incomplete_or_damaged_profiles(da
         prepare_image(original, policy())
 
 
-def test_trailing_data_shares_metadata_and_recovery_budgets():
-    data = add(png(), b"tEXt", b"Comment\0text")
-    with pytest.raises(PngCompatibilityError, match="16 MiB"):
-        scan(io.BytesIO(data), len(data) + MAX_METADATA_BYTES)
+def test_large_trailing_data_is_hashed_outside_the_metadata_budget(monkeypatch):
+    monkeypatch.setattr(png_compat, "MAX_METADATA_BYTES", 256)
+    monkeypatch.setattr(png_compat, "MAX_INLINE_EVIDENCE", 64)
+    trailing = bytes(range(256)) * 8
+    stored, _, details = prepare_image(png() + trailing, policy("webp", lossless=True, max_edge=None))
+    changed = details["source_png_compatibility"]["changes"][0]
+    assert changed["bytes"] == len(trailing) and changed["sha256"] == digest(trailing)
+    assert "original_bytes" not in changed and len(json.dumps(details)) < len(trailing)
+    with Image.open(io.BytesIO(stored)) as decoded:
+        assert decoded.convert("RGBA").getpixel((0, 0)) == (40, 80, 120, 76)
+
+
+def test_trailing_data_shares_the_recovery_count_budget():
     data = png()
     for _ in range(MAX_RECOVERY_CHUNKS):
         data = add(data, b"tEXt", b"Comment\0text", bad=True)
@@ -228,8 +240,8 @@ def test_profile_expansion_metadata_and_repair_counts_are_bounded():
     oversized = add(png(), b"iCCP", b"ICC\0\0" + zlib.compress(b"x" * (MAX_ICC_BYTES + 1)))
     with pytest.raises(PngCompatibilityError, match="4 MiB"):
         prepare_image(oversized, policy())
-    # The budget check must happen before reading the oversized metadata payload.
-    prefix = png()[:33] + struct.pack(">I4s", MAX_METADATA_BYTES + 1, b"tEXt")
+    # The budget check must happen before reading an oversized colour payload.
+    prefix = png()[:33] + struct.pack(">I4s", MAX_METADATA_BYTES + 1, b"iCCP")
     with pytest.raises(PngCompatibilityError, match="16 MiB"):
         scan(io.BytesIO(prefix), len(prefix) + MAX_METADATA_BYTES + 5)
     data = png()
@@ -237,6 +249,43 @@ def test_profile_expansion_metadata_and_repair_counts_are_bounded():
         data = add(data, b"tEXt", b"Comment\0text", bad=True)
     with pytest.raises(PngCompatibilityError, match="recovery budget"):
         prepare_image(data, policy())
+
+
+@pytest.mark.parametrize("same", [True, False])
+def test_duplicate_icc_keeps_the_first_profile_and_records_the_rest(same):
+    first = profile()
+    second = first if same else ImageCms.ImageCmsProfile(ImageCms.createProfile("LAB")).tobytes()
+    data = add(add(png(), b"iCCP", b"Other\0\0" + zlib.compress(second)), b"iCCP", b"ICC\0\0" + zlib.compress(first))
+    stored, _, details = prepare_image(data, policy("webp", lossless=True, max_edge=None))
+    changed = details["source_png_compatibility"]["changes"]
+    assert [c["actions"] for c in changed] == [["duplicate_icc_removed_for_decode"]]
+    assert changed[0]["matches_retained_profile"] is same
+    assert changed[0]["profile_sha256"] == digest(second)
+    with Image.open(io.BytesIO(stored)) as decoded:
+        assert decoded.info["icc_profile"] == first
+    damaged = add(add(png(), b"iCCP", b"Other\0\0garbage"), b"iCCP", b"ICC\0\0" + zlib.compress(first))
+    _, _, details = prepare_image(damaged, policy())
+    assert "profile_error" in details["source_png_compatibility"]["changes"][0]
+
+
+def test_opaque_chunks_are_removed_for_decode_when_damaged_or_oversized(monkeypatch):
+    damaged = add(png(), b"prVt", b"private editor state", bad=True)
+    stored, _, details = prepare_image(damaged, policy("webp", lossless=True, max_edge=None))
+    changed = details["source_png_compatibility"]["changes"][0]
+    assert changed["actions"] == ["opaque_chunk_crc_mismatch_removed_for_decode"]
+    assert base64.b64decode(changed["original_chunk"]["base64"]) == chunk(b"prVt", b"private editor state", True)
+    monkeypatch.setattr(png_compat, "MAX_METADATA_BYTES", 256)
+    monkeypatch.setattr(png_compat, "MAX_INLINE_EVIDENCE", 64)
+    text = b"Comment\0" + b"x" * 1024
+    large = add(png(), b"tEXt", text)
+    _, _, details = prepare_image(large, policy())
+    changed = details["source_png_compatibility"]["changes"][0]
+    assert changed["actions"] == ["oversized_opaque_chunk_removed_for_decode"]
+    assert changed["original_chunk_bytes"] == len(text) + 12
+    assert changed["original_chunk_sha256"] == hashlib.sha256(chunk(b"tEXt", text)).hexdigest()
+    assert "Comment" not in details["source_image_info"]
+    with pytest.raises(PngCompatibilityError, match="budget"):
+        prepare_image(add(png(), b"iCCP", b"ICC\0\0" + bytes(range(256)) * 2), policy())
 
 
 def test_original_and_animation_policies_keep_download_bytes():
@@ -265,9 +314,12 @@ def test_pipeline_header_admission_uses_same_png_compatibility_as_encoding(tmp_p
     payloads = {11: add(png(), b"tEXt", metadata(b"tEXt"), bad=True),
                 12: add(png(), b"iCCP", b"ICC\0\0" + zlib.compress(profile(True))),
                 13: png()[:-1], 14: png() + b"editor-data",
-                15: add(png(), b"iCCP", unfinished_icc(profile()))}
+                15: add(png(), b"iCCP", unfinished_icc(profile())),
+                16: add(add(png(), b"iCCP", metadata(b"iCCP")), b"iCCP", metadata(b"iCCP")),
+                17: png()[:-1] + b"?"}
     records = [{**post("gelbooru", pid, data), "file_url": f"https://example.invalid/{pid}.png"}
                for pid, data in payloads.items()]
+    records[-1]["md5"] = None
     by_url = {r["file_url"]: payloads[r["id"]] for r in records}
 
     class Images:
@@ -275,12 +327,27 @@ def test_pipeline_header_admission_uses_same_png_compatibility_as_encoding(tmp_p
             return ImageResponse(by_url[url])
 
     task = state.create({"library_id": lib.info["library_id"],
-                         "range": {"kind": "id_range", "start": 11, "end": 16},
+                         "range": {"kind": "id_range", "start": 11, "end": 18},
                          "media": policy()}, "png-recovery")
     runner = Runner(state, {"gelbooru": FakeSite("gelbooru", records)}, image_http=Images())
     done = runner.run(task["id"])
-    assert done["counts"] == {"stored": 4, "needs_review": 1}, done
+    assert done["counts"] == {"stored": 5, "unavailable": 1, "needs_review": 1}, done
     assert not runner.resources.reservations
     with online(lib) as (db, _):
         details = [json.loads(r[0]) for r in db.execute("SELECT details_json FROM assets")]
-    assert len(details) == 4 and all(d["source_png_compatibility"] for d in details)
+    assert len(details) == 5 and all(d["source_png_compatibility"] for d in details)
+    # A verified source failure is excluded with its original retained for a later local retry.
+    excluded = state.items(task["id"], status="unavailable")["items"][0]
+    assert (excluded["post_id"], excluded["reason"]) == (13, "image_source_incompatible")
+    directory, key = paths(lib, task, excluded)
+    assert (directory / (key + ".downloaded")).read_bytes() == payloads[13]
+    # Unverified bytes may be a damaged transfer: review it and download again on retry.
+    review = state.items(task["id"], status="needs_review")["items"][0]
+    assert (review["post_id"], review["reason"]) == (17, "image_source_incompatible")
+    directory, key = paths(lib, task, review)
+    assert not (directory / (key + ".downloaded")).exists()
+    with lib.journal() as db:
+        sources = [json.loads(r[0])["source"] for r in db.execute("SELECT manifest_json FROM commits")]
+    details = {r["post_id"]: r.get("detail") for s in sources if s.get("update_role") == "media"
+               for r in s["results"]}
+    assert details[13].startswith("PngCompatibilityError: ")

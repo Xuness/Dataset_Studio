@@ -12,7 +12,7 @@ from PIL import Image, ImageCms
 import requests
 
 from ..image_policy import prepare_image, profile_id, ImagePolicyError
-from ..png_compat import inspect_path
+from ..png_compat import inspect_path, PngCompatibilityError
 from ..util import atomic_json, digest, file_hash, stable_id
 from .archive import online, record_by_id
 from .sites import UpdateError
@@ -279,14 +279,28 @@ def encode_download(lib, job, item, downloaded, resources, cancelled, progress=N
                              + (directory / (key + ".json")).stat().st_size + OVERHEAD)
         progress(phase="ready")
         return {**saved, "ready_path": str(ready)}
-    except ImagePolicyError:
-        return {"state": "needs_review", "reason": "image_policy_rejected"}
-    except ImageCms.PyCMSError:
-        return {"state": "needs_review", "reason": "image_color_profile_error"}
-    except (OSError, ValueError, Image.DecompressionBombError) as error:
-        if isinstance(error, OSError) and error.errno == errno.ENOSPC:
-            raise UpdateError("UPDATE_SPACE", "Waiting for SSD space during encoding") from None
-        return {"state": "needs_review", "reason": "image_decode_or_storage_error"}
+    except ImagePolicyError as error:
+        # The task's own recipe excluded this image; retrying the same bytes cannot change it.
+        return {"state": "unavailable", "reason": "image_policy_rejected", "detail": str(error)[:200]}
+    except (OSError, ValueError, SyntaxError, ImageCms.PyCMSError, Image.DecompressionBombError) as error:
+        if isinstance(error, OSError) and error.errno is not None:
+            if error.errno == errno.ENOSPC:
+                raise UpdateError("UPDATE_SPACE", "Waiting for SSD space during encoding") from None
+            return {"state": "needs_review", "reason": "image_storage_error"}
+        reason = ("image_source_incompatible" if isinstance(error, PngCompatibilityError)
+                  else "image_color_profile_error" if isinstance(error, ImageCms.PyCMSError)
+                  else "image_decode_error")
+        return content_failure(directory, key, downloaded, reason, error)
+
+
+def content_failure(directory, key, downloaded, reason, error):
+    """Source-verified bytes fail the same way every time; unverified bytes are fetched again."""
+    detail = f"{type(error).__name__}: {error}"[:200]
+    if downloaded.get("original_md5_verified"):
+        return {"state": "unavailable", "reason": reason, "detail": detail}
+    (directory / (key + ".downloaded")).unlink(missing_ok=True)
+    (directory / (key + ".download.json")).unlink(missing_ok=True)
+    return {"state": "needs_review", "reason": reason, "detail": detail}
 
 
 def prepare(lib, job, item, site, resources, cancelled, image_http=None, progress=None):

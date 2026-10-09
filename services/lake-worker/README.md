@@ -144,7 +144,7 @@ pwsh -File tooling/setup-lake-worker.ps1 -Dev
 
 图片 HTTP 404 进入有次数上限的重试，不直接认定帖子删除。同一站点图片通道在 60 秒内累计 8 次 404 后冷却至少 60 秒，仍遵守更长的既有冷却；已经开始的下载及元数据、编码、发布继续工作。重试最多 8 次，耗尽后保留缺口供检查。此保护不代表站点公布了限流规则，也不绕过访问限制。
 
-“继续”接续原队列；“重试未获取项”优先重用已发布元数据与原下载断点，仅缺少有效地址、来源删除/受限、元数据缺失或 404 已耗尽尝试时刷新 API。兼容带 RGB ICC 的灰度图片；无法处理的色彩配置只产生单张 `image_color_profile_error`，原件保留，其余图片照常处理。详见 [ADR 0044](../../docs/decisions/0044-lake-media-recovery.md)。
+“继续”接续原队列；“重试未获取项”优先重用已发布元数据与原下载断点，仅缺少有效地址、来源删除/受限、元数据缺失或 404 已耗尽尝试时刷新 API。兼容带 RGB ICC 的灰度图片；无法处理的色彩配置只产生单张 `image_color_profile_error`，原件保留，其余图片照常处理。详见 [ADR 0044](../../docs/decisions/0044-lake-media-recovery.md)。来源 MD5 已验证的原件若无法兼容、解码或转换色彩，必然每次都以相同方式失败，因此记为未获取项，不阻塞任务完成；“重试未获取项”会用当前规则在本地重新处理保留的原件。见 [ADR 0070](../../docs/decisions/0070-png-metadata-degradation-and-deterministic-media-exclusions.md)。
 
 PNG 元数据兼容解码与下载后的资源准入共用同一模块：仅对已知元数据块重算解码副本的 CRC，并保留完整原始块及异常记录；较大 ICC 单独有界解压（4 MiB）并回填图片。像素、透明度、动画块、文件结构仍严格检查，原始下载字节不改动，不使用全局宽松解码开关。完整限制与验收见 [ADR 0048](../../docs/decisions/0048-bounded-png-metadata-recovery.md)。
 

@@ -39,7 +39,7 @@
 
 PNG 兼容处理：[有界元数据恢复](decisions/0048-bounded-png-metadata-recovery.md)、[2026-09-30 真实图片验收](verification/2026-09-30-png-compatibility.md)。
 
-PNG 尾部数据与完整 ICC：[兼容边界](decisions/0051-png-trailing-data-and-complete-icc.md)、[2026-10-02 Danbooru 缺口恢复验收](verification/2026-10-02-danbooru-png-recovery.md)。
+PNG 尾部数据与完整 ICC：[兼容边界](decisions/0051-png-trailing-data-and-complete-icc.md)、[2026-10-02 Danbooru 缺口恢复验收](verification/2026-10-02-danbooru-png-recovery.md)。PNG 元数据降级与确定性失败排除：[ADR 0070](decisions/0070-png-metadata-degradation-and-deterministic-media-exclusions.md)。
 
 来源 Delete/Ban 标记与原图下载：[可获取性判断](decisions/0049-source-status-and-media-availability.md)、[2026-10-01 验收](verification/2026-10-01-source-status-downloads.md)。
 

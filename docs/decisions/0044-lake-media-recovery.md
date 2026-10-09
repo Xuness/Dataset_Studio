@@ -1,6 +1,6 @@
 # 0044 — 单图色彩异常隔离与图片 404 恢复
 
-日期：2026-09-29。状态：已实现。
+日期：2026-09-29。状态：已实现；色彩错误的任务状态由 [ADR 0070](0070-png-metadata-degradation-and-deterministic-media-exclusions.md) 修订。
 
 ## 触发与边界
 
