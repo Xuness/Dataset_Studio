@@ -103,6 +103,38 @@ Pin 是来源实体，每次读取形成独立观察。签名用于站内关联�
 
 `gen_ai_topics` 的值是兴趣类别（本轮出现 `art` 和 `beauty`），与 Pinterest 按类别提供的“减少 AI Pin”控制一致。官方说明 AI 标记依据图片元数据和自有分类器，且分类器可能出错；第三方整理的可调类别包括艺术、娱乐、美妆、建筑、家居、时尚、运动、健康。该字段与页面上“AI modified”标签的逐条对应关系尚未核对。[减少 AI Pin](https://help.pinterest.com/en/article/see-fewer-ai-pins)、[AI 标记说明](https://help.pinterest.com/en/article/gen-ai-labels)、[类别整理](https://metricool.com/pinterest-ai/)
 
+### 各入口的字段可得性
+
+本轮对 91 条列表 Pin 和 4 条详情逐字段统计。详情中 2 条使用 `field_set_key=detailed`，另 2 条使用 `auth_web_main_pin` 加扩展字段。表中数字为带非空值的条数；“AI 类别”一行统计的是字段出现的条数。样本很小，字段组合可能随入口参数和网页版本变化。
+
+| 信息 | 图版内容 25 | More ideas 19 | 相关推荐 12 | 搜索 35 | 详情 `detailed` 2 | 详情扩展 2 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 媒体判定字段齐全 | 25 | 19 | 0 | 0 | 2 | 2 |
+| 原图地址与宽高 | 25 | 19 | 12 | 35 | 2 | 2 |
+| 图片级收藏数 | 25 | 19 | 0 | 0 | 2 | 2 |
+| 机器标签 `visual_annotation` | 0 | 16 | 10 | 35 | 2 | 2 |
+| AI 类别 `gen_ai_topics` | 0 | 19 | 0 | 6 | 0 | 2 |
+| 自动英文描述 `auto_alt_text` | 14 | 13 | 7 | 26 | 0 | 2 |
+| 创建时间 | 0 | 19 | 12 | 35 | 2 | 2 |
+| 创建方式 `method` | 0 | 19 | 0 | 0 | 2 | 2 |
+| 上传者 `native_creator` | 22 | 18 | 11 | 0 | 0 | 2 |
+| 转存来源、分享数、下载许可 | 0 | 0 | 0 | 0 | 2 | 2 |
+| 主类别、检测框 | 0 | 0 | 0 | 0 | 0 | 2 |
+| 外链 | 0 | 1 | 0 | 12 | 1 | 0 |
+
+“媒体判定字段”指 `images`、`carousel_data`、`story_pin_data`、`videos` 和 `is_video`。几点观察：
+
+- 图版内容是元数据最少的入口：没有机器标签、AI 类别、创建时间和创建方式。
+- `detailed` 字段集同样不含 AI 类别和自动描述；需要这两项时，应使用扩展字段集。
+- 搜索结果中带外链的条目，有 7 条附带外链网页摘要 `rich_summary`。
+
+另外有 3 个 Pin 同时出现在列表和详情中：1 个来自图版内容，2 个来自 More ideas。两边都有的媒体字段取值一致，包括 `images.orig` 的地址与宽高、签名，以及故事块中的原图地址。差别有两处：
+
+- 详情另有 `564x`、`600x315`、`1200x` 等尺寸档位。
+- 其中的故事 Pin 在详情里多出页级的 `image_signature`、`video`、`video_signature` 和版式字段。本例中视频字段为 null，页级签名与块签名相同。
+
+由此可见，列表只能依据块级数据判断媒体形态，页级视频只有详情能看到。由列表形成清单的规则与校验，见[后端设计](pinterest-backend-and-lake-design.md#清单来源与详情补取)。统计保存在 `.local/reports/pinterest-discovery-20261009/` 下的 `field-availability.txt`、`field-matrix.txt` 和 `same-pin-compare.json`，不随仓库分发。
+
 ### 多尺寸 CDN
 
 CDN 提供 `236x`、`474x`、`736x` 和 `originals` 等候选版本，其可用性与实际尺寸仍需核对。原图宽度不超过某个档位时，该档位可能返回与 `originals` 相同的字节；同字节数不代表同字节，要看 ETag 或实际哈希。本期缩略图可用于界面预览，不承担模型预筛门槛。后续若研究缩略图评分或近似匹配，应单独评估其误差；缩略图始终不进入原图取得统计。
