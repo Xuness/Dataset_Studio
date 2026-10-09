@@ -18,6 +18,15 @@ use std::{
     path::PathBuf,
     sync::{Arc, atomic::AtomicBool},
 };
+mod key_bounds;
+use key_bounds::{HashBound, hash_bound};
+
+fn member_asset(row: &rusqlite::Row<'_>) -> SqlResult<String> {
+    match row.get_ref(1)? {
+        rusqlite::types::ValueRef::Blob(value) => Ok(hex::encode(value)),
+        _ => row.get(1),
+    }
+}
 
 pub(super) fn load(db: &Connection, directory: &std::path::Path) -> studio_domain::Result<()> {
     const MODULE: Module<Members> = Module::eponymous_only_module();
@@ -143,17 +152,14 @@ impl MemberCursor {
         if reader.projection.count > 4096 {
             return Ok(false);
         }
-        let (predicate, values) = reader.predicate().map_err(sql_error)?;
-        let sql = format!(
-            "SELECT i.source_id,i.asset_id,i.ordinal,i.post_id FROM (SELECT ordinal FROM scores WHERE {predicate} LIMIT 4097) m JOIN fixed_input.input_rows i ON i.ordinal=m.ordinal"
-        );
+        let (sql, values) = reader.small_member_relation().map_err(sql_error)?;
         self.rows = reader
             .db
             .prepare(&sql)?
             .query_map(rusqlite::params_from_iter(values), |r| {
                 Ok(Member {
                     source: r.get(0)?,
-                    asset: hex::encode(r.get::<_, Vec<u8>>(1)?),
+                    asset: member_asset(r)?,
                     ordinal: r.get(2)?,
                     post: r.get(3)?,
                     matched: true,
@@ -194,52 +200,84 @@ impl MemberCursor {
             return Ok(());
         };
         while let Some(source) = self.sources.get(self.source) {
-            let (predicate, mut values) = reader.predicate().map_err(sql_error)?;
+            let (relation, mut values) = reader.member_relation().map_err(sql_error)?;
             // Return the match flag as a column instead of hiding rejected
             // candidates inside xNext. SQLite's outer VM can then enforce its
             // normal cancellation/progress callback even for a very sparse set.
-            let matched = if predicate == "1=1" {
-                "1".into()
-            } else {
-                format!(
-                    "EXISTS(SELECT 1 FROM main.scores WHERE ordinal=i.ordinal AND ({predicate}))"
-                )
-            };
             values.push(Value::Text(source.clone()));
             let mut clauses = vec![format!("i.source_id=?{}", values.len())];
-            for (operator, value) in &self.constraints {
-                // Asset keys are canonical lowercase SHA-256 strings. Keeping
-                // comparisons as bytes preserves their BINARY text order.
-                let bytes = hex::decode(value).map_err(sql_error)?;
-                values.push(Value::Blob(bytes));
-                clauses.push(format!("i.asset_id{operator}?{}", values.len()));
-            }
             let direction = if self.descending { "DESC" } else { "ASC" };
+            let mut bounds = self.constraints.clone();
             if let Some(after) = &self.after {
-                values.push(Value::Blob(hex::decode(after).map_err(sql_error)?));
-                clauses.push(format!(
-                    "i.asset_id{}?{}",
-                    if self.descending { "<" } else { ">" },
-                    values.len()
+                bounds.push((
+                    if self.descending { "<" } else { ">" }.into(),
+                    after.clone(),
                 ));
             }
+            let mut original = true;
+            for (op, value) in &bounds {
+                match hash_bound(op, value) {
+                    HashBound::Empty => {
+                        original = false;
+                        break;
+                    }
+                    HashBound::All => {}
+                    HashBound::Compare(op, value) => {
+                        values.push(Value::Blob(value));
+                        clauses.push(format!("i.asset_id{op}?{}", values.len()));
+                    }
+                }
+            }
             let sql = format!(
-                "SELECT i.source_id,i.asset_id,i.ordinal,i.post_id,{matched} FROM fixed_input.input_rows i INDEXED BY input_identity WHERE {} ORDER BY i.asset_id {direction} LIMIT 512",
+                "SELECT i.source_id,i.asset_id,i.ordinal,i.post_id,i.matched FROM ({relation}) i WHERE {} ORDER BY i.asset_id {direction} LIMIT 512",
                 clauses.join(" AND ")
             );
-            self.rows = reader
-                .db
-                .prepare(&sql)?
-                .query_map(rusqlite::params_from_iter(values), |r| {
-                    Ok(Member {
-                        source: r.get(0)?,
-                        asset: hex::encode(r.get::<_, Vec<u8>>(1)?),
-                        ordinal: r.get(2)?,
-                        post: r.get(3)?,
-                        matched: r.get(4)?,
-                    })
-                })?
-                .collect::<SqlResult<Vec<_>>>()?;
+            self.rows = if original {
+                reader
+                    .db
+                    .prepare(&sql)?
+                    .query_map(rusqlite::params_from_iter(values), |r| {
+                        Ok(Member {
+                            source: r.get(0)?,
+                            asset: member_asset(r)?,
+                            ordinal: r.get(2)?,
+                            post: r.get(3)?,
+                            matched: r.get(4)?,
+                        })
+                    })?
+                    .collect::<SqlResult<Vec<_>>>()?
+            } else {
+                Vec::new()
+            };
+            if reader.has_edits() {
+                let mut values = vec![Value::Text(source.clone())];
+                let mut clauses = vec![
+                    "source_id=?1".to_string(),
+                    "ordinal>=4611686018427387904".into(),
+                ];
+                for (op, value) in &bounds {
+                    values.push(Value::Text(value.clone()));
+                    clauses.push(format!("asset_id{op}?{}", values.len()));
+                }
+                let mut stmt=reader.db.prepare(&format!("SELECT source_id,asset_id,ordinal,post_id FROM extra_scores WHERE {} ORDER BY asset_id {direction} LIMIT 512",clauses.join(" AND ")))?;
+                self.rows.extend(
+                    stmt.query_map(rusqlite::params_from_iter(values), |r| {
+                        Ok(Member {
+                            source: r.get(0)?,
+                            asset: r.get(1)?,
+                            ordinal: r.get(2)?,
+                            post: r.get(3)?,
+                            matched: true,
+                        })
+                    })?
+                    .collect::<SqlResult<Vec<_>>>()?,
+                );
+                self.rows.sort_by(|a, b| a.asset.cmp(&b.asset));
+                if self.descending {
+                    self.rows.reverse();
+                }
+                self.rows.truncate(512);
+            }
             if let Some(last) = self.rows.last() {
                 self.after = Some(last.asset.clone());
                 return Ok(());
@@ -287,15 +325,8 @@ unsafe impl VTabCursor for MemberCursor {
                 if value == "\u{10ffff}" && matches!(operator, "<" | "<=") {
                     continue;
                 }
-                if value.len() != 64
-                    || !value
-                        .bytes()
-                        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-                {
-                    if operator == "=" || (value.is_empty() && matches!(operator, "<" | "<=")) {
-                        return Ok(());
-                    }
-                    return Err(sql_error("noncanonical ranking member bound"));
+                if value.len() > 128 || value.contains('\0') {
+                    return Err(sql_error("ranking member bound exceeds its limit"));
                 }
                 self.constraints.push((operator.to_string(), value));
             }

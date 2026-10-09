@@ -14,6 +14,7 @@ fn input(
         project_id: pid.into(),
         target: studio_domain::ScopeTarget::Workset {
             collection_id: request.collection_id.clone(),
+            revision: None,
         },
     };
     let read = state.sources.background(
@@ -193,6 +194,7 @@ pub fn create(state: &AppState, pid: &str, request: AestheticCreate) -> Result<A
         pid,
         AestheticConfig {
             version: 2,
+            membership_revision: 0,
             request,
             model: plan.snapshot,
             sources,

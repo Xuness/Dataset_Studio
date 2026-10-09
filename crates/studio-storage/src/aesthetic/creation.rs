@@ -3,20 +3,24 @@ use crate::ProjectTransaction;
 use crate::{SqliteStore, lock_error};
 use studio_application::aesthetic::{same_request, validate_capacity};
 
-/// Worksets are immutable. The token also binds count and project source locations.
-fn input(db: &Connection, collection: &str) -> Result<(u64, String)> {
+/// Bind the exact workset membership version as well as source locations.
+fn input(db: &Connection, collection: &str, revision: Option<u64>) -> Result<(u64, String)> {
     if crate::management::removed(db, "workset", collection)? {
         return Err(Error::new("OBJECT_REMOVED", "工作集已删除"));
     }
-    let total = db.query_row("SELECT count FROM collections WHERE id=?1 AND NOT EXISTS(SELECT 1 FROM evaluation_workset_builds b WHERE b.collection_id=collections.id AND b.state!='ready')",[collection],|r|crate::unsigned(r,0)).optional().map_err(db_error)?
-        .ok_or_else(||Error::new("NOT_FOUND","工作集不存在"))?;
-    let mut statement = db.prepare("SELECT s.json FROM sources s WHERE EXISTS(SELECT 1 FROM collection_members c WHERE c.collection_id=?1 AND c.source_id=s.id) ORDER BY s.id").map_err(db_error)?;
+    let item = crate::collection_edits::read(db, collection, revision)?;
+    let total = item.count;
+    let members = crate::collection_edits::members_sql(collection, item.revision);
+    let mut statement = db.prepare(&format!("SELECT s.json FROM sources s WHERE EXISTS(SELECT 1 FROM ({members}) c WHERE c.source_id=s.id) ORDER BY s.id")).map_err(db_error)?;
     let sources = statement
-        .query_map([collection], |r| r.get::<_, String>(0))
+        .query_map([], |r| r.get::<_, String>(0))
         .map_err(db_error)?
         .collect::<std::result::Result<Vec<_>, _>>()
         .map_err(db_error)?;
-    Ok((total, hash(&encode(&(collection, total, sources))?)))
+    Ok((
+        total,
+        hash(&encode(&(collection, item.revision, total, sources))?),
+    ))
 }
 
 pub(super) fn read_intent(db: &Connection, id: &str) -> Result<Option<AestheticCreationIntent>> {
@@ -33,7 +37,11 @@ pub(super) fn read_intent(db: &Connection, id: &str) -> Result<Option<AestheticC
 
 pub(super) fn restore_references(db: &Connection, intent: &AestheticCreationIntent) -> Result<()> {
     let request = &intent.config.request;
-    let (total, _) = input(db, &request.collection_id)?;
+    let (total, _) = input(
+        db,
+        &request.collection_id,
+        Some(intent.config.membership_revision),
+    )?;
     if total != intent.total {
         return Err(Error::new("SOURCE_CHANGED", "创建意图的工作集总量已变化"));
     }
@@ -85,7 +93,7 @@ impl SqliteStore {
     }
     pub fn evaluation_input(&self, pid: &str, collection: &str) -> Result<(u64, String)> {
         let p = self.handle(pid)?;
-        input(&*p.db.lock().map_err(lock_error)?, collection)
+        input(&*p.db.lock().map_err(lock_error)?, collection, None)
     }
     pub fn evaluation_intent(
         &self,
@@ -98,7 +106,7 @@ impl SqliteStore {
     pub fn register_evaluation(
         &self,
         pid: &str,
-        config: AestheticConfig,
+        mut config: AestheticConfig,
         project_version: &str,
     ) -> Result<AestheticCreationIntent> {
         let request = &config.request;
@@ -142,7 +150,7 @@ impl SqliteStore {
                 "历史创建缺少冻结配置；请恢复账本，或明确取消此创建键后新建阶段",
             ));
         }
-        let (total, version) = input(&tx, &request.collection_id)?;
+        let (total, version) = input(&tx, &request.collection_id, None)?;
         validate_capacity(total)?;
         if version != project_version {
             return Err(Error::new(
@@ -150,6 +158,8 @@ impl SqliteStore {
                 "预检后项目输入已变化，请重新预检",
             ));
         }
+        config.membership_revision =
+            crate::collection_edits::read(&tx, &request.collection_id, None)?.revision;
         tx.execute("INSERT INTO evaluation_stage_refs(id,collection_id,state,request_json,total) VALUES (?1,?2,'preparing',?3,?4)",params![request.idempotency_key,request.collection_id,encode(request)?,total as i64]).map_err(db_error)?;
         tx.execute("INSERT INTO evaluation_creation_intents(stage_id,config,state,created_at) VALUES (?1,?2,'pending',?3)",params![request.idempotency_key,encode(&config)?,now()]).map_err(db_error)?;
         let intent = AestheticCreationIntent {

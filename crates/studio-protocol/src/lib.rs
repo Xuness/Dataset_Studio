@@ -13,6 +13,8 @@ mod query;
 pub use query::*;
 mod scope;
 pub use scope::*;
+mod collection_edits;
+pub use collection_edits::*;
 mod tools;
 pub use tools::*;
 mod resources;
@@ -301,6 +303,7 @@ pub struct Collection {
     pub id: String,
     pub name: String,
     pub count: u64,
+    pub revision: u64,
 }
 impl From<domain::Collection> for Collection {
     fn from(c: domain::Collection) -> Self {
@@ -308,6 +311,7 @@ impl From<domain::Collection> for Collection {
             id: c.id,
             name: c.name,
             count: c.count,
+            revision: c.revision,
         }
     }
 }

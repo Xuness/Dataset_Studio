@@ -10,10 +10,21 @@ pub struct ScopeRef {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ScopeTarget {
-    Source { source_id: String, revision: String },
-    Workset { collection_id: String },
-    QueryResult { result_id: String },
-    Selection { revision: u64 },
+    Source {
+        source_id: String,
+        revision: String,
+    },
+    Workset {
+        collection_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        revision: Option<u64>,
+    },
+    QueryResult {
+        result_id: String,
+    },
+    Selection {
+        revision: u64,
+    },
 }
 impl ScopeRef {
     pub fn validate_project(&self, project_id: &str) -> Result<()> {
@@ -34,7 +45,15 @@ impl ScopeRef {
                     return Err(Error::invalid("来源范围需要有效的版本"));
                 }
             }
-            ScopeTarget::Workset { collection_id } => validate_id(collection_id)?,
+            ScopeTarget::Workset {
+                collection_id,
+                revision,
+            } => {
+                validate_id(collection_id)?;
+                if revision.is_some_and(|v| v > i64::MAX as u64) {
+                    return Err(Error::invalid("工作集成员版本无效"));
+                }
+            }
             ScopeTarget::QueryResult { result_id } => validate_id(result_id)?,
             ScopeTarget::Selection { revision } if *revision > i64::MAX as u64 => {
                 return Err(Error::invalid("选择版本无效"));

@@ -193,11 +193,18 @@ pub(super) fn freeze_page(
     cancel: Arc<AtomicBool>,
 ) -> Result<bool> {
     let last = db.last_candidate(&stage.id)?;
-    let keys = state.store.collection_keys(
+    let keys = state.store.browse_scope_keys(
         pid,
-        &stage.config.request.collection_id,
+        &studio_domain::ScopeRef {
+            project_id: pid.into(),
+            target: studio_domain::ScopeTarget::Workset {
+                collection_id: stage.config.request.collection_id.clone(),
+                revision: Some(stage.config.membership_revision),
+            },
+        },
         last.as_ref().map(|v| &v.key),
         64,
+        false,
     )?;
     if keys.is_empty() {
         db.finish_freeze(&stage.id)?;

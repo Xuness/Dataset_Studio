@@ -60,6 +60,7 @@ fn fixture(count: u64) -> (tempfile::TempDir, EvaluationDb, String) {
     };
     db.create(
         AestheticConfig {
+            membership_revision: 0,
             version: 1,
             request,
             model,

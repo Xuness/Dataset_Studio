@@ -14,6 +14,7 @@ fn fixture() -> (tempfile::TempDir, Arc<RankedIndexes>, RankedIndexPlan) {
             project_id: new_id(),
             target: ScopeTarget::Workset {
                 collection_id: new_id(),
+                revision: None,
             },
         },
         meta: RankedIndexMeta {
@@ -23,6 +24,7 @@ fn fixture() -> (tempfile::TempDir, Arc<RankedIndexes>, RankedIndexPlan) {
                 project_id: new_id(),
                 target: ScopeTarget::Workset {
                     collection_id: new_id(),
+                    revision: None,
                 },
             },
             count: 0,

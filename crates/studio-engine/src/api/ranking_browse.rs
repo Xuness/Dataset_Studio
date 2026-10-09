@@ -82,9 +82,10 @@ ranking_order_reader!(RankingProjectionReader);
 pub(super) struct InfoQuery {
     collection_id: Option<String>,
     result_id: Option<String>,
+    revision: Option<u64>,
 }
 
-#[utoipa::path(get,path="/v1/projects/{project_id}/ranking-browse",operation_id="ranking_browse_info",params(("project_id"=String,Path),("collection_id"=Option<String>,Query),("result_id"=Option<String>,Query)),responses((status=200,body=RankingBrowseInfo)))]
+#[utoipa::path(get,path="/v1/projects/{project_id}/ranking-browse",operation_id="ranking_browse_info",params(("project_id"=String,Path),("collection_id"=Option<String>,Query),("result_id"=Option<String>,Query),("revision"=Option<u64>,Query)),responses((status=200,body=RankingBrowseInfo)))]
 pub(super) async fn info(
     State(s): State<AppState>,
     Path(pid): Path<String>,
@@ -93,7 +94,10 @@ pub(super) async fn info(
     Ok(Json(
         blocking(move || {
             let target = match (query.collection_id, query.result_id) {
-                (Some(collection_id), None) => domain::ScopeTarget::Workset { collection_id },
+                (Some(collection_id), None) => domain::ScopeTarget::Workset {
+                    collection_id,
+                    revision: query.revision,
+                },
                 (None, Some(result_id)) => domain::ScopeTarget::QueryResult { result_id },
                 _ => return Err(domain::Error::invalid("请选择一个工作集或查询结果")),
             };
@@ -217,22 +221,54 @@ struct Browse<'a> {
     total: u64,
     limit: usize,
     signature: String,
+    projection: Option<RankingProjectionReader>,
 }
 
 impl Browse<'_> {
     fn position(&self, ordinal: u64) -> domain::Result<RankingPosition> {
-        if ordinal >= self.total {
+        if ordinal >= self.total
+            && !self
+                .projection
+                .as_ref()
+                .map(|p| p.contains(ordinal))
+                .transpose()?
+                .unwrap_or(false)
+        {
             return Err(domain::Error::invalid("排名游标位置超出范围"));
         }
         Ok(RankingPosition::for_scores(
-            &self.table.row(ordinal)?,
+            &self.scores(ordinal)?,
             self.order,
         ))
+    }
+    fn input_row(&self, ordinal: u64) -> domain::Result<domain::RankingInput> {
+        if let Some(projection) = &self.projection
+            && let Some(row) = projection.edited_input(ordinal)?
+        {
+            return Ok(row);
+        }
+        self.input.row(ordinal)
+    }
+    fn key(&self, ordinal: u64) -> domain::Result<domain::AssetKey> {
+        if let Some(projection) = &self.projection
+            && let Some(row) = projection.edited_input(ordinal)?
+        {
+            return Ok(row.key());
+        }
+        self.input.key(ordinal)
+    }
+    fn scores(&self, ordinal: u64) -> domain::Result<domain::RankingScores> {
+        if let Some(projection) = &self.projection
+            && let Some(row) = projection.edited_scores(ordinal)?
+        {
+            return Ok(row);
+        }
+        self.table.row(ordinal)
     }
     fn keep(&self, ordinals: &[u64]) -> domain::Result<Vec<bool>> {
         let keys = ordinals
             .iter()
-            .map(|v| self.input.key(*v))
+            .map(|v| self.key(*v))
             .collect::<domain::Result<Vec<_>>>()?;
         self.state
             .store
@@ -240,6 +276,13 @@ impl Browse<'_> {
     }
     fn validate_member(&self, ordinal: u64) -> domain::Result<()> {
         self.position(ordinal)?;
+        if let Some(projection) = &self.projection {
+            return if projection.contains(ordinal)? {
+                Ok(())
+            } else {
+                Err(domain::Error::invalid("排名游标包含当前范围之外的图片"))
+            };
+        }
         if !self.keep(&[ordinal])?[0]
             || !self
                 .table
@@ -256,7 +299,7 @@ impl Browse<'_> {
         if let Some(start) = cursor.start {
             self.validate_member(start)?;
             if self.rank.is_none()
-                && (self.post.is_none() || self.input.row(start)?.post_id != self.post)
+                && (self.post.is_none() || self.input_row(start)?.post_id != self.post)
             {
                 return Err(domain::Error::invalid("排名起点与 Danbooru ID 不一致"));
             }
@@ -273,7 +316,7 @@ impl Browse<'_> {
                 }
                 if let Some(best) = best {
                     self.validate_member(*best)?;
-                    if self.input.row(*best)?.post_id != self.post {
+                    if self.input_row(*best)?.post_id != self.post {
                         return Err(domain::Error::invalid("定位游标的帖子 ID 不一致"));
                     }
                 }
@@ -352,21 +395,27 @@ impl Browse<'_> {
             .collect::<BTreeMap<_, _>>();
         let keys = shown
             .iter()
-            .map(|ordinal| self.input.key(*ordinal))
+            .map(|ordinal| self.key(*ordinal))
             .collect::<domain::Result<Vec<_>>>()?;
         let selected = self.state.store.contains(self.pid, &keys)?;
         let mut items = Vec::new();
         for ((ordinal, key), selected) in shown.iter().zip(keys).zip(selected) {
             read_cancelled(self.read.cancelled.as_ref())?;
-            let input = self.input.row(*ordinal)?;
-            let scores = self.table.row(*ordinal)?;
+            let input = self.input_row(*ordinal)?;
+            let scores = self.scores(*ordinal)?;
             let source_name = sources
                 .get(&key.source_id)
                 .cloned()
                 .unwrap_or_else(|| "已固定的来源".into());
             let name = input
                 .post_id
-                .map(|id| format!("Danbooru #{id}"))
+                .map(|id| {
+                    if *ordinal < self.total {
+                        format!("Danbooru #{id}")
+                    } else {
+                        format!("{source_name} #{id}")
+                    }
+                })
                 .unwrap_or_else(|| key.asset_id.clone());
             let mut asset = Asset::from_domain(
                 domain::Asset {
@@ -378,7 +427,9 @@ impl Browse<'_> {
                 },
                 selected,
             );
-            asset.ranking = Some(annotation(&self.basis.artifact_id, &input, scores));
+            if *ordinal < self.total {
+                asset.ranking = Some(annotation(&self.basis.artifact_id, &input, scores));
+            }
             items.push(asset);
         }
         Ok(AssetPage {
@@ -504,7 +555,7 @@ pub(super) async fn assets(
         blocking(move || {
             let _permit = read_permit(&s, domain::ReadClass::Index, &read)?;
             let _lease = s.store.operation_lease(&pid)?;
-            let scope: domain::ScopeRef = body.scope.into();
+            let scope = s.store.pin_scope(&pid, &body.scope.into())?;
             // Reading immutable ranking material does not depend on the current
             // source watermark. ranked_scope still checks ready fixed members.
             scope.validate_project(&pid)?;
@@ -627,17 +678,22 @@ pub(super) async fn assets(
                 total,
                 limit: body.limit.unwrap_or(48).clamp(1, 128),
                 signature: signature.clone(),
+                projection: projection
+                    .as_ref()
+                    .map(|projection| {
+                        RankingProjectionReader::open(
+                            &s.store.directory(&pid)?,
+                            projection,
+                            read.cancelled.clone(),
+                        )
+                    })
+                    .transpose()?,
             };
             browse.table.cancel_reads(read.cancelled.clone())?;
             browse.validate(&cursor)?;
             read_cancelled(&read.cancelled)?;
-            if let Some(projection) = projection {
-                let reader = RankingProjectionReader::open(
-                    &s.store.directory(&pid)?,
-                    &projection,
-                    read.cancelled.clone(),
-                )?;
-                let result = browse.run(cursor, &reader);
+            if let Some(reader) = &browse.projection {
+                let result = browse.run(cursor, reader);
                 read_cancelled(&read.cancelled)?;
                 return result;
             }
@@ -718,9 +774,10 @@ pub(super) fn annotate(
     for asset in items {
         read_cancelled(read.cancelled.as_ref())?;
         let key: domain::AssetKey = asset.key.clone().into();
-        let ordinal = input
-            .ordinal_for_key(&key)?
-            .ok_or_else(|| domain::Error::new("ARTIFACT_INVALID", "范围图片不在原排名输入中"))?;
+        let Some(ordinal) = input.ordinal_for_key(&key)? else {
+            asset.ranking = None;
+            continue;
+        };
         asset.ranking = Some(annotation(
             &basis.artifact_id,
             &input.row(ordinal)?,

@@ -80,6 +80,17 @@ export class QueryClient {
   }
   async latestSpec(projectId: string, spec: Schema["QuerySpec"]) {
     const target = spec.input_scope?.target;
+    if (target?.kind === "workset")
+      return {
+        ...spec,
+        input_scope: {
+          project_id: projectId,
+          target: {
+            kind: "workset" as const,
+            collection_id: target.collection_id,
+          },
+        },
+      };
     if (!target || target.kind !== "source") return spec;
     const sources = await this.request<Schema["Sources"]>(
       projectPath(projectId) + "/sources",

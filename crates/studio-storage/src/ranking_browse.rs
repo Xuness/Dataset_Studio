@@ -2,7 +2,7 @@ use crate::*;
 use sha2::{Digest, Sha256};
 
 fn canonical(db: &Connection, scope: &ScopeRef) -> Result<ScopeRef> {
-    let mut canonical = scope.clone();
+    let mut canonical = collection_edits::pin(db, &scope.project_id, scope)?;
     if let ScopeTarget::QueryResult { result_id } = &scope.target {
         let id: String = db.query_row("SELECT original.id FROM query_results current JOIN query_results original ON original.family_id=current.family_id AND original.member_revision=current.member_revision WHERE current.id=?1 ORDER BY original.cache_mode='reused',original.created_at,original.id LIMIT 1", [result_id], |r| r.get(0)).map_err(db_error)?;
         canonical.target = ScopeTarget::QueryResult { result_id: id };
@@ -17,7 +17,7 @@ impl SqliteStore {
         let db = project.read()?;
         match &scope.target {
             ScopeTarget::QueryResult{result_id} => db.query_row("SELECT EXISTS(SELECT 1 FROM query_results owner JOIN query_results alias ON alias.family_id=owner.family_id AND alias.member_revision=owner.member_revision WHERE owner.id=?1 AND alias.status='ready')", [result_id], |r| r.get(0)).map_err(db_error),
-            ScopeTarget::Workset{collection_id} => db.query_row("SELECT EXISTS(SELECT 1 FROM collections WHERE id=?1)", [collection_id], |r|r.get(0)).map_err(db_error),
+            ScopeTarget::Workset { collection_id, .. } => db.query_row("SELECT EXISTS(SELECT 1 FROM collections WHERE id=?1)", [collection_id], |r|r.get(0)).map_err(db_error),
             _ => Ok(false),
         }
     }
@@ -80,7 +80,7 @@ impl SqliteStore {
                     parent.validate_project(pid)?;
                     target = parent.target;
                 }
-                ScopeTarget::Workset { collection_id } => {
+                ScopeTarget::Workset { collection_id, .. } => {
                     let row: Option<(u64, String)> = db
                         .query_row(
                             "SELECT c.count,s.provenance_json FROM collections c JOIN collection_scopes s ON s.collection_id=c.id WHERE c.id=?1",

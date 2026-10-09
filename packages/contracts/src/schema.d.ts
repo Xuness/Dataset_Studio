@@ -1839,6 +1839,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/projects/{project_id}/collections/{collection_id}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["edit_collection_members"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/projects/{project_id}/drafts/{module_id}/{instance_id}": {
         parameters: {
             query?: never;
@@ -3685,6 +3701,8 @@ export interface components {
             max_image_bytes: number;
             /** Format: int64 */
             max_request_bytes: number;
+            /** Format: int64 */
+            membership_revision: number;
             /** @description Credential-free, resolved configuration; contains no image bytes. */
             model: components["schemas"]["LlmInvocationSnapshot"];
             observation_policy: string;
@@ -4574,6 +4592,8 @@ export interface components {
             count: number;
             id: string;
             name: string;
+            /** Format: int64 */
+            revision: number;
         };
         CollectionAccount: {
             bound_user_id?: string | null;
@@ -4628,6 +4648,20 @@ export interface components {
             refresh_modes: string[];
             work_types: string[];
         };
+        CollectionChange: {
+            input: components["schemas"]["CollectionMemberInput"];
+            /** @enum {string} */
+            kind: "add";
+        } | {
+            input: components["schemas"]["CollectionMemberInput"];
+            /** @enum {string} */
+            kind: "remove";
+        } | {
+            /** @enum {string} */
+            kind: "restore";
+            /** Format: int64 */
+            revision: number;
+        };
         CollectionClosure: {
             directories_complete: boolean;
             discovery_exhausted: boolean;
@@ -4666,6 +4700,21 @@ export interface components {
             max_depth: number;
             /** Format: int32 */
             recommendation_seeds_per_author: number;
+        };
+        CollectionEdit: {
+            change: components["schemas"]["CollectionChange"];
+            /** Format: int64 */
+            expected_revision: number;
+            request_id: string;
+        };
+        CollectionEditResult: {
+            /** Format: int64 */
+            changed: number;
+            collection: components["schemas"]["Collection"];
+            /** Format: int64 */
+            previous_revision: number;
+            /** Format: int64 */
+            requested: number;
         };
         CollectionIssue: {
             code: string;
@@ -4778,6 +4827,15 @@ export interface components {
             published: number;
             /** Format: int64 */
             retained: number;
+        };
+        CollectionMemberInput: {
+            /** @enum {string} */
+            kind: "scope";
+            scope: components["schemas"]["ScopeRef"];
+        } | {
+            keys: components["schemas"]["AssetKey"][];
+            /** @enum {string} */
+            kind: "keys";
         };
         CollectionObjectProgress: {
             /** Format: int64 */
@@ -7371,6 +7429,8 @@ export interface components {
             collection_id: string;
             /** @enum {string} */
             kind: "workset";
+            /** Format: int64 */
+            revision?: number | null;
         } | {
             /** @enum {string} */
             kind: "query_result";
@@ -10635,6 +10695,32 @@ export interface operations {
             };
         };
     };
+    edit_collection_members: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                collection_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CollectionEdit"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionEditResult"];
+                };
+            };
+        };
+    };
     draft: {
         parameters: {
             query?: never;
@@ -11627,6 +11713,7 @@ export interface operations {
             query?: {
                 collection_id?: string;
                 result_id?: string;
+                revision?: number;
             };
             header?: never;
             path: {

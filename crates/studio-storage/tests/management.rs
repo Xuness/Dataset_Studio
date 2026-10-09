@@ -335,6 +335,7 @@ fn deletion_explains_live_dependencies_and_preserves_frozen_job_input() {
         project_id: f.project.id.clone(),
         target: ScopeTarget::Workset {
             collection_id: workset.id.clone(),
+            revision: None,
         },
     };
     let mut query = spec(&f);

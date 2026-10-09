@@ -37,16 +37,11 @@ pub(super) fn resolve(db: &Connection, pid: &str, scope: &ScopeRef) -> Result<Re
                 vec![result_id.clone()],
             )
         }
-        ScopeTarget::Workset { collection_id } => {
-            let count = db
-                .query_row(
-                    "SELECT count FROM collections WHERE id=?1 AND NOT EXISTS(SELECT 1 FROM evaluation_workset_builds b WHERE b.collection_id=collections.id AND b.state!='ready')",
-                    [collection_id],
-                    |r| unsigned(r, 0),
-                )
-                .optional()
-                .map_err(db_error)?
-                .ok_or_else(|| Error::new("NOT_FOUND", "工作集不属于当前项目"))?;
+        ScopeTarget::Workset {
+            collection_id,
+            revision,
+        } => {
+            let collection = collection_edits::read(db, collection_id, *revision)?;
             let mut stmt=db.prepare("SELECT result_id FROM result_references WHERE owner_kind='collection' AND owner_id=?1 ORDER BY result_id").map_err(db_error)?;
             let ids = stmt
                 .query_map([collection_id], |r| r.get::<_, String>(0))
@@ -54,10 +49,8 @@ pub(super) fn resolve(db: &Connection, pid: &str, scope: &ScopeRef) -> Result<Re
                 .collect::<std::result::Result<Vec<_>, _>>()
                 .map_err(db_error)?;
             (
-                format!(
-                    "SELECT source_id,asset_id FROM collection_members WHERE collection_id='{collection_id}'"
-                ),
-                count,
+                collection_edits::members_sql(collection_id, collection.revision),
+                collection.count,
                 ids,
             )
         }
@@ -74,7 +67,7 @@ pub(super) fn resolve(db: &Connection, pid: &str, scope: &ScopeRef) -> Result<Re
         .collect::<Result<Vec<_>>>()?;
     let mut artifacts = std::collections::BTreeSet::new();
     let owner = match &scope.target {
-        ScopeTarget::Workset { collection_id } => Some(("collection", collection_id.as_str())),
+        ScopeTarget::Workset { collection_id, .. } => Some(("collection", collection_id.as_str())),
         ScopeTarget::Selection { .. } => Some(("selection", "selection")),
         _ => None,
     };
@@ -145,6 +138,8 @@ impl ScopeRepository for SqliteStore {
         let p = self.handle(pid)?;
         let mut db = p.db.lock().map_err(lock_error)?;
         let tx = db.project_transaction().map_err(db_error)?;
+        let scope = collection_edits::pin(&tx, pid, scope)?;
+        let scope = &scope;
         selection::check_revision(&tx, expected)?;
         let resolved = resolve(&tx, pid, scope)?;
         let history_id = history::begin(
@@ -163,7 +158,7 @@ impl ScopeRepository for SqliteStore {
         let base = if operation == ScopeOperation::Replace {
             match &scope.target {
                 ScopeTarget::QueryResult { result_id } => Some(result_id.clone()),
-                ScopeTarget::Workset { collection_id } => tx
+                ScopeTarget::Workset { collection_id, .. } => tx
                     .query_row(
                         "SELECT result_id FROM collection_bases WHERE collection_id=?1",
                         [collection_id],
@@ -180,9 +175,28 @@ impl ScopeRepository for SqliteStore {
             selection::clear(&tx)?;
             tx.execute("INSERT INTO selection_base VALUES (1,?1)", [&result_id])
                 .map_err(db_error)?;
-            if let ScopeTarget::Workset { collection_id } = &scope.target {
-                tx.execute("INSERT INTO selection SELECT source_id,asset_id FROM collection_inclusions WHERE collection_id=?1", [collection_id]).map_err(db_error)?;
-                tx.execute("INSERT INTO selection_exclusions SELECT source_id,asset_id FROM collection_exclusions WHERE collection_id=?1", [collection_id]).map_err(db_error)?;
+            if let ScopeTarget::Workset {
+                collection_id,
+                revision,
+            } = &scope.target
+            {
+                let revision = revision.expect("pinned workset");
+                tx.execute(
+                    &format!(
+                        "INSERT INTO selection {}",
+                        collection_edits::overrides_sql(collection_id, revision, true)
+                    ),
+                    [],
+                )
+                .map_err(db_error)?;
+                tx.execute(
+                    &format!(
+                        "INSERT INTO selection_exclusions {}",
+                        collection_edits::overrides_sql(collection_id, revision, false)
+                    ),
+                    [],
+                )
+                .map_err(db_error)?;
             }
         } else {
             tx.execute(
@@ -224,6 +238,8 @@ impl ScopeRepository for SqliteStore {
         let p = self.handle(pid)?;
         let mut db = p.db.lock().map_err(lock_error)?;
         let tx = db.project_transaction().map_err(db_error)?;
+        let scope = collection_edits::pin(&tx, pid, scope)?;
+        let scope = &scope;
         let resolved = resolve(&tx, pid, scope)?;
         if resolved.count == 0 {
             return Err(Error::invalid("工作集成员不能为空"));
@@ -236,7 +252,7 @@ impl ScopeRepository for SqliteStore {
         .map_err(db_error)?;
         let base = match &scope.target {
             ScopeTarget::QueryResult { result_id } => Some(result_id.clone()),
-            ScopeTarget::Workset { collection_id } => tx
+            ScopeTarget::Workset { collection_id, .. } => tx
                 .query_row(
                     "SELECT result_id FROM collection_bases WHERE collection_id=?1",
                     [collection_id],
@@ -265,9 +281,19 @@ impl ScopeRepository for SqliteStore {
                     tx.execute("INSERT INTO collection_inclusions SELECT ?1,source_id,asset_id FROM selection",[&id]).map_err(db_error)?;
                     tx.execute("INSERT INTO collection_exclusions SELECT ?1,source_id,asset_id FROM selection_exclusions",[&id]).map_err(db_error)?;
                 }
-                ScopeTarget::Workset { collection_id } => {
+                ScopeTarget::Workset { collection_id, .. } => {
                     tx.execute("INSERT INTO collection_inclusions SELECT ?1,source_id,asset_id FROM collection_inclusions WHERE collection_id=?2",params![id,collection_id]).map_err(db_error)?;
                     tx.execute("INSERT INTO collection_exclusions SELECT ?1,source_id,asset_id FROM collection_exclusions WHERE collection_id=?2",params![id,collection_id]).map_err(db_error)?;
+                    let revision = collection_edits::read(
+                        &tx,
+                        collection_id,
+                        match scope.target {
+                            ScopeTarget::Workset { revision, .. } => revision,
+                            _ => None,
+                        },
+                    )?
+                    .revision;
+                    tx.execute("INSERT INTO collection_member_changes(collection_id,source_id,asset_id,valid_from,present,ordinal,input_json,scores_json,rating,post_id,main_rank,rescue_rank,direct_rank,fused_rank) SELECT ?1,source_id,asset_id,0,present,ordinal,input_json,scores_json,rating,post_id,main_rank,rescue_rank,direct_rank,fused_rank FROM collection_member_changes WHERE collection_id=?2 AND valid_from<=?3 AND (valid_until IS NULL OR valid_until>?3)", params![id,collection_id,revision as i64]).map_err(db_error)?;
                 }
                 _ => {}
             }
@@ -299,6 +325,7 @@ impl ScopeRepository for SqliteStore {
             id,
             name,
             count: resolved.count,
+            revision: 0,
         })
     }
 }

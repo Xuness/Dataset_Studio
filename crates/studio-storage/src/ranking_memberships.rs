@@ -8,14 +8,19 @@ fn decode(raw: &str) -> Result<RankingProjection> {
 }
 
 fn from_result(db: &Connection, id: &str) -> Result<Option<RankingProjection>> {
-    let raw:Option<String> = db.query_row("SELECT m.recipe_json FROM ranking_memberships m JOIN query_results r ON r.id=m.result_id WHERE m.result_id=?1 AND r.status='ready'",[id],|r|r.get(0)).optional().map_err(db_error)?;
-    raw.map(|v| decode(&v)).transpose()
+    let row:Option<(String,u64)> = db.query_row("SELECT m.recipe_json,r.count FROM ranking_memberships m JOIN query_results r ON r.id=m.result_id WHERE m.result_id=?1 AND r.status='ready' AND r.storage_kind IN ('ranking','legacy','sealed')",[id],|r|Ok((r.get(0)?,unsigned(r,1)?))).optional().map_err(db_error)?;
+    row.map(|(raw, count)| {
+        let mut recipe = decode(&raw)?;
+        recipe.count = count;
+        Ok(recipe)
+    })
+    .transpose()
 }
 
 pub(super) fn has_presentation(db: &Connection, scope: &ScopeRef) -> Result<bool> {
     match &scope.target {
         ScopeTarget::QueryResult { result_id } => db.query_row("SELECT EXISTS(SELECT 1 FROM ranking_memberships m JOIN query_results r ON r.id=m.result_id WHERE m.result_id=?1 AND r.status='ready')",[result_id],|r|r.get(0)).map_err(db_error),
-        ScopeTarget::Workset { collection_id } => db.query_row("SELECT EXISTS(SELECT 1 FROM collection_scopes WHERE collection_id=?1 AND json_type(provenance_json,'$.ranking_artifact')='text')",[collection_id],|r|r.get(0)).map_err(db_error),
+        ScopeTarget::Workset { collection_id, .. } => db.query_row("SELECT EXISTS(SELECT 1 FROM collection_scopes WHERE collection_id=?1 AND json_type(provenance_json,'$.ranking_artifact')='text')",[collection_id],|r|r.get(0)).map_err(db_error),
         _ => Ok(false),
     }
 }
@@ -86,6 +91,8 @@ pub(super) fn create_recipe(
         ratings: None,
         count,
         workset_id: workset_id.into(),
+        edits: Vec::new(),
+        member_result: None,
     };
     recipe.files(directory)?;
     Ok(recipe)
@@ -102,23 +109,27 @@ pub(super) fn resolve(
     scope.validate_project(pid)?;
     match &scope.target {
         ScopeTarget::QueryResult { result_id } => from_result(db, result_id),
-        ScopeTarget::Workset { collection_id } => {
-            let row:Option<(u64,String)>=db.query_row("SELECT c.count,s.provenance_json FROM collections c JOIN collection_scopes s ON s.collection_id=c.id WHERE c.id=?1",[collection_id],|r|Ok((unsigned(r,0)?,r.get(1)?))).optional().map_err(db_error)?;
-            let Some((count, provenance)) = row else {
+        ScopeTarget::Workset {
+            collection_id,
+            revision,
+        } => {
+            let collection = collection_edits::read(db, collection_id, *revision)?;
+            let row: Option<String> = db
+                .query_row(
+                    "SELECT provenance_json FROM collection_scopes WHERE collection_id=?1",
+                    [collection_id],
+                    |r| r.get(0),
+                )
+                .optional()
+                .map_err(db_error)?;
+            let Some(provenance) = row else {
                 return Ok(None);
             };
             let base:Option<String>=db.query_row("SELECT result_id FROM collection_bases WHERE collection_id=?1 AND NOT EXISTS(SELECT 1 FROM collection_inclusions WHERE collection_id=?1) AND NOT EXISTS(SELECT 1 FROM collection_exclusions WHERE collection_id=?1)",[collection_id],|r|r.get(0)).optional().map_err(db_error)?;
             if let Some(base) = base
-                && let Some(mut recipe) = from_result(db, &base)?
+                && let Some(recipe) = from_result(db, &base)?
             {
-                if recipe.count != count {
-                    return Err(Error::new(
-                        "ARTIFACT_INVALID",
-                        "工作集与固定排名成员数量不一致",
-                    ));
-                }
-                recipe.workset_id = collection_id.clone();
-                return Ok(Some(recipe));
+                return with_edits(db, recipe, &collection).map(Some);
             }
             let provenance: serde_json::Value =
                 serde_json::from_str(&provenance).map_err(Error::io)?;
@@ -160,12 +171,110 @@ pub(super) fn resolve(
                 collection_id,
                 &filter,
                 (&directory.join(&input.path), &directory.join(&scores.path)),
-                count,
+                collection.count,
             )
+            .and_then(|recipe| with_edits(db, recipe, &collection))
             .map(Some)
         }
         _ => Ok(None),
     }
+}
+
+fn with_edits(
+    db: &Connection,
+    mut recipe: RankingProjection,
+    collection: &Collection,
+) -> Result<RankingProjection> {
+    let changed: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM collection_member_changes WHERE collection_id=?1 AND valid_from<=?2)",params![collection.id,collection.revision as i64],|r|r.get(0)).map_err(db_error)?;
+    if changed {
+        recipe
+            .edits
+            .push(crate::ranking_projection::RankingEditLayer {
+                collection_id: collection.id.clone(),
+                revision: collection.revision,
+                before_ratings: recipe.ratings.take(),
+                before_result: recipe.member_result.take(),
+            });
+        let mut stmt = db.prepare("SELECT s.id FROM sources s WHERE EXISTS(SELECT 1 FROM collection_member_changes e WHERE e.collection_id=?1 AND e.source_id=s.id AND e.present=1 AND e.valid_until IS NULL AND e.valid_from<=?2) OR EXISTS(SELECT 1 FROM collection_member_changes e WHERE e.collection_id=?1 AND e.source_id=s.id AND e.present=1 AND e.valid_until>?2 AND e.valid_from<=?2) ORDER BY s.id LIMIT 65").map_err(db_error)?;
+        for sid in stmt
+            .query_map(params![collection.id, collection.revision as i64], |r| {
+                r.get::<_, String>(0)
+            })
+            .map_err(db_error)?
+        {
+            recipe.source_ids.push(sid.map_err(db_error)?);
+        }
+        recipe.source_ids.sort();
+        recipe.source_ids.dedup();
+    } else if recipe.count != collection.count {
+        return Err(Error::new(
+            "ARTIFACT_INVALID",
+            "工作集与固定排名成员数量不一致",
+        ));
+    }
+    recipe.workset_id = collection.id.clone();
+    recipe.count = collection.count;
+    recipe.validate()?;
+    Ok(recipe)
+}
+
+/// A non-Rating query has its own fixed members. Keep its ranking presentation
+/// at submission so later edits (or disposal of intermediate query views) do
+/// not make those members inherit a different workset version.
+pub(super) fn snapshot_presentation(
+    db: &Connection,
+    pid: &str,
+    result_id: &str,
+    spec: &QuerySpec,
+) -> Result<()> {
+    let Some(scope) = &spec.input_scope else {
+        return Ok(());
+    };
+    if !has_presentation(db, scope)? {
+        return Ok(());
+    }
+    let Some(mut recipe) = resolve(db, pid, scope)? else {
+        return Ok(());
+    };
+    if recipe.edits.is_empty() && recipe.member_result.is_none() {
+        return Ok(());
+    }
+    recipe.member_result = Some(result_id.into());
+    save_recipe(db, result_id, &recipe)
+}
+
+fn save_recipe(db: &Connection, result_id: &str, recipe: &RankingProjection) -> Result<()> {
+    db.execute("INSERT INTO ranking_memberships VALUES(?1,?2,?3,?4) ON CONFLICT(result_id) DO UPDATE SET artifact_id=excluded.artifact_id,recipe_json=excluded.recipe_json,fingerprint=excluded.fingerprint", params![result_id,recipe.artifact_id,serde_json::to_string(recipe).map_err(Error::io)?,recipe.fingerprint()?]).map_err(db_error)?;
+    db.execute(
+        "DELETE FROM collection_version_references WHERE result_id=?1",
+        [result_id],
+    )
+    .map_err(db_error)?;
+    db.execute(
+        "DELETE FROM result_references WHERE owner_kind='ranking_recipe' AND owner_id=?1",
+        [result_id],
+    )
+    .map_err(db_error)?;
+    for layer in &recipe.edits {
+        db.execute(
+            "INSERT OR IGNORE INTO collection_version_references VALUES(?1,?2,?3)",
+            params![result_id, layer.collection_id, layer.revision as i64],
+        )
+        .map_err(db_error)?;
+    }
+    for fence in recipe.fences().filter(|id| *id != result_id) {
+        db.execute(
+            "INSERT OR IGNORE INTO result_references VALUES('ranking_recipe',?1,?2)",
+            params![result_id, fence],
+        )
+        .map_err(db_error)?;
+    }
+    db.execute(
+        "INSERT OR IGNORE INTO artifact_references VALUES('query_result',?1,?2)",
+        params![result_id, recipe.artifact_id],
+    )
+    .map_err(db_error)?;
+    Ok(())
 }
 
 pub(super) fn insert_result(
@@ -180,16 +289,7 @@ pub(super) fn insert_result(
     let fingerprint = recipe.fingerprint()?;
     let previous:Option<(String,String,i64)>=db.query_row("SELECT r.id,r.family_id,r.member_revision FROM ranking_memberships m JOIN query_results r ON r.id=m.result_id WHERE m.fingerprint=?1 AND r.status='ready' ORDER BY r.created_at,r.id LIMIT 1",[&fingerprint],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional().map_err(db_error)?;
     let result = query::insert_result(db, pid, definition, spec, versions)?;
-    db.execute(
-        "INSERT INTO ranking_memberships VALUES(?1,?2,?3,?4)",
-        params![
-            result.id,
-            recipe.artifact_id,
-            serde_json::to_string(recipe).map_err(Error::io)?,
-            fingerprint
-        ],
-    )
-    .map_err(db_error)?;
+    save_recipe(db, &result.id, recipe)?;
     db.execute("UPDATE query_results SET storage_kind='ranking',status='ready',cache_mode='ranking',count=?2,internal=?3,post_ready=0 WHERE id=?1",params![result.id,recipe.count as i64,internal]).map_err(db_error)?;
     db.execute("UPDATE query_families SET fixed=1,cached=0,latest_result_id=?1,latest_count=?2 WHERE id=?1",params![result.id,recipe.count as i64]).map_err(db_error)?;
     if let Some((base, family, revision)) = previous {
@@ -228,6 +328,11 @@ impl SqliteStore {
         versions: &[QuerySourceVersion],
         cancelled: Arc<AtomicBool>,
     ) -> Result<Option<QueryResult>> {
+        let spec = {
+            let project = self.handle(pid)?;
+            collection_edits::pin_spec(&*project.read()?, pid, spec)?
+        };
+        let spec = &spec;
         let Some(scope) = &spec.input_scope else {
             return Ok(None);
         };
@@ -275,7 +380,10 @@ impl SqliteStore {
         query::validate_input(&tx, pid, spec)?;
         if let Some((id, revision)) = definition {
             let current = query::read_definition(&tx, pid, id)?;
-            if current.revision != revision || current.spec.clone().normalize()? != *spec {
+            if current.revision != revision
+                || collection_edits::pin_spec(&tx, pid, &current.spec.clone().normalize()?)?
+                    != *spec
+            {
                 return Err(Error::new("REVISION_CONFLICT", "查询定义已变化"));
             }
         }

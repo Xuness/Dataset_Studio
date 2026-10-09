@@ -24,6 +24,7 @@ use utoipa::OpenApi;
 mod aesthetic;
 mod aesthetic_analysis;
 mod cache_storage;
+mod collection_edits;
 pub(crate) mod lake_inputs;
 mod lake_updates;
 mod llm;
@@ -686,6 +687,11 @@ fn browse_sync(
     } else {
         None
     };
+    let collection_revision = query
+        .collection_id
+        .as_ref()
+        .map(|cid| store.collection(id, cid).map(|c| c.revision))
+        .transpose()?;
     let limit = query.limit.unwrap_or(48).clamp(1, 128);
     let mut sources = store.sources(id)?;
     if let Some(source_id) = &query.source_id {
@@ -699,6 +705,7 @@ fn browse_sync(
             id,
             &sources,
             &query.collection_id,
+            collection_revision,
             selection_revision,
             order,
         ))
@@ -740,6 +747,7 @@ fn browse_sync(
             target: if let Some(collection) = &query.collection_id {
                 domain::ScopeTarget::Workset {
                     collection_id: collection.clone(),
+                    revision: collection_revision,
                 }
             } else {
                 domain::ScopeTarget::Selection {
@@ -1118,6 +1126,7 @@ async fn assets(
                         project_id: id.clone(),
                         target: domain::ScopeTarget::Workset {
                             collection_id: collection_id.clone(),
+                            revision: None,
                         },
                     });
             let mut versions = Vec::new();
@@ -1486,6 +1495,7 @@ async fn shutdown(State(s): State<AppState>) -> Json<OkResponse> {
         change_selection,
         collections,
         create_collection,
+        collection_edits::edit,
         list_jobs,
         submit_job,
         cancel_job,
@@ -1869,6 +1879,10 @@ pub fn routes() -> axum::Router<AppState> {
         .route(
             "/v1/projects/{id}/collections",
             get(collections).post(create_collection),
+        )
+        .route(
+            "/v1/projects/{pid}/collections/{cid}/members",
+            post(collection_edits::edit),
         )
         .route("/v1/projects/{id}/jobs", get(list_jobs).post(submit_job))
         .route("/v1/projects/{pid}/jobs/{jid}/cancel", post(cancel_job))

@@ -12,8 +12,19 @@ use std::{
     },
 };
 use studio_domain::*;
+mod edits;
 #[cfg(test)]
 mod tests;
+
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct RankingEditLayer {
+    pub collection_id: String,
+    pub revision: u64,
+    pub before_ratings: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub before_result: Option<String>,
+}
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -28,6 +39,10 @@ pub struct RankingProjection {
     pub ratings: Option<Vec<String>>,
     pub count: u64,
     pub workset_id: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub edits: Vec<RankingEditLayer>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub member_result: Option<String>,
 }
 
 impl RankingProjection {
@@ -50,6 +65,27 @@ impl RankingProjection {
         }
         for source in &self.source_ids {
             validate_id(source)?;
+        }
+        if self.edits.len() > 16 {
+            return Err(Error::invalid("排名工作集的派生层级过深"));
+        }
+        for layer in &self.edits {
+            validate_id(&layer.collection_id)?;
+            if layer.revision > i64::MAX as u64
+                || layer.before_ratings.as_ref().is_some_and(|v| {
+                    v.len() > 4
+                        || v.iter()
+                            .any(|v| !matches!(v.as_str(), "g" | "s" | "q" | "e"))
+                })
+            {
+                return Err(Error::invalid("排名成员版本无效"));
+            }
+            if let Some(id) = &layer.before_result {
+                validate_id(id)?;
+            }
+        }
+        if let Some(id) = &self.member_result {
+            validate_id(id)?;
         }
         Ok(())
     }
@@ -87,6 +123,8 @@ impl RankingProjection {
                 &self.source_ids,
                 &self.filter,
                 &self.ratings,
+                &self.edits,
+                &self.member_result,
             ))
             .map_err(Error::io)?,
         )))
@@ -138,6 +176,7 @@ pub struct RankingProjectionReader {
     input_count: u64,
     null_rating: bool,
     summary: RankingSummary,
+    small_fences: Vec<String>,
 }
 
 impl RankingProjectionReader {
@@ -158,6 +197,8 @@ impl RankingProjectionReader {
         let db = open_read(&scores)?;
         db.execute("ATTACH DATABASE ?1 AS fixed_input", [readonly_uri(&input)?])
             .map_err(db_error)?;
+        edits::attach(&db, directory, projection)?;
+        let small_fences = edits::small_fences(&db, projection)?;
         db.execute_batch("PRAGMA fixed_input.cache_size=-4096; PRAGMA query_only=ON;")
             .map_err(db_error)?;
         db.progress_handler(1000, Some(move || cancelled.load(Ordering::Acquire)))
@@ -176,6 +217,7 @@ impl RankingProjectionReader {
             input_count,
             null_rating,
             summary,
+            small_fences,
         })
     }
     fn effective_filter(&self) -> RankingFilter {
@@ -185,9 +227,9 @@ impl RankingProjectionReader {
         }
         filter
     }
-    pub(crate) fn predicate(&self) -> Result<(String, Vec<Value>)> {
+    fn base_predicate(&self) -> Result<(String, Vec<Value>)> {
         let (mut sql, mut values) = ranking_tables::filter_sql(&self.effective_filter())?;
-        if let Some(ratings) = &self.projection.ratings {
+        if let Some(ratings) = &self.base_ratings() {
             if ratings.is_empty() {
                 sql.push_str(" AND 0");
             } else {
@@ -201,13 +243,55 @@ impl RankingProjectionReader {
                 sql.push_str(&format!(" AND rating IN ({})", params.join(",")));
             }
         }
+        for result in self.projection.fences() {
+            if self.small_fences.iter().any(|id| id == result) {
+                sql.push_str(&format!(" AND ordinal IN (SELECT i.ordinal FROM fixed_project_members m CROSS JOIN fixed_input.input_rows i INDEXED BY input_identity WHERE m.result_id='{result}' AND i.source_id=m.source_id AND i.asset_id=unhex(m.asset_id))"));
+            } else {
+                sql.push_str(&format!(" AND EXISTS(SELECT 1 FROM fixed_input.input_rows i WHERE i.ordinal=main.scores.ordinal AND EXISTS(SELECT 1 FROM fixed_project_members m WHERE m.result_id='{result}' AND m.source_id=i.source_id AND m.asset_id=lower(hex(i.asset_id))))"));
+            }
+        }
+        Ok((sql, values))
+    }
+    pub(crate) fn predicate(&self) -> Result<(String, Vec<Value>)> {
+        let (mut sql, values) = self.base_predicate()?;
+        if !self.projection.edits.is_empty() {
+            sql.push_str(" AND NOT EXISTS(SELECT 1 FROM effective_edits e WHERE e.ordinal=main.scores.ordinal)");
+        }
         Ok((sql, values))
     }
     pub fn count(&self) -> Result<u64> {
-        if self.projection.ratings.as_ref().is_some_and(Vec::is_empty) {
+        let original = self.base_count()?;
+        if self.projection.edits.is_empty() {
+            return Ok(original);
+        }
+        let (predicate, values) = self.base_predicate()?;
+        let removed = self.db.query_row(&format!("SELECT count(*) FROM effective_edits e WHERE EXISTS(SELECT 1 FROM main.scores WHERE main.scores.ordinal=e.ordinal AND ({predicate}))"), rusqlite::params_from_iter(values), |r| unsigned(r,0)).map_err(db_error)?;
+        let added = self
+            .db
+            .query_row("SELECT count(*) FROM extra_scores", [], |r| unsigned(r, 0))
+            .map_err(db_error)?;
+        original
+            .checked_sub(removed)
+            .and_then(|v| v.checked_add(added))
+            .ok_or_else(|| Error::invalid("排名成员数量不一致"))
+    }
+    fn base_count(&self) -> Result<u64> {
+        if self.projection.fences().next().is_some() {
+            let (predicate, values) = self.base_predicate()?;
+            return self
+                .db
+                .query_row(
+                    &format!("SELECT count(*) FROM scores WHERE {predicate}"),
+                    rusqlite::params_from_iter(values),
+                    |r| unsigned(r, 0),
+                )
+                .map_err(db_error);
+        }
+        let ratings = self.base_ratings();
+        if ratings.as_ref().is_some_and(Vec::is_empty) {
             return Ok(0);
         }
-        if let Some(ratings) = &self.projection.ratings {
+        if let Some(ratings) = &ratings {
             let mut count = 0;
             for rating in ratings {
                 if self
@@ -257,6 +341,9 @@ impl RankingProjectionReader {
             .map_err(db_error)
     }
     pub fn contains(&self, ordinal: u64) -> Result<bool> {
+        if self.extra_contains("ordinal=?1", [Value::Integer(ordinal as i64)])? {
+            return Ok(true);
+        }
         let (predicate, mut values) = self.predicate()?;
         values.push(Value::Integer(ordinal as i64));
         self.db
@@ -271,7 +358,18 @@ impl RankingProjectionReader {
             .map_err(db_error)
     }
     pub fn contains_key(&self, key: &AssetKey) -> Result<bool> {
-        if !self.projection.source_ids.contains(&key.source_id) {
+        if self.extra_contains(
+            "source_id=?1 AND asset_id=?2",
+            [
+                Value::Text(key.source_id.clone()),
+                Value::Text(key.asset_id.clone()),
+            ],
+        )? {
+            return Ok(true);
+        }
+        if !self.projection.source_ids.contains(&key.source_id)
+            || !ranking_tables::canonical_asset_id(&key.asset_id)
+        {
             return Ok(false);
         }
         let (predicate, mut values) = self.predicate()?;
@@ -321,6 +419,13 @@ impl RankingProjectionReader {
             RankingOrder::Fused => "scores_fused",
         }
     }
+    fn index_clause(&self, order: RankingOrder) -> String {
+        if self.small_fences.is_empty() {
+            format!(" INDEXED BY {}", self.index(order))
+        } else {
+            String::new()
+        }
+    }
     fn groups(&self, descending: bool) -> Result<Vec<Option<String>>> {
         let mut groups = Vec::new();
         let mut after: Option<String> = None;
@@ -356,6 +461,24 @@ impl RankingProjectionReader {
             && !groups.iter().any(|v| v.as_deref() == Some("z"))
         {
             groups.push(None);
+        }
+        if !self.projection.edits.is_empty() {
+            let mut stmt = self
+                .db
+                .prepare("SELECT DISTINCT rating FROM extra_scores LIMIT 65")
+                .map_err(db_error)?;
+            for rating in stmt
+                .query_map([], |r| r.get::<_, Option<String>>(0))
+                .map_err(db_error)?
+            {
+                let rating = rating.map_err(db_error)?;
+                if !groups
+                    .iter()
+                    .any(|g| g.as_deref().unwrap_or("z") == rating.as_deref().unwrap_or("z"))
+                {
+                    groups.push(rating);
+                }
+            }
         }
         groups.sort_by(|a, b| a.as_deref().unwrap_or("z").cmp(b.as_deref().unwrap_or("z")));
         if descending {
@@ -401,8 +524,21 @@ impl RankingProjectionReader {
         after: Option<&ranking_tables::RankingPosition>,
         limit: usize,
     ) -> Result<Vec<ranking_tables::RankingPosition>> {
+        let mut rows = self.base_page(order, descending, after, limit)?;
+        rows.extend(self.extra_page(order, descending, after, limit)?);
+        rows.sort_by(|a, b| a.compare_ranked(b, descending));
+        rows.truncate(limit.clamp(1, 129));
+        Ok(rows)
+    }
+    fn base_page(
+        &self,
+        order: RankingOrder,
+        descending: bool,
+        after: Option<&ranking_tables::RankingPosition>,
+        limit: usize,
+    ) -> Result<Vec<ranking_tables::RankingPosition>> {
         let column = self.column(order);
-        let index = self.index(order);
+        let index = self.index_clause(order);
         let direction = if descending { "DESC" } else { "ASC" };
         let op = if descending { "<" } else { ">" };
         let limit = limit.clamp(1, 129);
@@ -460,7 +596,7 @@ impl RankingProjectionReader {
                     } else {
                         format!("{column} {direction},ordinal {direction}")
                     };
-                    rows.extend(self.read_positions(&format!("SELECT rating,{column},ordinal FROM scores INDEXED BY {index} WHERE {} ORDER BY {ordering} LIMIT ?{}",clauses.join(" AND "),values.len()),values)?);
+                    rows.extend(self.read_positions(&format!("SELECT rating,{column},ordinal FROM scores{index} WHERE {} ORDER BY {ordering} LIMIT ?{}",clauses.join(" AND "),values.len()),values)?);
                     if rows.len() == limit {
                         return Ok(rows);
                     }
@@ -483,7 +619,14 @@ impl RankingProjectionReader {
         let rank_arg = values.len();
         let direction = if descending { "DESC" } else { "ASC" };
         let column = self.column(order);
-        Ok(self.read_positions(&format!("SELECT rating,{column},ordinal FROM scores INDEXED BY {} WHERE ({predicate}) AND rating=?{rating_arg} AND {column}=?{rank_arg} ORDER BY ordinal {direction} LIMIT 1",self.index(order)),values)?.pop())
+        let base = self.read_positions(&format!("SELECT rating,{column},ordinal FROM scores{} WHERE ({predicate}) AND rating=?{rating_arg} AND {column}=?{rank_arg} ORDER BY ordinal {direction} LIMIT 1",self.index_clause(order)),values)?.pop();
+        self.extra_anchor(
+            base,
+            order,
+            descending,
+            "rating=?1 AND RANK_COLUMN=?2",
+            vec![Value::Text(rating.into()), Value::Integer(rank as i64)],
+        )
     }
     pub fn locate(
         &self,
@@ -496,7 +639,14 @@ impl RankingProjectionReader {
         let arg = values.len();
         let column = self.column(order);
         let direction = if descending { "DESC" } else { "ASC" };
-        Ok(self.read_positions(&format!("SELECT rating,{column},ordinal FROM scores WHERE ordinal IN (SELECT ordinal FROM fixed_input.input_rows WHERE post_id=?{arg}) AND ({predicate}) ORDER BY ({column}=9223372036854775807),coalesce(rating,'z') {direction},{column} {direction},ordinal {direction} LIMIT 1"),values)?.pop())
+        let base = self.read_positions(&format!("SELECT rating,{column},ordinal FROM scores WHERE ordinal IN (SELECT ordinal FROM fixed_input.input_rows WHERE post_id=?{arg}) AND ({predicate}) ORDER BY ({column}=9223372036854775807),coalesce(rating,'z') {direction},{column} {direction},ordinal {direction} LIMIT 1"),values)?.pop();
+        self.extra_anchor(
+            base,
+            order,
+            descending,
+            "post_id=?1",
+            vec![Value::Integer(post)],
+        )
     }
     /// Counted seeks avoid a large OFFSET and remain correct for sparse saved
     /// predicates. Rank and ordinal ranges are each at most the input size.
@@ -506,6 +656,9 @@ impl RankingProjectionReader {
         order: RankingOrder,
         descending: bool,
     ) -> Result<Option<ranking_tables::RankingPosition>> {
+        if !self.projection.edits.is_empty() || self.projection.fences().next().is_some() {
+            return self.locate_edited_position(position, order, descending);
+        }
         if position == 0 || position > self.projection.count {
             return Ok(None);
         }

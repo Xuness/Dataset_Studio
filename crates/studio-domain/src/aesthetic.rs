@@ -47,6 +47,8 @@ pub struct AestheticExecution {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AestheticConfig {
     pub version: u32,
+    #[serde(default, skip_serializing_if = "initial_membership")]
+    pub membership_revision: u64,
     pub request: AestheticCreate,
     /// Credential-free, resolved configuration; contains no image bytes.
     pub model: LlmInvocationSnapshot,
@@ -94,6 +96,10 @@ pub struct AestheticStage {
     pub execution_settings: Option<AestheticExecutionSettings>,
     #[serde(default)]
     pub progress: AestheticStageProgress,
+}
+
+fn initial_membership(revision: &u64) -> bool {
+    *revision == 0
 }
 
 /// Incremental receipt totals. Coverage counters keep missing upstream metrics distinct from zero.

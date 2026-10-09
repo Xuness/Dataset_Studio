@@ -93,6 +93,8 @@ fn fixture(count: u64) -> (tempfile::TempDir, RankingProjection, Vec<RankingScor
         })
         .unwrap();
     let recipe = RankingProjection {
+        edits: Vec::new(),
+        member_result: None,
         version: 1,
         artifact_id: new_id(),
         input_file: "artifacts/input.sqlite".into(),

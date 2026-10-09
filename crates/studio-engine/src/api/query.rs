@@ -310,9 +310,23 @@ pub(super) async fn validity(
                 current: issue.is_none(),
                 issue,
                 newer_available: result.state == domain::ResultState::Ready
-                    && s.queries
+                    && (s
+                        .queries
                         .versions(&s.store, &pid, &result.spec)
-                        .is_ok_and(|v| v != result.source_versions),
+                        .is_ok_and(|v| v != result.source_versions)
+                        || result.spec.input_scope.as_ref().is_some_and(|scope| {
+                            if let domain::ScopeTarget::Workset {
+                                collection_id,
+                                revision,
+                            } = &scope.target
+                            {
+                                s.store
+                                    .collection(&pid, collection_id)
+                                    .is_ok_and(|c| c.revision != revision.unwrap_or(0))
+                            } else {
+                                false
+                            }
+                        })),
             })
         })
         .await?,

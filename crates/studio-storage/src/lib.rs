@@ -35,6 +35,7 @@ pub use cache_cleanup::QueryCleanup;
 pub use query_cache::{
     QueryCacheEntry, QueryCachePolicy, QueryCacheRequest, QueryCacheStats, QueryStage,
 };
+mod collection_edits;
 mod history;
 mod lake_inputs;
 mod management;
@@ -635,13 +636,14 @@ impl ProjectRepository for SqliteStore {
         let p = self.handle(project_id)?;
         let db = p.read()?;
         let mut stmt = db
-            .prepare("SELECT c.id,COALESCE(m.name,c.name),c.count FROM collections c LEFT JOIN object_metadata m ON m.kind='workset' AND m.id=c.id WHERE NOT EXISTS(SELECT 1 FROM evaluation_workset_builds b WHERE b.collection_id=c.id AND b.state!='ready') ORDER BY c.rowid")
+            .prepare("SELECT c.id,COALESCE(m.name,c.name),c.count,coalesce(s.revision,0) FROM collections c LEFT JOIN object_metadata m ON m.kind='workset' AND m.id=c.id LEFT JOIN collection_membership_state s ON s.collection_id=c.id WHERE NOT EXISTS(SELECT 1 FROM evaluation_workset_builds b WHERE b.collection_id=c.id AND b.state!='ready') ORDER BY c.rowid")
             .map_err(db_error)?;
         stmt.query_map([], |r| {
             Ok(Collection {
                 id: r.get(0)?,
                 name: r.get(1)?,
                 count: unsigned(r, 2)?,
+                revision: unsigned(r, 3)?,
             })
         })
         .map_err(db_error)?

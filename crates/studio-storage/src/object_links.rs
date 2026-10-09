@@ -4,7 +4,7 @@ use crate::*;
 
 fn owners(table: &str, column: &str) -> String {
     format!(
-        "SELECT CASE owner_kind WHEN 'collection' THEN 'workset' WHEN 'query_definition' THEN 'query' WHEN 'query_definition_input' THEN 'query' WHEN 'query_input' THEN 'query_result' WHEN 'result' THEN 'query_result' WHEN 'job_input' THEN 'job' WHEN 'job_scope' THEN 'job' ELSE owner_kind END AS kind,owner_id AS id,'使用此依据' AS relation,1 AS blocking FROM {table} WHERE {column}=?1"
+        "SELECT CASE owner_kind WHEN 'collection' THEN 'workset' WHEN 'query_definition' THEN 'query' WHEN 'query_definition_input' THEN 'query' WHEN 'query_input' THEN 'query_result' WHEN 'result' THEN 'query_result' WHEN 'ranking_recipe' THEN 'query_result' WHEN 'job_input' THEN 'job' WHEN 'job_scope' THEN 'job' ELSE owner_kind END AS kind,owner_id AS id,'使用此依据' AS relation,1 AS blocking FROM {table} WHERE {column}=?1"
     )
 }
 fn outgoing_refs(owner: &str) -> Vec<String> {
@@ -41,6 +41,7 @@ fn raw(kind: ObjectKind, incoming: bool) -> String {
         ],
         (ObjectKind::Workset,true)=>{
             let mut q=queries_using_scope("workset","collection_id");
+            q.push("SELECT 'query_result' AS kind,v.result_id AS id,'固定成员版本' AS relation,1 AS blocking FROM collection_version_references v JOIN query_results r ON r.id=v.result_id WHERE v.collection_id=?1 AND r.status!='released'".into());
             q.push("SELECT 'job' AS kind,j.id,'任务输入范围' AS relation,(j.total=0 AND j.status IN ('queued','waiting_input','preparing','running')) AS blocking FROM jobs j JOIN job_scopes s ON s.job_id=j.id WHERE json_extract(s.scope_json,'$.target.collection_id')=?1 AND NOT EXISTS(SELECT 1 FROM object_metadata m WHERE m.kind='job' AND m.id=j.id AND m.deleted=1)".into());
             q.push("SELECT 'workset' AS kind,s.collection_id AS id,'保存自此工作集' AS relation,0 AS blocking FROM collection_scopes s WHERE json_extract(s.scope_json,'$.target.collection_id')=?1".into());
             q
@@ -65,7 +66,7 @@ fn raw(kind: ObjectKind, incoming: bool) -> String {
             q
         },
         (ObjectKind::QueryResult,false)=>{
-            let mut q=outgoing_refs("'query_result','query_input','result'");
+            let mut q=outgoing_refs("'query_result','query_input','result','ranking_recipe'");
             q.push("SELECT 'query' AS kind,definition_id AS id,'生成时的查询定义' AS relation,0 AS blocking FROM query_results WHERE id=?1 AND definition_id IS NOT NULL".into());
             q.push("SELECT 'source' AS kind,x.value AS id,'查询来源' AS relation,0 AS blocking FROM query_results q,json_each(q.spec_json,'$.source_ids') x WHERE q.id=?1".into());
             q

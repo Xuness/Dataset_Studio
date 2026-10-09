@@ -88,6 +88,7 @@ fn fixture() -> (tempfile::TempDir, RankedIndexPlan) {
             project_id: new_id(),
             target: ScopeTarget::Workset {
                 collection_id: cid.clone(),
+                revision: None,
             },
         },
         meta: RankedIndexMeta {
@@ -95,7 +96,10 @@ fn fixture() -> (tempfile::TempDir, RankedIndexPlan) {
             key: "a".repeat(64),
             scope: ScopeRef {
                 project_id: new_id(),
-                target: ScopeTarget::Workset { collection_id: cid },
+                target: ScopeTarget::Workset {
+                    collection_id: cid,
+                    revision: None,
+                },
             },
             count: 8193,
         },

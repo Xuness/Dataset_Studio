@@ -8,6 +8,7 @@ import { engineBuildArguments, engineProfile } from "./engine-profile.mjs";
 const suites = [
   "foundation",
   "scopes",
+  "worksets",
   "tools",
   "exports",
   "resources",

@@ -35,6 +35,9 @@ impl RankingResultTable {
 
 impl RankingInputTable {
     pub fn ordinal_for_key(&self, key: &AssetKey) -> Result<Option<u64>> {
+        if !canonical_asset_id(&key.asset_id) {
+            return Ok(None);
+        }
         self.db
             .prepare_cached("SELECT ordinal FROM input_rows WHERE source_id=?1 AND asset_id=?2")
             .map_err(db_error)?
@@ -46,6 +49,9 @@ impl RankingInputTable {
     }
 
     pub fn post_for_key(&self, key: &AssetKey) -> Result<Option<(u64, Option<i64>)>> {
+        if !canonical_asset_id(&key.asset_id) {
+            return Ok(None);
+        }
         self.db
             .prepare_cached(
                 "SELECT ordinal,post_id FROM input_rows WHERE source_id=?1 AND asset_id=?2",

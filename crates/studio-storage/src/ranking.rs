@@ -216,7 +216,13 @@ impl SqliteStore {
                 ));
             }
             let name = management::display_name(&db, "workset", &id, &name)?;
-            return operation.finish(Ok(Collection { id, name, count }));
+            let revision = collection_edits::read(&db, &id, None)?.revision;
+            return operation.finish(Ok(Collection {
+                id,
+                name,
+                count,
+                revision,
+            }));
         }
         let artifact = artifacts::read(&db, pid, aid)?;
         if artifact.state != ArtifactState::Ready || artifact.kind != RANKING_KIND {
@@ -316,6 +322,7 @@ impl SqliteStore {
                 id,
                 name: name.clone(),
                 count,
+                revision: 0,
             })
         })();
         operation.finish(result)

@@ -150,7 +150,7 @@ impl RankedIndex {
                 .ok_or_else(|| Error::invalid("项目路径无效"))?,
         )?;
         let (relation, column, id) = match &plan.meta.scope.target {
-            ScopeTarget::Workset { collection_id } => (
+            ScopeTarget::Workset { collection_id, .. } => (
                 if attached_members {
                     "scope_collection_members"
                 } else {
@@ -188,7 +188,7 @@ impl RankedIndex {
                 ));
             }
             if attached_members {
-                db.execute_batch("DROP VIEW scope_collection_members; DROP VIEW scope_result_members; DETACH DATABASE scope_members;").map_err(db_error)?;
+                db.execute_batch("DROP VIEW scope_collection_members; DROP VIEW scope_collection_base_members; DROP VIEW scope_result_members; DETACH DATABASE scope_members;").map_err(db_error)?;
             }
             db.execute_batch("DETACH DATABASE scope_db; DETACH DATABASE fixed_input; DETACH DATABASE fixed_scores;").map_err(db_error)?;
             db.execute_batch("CREATE TABLE rank_positions(order_name TEXT NOT NULL,sequence INTEGER NOT NULL,ordinal INTEGER NOT NULL,PRIMARY KEY(order_name,sequence)) WITHOUT ROWID;").map_err(build_error)?;

@@ -154,10 +154,12 @@ pub(super) fn insert_result(
     versions: &[QuerySourceVersion],
 ) -> Result<QueryResult> {
     validate_sources(db, spec)?;
+    let spec = collection_edits::pin_spec(db, pid, spec)?;
     let id = new_id();
-    db.execute("INSERT INTO query_results(id,definition_id,definition_revision,spec_json,versions_json,status,count,created_at) VALUES (?1,?2,?3,?4,?5,'queued',0,?6)",params![id,definition.map(|d|d.0),definition.map(|d|d.1 as i64),serde_json::to_string(spec).map_err(Error::io)?,serde_json::to_string(versions).map_err(Error::io)?,now()]).map_err(db_error)?;
-    derived_fields::references(db, pid, "query_result", &id, spec)?;
-    input_references(db, pid, "query_input", &id, spec)?;
+    db.execute("INSERT INTO query_results(id,definition_id,definition_revision,spec_json,versions_json,status,count,created_at) VALUES (?1,?2,?3,?4,?5,'queued',0,?6)",params![id,definition.map(|d|d.0),definition.map(|d|d.1 as i64),serde_json::to_string(&spec).map_err(Error::io)?,serde_json::to_string(versions).map_err(Error::io)?,now()]).map_err(db_error)?;
+    derived_fields::references(db, pid, "query_result", &id, &spec)?;
+    input_references(db, pid, "query_input", &id, &spec)?;
+    ranking_memberships::snapshot_presentation(db, pid, &id, &spec)?;
     event(db, "result.created", &id)?;
     read_result(db, pid, &id)
 }

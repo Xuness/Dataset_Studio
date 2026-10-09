@@ -6,6 +6,7 @@ use std::{
 use studio_domain::*;
 use studio_storage::{
     SqliteStore, ranking_field_id,
+    ranking_projection::RankingProjectionReader,
     ranking_tables::{RankingInputTable, RankingResultTable},
 };
 
@@ -13,6 +14,7 @@ struct Predicate {
     input: RankingInputTable,
     scores: RankingResultTable,
     ratings: Vec<String>,
+    projection: Option<RankingProjectionReader>,
 }
 pub struct RankingQuery {
     predicates: Vec<Predicate>,
@@ -40,15 +42,31 @@ impl RankingQuery {
                 .or_insert(ratings);
         }
         let mut predicates = Vec::new();
+        let projection = spec
+            .input_scope
+            .as_ref()
+            .map(|scope| store.ranking_projection(pid, scope))
+            .transpose()?
+            .flatten();
         for (id, ratings) in conditions {
             let (_, scores, input) = crate::ranking::paths(store, pid, &id)?;
             let input = RankingInputTable::open(&input)?;
             let scores = RankingResultTable::open(&scores)?;
             scores.cancel_reads(cancelled.clone())?;
+            let projection = projection
+                .as_ref()
+                .filter(|r| r.artifact_id == id && !r.edits.is_empty())
+                .map(|r| {
+                    let mut r = r.clone();
+                    r.restrict_ratings(&ratings);
+                    RankingProjectionReader::open(&store.directory(pid)?, &r, cancelled.clone())
+                })
+                .transpose()?;
             predicates.push(Predicate {
                 input,
                 scores,
                 ratings,
+                projection,
             });
         }
         Ok(Self { predicates })
@@ -61,6 +79,13 @@ impl RankingQuery {
         for key in keys {
             let mut keep = true;
             for p in self.predicates.iter().skip(usize::from(first_matched)) {
+                if let Some(projection) = &p.projection {
+                    if !projection.contains_key(key)? {
+                        keep = false;
+                        break;
+                    }
+                    continue;
+                }
                 if let Some(n) = p.input.ordinal_for_key(key)? {
                     if !p.scores.rating(n)?.is_some_and(|r| p.ratings.contains(&r)) {
                         keep = false;
@@ -107,6 +132,20 @@ impl RankingQuery {
                     .filter(|k| k.source_id == source)
                     .collect::<Vec<_>>();
                 sink(&keys, batch_processed)?;
+            }
+        }
+        if let Some(projection) = &first.projection {
+            let mut after = None;
+            loop {
+                studio_application::read_cancelled(cancelled)?;
+                let keys = projection.appended_keys(source, after.as_deref())?;
+                if keys.is_empty() {
+                    break;
+                }
+                after = keys.last().map(|k| k.asset_id.clone());
+                let count = keys.len() as u64;
+                processed += count;
+                sink(&keys, count)?;
             }
         }
         Ok(processed)

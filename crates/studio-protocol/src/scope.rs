@@ -11,10 +11,21 @@ pub struct ScopeRef {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ScopeTarget {
-    Source { source_id: String, revision: String },
-    Workset { collection_id: String },
-    QueryResult { result_id: String },
-    Selection { revision: u64 },
+    Source {
+        source_id: String,
+        revision: String,
+    },
+    Workset {
+        collection_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        revision: Option<u64>,
+    },
+    QueryResult {
+        result_id: String,
+    },
+    Selection {
+        revision: u64,
+    },
 }
 impl From<ScopeRef> for domain::ScopeRef {
     fn from(s: ScopeRef) -> Self {
@@ -28,9 +39,13 @@ impl From<ScopeRef> for domain::ScopeRef {
                     source_id,
                     revision,
                 },
-                ScopeTarget::Workset { collection_id } => {
-                    domain::ScopeTarget::Workset { collection_id }
-                }
+                ScopeTarget::Workset {
+                    collection_id,
+                    revision,
+                } => domain::ScopeTarget::Workset {
+                    collection_id,
+                    revision,
+                },
                 ScopeTarget::QueryResult { result_id } => {
                     domain::ScopeTarget::QueryResult { result_id }
                 }
@@ -51,9 +66,13 @@ impl From<domain::ScopeRef> for ScopeRef {
                     source_id,
                     revision,
                 },
-                domain::ScopeTarget::Workset { collection_id } => {
-                    ScopeTarget::Workset { collection_id }
-                }
+                domain::ScopeTarget::Workset {
+                    collection_id,
+                    revision,
+                } => ScopeTarget::Workset {
+                    collection_id,
+                    revision,
+                },
                 domain::ScopeTarget::QueryResult { result_id } => {
                     ScopeTarget::QueryResult { result_id }
                 }

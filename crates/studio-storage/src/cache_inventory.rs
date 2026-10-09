@@ -103,7 +103,7 @@ impl SqliteStore {
     pub fn cache_scope_label(&self, pid: &str, scope: &ScopeRef) -> Result<String> {
         scope.validate_project(pid)?;
         self.cache_read(pid, |db| match &scope.target {
-            ScopeTarget::Workset{collection_id} => db.query_row("SELECT coalesce(m.name,c.name) FROM collections c LEFT JOIN object_metadata m ON m.kind='workset' AND m.id=c.id WHERE c.id=?1", [collection_id], |r|r.get(0)).map_err(db_error),
+            ScopeTarget::Workset { collection_id, .. } => db.query_row("SELECT coalesce(m.name,c.name) FROM collections c LEFT JOIN object_metadata m ON m.kind='workset' AND m.id=c.id WHERE c.id=?1", [collection_id], |r|r.get(0)).map_err(db_error),
             ScopeTarget::QueryResult{result_id} => {
                 let result = query::read_result(db,pid,result_id)?;
                 let ratings = result.spec.conditions.iter().filter(|c| c.field.ends_with(".rating") || c.field=="rating").filter_map(|c| match &c.value { Some(QueryValue::TextList(v))=>Some(v.join("/")), Some(QueryValue::Text(v))=>Some(v.clone()), _=>None }).collect::<Vec<_>>();

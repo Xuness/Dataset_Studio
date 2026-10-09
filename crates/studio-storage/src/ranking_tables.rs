@@ -102,6 +102,12 @@ fn enum_text(v: &impl Serialize) -> Result<String> {
         .map(String::from)
         .ok_or_else(|| Error::invalid("无效排名状态"))
 }
+pub(crate) fn canonical_asset_id(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
 fn bytes(v: &str) -> Result<Vec<u8>> {
     if v.len() != 64 {
         return Err(Error::invalid("排名材料身份必须是 SHA-256"));

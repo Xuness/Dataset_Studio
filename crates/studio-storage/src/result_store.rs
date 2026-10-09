@@ -32,12 +32,15 @@ pub(crate) fn attach_scope_reader(db: &Connection, directory: &Path) -> Result<b
         JOIN scope_members.members m ON m.dataset_id=d.id WHERE r.storage_kind='sealed' AND r.status='ready'
       UNION ALL SELECT r.id,m.source_id,m.asset_id FROM scope_db.query_results r JOIN scope_db.ranking_memberships b ON b.result_id=r.id
         JOIN ranking_members(b.recipe_json) m WHERE r.storage_kind='ranking' AND r.status='ready' AND m.matched=1;
-      CREATE TEMP VIEW scope_collection_members AS
+      CREATE TEMP VIEW scope_collection_base_members AS
       SELECT * FROM scope_db.collection_member_legacy
       UNION ALL SELECT b.collection_id,m.source_id,m.asset_id FROM scope_db.collection_bases b JOIN scope_result_members m ON m.result_id=b.result_id
         WHERE NOT EXISTS(SELECT 1 FROM scope_db.collection_exclusions e WHERE e.collection_id=b.collection_id AND e.source_id=m.source_id AND e.asset_id=m.asset_id)
       UNION ALL SELECT i.collection_id,i.source_id,i.asset_id FROM scope_db.collection_inclusions i
-        WHERE NOT EXISTS(SELECT 1 FROM scope_db.collection_bases b JOIN scope_result_members m ON m.result_id=b.result_id WHERE b.collection_id=i.collection_id AND m.source_id=i.source_id AND m.asset_id=i.asset_id);").map_err(db_error)?;
+        WHERE NOT EXISTS(SELECT 1 FROM scope_db.collection_bases b JOIN scope_result_members m ON m.result_id=b.result_id WHERE b.collection_id=i.collection_id AND m.source_id=i.source_id AND m.asset_id=i.asset_id);
+      CREATE TEMP VIEW scope_collection_members AS
+      SELECT b.* FROM scope_collection_base_members b WHERE NOT EXISTS(SELECT 1 FROM scope_db.collection_member_changes e WHERE e.collection_id=b.collection_id AND e.source_id=b.source_id AND e.asset_id=b.asset_id AND e.valid_until IS NULL)
+      UNION ALL SELECT collection_id,source_id,asset_id FROM scope_db.collection_member_changes WHERE present=1 AND valid_until IS NULL;").map_err(db_error)?;
     Ok(true)
 }
 
@@ -118,12 +121,15 @@ pub(super) fn attach(db: &Connection, directory: &Path) -> Result<()> {
         INSERT OR IGNORE INTO query_member_data(family_id,source_id,asset_id,valid_from)
           SELECT family_id,NEW.source_id,NEW.asset_id,member_revision FROM query_results WHERE id=NEW.result_id AND storage_kind='legacy';
       END;
-      CREATE TEMP VIEW collection_members AS
+      CREATE TEMP VIEW collection_base_members AS
       SELECT * FROM main.collection_member_legacy
       UNION ALL SELECT b.collection_id,m.source_id,m.asset_id FROM main.collection_bases b JOIN result_members m ON m.result_id=b.result_id
         WHERE NOT EXISTS(SELECT 1 FROM main.collection_exclusions e WHERE e.collection_id=b.collection_id AND e.source_id=m.source_id AND e.asset_id=m.asset_id)
       UNION ALL SELECT i.collection_id,i.source_id,i.asset_id FROM main.collection_inclusions i
         WHERE NOT EXISTS(SELECT 1 FROM main.collection_bases b JOIN result_members m ON m.result_id=b.result_id WHERE b.collection_id=i.collection_id AND m.source_id=i.source_id AND m.asset_id=i.asset_id);
+      CREATE TEMP VIEW collection_members AS
+      SELECT b.* FROM collection_base_members b WHERE NOT EXISTS(SELECT 1 FROM main.collection_member_changes e WHERE e.collection_id=b.collection_id AND e.source_id=b.source_id AND e.asset_id=b.asset_id AND e.valid_until IS NULL)
+      UNION ALL SELECT collection_id,source_id,asset_id FROM main.collection_member_changes WHERE present=1 AND valid_until IS NULL;
       CREATE TEMP TRIGGER collection_member_legacy_insert INSTEAD OF INSERT ON collection_members BEGIN
         INSERT OR IGNORE INTO collection_member_legacy VALUES(NEW.collection_id,NEW.source_id,NEW.asset_id);
       END;

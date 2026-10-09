@@ -515,6 +515,16 @@ export class StudioClient {
       "/v1/projects/" + id + "/collections",
     );
   }
+  editCollectionMembers(
+    id: string,
+    collectionId: string,
+    body: Schema["CollectionEdit"],
+  ) {
+    return this.request<Schema["CollectionEditResult"]>(
+      `/v1/projects/${encodeURIComponent(id)}/collections/${encodeURIComponent(collectionId)}/members`,
+      { method: "POST", body: JSON.stringify(body) },
+    );
+  }
   async createCollection(
     id: string,
     name: string,

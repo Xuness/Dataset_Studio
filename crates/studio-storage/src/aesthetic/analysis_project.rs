@@ -113,6 +113,7 @@ impl SqliteStore {
                 project_id: pid.into(),
                 target: ScopeTarget::Workset {
                     collection_id: id.clone(),
+                    revision: None,
                 },
             };
             let provenance = serde_json::json!({"version":1,"aesthetic_analysis_job":item.id,"selection":item.request.spec,"frozen_input":item.input,"boundary":"include_score_ties","members":"fixed"});
@@ -131,6 +132,11 @@ impl SqliteStore {
         }
         let name = crate::management::display_name(&tx, "workset", &id, &item.request.name)?;
         tx.commit().map_err(db_error)?;
-        Ok(Collection { id, name, count })
+        Ok(Collection {
+            id,
+            name,
+            count,
+            revision: 0,
+        })
     }
 }

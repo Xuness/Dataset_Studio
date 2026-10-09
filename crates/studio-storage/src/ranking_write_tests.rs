@@ -67,7 +67,10 @@ fn cancelling_scoped_job_capture_rolls_back_and_keeps_reads_available() {
     let worker = store.clone();
     let scope = ScopeRef {
         project_id: pid.clone(),
-        target: ScopeTarget::Workset { collection_id: cid },
+        target: ScopeTarget::Workset {
+            collection_id: cid,
+            revision: None,
+        },
     };
     let args = (pid.clone(), request.clone(), scope.clone());
     let work =
@@ -287,6 +290,7 @@ fn cancelling_a_ranked_reference_before_commit_keeps_readers_and_retry_consisten
         project_id: pid.clone(),
         target: ScopeTarget::Workset {
             collection_id: created.id.clone(),
+            revision: None,
         },
     };
     let reader = handle.read().unwrap();

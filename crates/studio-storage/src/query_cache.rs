@@ -535,6 +535,10 @@ impl SqliteStore {
         mut versions: Vec<QuerySourceVersion>,
         enabled: bool,
     ) -> Result<QueryResult> {
+        let spec = {
+            let p = self.handle(pid)?;
+            collection_edits::pin_spec(&*p.read()?, pid, &spec)?
+        };
         versions.sort_by(|a, b| a.source_id.cmp(&b.source_id));
         let key = fingerprint(&spec)?;
         {
@@ -590,6 +594,7 @@ impl SqliteStore {
                 return Err(Error::new("REVISION_CONFLICT", "查询定义已变化"));
             }
         }
+        let spec = collection_edits::pin_spec(&tx, pid, &spec)?;
         let key = fingerprint(&spec)?;
         let session_ids = checked_ids(&cache.live_sessions)?;
         let previous: Option<(String, String, i64, i64)> = if cache.enabled {

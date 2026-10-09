@@ -261,6 +261,8 @@ impl SqliteStore {
                 }
                 return read_job(&tx, pid, &id);
             }
+            let scope = collection_edits::pin(&tx, pid, scope)?;
+            let scope = &scope;
             let id = new_id();
             let (total, status, input_sql, results, provenance, owned_result) = if let Some(total) =
                 snapshot_count
@@ -413,7 +415,7 @@ impl SqliteStore {
             if let Some(sql) = input_sql {
                 let base = match &scope.target {
                     ScopeTarget::QueryResult { result_id } => Some(result_id.clone()),
-                    ScopeTarget::Workset { collection_id } => tx
+                    ScopeTarget::Workset { collection_id, .. } => tx
                         .query_row(
                             "SELECT result_id FROM collection_bases WHERE collection_id=?1",
                             [collection_id],
@@ -438,9 +440,13 @@ impl SqliteStore {
                     )
                     .map_err(db_error)?;
                     match &scope.target {
-                        ScopeTarget::Workset { collection_id } => {
-                            tx.execute("INSERT INTO job_input_legacy SELECT ?1,source_id,asset_id FROM collection_inclusions WHERE collection_id=?2",params![id,collection_id]).map_err(db_error)?;
-                            tx.execute("INSERT INTO job_input_exclusions SELECT ?1,source_id,asset_id FROM collection_exclusions WHERE collection_id=?2",params![id,collection_id]).map_err(db_error)?;
+                        ScopeTarget::Workset {
+                            collection_id,
+                            revision,
+                        } => {
+                            let revision = revision.expect("pinned workset");
+                            tx.execute(&format!("INSERT INTO job_input_legacy SELECT ?1,source_id,asset_id FROM ({})", collection_edits::overrides_sql(collection_id, revision, true)),[&id]).map_err(db_error)?;
+                            tx.execute(&format!("INSERT INTO job_input_exclusions SELECT ?1,source_id,asset_id FROM ({})", collection_edits::overrides_sql(collection_id, revision, false)),[&id]).map_err(db_error)?;
                         }
                         ScopeTarget::Selection { .. } => {
                             tx.execute("INSERT INTO job_input_legacy SELECT ?1,source_id,asset_id FROM selection",[&id]).map_err(db_error)?;

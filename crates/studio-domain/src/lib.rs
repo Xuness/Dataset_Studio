@@ -17,6 +17,8 @@ mod query;
 pub use query::*;
 mod scope;
 pub use scope::*;
+mod collection_edits;
+pub use collection_edits::*;
 mod operators;
 pub use operators::*;
 mod artifacts;
@@ -103,6 +105,8 @@ pub struct Collection {
     pub id: String,
     pub name: String,
     pub count: u64,
+    #[serde(default)]
+    pub revision: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

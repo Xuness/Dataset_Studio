@@ -6,6 +6,14 @@ use studio_storage::SqliteStore;
 
 // Literal v1 schema is kept independently of current initialization code.
 const V1: &str = include_str!("../src/schema.sql");
+fn temporary() -> tempfile::TempDir {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.local/test-runs");
+    fs::create_dir_all(&root).unwrap();
+    tempfile::Builder::new()
+        .prefix("workset-migrations-")
+        .tempdir_in(root)
+        .unwrap()
+}
 #[test]
 fn v1_upgrade_preserves_every_persistent_relationship_and_is_idempotent() {
     upgrade_preserves_every_relationship(1);
@@ -54,8 +62,12 @@ fn v11_upgrade_adds_creation_intents_without_changing_worksets() {
 fn v13_upgrade_adds_ranked_references_without_rewriting_existing_members() {
     upgrade_preserves_every_relationship(13);
 }
+#[test]
+fn v14_upgrade_pins_existing_workset_queries_to_the_initial_member_version() {
+    upgrade_preserves_every_relationship(14);
+}
 fn upgrade_preserves_every_relationship(from: u32) {
-    let root = tempfile::tempdir().unwrap();
+    let root = temporary();
     let dir = root.path().join("中文旧项目");
     fs::create_dir(&dir).unwrap();
     fs::create_dir(dir.join("artifacts")).unwrap();
@@ -156,6 +168,7 @@ fn upgrade_preserves_every_relationship(from: u32) {
         (11, include_str!("../src/schema_v11.sql")),
         (12, include_str!("../src/schema_v12.sql")),
         (13, include_str!("../src/schema_v13.sql")),
+        (14, include_str!("../src/schema_v14.sql")),
     ] {
         if from >= version {
             db.execute_batch(sql).unwrap();
@@ -167,6 +180,15 @@ fn upgrade_preserves_every_relationship(from: u32) {
             db.pragma_update(None, "user_version", version).unwrap();
         }
     }
+    if from == 14 {
+        let scope =
+            serde_json::json!({"project_id":id,"target":{"kind":"workset","collection_id":cid}});
+        db.execute(
+            "UPDATE query_results SET spec_json=json_set(spec_json,'$.input_scope',json(?1))",
+            [scope.to_string()],
+        )
+        .unwrap();
+    }
     // Last committed page remains in WAL while the upgrade takes its consistent backup.
     db.execute_batch("PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; INSERT INTO events VALUES (43,'fixture.wal','kept');").unwrap();
     let store = SqliteStore::new(root.path().join("runtime")).unwrap();
@@ -174,6 +196,7 @@ fn upgrade_preserves_every_relationship(from: u32) {
     assert_eq!(p.id, id);
     assert_eq!(p.revision, 9);
     assert_eq!(store.selection(&id).unwrap().revision, 7);
+    assert_eq!(store.collections(&id).unwrap()[0].revision, 0);
     let key = AssetKey {
         source_id: sid.clone(),
         asset_id: "kept-object".into(),
@@ -224,8 +247,11 @@ fn upgrade_preserves_every_relationship(from: u32) {
         after
             .query_row("PRAGMA user_version", [], |r| r.get::<_, u32>(0))
             .unwrap(),
-        14
+        15
     );
+    if from == 14 {
+        assert_eq!(after.query_row("SELECT json_extract(spec_json,'$.input_scope.target.revision') FROM query_results LIMIT 1",[],|r|r.get::<_,i64>(0)).unwrap(),0);
+    }
     // Exact rows, including drafts, idempotency keys, event sequences and artifact references.
     if from >= 2 {
         assert_eq!(
@@ -291,7 +317,15 @@ fn upgrade_preserves_every_relationship(from: u32) {
                 .collect::<Result<_, _>>()
                 .unwrap()
         }
-        assert_eq!(rows(&before, &sql), rows(&after, &sql), "{table}");
+        let previous_sql = if from == 14 && table == "query_results" {
+            sql.replace(
+                "spec_json,",
+                "json_set(spec_json,'$.input_scope.target.revision',0),",
+            )
+        } else {
+            sql.clone()
+        };
+        assert_eq!(rows(&before, &previous_sql), rows(&after, &sql), "{table}");
     }
     assert_eq!(
         after
@@ -311,7 +345,7 @@ fn upgrade_preserves_every_relationship(from: u32) {
 
 #[test]
 fn future_database_is_rejected_without_journal_or_content_changes() {
-    let root = tempfile::tempdir().unwrap();
+    let root = temporary();
     let dir = root.path().join("future");
     fs::create_dir(&dir).unwrap();
     fs::write(dir.join("project.json"),serde_json::to_vec(&serde_json::json!({"format_version":1,"id":new_id(),"name":"未来项目","created_at":"1"})).unwrap()).unwrap();

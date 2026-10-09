@@ -4925,6 +4925,54 @@
         }
       }
     },
+    "/v1/projects/{project_id}/collections/{collection_id}/members": {
+      "post": {
+        "tags": [
+          "collection_edits"
+        ],
+        "operationId": "edit_collection_members",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "collection_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CollectionEdit"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionEditResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/projects/{project_id}/drafts/{module_id}/{instance_id}": {
       "get": {
         "tags": [
@@ -6809,6 +6857,16 @@
             "required": false,
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "revision",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
             }
           }
         ],
@@ -10817,6 +10875,7 @@
         "type": "object",
         "required": [
           "version",
+          "membership_revision",
           "request",
           "model",
           "sources",
@@ -10849,6 +10908,11 @@
             "minimum": 0
           },
           "max_request_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "membership_revision": {
             "type": "integer",
             "format": "int64",
             "minimum": 0
@@ -14139,7 +14203,8 @@
         "required": [
           "id",
           "name",
-          "count"
+          "count",
+          "revision"
         ],
         "properties": {
           "count": {
@@ -14152,6 +14217,11 @@
           },
           "name": {
             "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           }
         }
       },
@@ -14382,6 +14452,66 @@
           }
         }
       },
+      "CollectionChange": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "input",
+              "kind"
+            ],
+            "properties": {
+              "input": {
+                "$ref": "#/components/schemas/CollectionMemberInput"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "add"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "input",
+              "kind"
+            ],
+            "properties": {
+              "input": {
+                "$ref": "#/components/schemas/CollectionMemberInput"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "remove"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "revision",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "restore"
+                ]
+              },
+              "revision": {
+                "type": "integer",
+                "format": "int64",
+                "minimum": 0
+              }
+            }
+          }
+        ]
+      },
       "CollectionClosure": {
         "type": "object",
         "required": [
@@ -14527,6 +14657,57 @@
           }
         },
         "additionalProperties": false
+      },
+      "CollectionEdit": {
+        "type": "object",
+        "required": [
+          "request_id",
+          "expected_revision",
+          "change"
+        ],
+        "properties": {
+          "change": {
+            "$ref": "#/components/schemas/CollectionChange"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "request_id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "CollectionEditResult": {
+        "type": "object",
+        "required": [
+          "collection",
+          "previous_revision",
+          "requested",
+          "changed"
+        ],
+        "properties": {
+          "changed": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "collection": {
+            "$ref": "#/components/schemas/Collection"
+          },
+          "previous_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "requested": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
       },
       "CollectionIssue": {
         "type": "object",
@@ -14993,6 +15174,49 @@
             "minimum": 0
           }
         }
+      },
+      "CollectionMemberInput": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "scope",
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "scope"
+                ]
+              },
+              "scope": {
+                "$ref": "#/components/schemas/ScopeRef"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "keys",
+              "kind"
+            ],
+            "properties": {
+              "keys": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/AssetKey"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "keys"
+                ]
+              }
+            }
+          }
+        ]
       },
       "CollectionObjectProgress": {
         "type": "object",
@@ -24767,6 +24991,14 @@
                 "enum": [
                   "workset"
                 ]
+              },
+              "revision": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "int64",
+                "minimum": 0
               }
             }
           },

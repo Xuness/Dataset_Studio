@@ -10,9 +10,11 @@ export class RankingClient {
     signal?: AbortSignal,
   ): Promise<Schema["RankingBrowseInfo"]> {
     const query = new URLSearchParams();
-    if (scope.target.kind === "workset")
+    if (scope.target.kind === "workset") {
       query.set("collection_id", scope.target.collection_id);
-    else if (scope.target.kind === "query_result")
+      if (scope.target.revision !== undefined && scope.target.revision !== null)
+        query.set("revision", String(scope.target.revision));
+    } else if (scope.target.kind === "query_result")
       query.set("result_id", scope.target.result_id);
     else throw new Error("排名浏览需要工作集或查询结果范围。");
     return this.request<Schema["RankingBrowseInfo"]>(

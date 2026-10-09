@@ -180,6 +180,7 @@ fn bulk_members_do_not_hold_the_control_writer_and_publish_only_after_ready() {
         project_id: project.id.clone(),
         target: ScopeTarget::Workset {
             collection_id: collection.id,
+            revision: None,
         },
     };
     let job = store

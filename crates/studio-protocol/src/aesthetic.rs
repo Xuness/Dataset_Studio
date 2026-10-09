@@ -181,6 +181,7 @@ impl From<AestheticCreate> for domain::AestheticCreate {
 #[derive(Serialize, ToSchema)]
 pub struct AestheticConfig {
     pub version: u32,
+    pub membership_revision: u64,
     pub request: AestheticCreate,
     /// Credential-free, resolved configuration; contains no image bytes.
     pub model: LlmInvocationSnapshot,
@@ -196,6 +197,7 @@ impl From<domain::AestheticConfig> for AestheticConfig {
     fn from(v: domain::AestheticConfig) -> Self {
         Self {
             version: v.version,
+            membership_revision: v.membership_revision,
             request: v.request.into(),
             model: v.model.into(),
             sources: v.sources.into_iter().map(Into::into).collect(),
