@@ -21,6 +21,15 @@ class Service:
     def execution_lock(self, identity):
         return FileLock(self.state.root / "executions" / ("pinterest-" + model.identity(identity) + ".lock"), timeout=0)
 
+    def owns(self, owner, identity):
+        if owner.get("library_id") != identity or not isinstance(owner.get("root"), str):
+            return False
+        try:
+            # Rust canonical paths use the Windows extended prefix; compare the actual directory identity.
+            return Path(owner["root"]).samefile(self.state.root)
+        except OSError:
+            return False
+
     def _request(self, db, operation, args, subject):
         model.identity(args["request_key"])
         fingerprint = digest(canonical(args).encode())
@@ -71,7 +80,7 @@ class Service:
             with FileLock(config.cache / ".update-registration.lock"):
                 marker = config.cache / "UPDATE-CONTROLLER.json"
                 owner = dict(library_id=identity, root=str(self.state.root))
-                if marker.exists() and read_json(marker) != owner:
+                if marker.exists() and not self.owns(read_json(marker), identity):
                     raise UpdateError("UPDATE_CONFLICT", "Pinterest lake belongs to another controller")
                 atomic_json(marker, owner)
             with self.state.db() as db:
@@ -97,22 +106,57 @@ class Service:
         args = {**args, "definition": spec}
         with locations.access(self.state, spec["library_id"]), self.state.db() as db:
             db.execute("BEGIN IMMEDIATE")
-            request = self._request(db, "job_create", args, str(uuid.uuid4()))
-            identity = request["subject_id"]
-            if request["state"] != "succeeded":
-                old = db.execute("SELECT id FROM pinterest_jobs WHERE lake_id=? AND definition_sha256=? AND desired_state<>'cancelled' "
-                    "AND state NOT IN ('completed','completed_with_gaps','cancelled') ORDER BY job_row LIMIT 1",
-                    (spec["library_id"], result["definition_sha256"])).fetchone()
-                if old:
-                    identity = old[0]
-                else:
-                    at = utc()
-                    context = dict(mode="anonymous", language=spec["access"]["language"], session_id=str(uuid.uuid4()), created_at=at)
-                    db.execute("""INSERT INTO pinterest_jobs(id,request_key,lake_id,definition_json,definition_sha256,context_json,
-                        state,desired_state,created_at,updated_at) VALUES(?,?,?,?,?,?,'queued','running',?,?)""",
-                        (identity, args["request_key"], spec["library_id"], canonical(spec), result["definition_sha256"], canonical(context), at, at))
-                db.execute("UPDATE pinterest_requests SET state='succeeded',subject_id=? WHERE request_key=?", (identity, args["request_key"]))
+            identity = self.create_job_db(db, spec, args["request_key"])
         return self.job(identity)
+
+    def register_lake(self, args):
+        model.fields(args, ("request_key", "site", "media_root", "index_root"))
+        if args["site"] != "pinterest" or any(not isinstance(args[k], str) or not Path(args[k]).is_absolute() for k in ("media_root", "index_root")):
+            model.invalid("Register an existing Pinterest lake using absolute directories")
+        try:
+            config = Config(Path(args["media_root"]), Path(args["index_root"]))
+        except ValueError as error:
+            model.invalid(str(error))
+        lib = PinterestLibrary(config)
+        identity = lib.info["library_id"]
+        args = {**args, "media_root": str(config.root), "index_root": str(config.cache)}
+        with locations.access(self.state, identity), FileLock(config.cache / ".update-registration.lock"), FileLock(config.cache / ".daily-run.lock", timeout=0):
+            marker = config.cache / "UPDATE-CONTROLLER.json"
+            owner = dict(library_id=identity, root=str(self.state.root))
+            if marker.exists() and not self.owns(read_json(marker), identity):
+                raise UpdateError("UPDATE_CONFLICT", "Pinterest lake belongs to another controller")
+            with lib.writer_lock():
+                lib.sync_online()
+            with self.state.db() as db:
+                db.execute("BEGIN IMMEDIATE")
+                previous = db.execute("SELECT media,index_root FROM lakes WHERE id=?", (identity,)).fetchone()
+                if previous and tuple(previous) != (str(config.root), str(config.cache)):
+                    raise UpdateError("UPDATE_CONFLICT", "Registered lake paths differ; reconnect its managed location first")
+                self._request(db, "lake_register", args, identity)
+                atomic_json(marker, owner)
+                db.execute("INSERT INTO lakes VALUES(?,'pinterest',?,?,?) ON CONFLICT(id) DO NOTHING", (identity, str(config.root), str(config.cache), utc()))
+                db.execute("INSERT INTO pinterest_lakes VALUES(?,3,4) ON CONFLICT(lake_id) DO NOTHING", (identity,))
+                db.execute("UPDATE pinterest_requests SET state='succeeded' WHERE request_key=?", (args["request_key"],))
+        return self.lake(identity)
+
+    def create_job_db(self, db, spec, request_key):
+        fingerprint = digest(canonical(spec).encode())
+        args = dict(request_key=request_key, definition=spec)
+        request = self._request(db, "job_create", args, str(uuid.uuid4()))
+        identity = request["subject_id"]
+        if request["state"] != "succeeded":
+            old = db.execute("SELECT id FROM pinterest_jobs WHERE lake_id=? AND definition_sha256=? AND desired_state<>'cancelled' "
+                "AND state NOT IN ('completed','completed_with_gaps','cancelled') ORDER BY job_row LIMIT 1", (spec["library_id"], fingerprint)).fetchone()
+            if old:
+                identity = old[0]
+            else:
+                at = utc()
+                context = dict(mode="anonymous", language=spec["access"]["language"], session_id=str(uuid.uuid4()), created_at=at)
+                db.execute("""INSERT INTO pinterest_jobs(id,request_key,lake_id,definition_json,definition_sha256,context_json,
+                    state,desired_state,created_at,updated_at) VALUES(?,?,?,?,?,?,'queued','running',?,?)""",
+                    (identity, request_key, spec["library_id"], canonical(spec), fingerprint, canonical(context), at, at))
+            db.execute("UPDATE pinterest_requests SET state='succeeded',subject_id=? WHERE request_key=?", (identity, request_key))
+        return identity
 
     def row(self, identity, db=None):
         model.identity(identity)
@@ -148,7 +192,7 @@ class Service:
         media_pending = sum(r["n"] for r in counts if r["kind"] != "pin_enrichment" and r["state"] in ("queued", "running", "waiting_retry", "waiting_budget"))
         media_gaps = sum(r["n"] for r in counts if r["kind"] != "pin_enrichment" and r["state"] in ("needs_review", "unavailable"))
         return dict(**row, definition=spec, counts=counts, phase=row["state"], actions=actions,
-            metrics=metrics, budget_usage={k: v - baseline.get(k, 0) for k, v in usage.items()},
+            metrics=metrics, totals=usage, budget_usage={k: v - baseline.get(k, 0) for k, v in usage.items()},
             media_complete=media_pending == 0 and media_gaps == 0 and row["state"] in ("completed", "waiting_budget"),
             enrichment_pending=sum(r["n"] for r in counts if r["kind"] == "pin_enrichment" and r["state"] != "done"))
 
@@ -239,6 +283,9 @@ class Service:
         return self.job(row["id"])
 
     def dispatch(self, command, args):
+        if command in ("schedules", "schedule_save", "schedule_remove"):
+            from .schedules import Schedules
+            return getattr(Schedules(self), {"schedules": "list", "schedule_save": "save", "schedule_remove": "remove"}[command])(args)
         if command == "status":
             model.fields(args)
             with self.state.db() as db:
@@ -249,7 +296,8 @@ class Service:
             model.fields(args)
             return dict(contract_version=CONTRACT_VERSION, site="pinterest", collector=COLLECTOR, seed_kinds=list(model.SEED_KINDS),
                 media_types=["static_image", "single_image_story"], access_modes=["anonymous"], archive_format=3, online_format=4,
-                discovery=True, schedules=False, image_profiles=["original"], max_seeds=500)
+                discovery=True, schedules=True, image_profiles=["original"], max_seeds=500,
+                entrypoints=sorted(model.ENTRYPOINTS), detail_enrichment_modes=["none", "sample", "all"], reuse_modes=["revalidate", "historical"])
         if command == "lakes":
             model.fields(args, (), ("cursor", "limit"))
             limit = model.integer(args.get("limit", 100), 1, 200)
@@ -264,7 +312,7 @@ class Service:
             return self.job(args["job_id"])
         if command in ("jobs", "items", "streams"):
             return self.page(args, command)
-        handler = {"lake_create": self.create_lake, "preview": self.preview, "create": self.create, "action": self.action}.get(command)
+        handler = {"lake_create": self.create_lake, "lake_register": self.register_lake, "preview": self.preview, "create": self.create, "action": self.action}.get(command)
         if handler is None:
             model.invalid("Unknown Pinterest command")
         return handler(args)

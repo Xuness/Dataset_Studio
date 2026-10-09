@@ -34,7 +34,7 @@ try {
   const activity = await api.status();
   assert.equal(activity.counts.waiting_budget, 1);
   assert.equal(activity.active[0].id, refs.budget_job.id);
-  assert.equal(capabilities.contract_version, 2);
+  assert.equal(capabilities.contract_version, 3);
   assert.deepEqual(capabilities.seed_kinds, [
     "pin",
     "board",
@@ -62,6 +62,65 @@ try {
   assert.equal(boardPreview.known_pins, 0);
   assert.equal(boardPreview.network_requests, 0);
   assert.equal((await api.job(refs.job.id)).state, "completed");
+  assert.equal((await api.job(refs.job.id)).totals.admitted_pins, 2);
+  assert.equal(capabilities.schedules, true);
+  const registration = {
+    request_key: crypto.randomUUID(),
+    site: "pinterest",
+    media_root: refs.lake.media_root,
+    index_root: refs.lake.index_root,
+  };
+  assert.equal(
+    (await api.registerLake(registration)).library_id,
+    refs.lake.library_id,
+  );
+  assert.equal(
+    (await api.registerLake(registration)).library_id,
+    refs.lake.library_id,
+  );
+  const scheduleCommand = {
+    request_key: crypto.randomUUID(),
+    id: crypto.randomUUID(),
+    expected_revision: 0,
+    definition: refs.job.definition,
+    every_seconds: 86400,
+    first_run_at: new Date(Date.now() + 86400000).toISOString(),
+    enabled: false,
+  };
+  const schedule = await api.saveSchedule(scheduleCommand);
+  assert.deepEqual(await api.saveSchedule(scheduleCommand), schedule);
+  assert.equal((await api.schedules()).items[0].id, schedule.id);
+  assert.equal(
+    (await client.sourceCollections.workspaceSchedules()).items.length,
+    0,
+  );
+  assert.equal(
+    (
+      await client.sourceCollections.workspaceSchedules({
+        include_pinterest: true,
+      })
+    ).items[0].family,
+    "pinterest",
+  );
+  await assert.rejects(
+    api.removeSchedule(schedule.id, {
+      request_key: crypto.randomUUID(),
+      expected_revision: schedule.revision + 1,
+    }),
+    (e) => e.code === "PINTEREST_CONFLICT",
+  );
+  assert.equal(
+    (
+      await api.removeSchedule(schedule.id, {
+        request_key: crypto.randomUUID(),
+        expected_revision: schedule.revision,
+      })
+    ).removed,
+    true,
+  );
+  checks.push(
+    "protected existing-lake registration and revision-checked schedules preserve legacy list defaults",
+  );
   assert.equal(
     (await client.sourceCollections.workspaceLakes()).items.length,
     0,

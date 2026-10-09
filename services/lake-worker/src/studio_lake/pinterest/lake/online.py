@@ -14,11 +14,11 @@ from ...online_storage import connect
 from ...util import FileLock, IntegrityError, atomic_json, contained, digest, failpoint, read_json, sync_file
 
 
-def initialize(info, index):
+def initialize(info, index, *, generation=None, activate=True):
     index = Path(index)
     marker = index / "ONLINE.json"
     pointer = dict(schema_version=ONLINE_VERSION, library_id=info["library_id"], site="pinterest",
-                   schema_set=SCHEMA_SET, required_features=list(FEATURES), generation=str(uuid.uuid4()), file="online.sqlite")
+                   schema_set=SCHEMA_SET, required_features=list(FEATURES), generation=generation or str(uuid.uuid4()), file="online.sqlite")
     db = connect(index / "online.sqlite")
     try:
         if db.execute("PRAGMA user_version").fetchone()[0] == 0:
@@ -34,12 +34,15 @@ def initialize(info, index):
                     or db.execute("PRAGMA user_version").fetchone()[0] != ONLINE_VERSION):
                 raise IntegrityError("Pinterest serving identity or schema differs")
             pointer["generation"] = state["generation"]
+            if generation is not None and generation != state["generation"]:
+                raise IntegrityError("Pinterest reconstruction generation differs")
         if marker.exists() and read_json(marker) != pointer:
             raise IntegrityError("Pinterest online pointer was replaced")
     finally:
         db.close()
     sync_file(index / "online.sqlite")
-    atomic_json(marker, pointer)
+    if activate:
+        atomic_json(marker, pointer)
     return pointer
 
 
@@ -64,18 +67,25 @@ def insert_fact(db, name, source, seq, batch):
     if previous:
         if previous != values:
             raise IntegrityError("Immutable Pinterest fact was changed: " + name)
-        return
+        return False
     row["first_seq" if name in {"objects", "pins", "source_entities"} else "commit_seq"] = seq
     db.execute("INSERT INTO " + name + "(" + ",".join(row) + ") VALUES(" + ",".join("?" for _ in row) + ")", tuple(row.values()))
+    return True
 
 
 def apply(db, records, manifest, seq):
     schema.check_rows(records)
+    previous = db.execute("SELECT counts_json FROM publications ORDER BY seq DESC LIMIT 1").fetchone()
+    counts = json.loads(previous[0]) if previous else dict(objects=0, pins=0, assets=0)
+    if set(counts) != {"objects", "pins", "assets"} or any(type(v) is not int or v < 0 for v in counts.values()):
+        raise IntegrityError("Pinterest publication counts are invalid")
     db.execute("INSERT INTO publications VALUES(?,?,?,'published',?,?,?)",
                (seq, manifest["batch_id"], digest(canonical(manifest).encode()), manifest["created_at"], utc(), "{}"))
     for name in schema.FACTS:
         for row in records.get(name, []):
-            insert_fact(db, name, row, seq, manifest["batch_id"])
+            inserted = insert_fact(db, name, row, seq, manifest["batch_id"])
+            if inserted and name in counts:
+                counts[name] += 1
     for row in records.get("media_manifests", []):
         count = db.execute("SELECT count(*) FROM media_entries WHERE manifest_id=?", (row["manifest_id"],)).fetchone()[0]
         if count != row["item_count"]:
@@ -89,17 +99,14 @@ def apply(db, records, manifest, seq):
         if not valid:
             raise IntegrityError("Pinterest asset does not match its frozen original media")
         db.execute("INSERT INTO changes VALUES(?,?,?) ON CONFLICT(seq,sha256) DO NOTHING", (seq, row["sha256"], '["source","media"]'))
-    counts = dict(objects=db.execute("SELECT count(*) FROM objects").fetchone()[0],
-                  pins=db.execute("SELECT count(*) FROM pins").fetchone()[0],
-                  assets=db.execute("SELECT count(*) FROM assets").fetchone()[0])
     db.execute("UPDATE publications SET counts_json=? WHERE seq=?", (canonical(counts), seq))
 
 
 class Publisher:
-    def __init__(self, lib, *, index=None):
+    def __init__(self, lib, *, index=None, pointer=None):
         self.lib = lib
         self.index = Path(index or lib.cache)
-        self.pointer = read_json(self.index / "ONLINE.json")
+        self.pointer = pointer or read_json(self.index / "ONLINE.json")
         if (self.pointer.get("schema_version") != ONLINE_VERSION or self.pointer.get("schema_set") != SCHEMA_SET
                 or self.pointer.get("required_features") != list(FEATURES) or self.pointer.get("site") != "pinterest"
                 or self.pointer.get("library_id") != lib.info["library_id"]):

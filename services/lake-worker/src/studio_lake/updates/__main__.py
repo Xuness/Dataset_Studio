@@ -280,7 +280,7 @@ def handshake():
     return {"worker_version": __version__, "runtime_check": 1, "sqlite": apsw.sqlitelibversion(),
             "duckdb": duckdb.__version__, "pyarrow": pyarrow.__version__,
             "requests": requests.__version__, "pillow": Image.__version__,
-            "features": {"collections": 2, "pinterest": 2}, "archive_versions": [1, 2, 3], "online_versions": [2, 3, 4]}
+            "features": {"collections": 2, "pinterest": 3}, "archive_versions": [1, 2, 3], "online_versions": [2, 3, 4]}
 
 
 if __name__ == "__main__":

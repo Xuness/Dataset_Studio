@@ -76,22 +76,34 @@ class Workspace:
         return dict(items=items, next_cursor=self.service.cursor(filters, [last["created_at"], last["id"]]) if last and len(rows) > len(items) else None)
 
     def schedules(self, args):
-        model.fields(args, (), ("cursor", "limit", "library_id"))
+        model.fields(args, (), ("cursor", "limit", "library_id", "include_pinterest"))
+        include = args.get("include_pinterest", False)
+        if type(include) is not bool:
+            model.invalid("include_pinterest must be boolean")
         limit = model.integer(args.get("limit", 50), 1, 200)
         filters = dict(workspace="schedules", library_id=args.get("library_id"))
+        if include:
+            filters["include_pinterest"] = True
         after = self.service.position(args.get("cursor"), filters, composite=True)
-        if after and not isinstance(after, str):
+        if after and ((include and (not isinstance(after, list) or len(after) != 2 or any(not isinstance(v, str) for v in after))) or (not include and not isinstance(after, str))):
             model.invalid("Invalid schedule cursor")
         clause, values = "", []
         if args.get("library_id"):
             clause = " AND lake_id=?"
             values = [args["library_id"]]
         with self.state.db() as db:
+            position = "(id,family)>(?,?)" if include else "id>?"
+            parameters = (after or ["", ""]) if include else [after or ""]
             rows = list(db.execute("""SELECT * FROM (SELECT id,json_extract(definition,'$.library_id') lake_id,'update' family FROM schedules
-                UNION ALL SELECT id,lake_id,'collection' family FROM collection_schedules) WHERE id>?""" + clause + " ORDER BY id LIMIT ?", (after or "", *values, limit+1)))
-            items = []
+                UNION ALL SELECT id,lake_id,'collection' family FROM collection_schedules""" +
+                (" UNION ALL SELECT id,lake_id,'pinterest' family FROM pinterest_schedules" if include else "") +
+                ") WHERE " + position + clause + " ORDER BY id,family LIMIT ?", (*parameters, *values, limit+1)))
+            items, size = [], 0
             for row in rows[:limit]:
-                if row["family"] == "collection":
+                if row["family"] == "pinterest":
+                    from ..pinterest.schedules import Schedules as PinterestSchedules
+                    value = PinterestSchedules.public(db.execute("SELECT * FROM pinterest_schedules WHERE id=?", (row["id"],)).fetchone())
+                elif row["family"] == "collection":
                     value = Schedules.public(db.execute("SELECT * FROM collection_schedules WHERE id=?", (row["id"],)).fetchone())
                 else:
                     from datetime import datetime, timezone
@@ -101,5 +113,12 @@ class Workspace:
                     value["enabled"] = bool(value["enabled"])
                     value["every_seconds"] = value["every_seconds"] or None
                     value["next_run_at"] = datetime.fromtimestamp(value.pop("next_at"), timezone.utc).isoformat()
-                items.append(dict(family=row["family"], schedule=value))
-        return dict(items=items, next_cursor=self.service.cursor(filters, rows[limit-1]["id"]) if len(rows) > limit else None)
+                item = dict(family=row["family"], schedule=value)
+                encoded = len(json.dumps(item, ensure_ascii=False).encode())
+                if items and size + encoded > 1800 * 1024:
+                    break
+                size += encoded
+                items.append(item)
+        last = rows[len(items)-1] if items else None
+        cursor = [last["id"], last["family"]] if include and last else last["id"] if last else None
+        return dict(items=items, next_cursor=self.service.cursor(filters, cursor) if last and len(rows) > len(items) else None)

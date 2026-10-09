@@ -166,7 +166,10 @@ export class SourceCollectionClient {
     );
   }
   workspaceSchedules(
-    options: PageOptions & { library_id?: string | undefined } = {},
+    options: PageOptions & {
+      library_id?: string | undefined;
+      include_pinterest?: boolean | undefined;
+    } = {},
   ) {
     const { signal, ...values } = options;
     return this.request<Schema["LakeWorkspaceSchedules"]>(

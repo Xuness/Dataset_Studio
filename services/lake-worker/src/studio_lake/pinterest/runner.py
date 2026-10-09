@@ -113,6 +113,17 @@ class Runner:
         with self.state.db() as db:
             db.execute("UPDATE pinterest_jobs SET served_seq=?,updated_at=? WHERE id=?", (published["served_seq"], utc(), job["id"]))
         failpoint("pinterest_after_control_replay")
+        # The journal and published index now own this evidence. Keep SSD staging bounded during long jobs.
+        root = receipts.directory(lib, job["id"])
+        for suffix in ("response.json", "prepared.json"):
+            (root / (identity + "." + suffix)).unlink(missing_ok=True)
+        contained(lib.cache, "pack_staging/" + identity + ".tar.tmp").unlink(missing_ok=True)
+        if replay.get("download_key"):
+            key = replay["download_key"]
+            if not re.fullmatch("[0-9a-f]{64}", key):
+                raise IntegrityError("Invalid accepted Pinterest download key")
+            for suffix in ("downloaded", "download.json", "partial", "partial.json"):
+                contained(lib.cache, "pinterest_downloads/" + job["id"] + "/" + key + "." + suffix).unlink(missing_ok=True)
 
     def _intent(self, lib, job):
         identity = str(uuid.uuid5(uuid.UUID(job["id"]), "pinterest-intent-v1"))
@@ -205,12 +216,18 @@ class Runner:
             result, path = downloader.acquire(self.state, lib, job, task, entry, self.resources, cancelled, http=self.image_http)
             records = {}
             if result["state"] == "downloaded":
-                media = {k: result[k] for k in ("download_key", "download_sha256", "width", "height", "ext", "content_type")}
+                if not result.get("archive_reuse"):
+                    media = {k: result[k] for k in ("download_key", "download_sha256", "width", "height", "ext", "content_type")}
                 records["acquisitions"] = [{k: result[k] for k in arrow_schema("acquisitions").names}]
                 records["assets"] = [dict(asset_id=stable_id("pinterest-asset-v1", entry["media_id"], "original"),
                     media_id=entry["media_id"], acquisition_id=result["acquisition_id"], sha256=result["download_sha256"],
                     representation="original", recipe_id="original", acquired_at=result["acquired_at"])]
                 planner.metric(replay, "acquisition_reuses" if result.get("reused") else "original_downloads")
+                if result.get("reuse_key"):
+                    replay["reuse_acquisition"] = result
+                replay["download_key"] = result["download_key"]
+                if result["evidence"] != "downloaded":
+                    planner.metric(replay, result["evidence"])
                 planner.metric(replay, "new_byte_objects" if lib.lookup_object(result["download_sha256"]) is None else "existing_byte_bindings")
                 if entry.get("scan_id"):
                     with self.state.db() as db:
@@ -291,20 +308,23 @@ class Runner:
     def cleanup(self, lib, identity):
         # Successful acquisition files must remain available for unfinished/failed bindings sharing their URL.
         row = self.service.row(identity)
-        with lib.journal() as journal:
-            archived = {r[0] for r in journal.execute("SELECT receipt_id FROM pinterest_receipts WHERE job_id=?", (identity,))}
-        with self.state.db() as db:
-            claims = {r[0] for r in db.execute("SELECT receipt_id FROM pinterest_tasks WHERE job_id=? AND receipt_id IS NOT NULL", (identity,))}
-        for receipt_id in archived | claims:
-            model.identity(receipt_id)
+        root = receipts.directory(lib, identity)
+        # Inspect only still-staged receipts, not the entire accepted history of a growing job.
+        for receipt_path in root.glob("*.prepared.json"):
+            receipt_id = model.identity(receipt_path.name.removesuffix(".prepared.json"))
+            with lib.journal() as journal:
+                archived = journal.execute("SELECT 1 FROM pinterest_receipts WHERE job_id=? AND receipt_id=?", (identity, receipt_id)).fetchone()
             contained(lib.cache, "pack_staging/" + receipt_id + ".tar.tmp").unlink(missing_ok=True)
             staging = contained(lib.root, "staging/" + receipt_id)
-            if receipt_id not in archived and staging.exists() and row["state"] == "cancelled":
+            if not archived and staging.exists() and row["state"] == "cancelled":
                 for path in staging.iterdir():
                     if path.is_file() and (path.suffix == ".parquet" or path.name in {"media.tar", "run.json", "replay.json", "manifest.json"}):
                         path.unlink()
                 if not any(staging.iterdir()):
                     staging.rmdir()
+            if archived:
+                receipt_path.unlink(missing_ok=True)
+                (root / (receipt_id + ".response.json")).unlink(missing_ok=True)
         if row["state"] == "completed_with_gaps":
             return
         for folder in ("pinterest_downloads", "pinterest_receipts"):

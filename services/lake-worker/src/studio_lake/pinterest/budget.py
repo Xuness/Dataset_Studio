@@ -8,7 +8,7 @@ from . import model, planner
 def usage(db, job):
     result = {k: job[k] for k in ("api_requests", "detail_requests", "download_bytes", "elapsed_seconds")}
     result.update({"admitted_" + ("pins" if r[0] == "pin" else "boards"): r[1]
-        for r in db.execute("SELECT kind,count(*) FROM pinterest_admitted WHERE job_id=? AND kind IN ('pin','board') GROUP BY kind", (job["id"],))})
+        for r in db.execute("SELECT kind,n FROM pinterest_admitted_counts WHERE job_id=? AND kind IN ('pin','board')", (job["id"],))})
     result.update({r[0]: r[1] for r in db.execute("SELECT name,value FROM pinterest_metrics WHERE job_id=? AND name LIKE '%:requests'", (job["id"],))})
     return result
 

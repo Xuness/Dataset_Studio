@@ -229,10 +229,10 @@ pub(super) async fn workspace_jobs(
 ) -> ApiResult<LakeWorkspaceJobs> {
     invoke(s, Op::WorkspaceJobs, json!(q)).await
 }
-#[utoipa::path(get,path="/v1/source-collections/workspace/schedules",params(CollectionSchedulesQuery),responses((status=200,body=LakeWorkspaceSchedules)),operation_id="lake_workspace_schedules")]
+#[utoipa::path(get,path="/v1/source-collections/workspace/schedules",params(LakeWorkspaceSchedulesQuery),responses((status=200,body=LakeWorkspaceSchedules)),operation_id="lake_workspace_schedules")]
 pub(super) async fn workspace_schedules(
     State(s): State<AppState>,
-    Query(q): Query<CollectionSchedulesQuery>,
+    Query(q): Query<LakeWorkspaceSchedulesQuery>,
 ) -> ApiResult<LakeWorkspaceSchedules> {
     invoke(s, Op::WorkspaceSchedules, json!(q)).await
 }

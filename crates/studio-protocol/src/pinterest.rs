@@ -110,6 +110,35 @@ pub struct PinterestCapabilities {
     pub schedules: bool,
     pub image_profiles: Vec<String>,
     pub max_seeds: u32,
+    pub entrypoints: Vec<String>,
+    pub detail_enrichment_modes: Vec<String>,
+    pub reuse_modes: Vec<String>,
+}
+#[derive(Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SavePinterestSchedule {
+    pub request_key: String,
+    pub id: String,
+    pub expected_revision: u64,
+    pub definition: PinterestDefinition,
+    pub every_seconds: u64,
+    pub first_run_at: String,
+    pub enabled: bool,
+}
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct PinterestSchedule {
+    pub id: String,
+    pub definition: PinterestDefinition,
+    pub every_seconds: u64,
+    pub next_run_at: String,
+    pub enabled: bool,
+    pub revision: u64,
+    pub last_job: Option<String>,
+}
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct PinterestSchedules {
+    pub items: Vec<PinterestSchedule>,
+    pub next_cursor: Option<String>,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct PinterestCount {
@@ -136,6 +165,7 @@ pub struct PinterestJob {
     pub detail_requests: u64,
     pub budget_round: u64,
     pub budget_usage: std::collections::BTreeMap<String, f64>,
+    pub totals: std::collections::BTreeMap<String, f64>,
     pub metrics: std::collections::BTreeMap<String, u64>,
     pub media_complete: bool,
     pub enrichment_pending: u64,

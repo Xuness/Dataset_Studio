@@ -1023,6 +1023,70 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/pinterest-collections/lakes/register": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["pinterest_register_lake"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/pinterest-collections/schedules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["pinterest_schedules"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/pinterest-collections/schedules/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put: operations["pinterest_save_schedule"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/pinterest-collections/schedules/{id}/remove": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["pinterest_remove_schedule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/pinterest-collections/status": {
         parameters: {
             query?: never;
@@ -6123,6 +6187,10 @@ export interface components {
             /** @enum {string} */
             family: "collection";
             schedule: components["schemas"]["CollectionSchedule"];
+        } | {
+            /** @enum {string} */
+            family: "pinterest";
+            schedule: components["schemas"]["PinterestSchedule"];
         };
         LakeWorkspaceSchedules: {
             items: components["schemas"]["LakeWorkspaceSchedule"][];
@@ -6681,13 +6749,16 @@ export interface components {
             collector: string;
             /** Format: int32 */
             contract_version: number;
+            detail_enrichment_modes: string[];
             discovery: boolean;
+            entrypoints: string[];
             image_profiles: string[];
             /** Format: int32 */
             max_seeds: number;
             media_types: string[];
             /** Format: int32 */
             online_format: number;
+            reuse_modes: string[];
             schedules: boolean;
             seed_kinds: string[];
             site: string;
@@ -6784,6 +6855,9 @@ export interface components {
             /** Format: int64 */
             served_seq: number;
             state: string;
+            totals: {
+                [key: string]: number;
+            };
             updated_at: string;
         };
         PinterestJobAction: {
@@ -6818,6 +6892,21 @@ export interface components {
             /** Format: int32 */
             max_age_hours: number;
             mode: string;
+        };
+        PinterestSchedule: {
+            definition: components["schemas"]["PinterestDefinition"];
+            enabled: boolean;
+            /** Format: int64 */
+            every_seconds: number;
+            id: string;
+            last_job?: string | null;
+            next_run_at: string;
+            /** Format: int64 */
+            revision: number;
+        };
+        PinterestSchedules: {
+            items: components["schemas"]["PinterestSchedule"][];
+            next_cursor?: string | null;
         };
         PinterestScope: {
             ai_policy: string;
@@ -7729,6 +7818,17 @@ export interface components {
         SaveOriginal: {
             /** @description Absolute file path chosen by the user; never inside an attached lake. */
             path: string;
+        };
+        SavePinterestSchedule: {
+            definition: components["schemas"]["PinterestDefinition"];
+            enabled: boolean;
+            /** Format: int64 */
+            every_seconds: number;
+            /** Format: int64 */
+            expected_revision: number;
+            first_run_at: string;
+            id: string;
+            request_key: string;
         };
         SaveQuery: {
             /** Format: int64 */
@@ -9726,6 +9826,102 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CollectionLake"];
+                };
+            };
+        };
+    };
+    pinterest_register_lake: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateCollectionLake"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionLake"];
+                };
+            };
+        };
+    };
+    pinterest_schedules: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+                library_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PinterestSchedules"];
+                };
+            };
+        };
+    };
+    pinterest_save_schedule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SavePinterestSchedule"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PinterestSchedule"];
+                };
+            };
+        };
+    };
+    pinterest_remove_schedule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CollectionRevisionCommand"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionScheduleRemoved"];
                 };
             };
         };
@@ -14009,6 +14205,7 @@ export interface operations {
                 cursor?: string;
                 limit?: number;
                 library_id?: string;
+                include_pinterest?: boolean;
             };
             header?: never;
             path?: never;

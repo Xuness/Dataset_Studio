@@ -770,6 +770,9 @@ class Runner:
             from ..collections.schedules import Schedules
 
             Schedules(self.collections.service).tick()
+            from ..pinterest.schedules import Schedules as PinterestSchedules
+
+            PinterestSchedules(self.pinterest.service).tick()
             for lake, (future, identity, execution, family) in list(active.items()):
                 if future.done():
                     del active[lake]

@@ -2460,6 +2460,164 @@
         }
       }
     },
+    "/v1/pinterest-collections/lakes/register": {
+      "post": {
+        "tags": [
+          "pinterest"
+        ],
+        "operationId": "pinterest_register_lake",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCollectionLake"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionLake"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/pinterest-collections/schedules": {
+      "get": {
+        "tags": [
+          "pinterest"
+        ],
+        "operationId": "pinterest_schedules",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "library_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PinterestSchedules"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/pinterest-collections/schedules/{id}": {
+      "put": {
+        "tags": [
+          "pinterest"
+        ],
+        "operationId": "pinterest_save_schedule",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SavePinterestSchedule"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PinterestSchedule"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/pinterest-collections/schedules/{id}/remove": {
+      "post": {
+        "tags": [
+          "pinterest"
+        ],
+        "operationId": "pinterest_remove_schedule",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CollectionRevisionCommand"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionScheduleRemoved"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/pinterest-collections/status": {
       "get": {
         "tags": [
@@ -10133,6 +10291,14 @@
             "required": false,
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "include_pinterest",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
             }
           }
         ],
@@ -19596,6 +19762,24 @@
                 "$ref": "#/components/schemas/CollectionSchedule"
               }
             }
+          },
+          {
+            "type": "object",
+            "required": [
+              "schedule",
+              "family"
+            ],
+            "properties": {
+              "family": {
+                "type": "string",
+                "enum": [
+                  "pinterest"
+                ]
+              },
+              "schedule": {
+                "$ref": "#/components/schemas/PinterestSchedule"
+              }
+            }
           }
         ]
       },
@@ -21889,7 +22073,10 @@
           "discovery",
           "schedules",
           "image_profiles",
-          "max_seeds"
+          "max_seeds",
+          "entrypoints",
+          "detail_enrichment_modes",
+          "reuse_modes"
         ],
         "properties": {
           "access_modes": {
@@ -21911,8 +22098,20 @@
             "format": "int32",
             "minimum": 0
           },
+          "detail_enrichment_modes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "discovery": {
             "type": "boolean"
+          },
+          "entrypoints": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
           "image_profiles": {
             "type": "array",
@@ -21935,6 +22134,12 @@
             "type": "integer",
             "format": "int32",
             "minimum": 0
+          },
+          "reuse_modes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           },
           "schedules": {
             "type": "boolean"
@@ -22170,6 +22375,7 @@
           "detail_requests",
           "budget_round",
           "budget_usage",
+          "totals",
           "metrics",
           "media_complete",
           "enrichment_pending",
@@ -22311,6 +22517,16 @@
           "state": {
             "type": "string"
           },
+          "totals": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "number",
+              "format": "double"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
           "updated_at": {
             "type": "string"
           }
@@ -22445,6 +22661,67 @@
           }
         },
         "additionalProperties": false
+      },
+      "PinterestSchedule": {
+        "type": "object",
+        "required": [
+          "id",
+          "definition",
+          "every_seconds",
+          "next_run_at",
+          "enabled",
+          "revision"
+        ],
+        "properties": {
+          "definition": {
+            "$ref": "#/components/schemas/PinterestDefinition"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "every_seconds": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "id": {
+            "type": "string"
+          },
+          "last_job": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "next_run_at": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "PinterestSchedules": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PinterestSchedule"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
       },
       "PinterestScope": {
         "type": "object",
@@ -26006,6 +26283,46 @@
           "path": {
             "type": "string",
             "description": "Absolute file path chosen by the user; never inside an attached lake."
+          }
+        },
+        "additionalProperties": false
+      },
+      "SavePinterestSchedule": {
+        "type": "object",
+        "required": [
+          "request_key",
+          "id",
+          "expected_revision",
+          "definition",
+          "every_seconds",
+          "first_run_at",
+          "enabled"
+        ],
+        "properties": {
+          "definition": {
+            "$ref": "#/components/schemas/PinterestDefinition"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "every_seconds": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "expected_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "first_run_at": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "request_key": {
+            "type": "string"
           }
         },
         "additionalProperties": false

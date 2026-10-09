@@ -469,6 +469,11 @@ def _finish(db, build):
 
 
 def build_archive(media, output, site, *, through=None, chunk_rows=1024, stop=None, reference_index=None):
+    if read_json(Path(media) / "library.json").get("format_version") == 3:
+        from .pinterest.lake.maintenance import build
+        if site != "pinterest":
+            raise IntegrityError("Archive source differs from the requested site")
+        return build(media, output, through=through, chunk_rows=chunk_rows, stop=stop, reference_index=reference_index)
     if read_json(Path(media) / "library.json").get("format_version") == 2:
         from .media_lake.maintenance import build
 
@@ -582,6 +587,9 @@ def build_archive(media, output, site, *, through=None, chunk_rows=1024, stop=No
 def verify_archive(output, *, maximum_raw_bytes=256 * 1024**2):
     output = Path(output).resolve()
     build = read_json(output / "ONLINE-BUILD.json")
+    if build.get("source") == "canonical-archive-v3":
+        from .pinterest.lake.maintenance import verify
+        return verify(output, maximum_raw_bytes=maximum_raw_bytes)
     if build.get("source") == "canonical-archive-v2":
         from .media_lake.maintenance import verify
 
@@ -689,6 +697,9 @@ def compare_reference(output):
     """Compare stable identities and full metadata at the protected serving sequence."""
     output = Path(output).resolve()
     build = read_json(output / "ONLINE-BUILD.json")
+    if build.get("source") == "canonical-archive-v3":
+        from .pinterest.lake.maintenance import compare
+        return compare(output)
     if build.get("source") == "canonical-archive-v2":
         from .media_lake.maintenance import compare
 
@@ -800,7 +811,7 @@ def activate_archive(media, output):
     if media == output or media in output.parents or output in media.parents:
         raise IntegrityError("重建目录必须独立于主库")
     build = read_json(output / "ONLINE-BUILD.json")
-    if build.get("source") not in {"canonical-archive-v1", "canonical-archive-v2"} or build["state"] not in {"verified", "active"}:
+    if build.get("source") not in {"canonical-archive-v1", "canonical-archive-v2", "canonical-archive-v3"} or build["state"] not in {"verified", "active"}:
         raise IntegrityError("启用前必须完整验证归档重建结果")
     if read_json(media / "library.json")["library_id"] != build["library_id"]:
         raise IntegrityError("主库身份不匹配")
@@ -810,6 +821,10 @@ def activate_archive(media, output):
         FileLock(output / ".online.lock"),
     ):
         pointer = {key: build[key] for key in ("library_id", "generation", "file", "site", "schema_version")}
+        if build.get("source") == "canonical-archive-v3":
+            from .pinterest.lake.library import check_info
+            check_info(read_json(media / "library.json"))
+            pointer.update(schema_set=build["schema_set"], required_features=build["required_features"])
         linked = {"schema_version": build["schema_version"], "library_id": build["library_id"], "index_root": str(output)}
         for path, expected in ((output / "ONLINE.json", pointer), (media / "online-index.json", linked)):
             if path.exists() and read_json(path) != expected:
@@ -832,7 +847,7 @@ def cleanup_preparation(output, evidence):
     """Remove only this tool's private database after preserving its small proof files."""
     output, evidence = Path(output).resolve(), Path(evidence).resolve()
     build = read_json(output / "ONLINE-BUILD.json")
-    if build.get("source") not in {"canonical-archive-v1", "canonical-archive-v2"} or build["state"] not in {
+    if build.get("source") not in {"canonical-archive-v1", "canonical-archive-v2", "canonical-archive-v3"} or build["state"] not in {
         "built",
         "verified",
         "cleaned",
@@ -904,7 +919,7 @@ def main():
     )
     parser.add_argument("--media", type=Path)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--site", choices=("danbooru", "gelbooru", "yandere", "pixiv"))
+    parser.add_argument("--site", choices=("danbooru", "gelbooru", "yandere", "pixiv", "pinterest"))
     parser.add_argument("--through", type=int)
     parser.add_argument("--chunk-rows", type=int, default=1024)
     parser.add_argument("--reference-index", type=Path)

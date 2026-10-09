@@ -496,6 +496,20 @@ pub struct LakeWorkspaceJobsQuery {
 pub enum LakeWorkspaceSchedule {
     Update { schedule: crate::LakeUpdateSchedule },
     Collection { schedule: CollectionSchedule },
+    Pinterest { schedule: crate::PinterestSchedule },
+}
+#[derive(Serialize, Deserialize, ToSchema, IntoParams)]
+#[serde(deny_unknown_fields)]
+#[into_params(parameter_in=Query)]
+pub struct LakeWorkspaceSchedulesQuery {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub library_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub include_pinterest: Option<bool>,
 }
 page!(CollectionSchedules, CollectionSchedule);
 page!(LakeWorkspaceLakes, LakeWorkspaceLake);

@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from PIL import Image, UnidentifiedImageError
 
 from .http import MediaSessions
+from . import reuse
 from ..canonical import canonical, utc
 from ..png_compat import inspect_path, PngCompatibilityError
 from ..updates import transfer
@@ -25,10 +26,14 @@ def acquire(state, lib, job, task, entry, resources, cancelled, *, http=None):
     if previous:
         saved = json.loads(previous[0])
         path = directory / (key + ".downloaded")
-        if not path.is_file() or file_hash(path) != saved["download_sha256"]:
-            raise UpdateError("PINTEREST_ACQUISITION_LOST", "A staged acquisition is missing or changed; explicit retry is required")
         if (saved["width"], saved["height"]) != (entry["width"], entry["height"]):
             return dict(state="needs_review", reason="shared_url_dimensions_mismatch"), None
+        if not path.is_file():
+            if reuse.object_available(lib, saved, resources, cancelled):
+                return {**saved, "state": "downloaded", "reused": True, "archive_reuse": True}, None
+            raise UpdateError("PINTEREST_ACQUISITION_LOST", "A staged acquisition is missing or changed; explicit retry is required")
+        if file_hash(path) != saved["download_sha256"]:
+            raise UpdateError("PINTEREST_ACQUISITION_LOST", "A staged acquisition is missing or changed; explicit retry is required")
         return {**saved, "state": "downloaded", "reused": True}, path
     plan = StagingPlan(min(resources.max_download_bytes, INITIAL_DOWNLOAD), None)
     lease = resources.try_reserve(directory, key, plan.peak())
@@ -44,6 +49,17 @@ def acquire(state, lib, job, task, entry, resources, cancelled, *, http=None):
         origin = db.execute("SELECT entrypoint FROM pinterest_streams WHERE scan_id=? AND job_id=?", (entry.get("scan_id"), job["id"])).fetchone()
     try:
         path, receipt = directory / (key + ".downloaded"), directory / (key + ".download.json")
+        reuse_key = reuse.key(lib, entry)
+        if not path.exists() and not (directory / (key + ".partial")).exists():
+            prior, response = reuse.previous(state, lib, job, task, entry, reuse_key, key, sessions, resources, cancelled)
+            if prior:
+                if prior.get("state") == "needs_review":
+                    return prior, None
+                with state.db() as db:
+                    db.execute("INSERT INTO pinterest_downloads VALUES(?,?,?)", (job["id"], key, canonical(prior)))
+                return {**prior, "state": "downloaded", "reused": True}, None
+            if response is not None:
+                sessions.session = reuse.Prefetched(sessions.session, response)
         saved = read_json(receipt) if receipt.exists() and path.exists() else None
         if not saved or saved.get("sha256") != file_hash(path) or not saved.get("md5"):
             def progress(**values):
@@ -94,7 +110,7 @@ def acquire(state, lib, job, task, entry, resources, cancelled, *, http=None):
             download_md5=saved["md5"], download_bytes=saved["download_bytes"], cdn_etag=etag, acquired_at=utc(),
             evidence="downloaded", details_json=canonical(dict(frames=1, source_format=fmt, original_field=entry["field_path"])),
             width=width, height=height, ext={"JPEG": "jpg"}.get(fmt, fmt.lower()), content_type=Image.MIME.get(fmt, "image/" + fmt.lower()),
-            download_key=key)
+            download_key=key, reuse_key=reuse_key, source_checked_at=utc())
         with state.db() as db:
             db.execute("INSERT INTO pinterest_downloads VALUES(?,?,?)", (job["id"], key, canonical(result)))
         return {**result, "state": "downloaded", "reused": False}, path

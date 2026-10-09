@@ -83,8 +83,10 @@ def admit_pin(state, job, entry, replay):
         downloads(replay, parsed, entry["scan_id"])
         metadata = json.loads(job["definition_json"])["metadata"]
         enrichment = metadata["detail_enrichment"]
-        with state.db() as db:
-            scheduled = db.execute("SELECT count(*) FROM pinterest_tasks WHERE job_id=? AND json_extract(input_json,'$.scan_id')=? AND kind='pin_enrichment'", (job["id"], entry["scan_id"])).fetchone()[0]
+        scheduled = 0
+        if enrichment == "sample":
+            with state.db() as db:
+                scheduled = db.execute("SELECT count(*) FROM pinterest_tasks WHERE job_id=? AND json_extract(input_json,'$.scan_id')=? AND kind='pin_enrichment'", (job["id"], entry["scan_id"])).fetchone()[0]
         if enrichment == "all" or (enrichment == "sample" and scheduled < metadata.get("sample_size", 3)):
             replay["next_tasks"].append(task("pin_enrichment", subject, pin_id=subject, scan_id=entry["scan_id"],
                 list_revision=parsed["content_revision"], purpose=enrichment))

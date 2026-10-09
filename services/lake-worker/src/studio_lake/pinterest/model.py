@@ -136,11 +136,15 @@ def definition(value):
     sample_size = integer(metadata.get("sample_size", 3), 1, 20)
     media = dict(image_policy=dict(profile="original", existing="match_profile", allow_sample=False),
                  retain_original=True, reuse=dict(mode="revalidate", max_age_hours=0))
-    supplied_media = value.get("media", media)
-    if (supplied_media != media or type(supplied_media.get("retain_original")) is not bool
-            or type(supplied_media["image_policy"].get("allow_sample")) is not bool
-            or type(supplied_media["reuse"].get("max_age_hours")) is not int):
-        invalid("This version preserves original bytes and does not reuse acquisitions across runs")
+    supplied_media = fields(value.get("media", media), ("image_policy", "retain_original", "reuse"))
+    if (supplied_media["image_policy"] != media["image_policy"] or supplied_media["retain_original"] is not True
+            or type(supplied_media["image_policy"].get("allow_sample")) is not bool):
+        invalid("Pinterest preserves original bytes using the original image profile")
+    reuse = fields(supplied_media["reuse"], ("mode", "max_age_hours"))
+    if reuse["mode"] not in ("revalidate", "historical"):
+        invalid("Unsupported Pinterest reuse policy")
+    integer(reuse["max_age_hours"], 0, 8760)
+    media = supplied_media
     supplied = fields(value.get("run_budget", {}), (), DEFAULT_BUDGET)
     budget = {**DEFAULT_BUDGET, **supplied}
     for key in budget:

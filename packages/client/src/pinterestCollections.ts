@@ -39,6 +39,12 @@ export class PinterestCollectionClient {
       body: JSON.stringify(value),
     });
   }
+  registerLake(value: Schema["CreateCollectionLake"]) {
+    return this.request<Schema["CollectionLake"]>(`${base}/lakes/register`, {
+      method: "POST",
+      body: JSON.stringify(value),
+    });
+  }
   preview(definition: Schema["PinterestDefinition"]) {
     return this.request<Schema["PinterestPreview"]>(`${base}/jobs/preview`, {
       method: "POST",
@@ -89,6 +95,25 @@ export class PinterestCollectionClient {
     return this.request<Schema["PinterestStreams"]>(
       `${jobPath(id)}/streams?${query(values)}`,
       { signal: signal ?? null },
+    );
+  }
+  schedules(options: Page & { library_id?: string | undefined } = {}) {
+    const { signal, ...values } = options;
+    return this.request<Schema["PinterestSchedules"]>(
+      `${base}/schedules?${query(values)}`,
+      { signal: signal ?? null },
+    );
+  }
+  saveSchedule(value: Schema["SavePinterestSchedule"]) {
+    return this.request<Schema["PinterestSchedule"]>(
+      `${base}/schedules/${encodeURIComponent(value.id)}`,
+      { method: "PUT", body: JSON.stringify(value) },
+    );
+  }
+  removeSchedule(id: string, value: Schema["CollectionRevisionCommand"]) {
+    return this.request<Schema["CollectionScheduleRemoved"]>(
+      `${base}/schedules/${encodeURIComponent(id)}/remove`,
+      { method: "POST", body: JSON.stringify(value) },
     );
   }
 }

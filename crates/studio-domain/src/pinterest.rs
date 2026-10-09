@@ -5,6 +5,7 @@ pub enum PinterestOperation {
     Capabilities,
     Lakes,
     LakeCreate,
+    LakeRegister,
     Preview,
     Create,
     Jobs,
@@ -12,6 +13,9 @@ pub enum PinterestOperation {
     Items,
     Streams,
     Action,
+    Schedules,
+    ScheduleSave,
+    ScheduleRemove,
 }
 impl PinterestOperation {
     pub fn name(self) -> &'static str {
@@ -20,6 +24,7 @@ impl PinterestOperation {
             Self::Capabilities => "pinterest_capabilities",
             Self::Lakes => "pinterest_lakes",
             Self::LakeCreate => "pinterest_lake_create",
+            Self::LakeRegister => "pinterest_lake_register",
             Self::Preview => "pinterest_preview",
             Self::Create => "pinterest_create",
             Self::Jobs => "pinterest_jobs",
@@ -27,6 +32,9 @@ impl PinterestOperation {
             Self::Items => "pinterest_items",
             Self::Streams => "pinterest_streams",
             Self::Action => "pinterest_action",
+            Self::Schedules => "pinterest_schedules",
+            Self::ScheduleSave => "pinterest_schedule_save",
+            Self::ScheduleRemove => "pinterest_schedule_remove",
         }
     }
 }

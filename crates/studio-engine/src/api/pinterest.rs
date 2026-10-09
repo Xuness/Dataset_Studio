@@ -1,4 +1,5 @@
 use super::*;
+use axum::routing::put;
 use domain::pinterest::PinterestOperation as Op;
 use serde_json::{Value, json};
 
@@ -41,6 +42,13 @@ pub(super) async fn create_lake(
     Body(body): Body<CreateCollectionLake>,
 ) -> ApiResult<CollectionLake> {
     invoke(s, Op::LakeCreate, json!(body)).await
+}
+#[utoipa::path(post,path="/v1/pinterest-collections/lakes/register",request_body=CreateCollectionLake,responses((status=200,body=CollectionLake)),operation_id="pinterest_register_lake")]
+pub(super) async fn register_lake(
+    State(s): State<AppState>,
+    Body(body): Body<CreateCollectionLake>,
+) -> ApiResult<CollectionLake> {
+    invoke(s, Op::LakeRegister, json!(body)).await
 }
 #[utoipa::path(post,path="/v1/pinterest-collections/jobs/preview",request_body=PinterestDefinition,responses((status=200,body=PinterestPreview)),operation_id="pinterest_preview")]
 pub(super) async fn preview(
@@ -105,10 +113,43 @@ pub(super) fn routes() -> axum::Router<AppState> {
         .route("/status", get(status))
         .route("/capabilities", get(capabilities))
         .route("/lakes", get(lakes).post(create_lake))
+        .route("/lakes/register", post(register_lake))
         .route("/jobs/preview", post(preview))
         .route("/jobs", get(jobs).post(create))
         .route("/jobs/{id}", get(job))
         .route("/jobs/{id}/items", get(items))
         .route("/jobs/{id}/streams", get(streams))
         .route("/jobs/{id}/actions", post(action))
+        .route("/schedules", get(schedules))
+        .route("/schedules/{id}", put(save_schedule))
+        .route("/schedules/{id}/remove", post(remove_schedule))
+}
+
+#[utoipa::path(get,path="/v1/pinterest-collections/schedules",params(CollectionSchedulesQuery),responses((status=200,body=PinterestSchedules)),operation_id="pinterest_schedules")]
+pub(super) async fn schedules(
+    State(s): State<AppState>,
+    Query(q): Query<CollectionSchedulesQuery>,
+) -> ApiResult<PinterestSchedules> {
+    invoke(s, Op::Schedules, json!(q)).await
+}
+#[utoipa::path(put,path="/v1/pinterest-collections/schedules/{id}",params(("id"=String,Path)),request_body=SavePinterestSchedule,responses((status=200,body=PinterestSchedule)),operation_id="pinterest_save_schedule")]
+pub(super) async fn save_schedule(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+    Body(body): Body<SavePinterestSchedule>,
+) -> ApiResult<PinterestSchedule> {
+    if id != body.id {
+        return Err(domain::Error::invalid("Pinterest schedule identity differs").into());
+    }
+    invoke(s, Op::ScheduleSave, json!(body)).await
+}
+#[utoipa::path(post,path="/v1/pinterest-collections/schedules/{id}/remove",params(("id"=String,Path)),request_body=CollectionRevisionCommand,responses((status=200,body=CollectionScheduleRemoved)),operation_id="pinterest_remove_schedule")]
+pub(super) async fn remove_schedule(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+    Body(body): Body<CollectionRevisionCommand>,
+) -> ApiResult<CollectionScheduleRemoved> {
+    let mut args = json!(body);
+    args["id"] = json!(id);
+    invoke(s, Op::ScheduleRemove, args).await
 }

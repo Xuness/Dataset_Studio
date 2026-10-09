@@ -96,6 +96,11 @@ def replay(state, lib, job_id):
                 sample = value["sample"]
                 db.execute("UPDATE pinterest_streams SET samples_checked=samples_checked+1,mismatches=mismatches+?,force_detail=max(force_detail,?) WHERE scan_id=? AND job_id=?",
                            (int(sample["differs"]), int(sample["differs"]), sample["scan_id"], job_id))
+            if "reuse_acquisition" in value:
+                acquisition = value["reuse_acquisition"]
+                lake = db.execute("SELECT lake_id FROM pinterest_jobs WHERE id=?", (job_id,)).fetchone()[0]
+                db.execute("INSERT INTO pinterest_reuse VALUES(?,?,?) ON CONFLICT(lake_id,reuse_key) DO UPDATE SET value_json=excluded.value_json",
+                           (lake, acquisition["reuse_key"], canonical(acquisition)))
             if value["kind"] == "intent":
                 for item in value["next_tasks"]:
                     task(db, job_id, item["kind"], item["pin_id"], item["input"])
