@@ -168,6 +168,15 @@ def page(state, response, job, entry, replay):
         except (ValueError, KeyError, TypeError, UnicodeError):
             pass
     records, payload, error = normalize.capture_facts(response, replay["receipt_id"], subject, parsed_payload=decoded)
+    visibility = {k: response.context[k] for k in ("mode", "language", "session_id", "anonymous_cookie_policy", "source_country", "source_language", "source_locale") if response.context.get(k) is not None}
+    with state.db() as db:
+        saved = db.execute("SELECT parameters_json FROM pinterest_streams WHERE scan_id=? AND job_id=?", (scan, job["id"])).fetchone()
+    old_visibility = json.loads(saved[0]).get("visibility", {}) if saved else {}
+    if any(k in visibility and visibility[k] != v for k, v in old_visibility.items()):
+        error = "discovery_visibility_changed"
+        replay["checkpoint"] = dict(scan_id=scan, page_key=stable_id("pinterest-page-v1", entry.get("cursor")),
+            cursor=entry.get("cursor"), state="needs_review", reason=error, members=0, visibility=old_visibility)
+    visibility = {**old_visibility, **visibility}
     envelope = payload.get("resource_response") if isinstance(payload, dict) else None
     data = envelope.get("data") if isinstance(envelope, dict) else None
     items = data.get("results") if isinstance(data, dict) else data
@@ -263,7 +272,7 @@ def page(state, response, job, entry, replay):
     records["discovery_members"] = members
     replay["checkpoint"] = dict(scan_id=scan, page_key=key, cursor=cursor,
         state="needs_review" if reason else "exhausted" if exhausted else "active",
-        reason=reason or ("empty_result_reason_unknown" if not items else None), members=len(members))
+        reason=reason or ("empty_result_reason_unknown" if not items else None), members=len(members), visibility=visibility)
     metric(replay, kind + ":pages")
     metric(replay, kind + ":members", len(members))
     metric(replay, kind + ":ignored_items", ignored)

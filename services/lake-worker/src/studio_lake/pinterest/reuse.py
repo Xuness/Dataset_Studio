@@ -25,7 +25,7 @@ def key(lib, entry):
     if not row:
         raise IntegrityError("Pinterest reuse requires an accepted complete manifest")
     context = json.loads(row[1])
-    scope = {k: context.get(k) for k in ("mode", "language", "response_language", "response_country", "client_version", "source_country", "account_id", "credential_revision")}
+    scope = {k: context.get(k) for k in ("mode", "language", "anonymous_cookie_policy", "response_language", "response_country", "client_version", "source_country", "source_language", "source_locale", "account_id", "credential_revision")}
     return stable_id("pinterest-reuse-v1", entry["normalized_url"], entry["role"], row[0], "original", scope)
 
 

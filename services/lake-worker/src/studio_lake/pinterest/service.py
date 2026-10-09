@@ -193,7 +193,7 @@ class Service:
         media_gaps = sum(r["n"] for r in counts if r["kind"] != "pin_enrichment" and r["state"] in ("needs_review", "unavailable"))
         return dict(**row, definition=spec, counts=counts, phase=row["state"], actions=actions,
             metrics=metrics, totals=usage, budget_usage={k: v - baseline.get(k, 0) for k, v in usage.items()},
-            media_complete=media_pending == 0 and media_gaps == 0 and row["state"] in ("completed", "waiting_budget"),
+            media_complete=media_pending == 0 and media_gaps == 0 and not metrics.get("manifest_discrepancies") and row["state"] in ("completed", "waiting_budget"),
             enrichment_pending=sum(r["n"] for r in counts if r["kind"] == "pin_enrichment" and r["state"] != "done"))
 
     @staticmethod

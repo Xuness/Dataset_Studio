@@ -133,7 +133,7 @@ API 图片输入：[发送前缩放与阶段中途调整分辨率](decisions/006
 早期阶段计划保留当时的范围与验收标准；美学排序目录同时维护阶段说明及后续计划。
 
 - [多来源图片采集规划与来源接入设计（2026-10-09 更新）](plans/Dataset%20Scraping/README.md)
-- [Pinterest 独立采集下载模块与数据湖接入设计](plans/Dataset%20Scraping/pinterest-backend-and-lake-design.md)：第一批指定 Pin 已接入，含使用方法、能力边界、归档恢复及 API/UI 验证。来源依据见[采集研究](plans/Dataset%20Scraping/pinterest-collector-design.md)、[入口实测](plans/Dataset%20Scraping/pinterest-discovery-strategy.md)与[原图规则](plans/Dataset%20Scraping/pinterest-original-media.md)。
+- [Pinterest 独立采集下载模块与数据湖接入设计](plans/Dataset%20Scraping/pinterest-backend-and-lake-design.md)：指定 Pin、图版/分区、推荐、搜索、主题及持续运行已接入；使用与验证边界见[第二至四批验收](verification/2026-10-10-pinterest-phases-2-4.md)。来源依据见[采集研究](plans/Dataset%20Scraping/pinterest-collector-design.md)、[入口实测](plans/Dataset%20Scraping/pinterest-discovery-strategy.md)与[原图规则](plans/Dataset%20Scraping/pinterest-original-media.md)。
 - [数据库架构升级：在线读取、热更新与三站更新管理（2026-09-26）](plans/数据库架构审查升级-2026-09-26/README.md)
 - [三站增量补全与更新管理（后端已交付）](plans/lake-incremental-updates-2026-09-26.md)
 - [三站更新 UI / UX 规划（已接入）](plans/lake-updates-ui-ux-2026-09-27.md)

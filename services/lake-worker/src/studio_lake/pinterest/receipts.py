@@ -92,6 +92,9 @@ def replay(state, lib, job_id):
                            (point["scan_id"], point["page_key"], row["receipt_id"]))
                 db.execute("UPDATE pinterest_streams SET state=?,cursor_json=?,reason=?,pages=pages+1,members=members+?,last_turn=?,updated_at=? WHERE scan_id=? AND job_id=?",
                     (point["state"], canonical(point["cursor"]), point["reason"], point["members"], row["seq"], utc(), point["scan_id"], job_id))
+                if "visibility" in point:
+                    db.execute("UPDATE pinterest_streams SET parameters_json=json_set(parameters_json,'$.visibility',json(?)) WHERE scan_id=? AND job_id=?",
+                               (canonical(point["visibility"]), point["scan_id"], job_id))
             if "sample" in value:
                 sample = value["sample"]
                 db.execute("UPDATE pinterest_streams SET samples_checked=samples_checked+1,mismatches=mismatches+?,force_detail=max(force_detail,?) WHERE scan_id=? AND job_id=?",

@@ -28,7 +28,10 @@ def main():
     parser.add_argument("--seed", required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--requests", type=int, default=3, choices=range(1, 11))
+    parser.add_argument("--verify-reuse", action="store_true", help="Repeat one specified Pin with conditional CDN validation")
     args = parser.parse_args()
+    if args.verify_reuse and args.kind != "pin":
+        parser.error("Conditional reuse verification requires one specified Pin")
     output = args.output.resolve()
     if not output.is_relative_to(ROOT / ".local/test-runs") or output.exists():
         parser.error("Use a new directory inside this checkout's .local/test-runs")
@@ -43,6 +46,12 @@ def main():
                         download_bytes=8 * 1024**2, wall_seconds=120))
     job = service.create(dict(request_key=str(uuid.uuid4()), definition=spec))
     result = Runner(state, resources=Resources(max_download_bytes=4 * 1024**2, reserve_bytes=0)).run(job["id"], time_slice=120)
+    repeated = None
+    if args.verify_reuse and result["state"] == "completed":
+        repeat_spec = json.loads(json.dumps(result["definition"]))
+        repeat_spec["media"]["reuse"] = dict(mode="revalidate", max_age_hours=24)
+        repeat = service.create(dict(request_key=str(uuid.uuid4()), definition=repeat_spec))
+        repeated = Runner(state, resources=Resources(max_download_bytes=4 * 1024**2, reserve_bytes=0)).run(repeat["id"], time_slice=120)
     lib = service.library(lake["library_id"])
     db = connect(output / "index/online.sqlite")
     try:
@@ -57,11 +66,13 @@ def main():
         captures = [dict(endpoint=r[0], status=r[1], source_error=r[2]) for r in db.execute("SELECT endpoint,http_status,source_error FROM captures ORDER BY observed_at")]
     finally:
         db.close()
-    report = dict(lake=lake, job=result, streams=service.page(dict(job_id=job["id"]), "streams"),
+    report = dict(lake=lake, job=result, repeat=repeated, streams=service.page(dict(job_id=job["id"]), "streams"),
         objects=objects, captures=captures, archive=lib.verify(deep=True))
     (output / "summary.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
     print(json.dumps(dict(output=str(output), state=result["state"], api_requests=result["api_requests"],
-        download_bytes=result["download_bytes"], objects=objects, captures=captures), ensure_ascii=False))
+        download_bytes=result["download_bytes"], repeat=None if repeated is None else dict(state=repeated["state"],
+        api_requests=repeated["api_requests"], download_bytes=repeated["download_bytes"], metrics=repeated["metrics"]),
+        objects=objects, captures=captures), ensure_ascii=False))
 
 
 if __name__ == "__main__":

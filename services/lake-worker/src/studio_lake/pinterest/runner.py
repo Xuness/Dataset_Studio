@@ -176,7 +176,7 @@ class Runner:
             response = receipts.load_response(root, task["receipt_id"])
             if response is None:
                 with self.state.db() as db:
-                    budget.request(db, job["id"], task["kind"])
+                    budget.request(db, job["id"], task["kind"], entry.get("scan_id"))
                 if task["kind"] == "pin_detail":
                     response = client.pin(task["pin_id"])
                 elif task["kind"] == "pin_enrichment":
@@ -285,6 +285,8 @@ class Runner:
                                 continue
                         retry = db.execute("SELECT min(retry_at) FROM pinterest_tasks WHERE job_id=? AND state='waiting_retry'", (identity,)).fetchone()[0]
                         gaps = db.execute("SELECT 1 FROM pinterest_tasks WHERE job_id=? AND kind<>'pin_enrichment' AND state IN ('needs_review','unavailable') LIMIT 1", (identity,)).fetchone()
+                        discrepancy = db.execute("SELECT 1 FROM pinterest_metrics WHERE job_id=? AND name='manifest_discrepancies' AND value>0", (identity,)).fetchone()
+                        gaps = gaps or discrepancy
                         limited = db.execute("SELECT 1 FROM pinterest_tasks WHERE job_id=? AND state='waiting_budget' LIMIT 1", (identity,)).fetchone()
                     self.update_state(identity, "waiting_retry" if retry else "waiting_budget" if limited else "completed_with_gaps" if gaps else "completed",
                                       retry=max(1, retry - time.time()) if retry else 0)
@@ -297,7 +299,7 @@ class Runner:
                 prepared = dict(replay=read_json(sealed / "replay.json"), records={}, media=None) if sealed else self._prepare(lib, job, task, client, cancelled)
                 self._publish(lib, job, **prepared)
                 reason = prepared["replay"].get("reason")
-                if reason in ("pin_http_401", "pin_http_403", "pin_http_301", "pin_http_302", "pin_response_invalid", "image_http_401", "image_http_403"):
+                if reason in ("pin_http_401", "pin_http_403", "pin_http_301", "pin_http_302", "pin_response_invalid", "image_http_401", "image_http_403", "discovery_visibility_changed"):
                     self.update_state(identity, "needs_review", reason)
                     return
             current = self.service.row(identity)

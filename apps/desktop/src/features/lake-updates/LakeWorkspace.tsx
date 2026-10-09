@@ -60,6 +60,7 @@ import {
 } from "./pinterestModel.js";
 import { ScheduleDetails } from "./ScheduleDetails.js";
 import { CollectionScheduleDetails } from "./CollectionScheduleDetails.js";
+import { PinterestScheduleDetails } from "./PinterestScheduleDetails.js";
 import { ScopePreparations } from "./ScopePreparations.js";
 import { MetadataCatalog } from "./MetadataCatalog.js";
 import { PipelineSettings } from "./PipelineSettings.js";
@@ -255,6 +256,7 @@ export default function LakeWorkspace({
     queryKey: [...key, "workspace-schedules", v.lakeId, after.at(-1)],
     queryFn: ({ signal }) =>
       client.sourceCollections.workspaceSchedules({
+        include_pinterest: true,
         signal,
         library_id: v.lakeId || undefined,
         cursor: after.at(-1) || undefined,
@@ -265,7 +267,7 @@ export default function LakeWorkspace({
   });
   const lake = lakes.find((l) => l.id === v.lakeId),
     schedule = schedules.data?.items.find(
-      (s) => s.schedule.id === v.scheduleId,
+      (s) => s.schedule.id === v.scheduleId && s.family === v.family,
     );
   useEffect(() => {
     if (!state.editable || !invocation) return;
@@ -331,7 +333,14 @@ export default function LakeWorkspace({
         <p>正在读取任务…</p>
       )
     ) : v.view === "schedules" && schedule ? (
-      schedule.family === "collection" ? (
+      schedule.family === "pinterest" ? (
+        <PinterestScheduleDetails
+          key={`${schedule.schedule.id}:${schedule.schedule.revision}`}
+          client={client}
+          schedule={schedule.schedule}
+          onJob={(id) => chooseJob(id, "pinterest")}
+        />
+      ) : schedule.family === "collection" ? (
         <CollectionScheduleDetails
           key={schedule.schedule.id}
           client={client}
@@ -704,7 +713,7 @@ export default function LakeWorkspace({
                       const targetLake = lakes.find((l) => l.id === id);
                       const done =
                         row.family === "pinterest"
-                          ? `${pinterestCount(row.job, ["done"], "pin_detail")} Pin · ${pinterestCount(row.job, ["done"], "media_download")} 原图记录`
+                          ? `${row.job.totals.admitted_pins ?? 0} Pin · ${pinterestCount(row.job, ["done"], "media_download")} 原图记录`
                           : row.family === "collection"
                             ? `${row.job.progress.works.details} 作品 · ${row.job.progress.media.published + row.job.progress.media.retained} 媒体`
                             : processedCount(row.job).toLocaleString();
@@ -820,8 +829,12 @@ export default function LakeWorkspace({
                         );
                       return (
                         <tr
-                          key={s.id}
-                          className={v.scheduleId === s.id ? "selected" : ""}
+                          key={`${row.family}:${s.id}`}
+                          className={
+                            v.scheduleId === s.id && v.family === row.family
+                              ? "selected"
+                              : ""
+                          }
                         >
                           <td>
                             <button
@@ -830,9 +843,11 @@ export default function LakeWorkspace({
                                 select({ scheduleId: s.id, family: row.family })
                               }
                             >
-                              {row.family === "collection"
-                                ? collectionRange(row.schedule.definition)
-                                : rangeLabel(row.schedule.definition)}
+                              {row.family === "pinterest"
+                                ? pinterestRange(row.schedule.definition)
+                                : row.family === "collection"
+                                  ? collectionRange(row.schedule.definition)
+                                  : rangeLabel(row.schedule.definition)}
                             </button>
                           </td>
                           <td>
@@ -928,7 +943,6 @@ export default function LakeWorkspace({
               <input
                 type="checkbox"
                 checked={target.create}
-                disabled={target.site === "pinterest"}
                 onChange={(e) =>
                   setTarget({
                     ...target,
@@ -941,7 +955,8 @@ export default function LakeWorkspace({
             </label>
             {target.site === "pinterest" && (
               <p className="lake-hint">
-                Pinterest 当前支持创建新湖。已有湖可从项目来源面板添加用于浏览。
+                可创建空湖，也可登记已有的 Pinterest
+                湖。登记会核对归档、在线索引和采集控制器归属。
               </p>
             )}
             <label>
@@ -993,13 +1008,16 @@ export default function LakeWorkspace({
                 void act(async () => {
                   let libraryId: string;
                   if (target.site === "pinterest") {
+                    const args = {
+                      request_key: target.requestKey,
+                      site: "pinterest",
+                      media_root: target.media_root.trim(),
+                      index_root: target.index_root.trim(),
+                    };
                     libraryId = (
-                      await client.pinterestCollections.createLake({
-                        request_key: target.requestKey,
-                        site: "pinterest",
-                        media_root: target.media_root.trim(),
-                        index_root: target.index_root.trim(),
-                      })
+                      target.create
+                        ? await client.pinterestCollections.createLake(args)
+                        : await client.pinterestCollections.registerLake(args)
                     ).library_id;
                   } else if (target.site === "pixiv") {
                     const args = {

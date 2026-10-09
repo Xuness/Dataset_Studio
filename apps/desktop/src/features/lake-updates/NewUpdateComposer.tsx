@@ -64,7 +64,7 @@ export function NewUpdateComposer({
       initialLake={initialLake}
       sourceHeader={header}
       onClose={onClose}
-      onCreated={(id) => onCreated(id, "job", "pinterest")}
+      onCreated={(id, kind) => onCreated(id, kind, "pinterest")}
     />
   ) : family === "collection" ? (
     <CollectionComposer

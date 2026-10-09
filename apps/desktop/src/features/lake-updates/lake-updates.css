@@ -175,6 +175,10 @@
   gap: 10px;
   padding: 12px;
 }
+.lake-details fieldset.lake-fields {
+  border: 0;
+  margin: 0;
+}
 .lake-fields > label:not(.lake-check) {
   display: grid;
   grid-template-columns: minmax(110px, 0.8fr) minmax(100px, 1.5fr);

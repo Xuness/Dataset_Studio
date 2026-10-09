@@ -43,8 +43,13 @@ def reason(db, job, task, spec):
     return None
 
 
-def request(db, job_id, kind):
+def request(db, job_id, kind, scan_id=None):
     db.execute("UPDATE pinterest_jobs SET api_requests=api_requests+1,detail_requests=detail_requests+? WHERE id=?",
                (int(kind in ("pin_detail", "pin_enrichment")), job_id))
     db.execute("INSERT INTO pinterest_metrics VALUES(?,?,1) ON CONFLICT(job_id,name) DO UPDATE SET value=value+1",
                (job_id, kind + ":requests"))
+    if kind in ("pin_detail", "pin_enrichment") and scan_id:
+        row = db.execute("SELECT entrypoint FROM pinterest_streams WHERE scan_id=? AND job_id=?", (scan_id, job_id)).fetchone()
+        if row:
+            db.execute("INSERT INTO pinterest_metrics VALUES(?,?,1) ON CONFLICT(job_id,name) DO UPDATE SET value=value+1",
+                       (job_id, row[0] + ":detail_requests"))

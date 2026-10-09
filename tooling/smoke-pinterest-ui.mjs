@@ -105,6 +105,16 @@ try {
         assert.deepEqual(body.definition, refs.budget_job.definition);
         submissions.push(body);
       }
+      if (
+        request.method() === "PUT" &&
+        request.url().includes("/v1/pinterest-collections/schedules/")
+      ) {
+        assert.equal(
+          request.postDataJSON().enabled,
+          false,
+          "UI schedules stay disabled in the offline fixture",
+        );
+      }
       const response = await fetch(request.url(), {
         method: request.method(),
         headers,
@@ -223,7 +233,10 @@ try {
     .getByLabel("Pinterest 数据湖", { exact: true })
     .selectOption(refs.lake.library_id);
   await dialog.getByLabel("Pin ID 或链接", { exact: true }).fill("3001\n3002");
+  await dialog.getByLabel("最多来源请求", { exact: true }).fill("1");
   await dialog.getByLabel("最多详情请求", { exact: true }).fill("1");
+  await dialog.getByLabel("最多准入 Pin", { exact: true }).fill("1");
+  await dialog.getByLabel("详情补取", { exact: true }).selectOption("none");
   await dialog
     .getByRole("button", { name: "检查任务摘要", exact: true })
     .click();
@@ -241,7 +254,7 @@ try {
   await expect(dialog.getByRole("status")).toContainText("采集任务已创建");
   assert.equal(submissions.length, 2);
   assert.equal(submissions[0].request_key, submissions[1].request_key);
-  assert.equal((await client.pinterestCollections.jobs()).items.length, 2);
+  assert.equal((await client.pinterestCollections.jobs()).items.length, 3);
   await dialog.getByRole("button", { name: "关闭", exact: true }).click();
   await expect(page.locator(".lake-details")).toContainText("本轮预算用完");
   await expect(page.locator(".lake-details")).toContainText("Pin 与媒体明细");
@@ -263,6 +276,79 @@ try {
   );
   checks.push(
     "UI creates/attaches an empty lake, previews specified Pins, reuses the submission key after lost response, and pauses/cancels via formal APIs",
+  );
+  await page.getByRole("button", { name: "图版 1001", exact: true }).click();
+  await expect(page.locator(".lake-details")).toContainText("发现流与覆盖依据");
+  await expect(page.locator(".lake-details")).toContainText("源站本次返回结束");
+  await expect(page.locator(".lake-details")).toContainText("2 页");
+  await page.screenshot({ path: resolve(run, "pinterest-discovery.png") });
+  await page.getByRole("button", { name: "新建更新", exact: true }).click();
+  dialog = page.getByRole("dialog", { name: "新建数据湖更新", exact: true });
+  await dialog
+    .getByRole("button", { name: "编辑并新建另一轮", exact: true })
+    .click();
+  await dialog
+    .getByLabel("Pinterest 种子类型", { exact: true })
+    .selectOption("board");
+  await dialog
+    .getByLabel("Pinterest 种子", { exact: true })
+    .fill("https://www.pinterest.com/test/board/");
+  await dialog.getByLabel("详情补取", { exact: true }).selectOption("all");
+  await dialog
+    .locator("summary")
+    .filter({ hasText: "发现扩展与积压限制" })
+    .click();
+  await dialog
+    .getByRole("checkbox", { name: "图版 More ideas", exact: true })
+    .check();
+  await dialog.locator("summary").filter({ hasText: "周期复查" }).click();
+  await dialog
+    .getByRole("checkbox", { name: "建立周期计划", exact: true })
+    .check();
+  await dialog
+    .getByRole("checkbox", { name: "创建后启用计划", exact: true })
+    .uncheck();
+  await dialog
+    .getByRole("button", { name: "检查任务摘要", exact: true })
+    .click();
+  await expect(
+    dialog.getByRole("region", { name: "Pinterest 任务摘要" }),
+  ).toContainText("创建为未启用");
+  await page.screenshot({ path: resolve(run, "pinterest-board-composer.png") });
+  await dialog
+    .getByRole("button", { name: "创建周期计划", exact: true })
+    .click();
+  await expect(dialog.getByRole("status")).toContainText("周期计划已创建");
+  await dialog.getByRole("button", { name: "关闭", exact: true }).click();
+  await expect(page.locator(".lake-details")).toContainText(
+    "Pinterest 周期复查",
+  );
+  await expect(
+    page.locator(".lake-details").getByRole("checkbox", { name: "启用计划" }),
+  ).not.toBeChecked();
+  await page
+    .locator(".lake-details")
+    .getByLabel("复查间隔（小时）", { exact: true })
+    .fill("48");
+  await page
+    .locator(".lake-details")
+    .getByRole("button", { name: "保存计划", exact: true })
+    .click();
+  await expect
+    .poll(
+      async () =>
+        (await client.pinterestCollections.schedules()).items[0]?.every_seconds,
+    )
+    .toBe(172800);
+  await expect(page.getByText("每 48 小时", { exact: true })).toBeVisible();
+  await expect(
+    page
+      .locator(".lake-details")
+      .getByRole("button", { name: "保存计划", exact: true }),
+  ).toBeEnabled();
+  await page.screenshot({ path: resolve(run, "pinterest-schedule.png") });
+  checks.push(
+    "board stream evidence, bounded discovery options and disabled recurring plans round-trip through the workbench without source requests",
   );
   assert.deepEqual(errors, []);
   await writeFile(

@@ -398,9 +398,12 @@ export function MetadataInspector({
                               >
                                 {o.source_kind === "pinterest_pin_detail"
                                   ? "Pin 详情 · "
-                                  : o.source_kind === "pinterest_media_manifest"
-                                    ? "原图记录 · "
-                                    : ""}
+                                  : o.source_kind === "pinterest_pin_list"
+                                    ? "Pin 列表观察 · "
+                                    : o.source_kind ===
+                                        "pinterest_media_manifest"
+                                      ? "原图记录 · "
+                                      : ""}
                                 {o.observed_at?.slice(0, 10) ?? "时间未知"} ·{" "}
                                 {o.relation === "asset_origin"
                                   ? "直接关联"

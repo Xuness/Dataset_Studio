@@ -3,6 +3,7 @@
 from contextlib import nullcontext
 from dataclasses import asdict, dataclass
 import hashlib
+import json
 import time
 from urllib.parse import quote, urlsplit
 
@@ -36,12 +37,13 @@ class Client:
     def __init__(self, root, context, *, cancelled=lambda: False, session=None):
         self.rate_root, self.name = root, "pinterest"
         # An anonymous job keeps one explicit session identity across execution slices/restarts.
-        self.context = {**context, "session_instance": context["session_id"]}
+        self.context = {**context, "session_instance": context["session_id"], "anonymous_cookie_policy": "fixed-csrf-only"}
         self.cancelled, self.injected = cancelled, session is not None
         self.session = session or requests.Session()
         if session is None:
             self.session.trust_env = False
             token = hashlib.sha256(context["session_id"].encode()).hexdigest()
+            self.csrf_token = token
             self.session.cookies.set("csrftoken", token, domain="www.pinterest.com", path="/", secure=True)
             self.session.headers.update({"User-Agent": "Mozilla/5.0 Dataset-Studio/0.2",
                 "Accept": "application/json, text/javascript, */*; q=0.01", "Accept-Language": context["language"],
@@ -71,6 +73,10 @@ class Client:
             with lane:
                 if self.cancelled():
                     raise UpdateError("CANCELLED", "Pinterest collection paused")
+                if not self.injected:
+                    # Do not silently acquire a different anonymous cookie scope between pages or slices.
+                    self.session.cookies.clear()
+                    self.session.cookies.set("csrftoken", self.csrf_token, domain="www.pinterest.com", path="/", secure=True)
                 with self.session.get("https://www.pinterest.com" + endpoint,
                         params=dict(source_url=source, data=canonical(dict(options=options, context={}))) if endpoint.startswith("/resource/") else None,
                         headers={"X-Pinterest-Source-Url": source, "Accept": "application/json" if endpoint.startswith("/resource/") else "text/html"},
@@ -91,6 +97,15 @@ class Client:
                     evidence = {**self.context, "client_version": CLIENT_VERSION,
                                 "response_language": response.headers.get("Content-Language"),
                                 "response_country": response.headers.get("X-Pinterest-Country")}
+                    try:
+                        payload = json.loads(body)
+                        context = payload.get("client_context") if isinstance(payload, dict) else None
+                        if isinstance(context, dict):
+                            for key in ("country_from_ip", "language", "locale", "app_version"):
+                                if isinstance(context.get(key), str) and len(context[key]) <= 128:
+                                    evidence["source_" + ("country" if key == "country_from_ip" else key)] = context[key]
+                    except (ValueError, UnicodeError):
+                        pass
                     return Response(bytes(body), endpoint, parameters, response.status_code, utc(), evidence, cooldown)
         except requests.RequestException:
             raise UpdateError("PINTEREST_NETWORK", "Pinterest connection failed; saved work is retained", retry_after=30) from None

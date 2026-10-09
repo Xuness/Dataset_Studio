@@ -105,6 +105,27 @@ def test_published_staging_is_reclaimed_before_a_budget_limited_job_finishes(tmp
     assert len(fixture.media_calls) == 1
 
 
+def test_anonymous_requests_keep_a_fixed_cookie_scope(monkeypatch):
+    import requests
+    from studio_lake.pinterest.http import Client
+    class Session:
+        def __init__(self):
+            self.cookies, self.headers, self.sent = requests.cookies.RequestsCookieJar(), {}, []
+        def get(self, *args, **kwargs):
+            self.sent.append(self.cookies.get_dict())
+            self.cookies.set("server-tracker", "not-carried-forward")
+            return MediaResponse(b'{"resource_response":{"data":{}}}')
+        def close(self):
+            pass
+    session = Session()
+    monkeypatch.setattr(requests, "Session", lambda: session)
+    client = Client(None, dict(mode="anonymous", language="zh-TW", session_id="fixed", created_at=utc()))
+    client.pin("123")
+    client.pin("124")
+    assert session.sent[0] == session.sent[1]
+    assert set(session.sent[0]) == {"csrftoken"}
+
+
 def schedule_args(fixture, at):
     return dict(id=str(uuid.uuid4()), request_key=str(uuid.uuid4()), expected_revision=0,
         definition=fixture.spec, every_seconds=60, first_run_at=datetime.fromtimestamp(at, timezone.utc).isoformat(), enabled=True)
@@ -159,3 +180,19 @@ def test_archive_preparation_resumes_and_compares_a_fixed_published_prefix(tmp_p
         assert db.execute("SELECT count(*) FROM leases WHERE purpose='archive-validation'").fetchone()[0] == 0
     finally:
         db.close()
+
+
+def test_many_blocked_schedules_do_not_starve_another_ready_lake(tmp_path):
+    fixture = Fixture(tmp_path)
+    schedules = Schedules(fixture.service)
+    for _ in range(101):
+        schedules.save(schedule_args(fixture, 1))
+    other = fixture.service.create_lake(dict(request_key=str(uuid.uuid4()), site="pinterest",
+        media_root=str(tmp_path / "other-media"), index_root=str(tmp_path / "other-index")))
+    args = schedule_args(fixture, 2)
+    args["definition"] = {**fixture.spec, "library_id": other["library_id"]}
+    ready = schedules.save(args)
+    schedules.tick(1000)
+    with fixture.state.db() as db:
+        assert db.execute("SELECT last_job FROM pinterest_schedules WHERE id=?", (ready["id"],)).fetchone()[0] is not None
+        assert db.execute("SELECT count(*) FROM pinterest_schedule_runs").fetchone()[0] == 1

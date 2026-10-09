@@ -22,7 +22,7 @@ Ctrl+Z 撤销图片选择，Ctrl+Y 或 Ctrl+Shift+Z 重做。“设置 → 编�
 
 Pixiv 使用独立多媒体湖，已接入作者/作品采集、范围内标签筛选、增量复查、周期计划、账号设置和任务工作台。近期详情与完整媒体清单可以复用于后续补图；作者目录、作品元数据和媒体下载分别保留进度。使用方法和公开样本边界见[来源采集接入](docs/architecture/source-collections.md)。
 
-Pinterest 已接入匿名指定 Pin 采集、静态原图保存、独立归档和项目浏览。原文件哈希与 Pin 来源分别保留；视频、复杂故事等未支持媒体记录缺口。Board、推荐与搜索在后续阶段开放，当前使用方法及样本验证见 [Pinterest 接入设计](docs/plans/Dataset%20Scraping/pinterest-backend-and-lake-design.md)。
+Pinterest 已接入匿名 Pin、图版/分区、推荐、Pin/图版搜索与 Ideas 主题，支持静态原图、预算接续、历史复用和周期复查。原文件哈希、各次观察和来源关系分别保留；视频、复杂故事等未支持媒体记录缺口。使用方法见 [Pinterest 接入设计](docs/plans/Dataset%20Scraping/pinterest-backend-and-lake-design.md)，验证范围见 [第二至四批验收](docs/verification/2026-10-10-pinterest-phases-2-4.md)。
 
 ## 启动
 

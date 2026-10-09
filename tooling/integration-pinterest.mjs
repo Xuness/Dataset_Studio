@@ -193,6 +193,19 @@ try {
   );
   const pin = obs.items.find((v) => v.source_kind === "pinterest_pin_detail");
   assert.ok(pin);
+  const currentObservations = await engine.api(
+    base + `/records/${record.record_id}/observations`,
+  );
+  assert.ok(
+    currentObservations.items.some(
+      (v) => v.source_kind === "pinterest_pin_list",
+    ),
+  );
+  assert.ok(
+    currentObservations.items.some((v) =>
+      v.fields.some((f) => f.name === "download.source_checked_at"),
+    ),
+  );
   const field = (name) => pin.fields.find((v) => v.name === name);
   assert.equal(field("pinterest.description").missing_reason, "explicit_null");
   assert.equal(field("pinterest.link").missing_reason, "not_in_response");

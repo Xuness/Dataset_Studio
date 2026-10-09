@@ -86,6 +86,7 @@ class Schedules:
             db.execute("BEGIN IMMEDIATE")
             rows = list(db.execute("""SELECT s.* FROM pinterest_schedules s WHERE enabled=1 AND next_at<=?
                 AND NOT EXISTS(SELECT 1 FROM lake_relocations r WHERE r.lake_id=s.lake_id AND r.phase NOT IN ('complete','cancelled'))
+                AND NOT EXISTS(SELECT 1 FROM pinterest_jobs j WHERE j.lake_id=s.lake_id AND j.state NOT IN ('completed','completed_with_gaps','cancelled'))
                 ORDER BY next_at,id LIMIT 100""", (at,)))
             for row in rows:
                 # Check after each creation as two schedules for one lake may be due in this same transaction.

@@ -264,6 +264,12 @@ impl<'a> Read<'a> {
             ("domain", "链接域名"),
             ("created_at", "来源创建时间"),
             ("is_ai_generated", "来源 AI 标记"),
+            ("gen_ai_topics", "来源 AI 类别"),
+            ("auto_alt_text", "自动描述"),
+            (
+                "aggregated_pin_data.aggregated_stats.saves",
+                "图片聚合收藏数",
+            ),
             ("repin_count", "保存数"),
             ("comment_count", "评论数"),
             ("alt_text", "替代文字"),
@@ -332,6 +338,10 @@ impl<'a> Read<'a> {
                 "pinner" => "保存账号",
                 "origin_pinner" => "原始保存账号",
                 "section" => "画板分区",
+                "board_member" => "本次图版成员",
+                "section_member" => "本次分区成员",
+                "recommended_for_board" => "推荐给图版",
+                "topic_result" => "主题结果",
                 _ => "来源关系",
             };
             fields.push(text(
@@ -391,7 +401,7 @@ impl<'a> Read<'a> {
                     FROM visible_media m JOIN visible_manifests f USING(manifest_id) JOIN visible_assets a USING(media_id)
                     JOIN visible_acquisitions q USING(acquisition_id) WHERE m.media_id=?1 AND a.asset_id=?2",params![id,record_id],
                     |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?,r.get(7)?,r.get(8)?))).map_err(sql_error)?;
-                let fields = vec![
+                let mut fields = vec![
                     field(
                         "source_width",
                         "来源宽度",
@@ -430,9 +440,25 @@ impl<'a> Read<'a> {
                     ),
                     text("download.etag", "CDN ETag", etag, "acquisitions.cdn_etag"),
                 ];
+                let (evidence,acquired,checked):(String,String,String) = self.snapshot.db.query_row(
+                    "SELECT q.evidence,q.acquired_at,coalesce(json_extract(q.details_json,'$.source_checked_at'),q.acquired_at)
+                     FROM visible_assets a JOIN visible_acquisitions q USING(acquisition_id) WHERE a.asset_id=?1", [record_id],
+                    |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))).map_err(sql_error)?;
+                for (name, label, value) in [
+                    ("evidence", "文件取得依据", evidence),
+                    ("acquired_at", "本次取得记录时间", acquired),
+                    ("source_checked_at", "文件最近核验时间", checked),
+                ] {
+                    fields.push(text(
+                        &format!("download.{name}"),
+                        label,
+                        Some(value),
+                        "acquisitions",
+                    ));
+                }
                 (at, seq, fields, "asset_origin", "pinterest_media_manifest")
             } else {
-                let (at,seq):(String,i64)=self.snapshot.db.query_row("SELECT observed_at,commit_seq FROM visible_pins WHERE observation_id=?1 AND pin_id=?2",params![id,origin.pin_id],|r| Ok((r.get(0)?,r.get(1)?))).map_err(sql_error)?;
+                let (at,seq,observation_kind):(String,i64,String)=self.snapshot.db.query_row("SELECT observed_at,commit_seq,observation_kind FROM visible_pins WHERE observation_id=?1 AND pin_id=?2",params![id,origin.pin_id],|r| Ok((r.get(0)?,r.get(1)?,r.get(2)?))).map_err(sql_error)?;
                 (
                     at,
                     seq,
@@ -442,7 +468,11 @@ impl<'a> Read<'a> {
                     } else {
                         "same_pin"
                     },
-                    "pinterest_pin_detail",
+                    if observation_kind == "list" {
+                        "pinterest_pin_list"
+                    } else {
+                        "pinterest_pin_detail"
+                    },
                 )
             };
             items.push(Observation {

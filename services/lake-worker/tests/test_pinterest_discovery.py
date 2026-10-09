@@ -133,6 +133,40 @@ def test_sampling_selects_supported_list_manifests_after_unsupported_items(tmp_p
     assert fixture.enrichment_calls == ["124"]
 
 
+def test_late_sample_disagreement_is_not_mistaken_for_media_completion(tmp_path):
+    fixture = collection(tmp_path, lambda *_: pages([listed("123"), listed("124")]), metadata="sample",
+        budget=dict(detail_requests=1), detail=lambda p: p.update(is_video=True) if p["id"] == "124" else None)
+    result = fixture.run()
+    assert result["state"] == "waiting_budget" and result["media_complete"]
+    continue_job(fixture)
+    result = fixture.run()
+    assert result["state"] == "completed_with_gaps" and not result["media_complete"]
+    assert result["metrics"]["manifest_discrepancies"] == 1
+
+
+def test_visibility_change_stops_cursor_reuse_and_preserves_raw_capture(tmp_path):
+    from dataclasses import replace
+    fixture = collection(tmp_path, lambda kind, entry: pages([listed("123")], ("next",)) if entry["cursor"] is None else pages([listed("124")]))
+    original = fixture.factory
+    def factory(root, context, *, cancelled):
+        client = original(root, context, cancelled=cancelled)
+        request = client.request
+        def changed(kind, entry):
+            response = request(kind, entry)
+            return replace(response, context={**response.context, "source_country": "TW" if entry["cursor"] is None else "JP"})
+        client.request = changed
+        return client
+    fixture.factory = factory
+    result = fixture.run()
+    assert result["state"] == "needs_review" and result["error_code"] == "discovery_visibility_changed"
+    db = connect(tmp_path / "index/online.sqlite")
+    try:
+        assert db.execute("SELECT count(*) FROM captures").fetchone()[0] == 2
+        assert db.execute("SELECT count(*) FROM pins").fetchone()[0] == 1
+    finally:
+        db.close()
+
+
 def test_v15_upgrade_preserves_claims_frozen_definition_and_counts(tmp_path):
     from studio_lake.updates.state import State
     from update_fixtures import remove_pinterest_schema
