@@ -12,6 +12,7 @@ CREATE TABLE pinterest_jobs(job_row INTEGER PRIMARY KEY,id TEXT NOT NULL UNIQUE,
  archive_seq INTEGER NOT NULL DEFAULT 0,served_seq INTEGER NOT NULL DEFAULT 0,cleanup_state TEXT NOT NULL DEFAULT 'pending');
 CREATE INDEX pinterest_jobs_lake ON pinterest_jobs(lake_id,state,retry_at,created_at,id);
 CREATE INDEX pinterest_jobs_recent ON pinterest_jobs(created_at DESC,id DESC);
+CREATE INDEX pinterest_jobs_state ON pinterest_jobs(state,created_at DESC,id DESC);
 CREATE TABLE pinterest_tasks(task_row INTEGER PRIMARY KEY,task_id TEXT NOT NULL UNIQUE,
  job_id TEXT NOT NULL REFERENCES pinterest_jobs(id),kind TEXT NOT NULL CHECK(kind IN ('pin_detail','media_download')),
  pin_id TEXT NOT NULL,input_json TEXT NOT NULL CHECK(json_valid(input_json)),state TEXT NOT NULL,

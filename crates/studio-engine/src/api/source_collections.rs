@@ -215,17 +215,17 @@ pub(super) async fn remove_schedule(
 ) -> ApiResult<CollectionScheduleRemoved> {
     invoke(s, Op::ScheduleRemove, args_with_id(id, body)?).await
 }
-#[utoipa::path(get,path="/v1/source-collections/workspace/lakes",params(CollectionPageQuery),responses((status=200,body=LakeWorkspaceLakes)),operation_id="lake_workspace_lakes")]
+#[utoipa::path(get,path="/v1/source-collections/workspace/lakes",params(LakeWorkspaceLakesQuery),responses((status=200,body=LakeWorkspaceLakes)),operation_id="lake_workspace_lakes")]
 pub(super) async fn workspace_lakes(
     State(s): State<AppState>,
-    Query(q): Query<CollectionPageQuery>,
+    Query(q): Query<LakeWorkspaceLakesQuery>,
 ) -> ApiResult<LakeWorkspaceLakes> {
     invoke(s, Op::WorkspaceLakes, json!(q)).await
 }
-#[utoipa::path(get,path="/v1/source-collections/workspace/jobs",params(CollectionJobsQuery),responses((status=200,body=LakeWorkspaceJobs)),operation_id="lake_workspace_jobs")]
+#[utoipa::path(get,path="/v1/source-collections/workspace/jobs",params(LakeWorkspaceJobsQuery),responses((status=200,body=LakeWorkspaceJobs)),operation_id="lake_workspace_jobs")]
 pub(super) async fn workspace_jobs(
     State(s): State<AppState>,
-    Query(q): Query<CollectionJobsQuery>,
+    Query(q): Query<LakeWorkspaceJobsQuery>,
 ) -> ApiResult<LakeWorkspaceJobs> {
     invoke(s, Op::WorkspaceJobs, json!(q)).await
 }

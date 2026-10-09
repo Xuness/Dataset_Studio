@@ -895,6 +895,134 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/pinterest-collections/capabilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["pinterest_capabilities"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/pinterest-collections/jobs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["pinterest_jobs"];
+        put?: never;
+        post: operations["pinterest_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/pinterest-collections/jobs/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["pinterest_preview"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/pinterest-collections/jobs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["pinterest_job"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/pinterest-collections/jobs/{id}/actions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["pinterest_action"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/pinterest-collections/jobs/{id}/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["pinterest_items"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/pinterest-collections/lakes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["pinterest_lakes"];
+        put?: never;
+        post: operations["pinterest_create_lake"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/pinterest-collections/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["pinterest_status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/preferences/{key}": {
         parameters: {
             query?: never;
@@ -4405,6 +4533,7 @@ export interface components {
             /** Format: int32 */
             ordinal?: number | null;
             origin_observation_id?: string | null;
+            pin_origin?: null | components["schemas"]["PinOrigin"];
             post_id?: string | null;
             record_id: string;
             representation?: string | null;
@@ -5036,6 +5165,10 @@ export interface components {
             library_id: string;
             provenance?: unknown;
             source_version?: string | null;
+        };
+        CreatePinterestJob: {
+            definition: components["schemas"]["PinterestDefinition"];
+            request_key: string;
         };
         CreateProject: {
             name: string;
@@ -5946,6 +6079,10 @@ export interface components {
             /** @enum {string} */
             family: "collection";
             job: components["schemas"]["CollectionJob"];
+        } | {
+            /** @enum {string} */
+            family: "pinterest";
+            job: components["schemas"]["PinterestJob"];
         };
         LakeWorkspaceJobs: {
             items: components["schemas"]["LakeWorkspaceJob"][];
@@ -6496,6 +6633,168 @@ export interface components {
             name: string;
             required: boolean;
             value_type: string;
+        };
+        PinOrigin: {
+            manifest_id: string;
+            media_id: string;
+            pin_id: string;
+            role: string;
+        };
+        PinterestAccess: {
+            language: string;
+            mode: string;
+        };
+        PinterestBudget: {
+            /** Format: int64 */
+            admitted_boards: number;
+            /** Format: int64 */
+            admitted_pins: number;
+            /** Format: int64 */
+            api_requests: number;
+            /** Format: int64 */
+            detail_requests: number;
+            /** Format: int64 */
+            download_bytes: number;
+            /** Format: int64 */
+            wall_seconds: number;
+        };
+        PinterestCapabilities: {
+            access_modes: string[];
+            /** Format: int32 */
+            archive_format: number;
+            collector: string;
+            /** Format: int32 */
+            contract_version: number;
+            discovery: boolean;
+            image_profiles: string[];
+            /** Format: int32 */
+            max_seeds: number;
+            media_types: string[];
+            /** Format: int32 */
+            online_format: number;
+            schedules: boolean;
+            seed_kinds: string[];
+            site: string;
+        };
+        PinterestCount: {
+            kind: string;
+            /** Format: int64 */
+            n: number;
+            state: string;
+        };
+        PinterestDefinition: {
+            access: components["schemas"]["PinterestAccess"];
+            collector: string;
+            discovery: components["schemas"]["PinterestDiscovery"];
+            library_id: string;
+            media: components["schemas"]["PinterestMediaPlan"];
+            metadata: components["schemas"]["PinterestMetadataPlan"];
+            run_budget: components["schemas"]["PinterestBudget"];
+            scope: components["schemas"]["PinterestScope"];
+            seeds: components["schemas"]["PinterestSeed"][];
+            /** Format: int32 */
+            version: number;
+        };
+        PinterestDiscovery: {
+            entrypoints: string[];
+            /** Format: int32 */
+            max_depth: number;
+        };
+        PinterestImagePolicy: {
+            allow_sample: boolean;
+            existing: string;
+            profile: string;
+        };
+        PinterestItem: {
+            /** Format: int64 */
+            attempts: number;
+            kind: string;
+            pin_id: string;
+            reason?: string | null;
+            state: string;
+            task_id: string;
+            updated_at: string;
+        };
+        PinterestItems: {
+            items: components["schemas"]["PinterestItem"][];
+            next_cursor?: string | null;
+        };
+        PinterestJob: {
+            actions: string[];
+            /** Format: int64 */
+            api_requests: number;
+            /** Format: int64 */
+            archive_seq: number;
+            cleanup_state: string;
+            counts: components["schemas"]["PinterestCount"][];
+            created_at: string;
+            definition: components["schemas"]["PinterestDefinition"];
+            definition_sha256: string;
+            desired_state: string;
+            /** Format: int64 */
+            download_bytes: number;
+            /** Format: double */
+            elapsed_seconds: number;
+            error_code?: string | null;
+            error_message?: string | null;
+            /** Format: int64 */
+            execution_epoch: number;
+            id: string;
+            library_id: string;
+            phase: string;
+            /** Format: double */
+            retry_at: number;
+            /** Format: int64 */
+            revision: number;
+            /** Format: int64 */
+            served_seq: number;
+            state: string;
+            updated_at: string;
+        };
+        PinterestJobAction: {
+            action: string;
+            /** Format: int64 */
+            expected_revision: number;
+        };
+        PinterestJobs: {
+            items: components["schemas"]["PinterestJob"][];
+            next_cursor?: string | null;
+        };
+        PinterestMediaPlan: {
+            image_policy: components["schemas"]["PinterestImagePolicy"];
+            retain_original: boolean;
+            reuse: components["schemas"]["PinterestReuse"];
+        };
+        PinterestMetadataPlan: {
+            detail_enrichment: string;
+        };
+        PinterestPreview: {
+            definition: components["schemas"]["PinterestDefinition"];
+            definition_sha256: string;
+            /** Format: int32 */
+            known_pins: number;
+            /** Format: int32 */
+            network_requests: number;
+            warnings: string[];
+        };
+        PinterestReuse: {
+            /** Format: int32 */
+            max_age_hours: number;
+            mode: string;
+        };
+        PinterestScope: {
+            ai_policy: string;
+            media_types: string[];
+        };
+        PinterestSeed: {
+            id: string;
+            kind: string;
+        };
+        PinterestStatus: {
+            active: components["schemas"]["PinterestJob"][];
+            counts: {
+                [key: string]: number;
+            };
         };
         Preference: {
             key: string;
@@ -9131,6 +9430,230 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Operators"];
+                };
+            };
+        };
+    };
+    pinterest_capabilities: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PinterestCapabilities"];
+                };
+            };
+        };
+    };
+    pinterest_jobs: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+                library_id?: string;
+                state?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PinterestJobs"];
+                };
+            };
+        };
+    };
+    pinterest_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreatePinterestJob"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PinterestJob"];
+                };
+            };
+        };
+    };
+    pinterest_preview: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PinterestDefinition"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PinterestPreview"];
+                };
+            };
+        };
+    };
+    pinterest_job: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PinterestJob"];
+                };
+            };
+        };
+    };
+    pinterest_action: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PinterestJobAction"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PinterestJob"];
+                };
+            };
+        };
+    };
+    pinterest_items: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+                state?: string;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PinterestItems"];
+                };
+            };
+        };
+    };
+    pinterest_lakes: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionLakes"];
+                };
+            };
+        };
+    };
+    pinterest_create_lake: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateCollectionLake"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CollectionLake"];
+                };
+            };
+        };
+    };
+    pinterest_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PinterestStatus"];
                 };
             };
         };
@@ -13346,6 +13869,7 @@ export interface operations {
                 limit?: number;
                 library_id?: string;
                 state?: string;
+                include_pinterest?: boolean;
             };
             header?: never;
             path?: never;
@@ -13368,6 +13892,8 @@ export interface operations {
             query?: {
                 cursor?: string;
                 limit?: number;
+                /** @description Explicit opt-in; absent/false preserves the legacy set of source families. */
+                include_pinterest?: boolean;
             };
             header?: never;
             path?: never;

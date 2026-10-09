@@ -131,6 +131,7 @@ class Service:
         row.pop("context_json")
         row.pop("request_key")
         row.pop("job_row")
+        row["library_id"] = row.pop("lake_id")
         counts = [dict(r) for r in db.execute("SELECT kind,state,n FROM pinterest_counts WHERE job_id=? AND n>0 ORDER BY kind,state", (identity,))]
         for item in counts:
             item.pop("job_id", None)
@@ -179,8 +180,15 @@ class Service:
                 values.append(args[key])
         with self.state.db() as db:
             rows = [dict(r) for r in db.execute("SELECT * FROM " + table + " WHERE " + " AND ".join(clauses) + " ORDER BY " + position + " LIMIT ?", (*values, limit + 1))]
-            items = [self.job(r["id"], db) if kind == "jobs" else {k: r[k] for k in ("task_id", "kind", "pin_id", "state", "attempts", "reason", "updated_at")} for r in rows[:limit]]
-        return dict(items=items, next_cursor=self.cursor(filters, rows[limit-1][position]) if len(rows) > limit else None)
+            items, size = [], 0
+            for row in rows[:limit]:
+                value = self.job(row["id"], db) if kind == "jobs" else {k: row[k] for k in ("task_id", "kind", "pin_id", "state", "attempts", "reason", "updated_at")}
+                encoded = len(canonical(value).encode())
+                if items and size + encoded > 1800 * 1024:
+                    break
+                items.append(value)
+                size += encoded
+        return dict(items=items, next_cursor=self.cursor(filters, rows[len(items)-1][position]) if items and len(rows)>len(items) else None)
 
     def action(self, args):
         model.fields(args, ("job_id", "action", "expected_revision"))
@@ -210,15 +218,26 @@ class Service:
         return self.job(row["id"])
 
     def dispatch(self, command, args):
+        if command == "status":
+            model.fields(args)
+            with self.state.db() as db:
+                counts = {r[0]: r[1] for r in db.execute("SELECT state,count(*) FROM pinterest_jobs GROUP BY state")}
+                rows = list(db.execute("SELECT id FROM pinterest_jobs WHERE state NOT IN ('completed','cancelled') ORDER BY created_at DESC,id DESC LIMIT 12"))
+                return dict(counts=counts, active=[self.job(r["id"], db) for r in rows])
         if command == "capabilities":
             model.fields(args)
             return dict(contract_version=CONTRACT_VERSION, site="pinterest", collector=COLLECTOR, seed_kinds=["pin"],
                 media_types=["static_image", "single_image_story"], access_modes=["anonymous"], archive_format=3, online_format=4,
                 discovery=False, schedules=False, image_profiles=["original"], max_seeds=500)
         if command == "lakes":
-            model.fields(args)
+            model.fields(args, (), ("cursor", "limit"))
+            limit = model.integer(args.get("limit", 100), 1, 200)
+            filters = dict(kind="lakes")
+            after = self.position(args.get("cursor"), filters)
             with self.state.db() as db:
-                return dict(items=[self.lake(r[0], db) for r in db.execute("SELECT lake_id FROM pinterest_lakes ORDER BY lake_id LIMIT 200")])
+                rows = list(db.execute("SELECT rowid,lake_id FROM pinterest_lakes WHERE rowid>? ORDER BY rowid LIMIT ?", (after, limit+1)))
+                return dict(items=[self.lake(r["lake_id"], db) for r in rows[:limit]],
+                    next_cursor=self.cursor(filters, rows[limit-1]["rowid"]) if len(rows)>limit else None)
         if command == "job":
             model.fields(args, ("job_id",))
             return self.job(args["job_id"])

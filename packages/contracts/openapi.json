@@ -2076,6 +2076,354 @@
         }
       }
     },
+    "/v1/pinterest-collections/capabilities": {
+      "get": {
+        "tags": [
+          "pinterest"
+        ],
+        "operationId": "pinterest_capabilities",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PinterestCapabilities"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/pinterest-collections/jobs": {
+      "get": {
+        "tags": [
+          "pinterest"
+        ],
+        "operationId": "pinterest_jobs",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "library_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PinterestJobs"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "pinterest"
+        ],
+        "operationId": "pinterest_create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePinterestJob"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PinterestJob"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/pinterest-collections/jobs/preview": {
+      "post": {
+        "tags": [
+          "pinterest"
+        ],
+        "operationId": "pinterest_preview",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PinterestDefinition"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PinterestPreview"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/pinterest-collections/jobs/{id}": {
+      "get": {
+        "tags": [
+          "pinterest"
+        ],
+        "operationId": "pinterest_job",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PinterestJob"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/pinterest-collections/jobs/{id}/actions": {
+      "post": {
+        "tags": [
+          "pinterest"
+        ],
+        "operationId": "pinterest_action",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PinterestJobAction"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PinterestJob"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/pinterest-collections/jobs/{id}/items": {
+      "get": {
+        "tags": [
+          "pinterest"
+        ],
+        "operationId": "pinterest_items",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PinterestItems"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/pinterest-collections/lakes": {
+      "get": {
+        "tags": [
+          "pinterest"
+        ],
+        "operationId": "pinterest_lakes",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionLakes"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "pinterest"
+        ],
+        "operationId": "pinterest_create_lake",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCollectionLake"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CollectionLake"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/pinterest-collections/status": {
+      "get": {
+        "tags": [
+          "pinterest"
+        ],
+        "operationId": "pinterest_status",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PinterestStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/preferences/{key}": {
       "get": {
         "tags": [
@@ -9624,6 +9972,14 @@
             "schema": {
               "type": "string"
             }
+          },
+          {
+            "name": "include_pinterest",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
           }
         ],
         "responses": {
@@ -9663,6 +10019,15 @@
               "type": "integer",
               "format": "int32",
               "minimum": 0
+            }
+          },
+          {
+            "name": "include_pinterest",
+            "in": "query",
+            "description": "Explicit opt-in; absent/false preserves the legacy set of source families.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
             }
           }
         ],
@@ -13466,6 +13831,16 @@
               "null"
             ]
           },
+          "pin_origin": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/PinOrigin"
+              }
+            ]
+          },
           "post_id": {
             "type": [
               "string",
@@ -15975,6 +16350,22 @@
               "string",
               "null"
             ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "CreatePinterestJob": {
+        "type": "object",
+        "required": [
+          "request_key",
+          "definition"
+        ],
+        "properties": {
+          "definition": {
+            "$ref": "#/components/schemas/PinterestDefinition"
+          },
+          "request_key": {
+            "type": "string"
           }
         },
         "additionalProperties": false
@@ -19023,6 +19414,24 @@
                 "$ref": "#/components/schemas/CollectionJob"
               }
             }
+          },
+          {
+            "type": "object",
+            "required": [
+              "job",
+              "family"
+            ],
+            "properties": {
+              "family": {
+                "type": "string",
+                "enum": [
+                  "pinterest"
+                ]
+              },
+              "job": {
+                "$ref": "#/components/schemas/PinterestJob"
+              }
+            }
           }
         ]
       },
@@ -21323,6 +21732,640 @@
           },
           "value_type": {
             "type": "string"
+          }
+        }
+      },
+      "PinOrigin": {
+        "type": "object",
+        "required": [
+          "pin_id",
+          "media_id",
+          "manifest_id",
+          "role"
+        ],
+        "properties": {
+          "manifest_id": {
+            "type": "string"
+          },
+          "media_id": {
+            "type": "string"
+          },
+          "pin_id": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          }
+        }
+      },
+      "PinterestAccess": {
+        "type": "object",
+        "required": [
+          "mode",
+          "language"
+        ],
+        "properties": {
+          "language": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "PinterestBudget": {
+        "type": "object",
+        "required": [
+          "api_requests",
+          "admitted_pins",
+          "admitted_boards",
+          "detail_requests",
+          "download_bytes",
+          "wall_seconds"
+        ],
+        "properties": {
+          "admitted_boards": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "admitted_pins": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "api_requests": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "detail_requests": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "download_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "wall_seconds": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "PinterestCapabilities": {
+        "type": "object",
+        "required": [
+          "contract_version",
+          "site",
+          "collector",
+          "seed_kinds",
+          "media_types",
+          "access_modes",
+          "archive_format",
+          "online_format",
+          "discovery",
+          "schedules",
+          "image_profiles",
+          "max_seeds"
+        ],
+        "properties": {
+          "access_modes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "archive_format": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "collector": {
+            "type": "string"
+          },
+          "contract_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "discovery": {
+            "type": "boolean"
+          },
+          "image_profiles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "max_seeds": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "media_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "online_format": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "schedules": {
+            "type": "boolean"
+          },
+          "seed_kinds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "site": {
+            "type": "string"
+          }
+        }
+      },
+      "PinterestCount": {
+        "type": "object",
+        "required": [
+          "kind",
+          "state",
+          "n"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "n": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "state": {
+            "type": "string"
+          }
+        }
+      },
+      "PinterestDefinition": {
+        "type": "object",
+        "required": [
+          "version",
+          "collector",
+          "library_id",
+          "seeds",
+          "access",
+          "scope",
+          "discovery",
+          "metadata",
+          "media",
+          "run_budget"
+        ],
+        "properties": {
+          "access": {
+            "$ref": "#/components/schemas/PinterestAccess"
+          },
+          "collector": {
+            "type": "string"
+          },
+          "discovery": {
+            "$ref": "#/components/schemas/PinterestDiscovery"
+          },
+          "library_id": {
+            "type": "string"
+          },
+          "media": {
+            "$ref": "#/components/schemas/PinterestMediaPlan"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/PinterestMetadataPlan"
+          },
+          "run_budget": {
+            "$ref": "#/components/schemas/PinterestBudget"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/PinterestScope"
+          },
+          "seeds": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PinterestSeed"
+            }
+          },
+          "version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "PinterestDiscovery": {
+        "type": "object",
+        "required": [
+          "entrypoints",
+          "max_depth"
+        ],
+        "properties": {
+          "entrypoints": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "max_depth": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "PinterestImagePolicy": {
+        "type": "object",
+        "required": [
+          "profile",
+          "existing",
+          "allow_sample"
+        ],
+        "properties": {
+          "allow_sample": {
+            "type": "boolean"
+          },
+          "existing": {
+            "type": "string"
+          },
+          "profile": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "PinterestItem": {
+        "type": "object",
+        "required": [
+          "task_id",
+          "kind",
+          "pin_id",
+          "state",
+          "attempts",
+          "updated_at"
+        ],
+        "properties": {
+          "attempts": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "kind": {
+            "type": "string"
+          },
+          "pin_id": {
+            "type": "string"
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": "string"
+          },
+          "task_id": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        }
+      },
+      "PinterestItems": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PinterestItem"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "PinterestJob": {
+        "type": "object",
+        "required": [
+          "id",
+          "library_id",
+          "definition",
+          "definition_sha256",
+          "state",
+          "desired_state",
+          "revision",
+          "execution_epoch",
+          "created_at",
+          "updated_at",
+          "retry_at",
+          "api_requests",
+          "download_bytes",
+          "elapsed_seconds",
+          "archive_seq",
+          "served_seq",
+          "cleanup_state",
+          "counts",
+          "phase",
+          "actions"
+        ],
+        "properties": {
+          "actions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "api_requests": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "archive_seq": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "cleanup_state": {
+            "type": "string"
+          },
+          "counts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PinterestCount"
+            }
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "definition": {
+            "$ref": "#/components/schemas/PinterestDefinition"
+          },
+          "definition_sha256": {
+            "type": "string"
+          },
+          "desired_state": {
+            "type": "string"
+          },
+          "download_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "elapsed_seconds": {
+            "type": "number",
+            "format": "double"
+          },
+          "error_code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error_message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "execution_epoch": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "id": {
+            "type": "string"
+          },
+          "library_id": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "retry_at": {
+            "type": "number",
+            "format": "double"
+          },
+          "revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "served_seq": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "state": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        }
+      },
+      "PinterestJobAction": {
+        "type": "object",
+        "required": [
+          "action",
+          "expected_revision"
+        ],
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "expected_revision": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "PinterestJobs": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PinterestJob"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "PinterestMediaPlan": {
+        "type": "object",
+        "required": [
+          "image_policy",
+          "retain_original",
+          "reuse"
+        ],
+        "properties": {
+          "image_policy": {
+            "$ref": "#/components/schemas/PinterestImagePolicy"
+          },
+          "retain_original": {
+            "type": "boolean"
+          },
+          "reuse": {
+            "$ref": "#/components/schemas/PinterestReuse"
+          }
+        },
+        "additionalProperties": false
+      },
+      "PinterestMetadataPlan": {
+        "type": "object",
+        "required": [
+          "detail_enrichment"
+        ],
+        "properties": {
+          "detail_enrichment": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "PinterestPreview": {
+        "type": "object",
+        "required": [
+          "definition",
+          "definition_sha256",
+          "known_pins",
+          "network_requests",
+          "warnings"
+        ],
+        "properties": {
+          "definition": {
+            "$ref": "#/components/schemas/PinterestDefinition"
+          },
+          "definition_sha256": {
+            "type": "string"
+          },
+          "known_pins": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "network_requests": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "PinterestReuse": {
+        "type": "object",
+        "required": [
+          "mode",
+          "max_age_hours"
+        ],
+        "properties": {
+          "max_age_hours": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "mode": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "PinterestScope": {
+        "type": "object",
+        "required": [
+          "media_types",
+          "ai_policy"
+        ],
+        "properties": {
+          "ai_policy": {
+            "type": "string"
+          },
+          "media_types": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "PinterestSeed": {
+        "type": "object",
+        "required": [
+          "kind",
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "PinterestStatus": {
+        "type": "object",
+        "required": [
+          "counts",
+          "active"
+        ],
+        "properties": {
+          "active": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PinterestJob"
+            }
+          },
+          "counts": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            },
+            "propertyNames": {
+              "type": "string"
+            }
           }
         }
       },

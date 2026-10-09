@@ -22,6 +22,8 @@ pub(super) fn reply(bytes: &[u8]) -> Result<Value> {
             "NOT_FOUND" => "NOT_FOUND",
             "IDEMPOTENCY_CONFLICT" => "IDEMPOTENCY_CONFLICT",
             "REVISION_CONFLICT" => "REVISION_CONFLICT",
+            "PINTEREST_CONFLICT" => "PINTEREST_CONFLICT",
+            "PINTEREST_IDEMPOTENCY_CONFLICT" => "PINTEREST_IDEMPOTENCY_CONFLICT",
             "SOURCE_ID_MISMATCH" => "SOURCE_ID_MISMATCH",
             "SOURCE_CHANGED" => "SOURCE_CHANGED",
             "SOURCE_LOCATION_CONFLICT" => "SOURCE_LOCATION_CONFLICT",
@@ -64,12 +66,13 @@ pub(super) fn handshake(bytes: &[u8]) -> Result<()> {
     if value["worker_version"] != "0.2.0"
         || value["runtime_check"] != 1
         || value["features"]["collections"] != 2
+        || value["features"]["pinterest"] != 1
         || !value["archive_versions"]
             .as_array()
-            .is_some_and(|v| v.contains(&json!(2)))
+            .is_some_and(|v| v.contains(&json!(2)) && v.contains(&json!(3)))
         || !value["online_versions"]
             .as_array()
-            .is_some_and(|v| v.contains(&json!(3)))
+            .is_some_and(|v| v.contains(&json!(3)) && v.contains(&json!(4)))
     {
         return Err(Error::new("UPDATE_PROTOCOL", "运行器版本不兼容"));
     }

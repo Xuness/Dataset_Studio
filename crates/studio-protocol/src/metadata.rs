@@ -74,6 +74,15 @@ pub struct AssetRecord {
     pub ordinal: Option<u32>,
     pub kind: Option<String>,
     pub representation: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pin_origin: Option<PinOrigin>,
+}
+#[derive(Serialize, ToSchema)]
+pub struct PinOrigin {
+    pub pin_id: String,
+    pub media_id: String,
+    pub manifest_id: String,
+    pub role: String,
 }
 impl From<domain::AssetRecord> for AssetRecord {
     fn from(v: domain::AssetRecord) -> Self {
@@ -89,6 +98,12 @@ impl From<domain::AssetRecord> for AssetRecord {
             ordinal: v.media_origin.as_ref().map(|m| m.ordinal),
             kind: v.media_origin.as_ref().map(|m| m.kind.clone()),
             representation: v.media_origin.map(|m| m.representation),
+            pin_origin: v.pin_origin.map(|p| PinOrigin {
+                pin_id: p.pin_id,
+                media_id: p.media_id,
+                manifest_id: p.manifest_id,
+                role: p.role,
+            }),
         }
     }
 }

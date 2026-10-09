@@ -18,6 +18,15 @@ pub struct AssetRecord {
     pub source_md5: Option<String>,
     pub storage_profile: Option<String>,
     pub media_origin: Option<MediaOrigin>,
+    pub pin_origin: Option<PinOrigin>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PinOrigin {
+    pub pin_id: String,
+    pub media_id: String,
+    pub manifest_id: String,
+    pub role: String,
 }
 
 #[derive(Debug, Clone)]

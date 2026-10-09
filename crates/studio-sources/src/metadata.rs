@@ -310,6 +310,7 @@ fn record(row: &[Option<String>]) -> Result<AssetRecord> {
         source_md5: row[3].clone(),
         storage_profile: row[4].clone(),
         media_origin: None,
+        pin_origin: None,
     })
 }
 #[derive(Serialize, Deserialize)]
@@ -503,6 +504,15 @@ impl MetadataAdapter for MetadataReader {
         cancelled: studio_application::ReadCancellation,
     ) -> Result<Vec<AssetSummary>> {
         read_cancelled(&cancelled)?;
+        if source.kind == "pinterest" {
+            return crate::pinterest_metadata::Read::open(
+                source,
+                revision,
+                cancelled,
+                self.runtime.deadline(),
+            )?
+            .summaries(asset_ids);
+        }
         if source.kind == "pixiv" {
             return crate::media_metadata::Read::open(
                 source,
@@ -617,6 +627,15 @@ impl MetadataAdapter for MetadataReader {
         cancelled: ReadCancellation,
     ) -> Result<MetadataOverview> {
         read_cancelled(&cancelled)?;
+        if source.kind == "pinterest" {
+            return crate::pinterest_metadata::Read::open(
+                source,
+                request.version.as_deref(),
+                cancelled,
+                self.runtime.deadline(),
+            )?
+            .metadata(asset, request);
+        }
         if source.kind == "pixiv" {
             return crate::media_metadata::Read::open(
                 source,
@@ -644,6 +663,7 @@ impl MetadataAdapter for MetadataReader {
                     source_md5: None,
                     storage_profile: Some("generated-demo".into()),
                     media_origin: None,
+                    pin_origin: None,
                 }],
                 next_cursor: None,
                 version,
@@ -763,6 +783,15 @@ impl MetadataAdapter for MetadataReader {
         cancelled: ReadCancellation,
     ) -> Result<ObservationPage> {
         read_cancelled(&cancelled)?;
+        if source.kind == "pinterest" {
+            return crate::pinterest_metadata::Read::open(
+                source,
+                request.version.as_deref(),
+                cancelled,
+                self.runtime.deadline(),
+            )?
+            .observations(asset, record_id, request);
+        }
         if source.kind == "pixiv" {
             return crate::media_metadata::Read::open(
                 source,
@@ -934,6 +963,15 @@ impl MetadataAdapter for MetadataReader {
         cancelled: ReadCancellation,
     ) -> Result<RawMetadata> {
         read_cancelled(&cancelled)?;
+        if source.kind == "pinterest" {
+            return crate::pinterest_metadata::Read::open(
+                source,
+                Some(version),
+                cancelled,
+                self.runtime.deadline(),
+            )?
+            .raw(asset, record_id, observation_id);
+        }
         if source.kind == "pixiv" {
             return crate::media_metadata::Read::open(
                 source,

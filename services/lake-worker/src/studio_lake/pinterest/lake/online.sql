@@ -29,6 +29,7 @@ CREATE TABLE pin_observations(observation_id TEXT PRIMARY KEY,pin_id TEXT NOT NU
  present_fields_json TEXT NOT NULL CHECK(json_valid(present_fields_json)),issues_json TEXT NOT NULL CHECK(json_valid(issues_json)),
  commit_seq INTEGER NOT NULL REFERENCES publications(seq),UNIQUE(observation_id,pin_id)) WITHOUT ROWID;
 CREATE INDEX pin_history ON pin_observations(pin_id,observed_at,observation_id);
+CREATE INDEX pin_history_page ON pin_observations(pin_id,observation_id);
 CREATE INDEX pin_signatures ON pin_observations(image_signature,pin_id,observation_id);
 CREATE TABLE media_manifests(manifest_id TEXT PRIMARY KEY,pin_id TEXT NOT NULL REFERENCES pins(pin_id),
  capture_id TEXT NOT NULL REFERENCES captures(capture_id),observation_id TEXT NOT NULL,

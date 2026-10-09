@@ -11,19 +11,30 @@ class Workspace:
         self.service, self.state = service, service.state
 
     def lakes(self, args):
-        model.fields(args, (), ("cursor", "limit"))
+        model.fields(args, (), ("cursor", "limit", "include_pinterest"))
+        include = args.get("include_pinterest", False)
+        if type(include) is not bool:
+            model.invalid("include_pinterest must be boolean")
         limit = model.integer(args.get("limit", 200), 1, 200)
         filters = dict(workspace="lakes")
+        if include:
+            filters["include_pinterest"] = True
         after = self.service.position(args.get("cursor"), filters)
         with self.state.db() as db:
-            rows = list(db.execute("SELECT rowid,* FROM lakes WHERE rowid>? ORDER BY rowid LIMIT ?", (after, limit + 1)))
+            rows = list(db.execute("SELECT rowid,* FROM lakes WHERE rowid>?" + ("" if include else " AND site<>'pinterest'") +
+                                  " ORDER BY rowid LIMIT ?", (after, limit + 1)))
         return dict(items=[{k: r[k] for k in ("id", "site", "media", "index_root", "registered_at")} for r in rows[:limit]],
                     next_cursor=self.service.cursor(filters, rows[limit-1]["rowid"]) if len(rows) > limit else None)
 
     def jobs(self, args):
-        model.fields(args, (), ("cursor", "limit", "library_id", "state"))
+        model.fields(args, (), ("cursor", "limit", "library_id", "state", "include_pinterest"))
+        include = args.get("include_pinterest", False)
+        if type(include) is not bool:
+            model.invalid("include_pinterest must be boolean")
         limit = model.integer(args.get("limit", 50), 1, 100)
         filters = dict(workspace="jobs", library_id=args.get("library_id"), state=args.get("state"))
+        if include:
+            filters["include_pinterest"] = True
         after = self.service.position(args.get("cursor"), filters, composite=True)
         clauses, values = [], []
         if after:
@@ -45,11 +56,17 @@ class Workspace:
         where = " WHERE " + " AND ".join(clauses) if clauses else ""
         with self.state.db() as db:
             rows = list(db.execute("SELECT * FROM (SELECT id,lake_id,state,created_at,'update' family FROM jobs UNION ALL "
-                                   "SELECT id,lake_id,state,created_at,'collection' family FROM collection_jobs)" + where +
+                                   "SELECT id,lake_id,state,created_at,'collection' family FROM collection_jobs" +
+                                   (" UNION ALL SELECT id,lake_id,state,created_at,'pinterest' family FROM pinterest_jobs" if include else "") + ")" + where +
                                    " ORDER BY created_at DESC,id DESC LIMIT ?", (*values, limit + 1)))
         items, size = [], 0
         for row in rows[:limit]:
-            value = dict(family=row["family"], job=self.service.job(row["id"]) if row["family"] == "collection" else self.state.job(row["id"]))
+            if row["family"] == "pinterest":
+                from ..pinterest.service import Service
+                job = Service(self.state).job(row["id"])
+            else:
+                job = self.service.job(row["id"]) if row["family"] == "collection" else self.state.job(row["id"])
+            value = dict(family=row["family"], job=job)
             encoded_size = len(json.dumps(value, ensure_ascii=False).encode())
             if items and size + encoded_size > 1800 * 1024:
                 break

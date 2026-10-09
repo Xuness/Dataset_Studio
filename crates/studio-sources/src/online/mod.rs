@@ -52,6 +52,10 @@ pub struct Pointer {
     pub generation: String,
     pub file: String,
     pub site: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub schema_set: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub required_features: Vec<String>,
 }
 pub fn available(source: &Source) -> bool {
     source.index_root.as_ref().is_some_and(|root| {
@@ -144,7 +148,7 @@ pub fn pointer(source: &Source) -> Result<(Pointer, PathBuf)> {
         serde_json::from_slice(&fs::read(path).map_err(Error::io)?).map_err(error)?;
     if !matches!(
         (pointer.schema_version, pointer.site.as_str()),
-        (2, "danbooru" | "yandere" | "gelbooru") | (3, "pixiv")
+        (2, "danbooru" | "yandere" | "gelbooru") | (3, "pixiv") | (4, "pinterest")
     ) || (!source.id.is_empty() && source.id != pointer.library_id)
         || source.kind != pointer.site
     {
@@ -152,6 +156,11 @@ pub fn pointer(source: &Source) -> Result<(Pointer, PathBuf)> {
             "SOURCE_ID_MISMATCH",
             "在线索引的身份、站点或格式不匹配",
         ));
+    }
+    if pointer.schema_version == 4 {
+        crate::pinterest_metadata::validate_format(
+            &serde_json::to_value(&pointer).map_err(error)?,
+        )?;
     }
     if Path::new(&pointer.file)
         .components()
@@ -316,6 +325,12 @@ impl Snapshot {
         {
             return Err(error("在线数据库身份不匹配"));
         }
+        if version == 4 {
+            crate::pinterest_metadata::validate_format(&serde_json::json!({
+                "site": state(&db, "site")?, "schema_set": state(&db, "schema_set")?,
+                "required_features": serde_json::from_str::<serde_json::Value>(&state(&db, "required_features")?).map_err(error)?
+            }))?;
+        }
         let latest_sequence = number(&db, "served_seq")?;
         let sequence = revision
             .map(|v| parse_revision(&pointer, v))
@@ -340,12 +355,12 @@ impl Snapshot {
         )
         .map_err(sql_error)?;
         db.execute_batch("BEGIN").map_err(sql_error)?;
-        let count_sql = if version == 3 {
+        let count_sql = if matches!(version, 3 | 4) {
             "SELECT CAST(json_extract(counts_json,'$.objects') AS INTEGER) FROM publications WHERE seq=?1 AND state='published'"
         } else {
             "SELECT objects_count FROM publications WHERE seq=?1"
         };
-        let count: i64 = if sequence == 0 && version == 3 {
+        let count: i64 = if sequence == 0 && matches!(version, 3 | 4) {
             0
         } else {
             db.query_row(count_sql, [sequence as i64], |r| r.get(0))
@@ -355,9 +370,10 @@ impl Snapshot {
         };
         // Read-only main plus request-local views: all metadata relations resolve
         // at one retained version, while each request holds only a short WAL read.
-        let post_order_ready = version != 3
-            || (state(&db, "pixiv_post_order_version").is_ok_and(|v| v == "1")
-                && number(&db, "pixiv_post_order_seq").is_ok_and(|seq| seq >= sequence));
+        let post_order_ready = version != 4
+            && (version != 3
+                || (state(&db, "pixiv_post_order_version").is_ok_and(|v| v == "1")
+                    && number(&db, "pixiv_post_order_seq").is_ok_and(|seq| seq >= sequence)));
         if version == 3 {
             db.execute_batch(&format!("CREATE TEMP VIEW visible_objects AS SELECT * FROM main.objects WHERE first_seq<={sequence} AND media_category='image';
                 CREATE TEMP VIEW visible_assets AS SELECT * FROM main.assets WHERE commit_seq<={sequence};
@@ -372,6 +388,15 @@ impl Snapshot {
             } else {
                 db.execute_batch("CREATE TEMP VIEW object_order AS SELECT sha256,NULL AS post_id,0 AS page_ordinal FROM visible_objects;").map_err(sql_error)?;
             }
+        } else if version == 4 {
+            db.execute_batch(&format!("CREATE TEMP VIEW visible_objects AS SELECT * FROM main.objects WHERE first_seq<={sequence} AND media_category='image';
+                CREATE TEMP VIEW visible_assets AS SELECT * FROM main.assets WHERE commit_seq<={sequence};
+                CREATE TEMP VIEW visible_pins AS SELECT * FROM main.pin_observations WHERE commit_seq<={sequence};
+                CREATE TEMP VIEW visible_manifests AS SELECT * FROM main.media_manifests WHERE commit_seq<={sequence};
+                CREATE TEMP VIEW visible_media AS SELECT * FROM main.media_entries WHERE commit_seq<={sequence};
+                CREATE TEMP VIEW visible_acquisitions AS SELECT * FROM main.acquisitions WHERE commit_seq<={sequence};
+                CREATE TEMP VIEW object_order AS SELECT sha256,NULL AS post_id,0 AS page_ordinal FROM visible_objects;
+            ")).map_err(sql_error)?;
         } else {
             db.execute_batch(&format!("CREATE TEMP VIEW visible_objects AS SELECT * FROM main.objects WHERE first_seq<={sequence};
             CREATE TEMP VIEW visible_assets AS SELECT * FROM main.assets WHERE commit_seq<={sequence};
@@ -574,6 +599,12 @@ impl Snapshot {
             .collect()
     }
     pub(crate) fn require_post_order(&self) -> Result<()> {
+        if self.pointer.schema_version == 4 {
+            return Err(Error::new(
+                "QUERY_UNSUPPORTED",
+                "Pinterest 暂不支持按 Pin 排序",
+            ));
+        }
         if !self.post_order_ready && self.count > 0 {
             return Err(Error::new(
                 "SOURCE_INDEX_NOT_READY",

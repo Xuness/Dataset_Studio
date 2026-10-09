@@ -57,6 +57,34 @@ pub(crate) fn directory(source: &Source) -> Result<FieldDirectory> {
             },
         });
     }
+    if source.kind == "pinterest" {
+        for (id, name) in [("stored.width", "存储宽度"), ("stored.height", "存储高度")] {
+            fields.push(FieldDefinition {
+                id: id.into(),
+                name: name.into(),
+                field_type: Integer,
+                unit: Some("pixel".into()),
+                missing: "validated_stored_bytes".into(),
+                basis: format!("objects.{}", id.replace('.', "_")),
+                display: true,
+                operators: vec![Eq, Ne, Gte, Lte, IsMissing, IsPresent],
+                sortable: false,
+                cost: "catalog_scan".into(),
+            });
+        }
+        return Ok(FieldDirectory {
+            version: 1,
+            source_id: source.id.clone(),
+            fields,
+            observation_rules: vec![
+                ObservationRule::CurrentPost,
+                ObservationRule::AnyObservation,
+            ],
+            orders: vec![QueryOrder::AssetKeyAsc, QueryOrder::AssetKeyDesc],
+            max_conditions: 12,
+            direct_query: true,
+        });
+    }
     if source.kind == "pixiv" {
         for (id, name, kind, basis) in [
             ("work.id", "作品 ID", Text, "work_observations.work_id"),

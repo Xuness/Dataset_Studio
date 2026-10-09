@@ -7,6 +7,7 @@ pub use registry::registry;
 mod duckdb;
 mod media_metadata;
 mod metadata;
+mod pinterest_metadata;
 pub use metadata::MetadataReader;
 mod ranking;
 mod ranking_duplicates;

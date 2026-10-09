@@ -185,7 +185,12 @@ impl Catalog {
             )
             .map_err(Error::io)?;
             if library.library_id != self.library_id
-                || library.format_version != if self.format_version == 3 { 2 } else { 1 }
+                || library.format_version
+                    != match self.format_version {
+                        4 => 3,
+                        3 => 2,
+                        _ => 1,
+                    }
                 || library.image_format != "uncompressed-pax-tar"
             {
                 return Err(Error::new(
@@ -359,6 +364,7 @@ impl Catalog {
             "jpg" | "jpeg" => "image/jpeg",
             "webp" => "image/webp",
             "gif" => "image/gif",
+            "avif" => "image/avif",
             _ => "application/octet-stream",
         }
         .to_owned();
@@ -452,6 +458,7 @@ impl Catalog {
                     "jpg" | "jpeg" => "image/jpeg",
                     "webp" => "image/webp",
                     "gif" => "image/gif",
+                    "avif" => "image/avif",
                     _ => "application/octet-stream",
                 }
                 .into();

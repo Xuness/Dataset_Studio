@@ -8,7 +8,13 @@ pub struct SiteProfile {
     pub normalizer: Option<&'static str>,
     pub absent_fields: &'static [&'static str],
 }
-pub const SITES: [SiteProfile; 4] = [
+pub const SITES: [SiteProfile; 5] = [
+    SiteProfile {
+        kind: "pinterest",
+        name: "Pinterest",
+        normalizer: Some("pinterest-web-v1"),
+        absent_fields: &[],
+    },
     SiteProfile {
         kind: "pixiv",
         name: "Pixiv",
@@ -84,7 +90,7 @@ pub fn descriptor(kind: &str) -> Result<SourceDescriptor> {
     }
     let profile =
         site(kind).ok_or_else(|| Error::new("SOURCE_FORMAT_UNSUPPORTED", "未注册的数据源类型"))?;
-    let mut projections = if kind == "pixiv" {
+    let mut projections = if matches!(kind, "pixiv" | "pinterest") {
         vec![]
     } else {
         vec!["origin_width_v1".into(), "origin_groups_v1".into()]
@@ -94,7 +100,9 @@ pub fn descriptor(kind: &str) -> Result<SourceDescriptor> {
     }
     Ok(SourceDescriptor {
         version: 1,
-        backend_id: if kind == "pixiv" {
+        backend_id: if kind == "pinterest" {
+            "pinterest_media_v1"
+        } else if kind == "pixiv" {
             "canonical_media_v2"
         } else {
             "canonical_lake_v1"
@@ -108,7 +116,7 @@ pub fn descriptor(kind: &str) -> Result<SourceDescriptor> {
             media: true,
             metadata: true,
             query: true,
-            post_order: true,
+            post_order: kind != "pinterest",
             relink: true,
             raw_metadata: true,
             incremental: true,
@@ -212,6 +220,10 @@ pub fn detected_site(root: &std::path::Path) -> Result<Option<String>> {
         let library: serde_json::Value =
             serde_json::from_slice(&std::fs::read(&library_path).map_err(Error::io)?)
                 .map_err(Error::io)?;
+        if library["format_version"] == 3 {
+            crate::pinterest_metadata::validate_format(&library)?;
+            return Ok(Some("pinterest".into()));
+        }
         if library["format_version"] == 2 {
             if library["site"] != "pixiv" || library["schema_set"] != "canonical-media-v2" {
                 return Err(Error::new(

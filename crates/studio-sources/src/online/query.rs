@@ -3,6 +3,21 @@ use rusqlite::types::Value;
 use studio_application::ReadCancellation;
 
 fn field(field: &str, version: u32) -> Result<&'static str> {
+    if version == 4 {
+        return Ok(match field {
+            "asset.id" => "o.sha256",
+            "stored.bytes" => "o.length",
+            "stored.extension" => "o.stored_ext",
+            "stored.width" => "o.stored_width",
+            "stored.height" => "o.stored_height",
+            _ => {
+                return Err(Error::new(
+                    "QUERY_UNSUPPORTED",
+                    "Pinterest 暂只支持存储对象字段查询",
+                ));
+            }
+        });
+    }
     if version == 3 {
         return Ok(match field {
             "asset.id" => "o.sha256",

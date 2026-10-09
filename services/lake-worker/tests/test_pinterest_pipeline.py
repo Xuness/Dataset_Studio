@@ -11,6 +11,23 @@ from studio_lake.pinterest.lake.online import rebuild
 from studio_lake.updates.sites import UpdateError
 
 
+def test_large_job_definitions_page_below_transport_limit_without_skipping(tmp_path):
+    import json
+    fixture = Fixture(tmp_path)
+    for n in range(100):
+        fixture.service.create(dict(request_key=str(uuid.uuid4()), definition={**fixture.spec,
+            "seeds": [dict(kind="pin", id=str(10**19 + n*1000 + i)) for i in range(500)]}))
+    page = fixture.service.page(dict(limit=100), "jobs")
+    assert len(json.dumps(page).encode()) < 2*1024**2
+    assert 1 < len(page["items"]) < 100
+    assert page["next_cursor"]
+    second = fixture.service.page(dict(limit=100, cursor=page["next_cursor"]), "jobs")
+    assert len(page["items"] + second["items"]) == 101
+    assert len({j["id"] for j in page["items"] + second["items"]}) == 101
+    assert second["next_cursor"] is None
+    assert not fixture.pin_calls and not fixture.media_calls
+
+
 def test_specified_pins_share_acquisition_but_keep_all_media_and_rebuild(tmp_path):
     fixture = Fixture(tmp_path, ("858146903966145189", "1089097122423035272"))
     assert fixture.service.preview(dict(definition=fixture.spec))["network_requests"] == 0

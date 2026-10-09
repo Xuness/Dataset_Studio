@@ -30,6 +30,7 @@ mod lake_updates;
 mod llm;
 mod management;
 mod originals;
+mod pinterest;
 mod query;
 mod query_views;
 mod ranking;
@@ -101,6 +102,8 @@ impl IntoResponse for Failure {
             | "IDEMPOTENCY_CONFLICT"
             | "UPDATE_CONFLICT"
             | "COLLECTION_IDEMPOTENCY_CONFLICT"
+            | "PINTEREST_CONFLICT"
+            | "PINTEREST_IDEMPOTENCY_CONFLICT"
             | "COLLECTION_EXECUTION_ACTIVE"
             | "COLLECTION_SCOPE_CHANGED"
             | "COLLECTION_PROTOCOL"
@@ -1592,6 +1595,8 @@ async fn shutdown(State(s): State<AppState>) -> Json<OkResponse> {
         source_collections::schedules, source_collections::save_schedule, source_collections::remove_schedule,
         source_collections::workspace_lakes, source_collections::workspace_jobs, source_collections::workspace_schedules,
         source_collections::register_lake,
+        pinterest::status, pinterest::capabilities, pinterest::lakes, pinterest::create_lake, pinterest::preview,
+        pinterest::create, pinterest::jobs, pinterest::job, pinterest::items, pinterest::action,
         lake_updates::relocations, lake_updates::prepare_relocation, lake_updates::apply_relocation, lake_updates::cancel_relocation,
         lake_updates::pipeline, lake_updates::save_pipeline,
         lake_updates::register, lake_updates::create_lake, lake_updates::catalog, lake_updates::credentials, lake_updates::clear_credentials, lake_updates::probe,
@@ -1625,6 +1630,7 @@ pub fn routes() -> axum::Router<AppState> {
         .nest("/v1/llm", llm::routes())
         .nest("/v1/lake-updates", lake_updates::routes())
         .nest("/v1/source-collections", source_collections::routes())
+        .nest("/v1/pinterest-collections", pinterest::routes())
         .merge(source_collections::source_routes())
         .nest("/v1/projects/{project_id}/aesthetic", aesthetic::routes())
         .nest(

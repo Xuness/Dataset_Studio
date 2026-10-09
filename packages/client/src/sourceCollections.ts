@@ -7,7 +7,7 @@ type PageOptions = {
   limit?: number | undefined;
   signal?: AbortSignal | undefined;
 };
-function query(values: Record<string, string | number | undefined>) {
+function query(values: Record<string, string | number | boolean | undefined>) {
   const result = new URLSearchParams();
   for (const [key, value] of Object.entries(values))
     if (value !== undefined) result.set(key, String(value));
@@ -145,7 +145,7 @@ export class SourceCollectionClient {
       { method: "PUT", body: JSON.stringify(value) },
     );
   }
-  workspaceLakes(options: PageOptions = {}) {
+  workspaceLakes(options: PageOptions & { include_pinterest?: boolean } = {}) {
     const { signal, ...values } = options;
     return this.request<Schema["LakeWorkspaceLakes"]>(
       `${base}/workspace/lakes?${query(values)}`,
@@ -156,6 +156,7 @@ export class SourceCollectionClient {
     options: PageOptions & {
       library_id?: string | undefined;
       state?: string | undefined;
+      include_pinterest?: boolean;
     } = {},
   ) {
     const { signal, ...values } = options;

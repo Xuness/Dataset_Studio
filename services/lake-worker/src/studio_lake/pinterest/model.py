@@ -80,7 +80,7 @@ def definition(value):
     if scope != dict(media_types=["image"], ai_policy="record_only"):
         invalid("Only static images with AI information recorded are currently supported")
     discovery = value.get("discovery", dict(entrypoints=[], max_depth=0))
-    if discovery != dict(entrypoints=[], max_depth=0):
+    if discovery != dict(entrypoints=[], max_depth=0) or type(discovery.get("max_depth")) is not int:
         invalid("Discovery entrypoints are not enabled in this collector version")
     metadata = fields(value.get("metadata", {}), (), ("detail_enrichment",))
     enrichment = metadata.get("detail_enrichment", "sample")
@@ -90,7 +90,10 @@ def definition(value):
         invalid("Extended metadata enrichment is not enabled in this collector version")
     media = dict(image_policy=dict(profile="original", existing="match_profile", allow_sample=False),
                  retain_original=True, reuse=dict(mode="revalidate", max_age_hours=0))
-    if value.get("media", media) != media:
+    supplied_media = value.get("media", media)
+    if (supplied_media != media or type(supplied_media.get("retain_original")) is not bool
+            or type(supplied_media["image_policy"].get("allow_sample")) is not bool
+            or type(supplied_media["reuse"].get("max_age_hours")) is not int):
         invalid("This version preserves original bytes and does not reuse acquisitions across runs")
     supplied = fields(value.get("run_budget", {}), (), DEFAULT_BUDGET)
     budget = {**DEFAULT_BUDGET, **supplied}

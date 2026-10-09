@@ -461,6 +461,35 @@ pub struct LakeWorkspaceLake {
 pub enum LakeWorkspaceJob {
     Update { job: Box<crate::LakeUpdateJob> },
     Collection { job: Box<CollectionJob> },
+    Pinterest { job: Box<crate::PinterestJob> },
+}
+
+#[derive(Serialize, Deserialize, ToSchema, IntoParams)]
+#[serde(deny_unknown_fields)]
+#[into_params(parameter_in=Query)]
+pub struct LakeWorkspaceLakesQuery {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+    /// Explicit opt-in; absent/false preserves the legacy set of source families.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub include_pinterest: Option<bool>,
+}
+#[derive(Serialize, Deserialize, ToSchema, IntoParams)]
+#[serde(deny_unknown_fields)]
+#[into_params(parameter_in=Query)]
+pub struct LakeWorkspaceJobsQuery {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub library_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub include_pinterest: Option<bool>,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 #[serde(tag = "family", rename_all = "snake_case")]

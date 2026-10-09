@@ -401,10 +401,24 @@ impl studio_application::source_collections::CollectionBackend for Backend {
         operation: studio_domain::source_collections::CollectionOperation,
         arguments: Value,
     ) -> Result<Value> {
+        self.collection_command(operation.name(), arguments)
+    }
+}
+impl studio_application::pinterest::PinterestBackend for Backend {
+    fn execute_pinterest(
+        &self,
+        operation: studio_domain::pinterest::PinterestOperation,
+        arguments: Value,
+    ) -> Result<Value> {
+        self.collection_command(operation.name(), arguments)
+    }
+}
+impl Backend {
+    fn collection_command(&self, command: &str, arguments: Value) -> Result<Value> {
         let _gate = self.gate.read().map_err(lock_error)?;
         self.ensure_locked()?;
         let request = serde_json::to_vec(
-            &json!({"protocol_version":1,"command":operation.name(),"arguments":arguments}),
+            &json!({"protocol_version":1,"command":command,"arguments":arguments}),
         )
         .map_err(Error::io)?;
         if request.len() > 2 * 1024 * 1024 {

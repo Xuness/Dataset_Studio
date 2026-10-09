@@ -285,7 +285,7 @@ impl<'a> Read<'a> {
         sha(record)?;
         self.snapshot.db.query_row("SELECT a.asset_id,a.media_id,a.recipe_id,m.work_id,m.manifest_id,m.ordinal,m.kind,a.representation FROM visible_assets a JOIN visible_media m USING(media_id) WHERE a.sha256=?1 AND a.asset_id=?2",params![asset,record],|r|Ok(AssetRecord {
             record_id:r.get(0)?,origin_observation_id:Some(r.get(1)?),post_id:Some(r.get(3)?),source_md5:None,storage_profile:Some(r.get(2)?),
-            media_origin:Some(MediaOrigin {work_id:r.get(3)?,media_id:r.get(1)?,manifest_id:r.get(4)?,ordinal:r.get(5)?,kind:r.get(6)?,representation:r.get(7)?})
+            media_origin:Some(MediaOrigin {work_id:r.get(3)?,media_id:r.get(1)?,manifest_id:r.get(4)?,ordinal:r.get(5)?,kind:r.get(6)?,representation:r.get(7)?}),pin_origin:None
         })).optional().map_err(sql_error)?.ok_or_else(missing)
     }
     pub fn metadata(&self, asset: &str, request: MetadataRequest) -> Result<MetadataOverview> {
