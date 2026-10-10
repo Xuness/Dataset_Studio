@@ -31,6 +31,8 @@ Pixiv 后端：`node tooling/source-collections.mjs` 调用同一个采集服务
 
 Pinterest：`pnpm test:integration pinterest` 使用 [pinterest-fixture.py](pinterest-fixture.py) 经正式运行器生成隔离归档，验证独立 API/SDK、分页流、周期计划、原文件读取、固定版本与 Pin/raw 归属。`node tooling/smoke-pinterest-ui.mjs` 使用端口 1463，在 2560×1440 验证建湖、Pin/图版表单、发现诊断、任务控制、未启用周期计划和提交响应丢失恢复，不调用源站。`lake-storage.mjs build --site pinterest` 支持归档重建、核验和比较。显式真实验证用 [pinterest-live.py](pinterest-live.py) 的 `--allow-network --kind <种子类型> --seed <种子> --output <新的 .local/test-runs 子目录>`；指定 Pin 可加 `--verify-reuse` 验证额外一轮条件复查。能力与证据见 [第二至四批验收](../docs/verification/2026-10-10-pinterest-phases-2-4.md)。
 
+Pinterest 生产审查回归：`pnpm test:lake tests/test_pinterest_lifecycle.py tests/test_pinterest_coverage.py tests/test_pinterest_integrity.py` 覆盖慢传输、限流记账、固定超限、跨湖暂存、崩溃清理、分区数量、深度改善、非 UTF-8 原文和复制故障；共享资源变更再选择对应下载/暂存测试。结果及物理组批边界见[审查修复验收](../docs/verification/2026-10-10-pinterest-production-review-fixes.md)。
+
 Pixiv 归档规模验证：使用项目 Python 执行 `tooling/benchmark-pixiv-archive.py --output '<new child of .local/test-runs>' --works 10000 100000`。合成详情、媒体清单和共用小 PNG，验证生产组批 writer、发布与独立重建；不访问源站，不代表完整调度器或大图下载吞吐。结果和边界见[审查修复验收](../docs/verification/2026-10-03-pixiv-review-upgrade.md)。
 
 三站更新服务已纳入 `services/lake-worker`，运行源码随引擎打包，不需要另一个 Store 仓库。首次运行 `pwsh -File tooling/setup-lake-worker.ps1 -Dev` 安装本项目的 Python 依赖，也可用 `STUDIO_LAKE_TEST_PYTHON` 指定已有环境。`pnpm test:lake <文件或过滤器>` 覆盖相关编码、归档或恢复行为；`pnpm test:integration lake-updates` 验证内置运行器与 HTTP/SDK；`pnpm test:lake-ui` 验证真实界面和命名策略预设。按变更范围选择，不默认连续执行。夹具仅使用 `.local/test-runs/` 隔离湖，无正式 API 抓取。完整 Python 服务测试属于 `pnpm check:full`。在线读取回归用 `pnpm test:integration online`。

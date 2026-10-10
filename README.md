@@ -24,6 +24,8 @@ Pixiv 使用独立多媒体湖，已接入作者/作品采集、范围内标签�
 
 Pinterest 已接入匿名 Pin、图版/分区、推荐、Pin/图版搜索与 Ideas 主题，支持静态原图、预算接续、历史复用和周期复查。原文件哈希、各次观察和来源关系分别保留；视频、复杂故事等未支持媒体记录缺口。使用方法见 [Pinterest 接入设计](docs/plans/Dataset%20Scraping/pinterest-backend-and-lake-design.md)，验证范围见 [第二至四批验收](docs/verification/2026-10-10-pinterest-phases-2-4.md)。
 
+Pinterest 后续已修复慢请求、固定资源超限、失败暂存回收、分区覆盖与重建校验问题，见[生产审查修复](docs/verification/2026-10-10-pinterest-production-review-fixes.md)。当前归档仍按单任务封包；大规模灌入前需要完成[有界物理组批](docs/plans/Dataset%20Scraping/pinterest-bounded-packing-plan.md)及目标容量盘持续验证。
+
 ## 启动
 
 Linux x86_64 原生桌面的源码安装、字体与密钥环依赖见 [Linux 开发运行](docs/architecture/linux-development.md)。Linux 默认编译 Debug 引擎，不制作发行包；可从空目录创建新数据湖。

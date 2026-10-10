@@ -48,9 +48,7 @@ export function PinterestStreams({
             <p>
               {stream.pages} 页 ·{" "}
               {stream.entrypoint === "board_sections"
-                ? stream.total == null
-                  ? "分区总量未知"
-                  : `来源报告 ${stream.total} 个分区`
+                ? `${stream.unique_sections} 个不同分区 · ${stream.total == null ? "分区总量未知" : `来源报告 ${stream.total} 个分区`}`
                 : `${stream.unique_pins} 个不同 Pin · ${stream.members} 次出现 · ${stream.total == null ? "来源总量未知" : `来源报告 ${stream.total} 个 Pin`}`}
               {stream.has_cursor ? " · 保留后续游标" : ""}
             </p>

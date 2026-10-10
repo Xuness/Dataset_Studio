@@ -48,6 +48,15 @@ try {
   assert.equal(streams.items[0].state, "exhausted");
   assert.equal(streams.items[0].pages, 2);
   assert.equal(streams.items[0].total, null);
+  assert.equal(streams.items[0].unique_sections, 0);
+  const sectionStreams = (await api.streams(refs.section_job.id)).items;
+  const sections = sectionStreams.find((s) => s.entrypoint === "board_sections");
+  assert.equal(sections.unique_sections, 2);
+  assert.equal(sections.total, 2);
+  assert.equal(sections.state, "exhausted");
+  assert.ok(sectionStreams.filter((s) => s.entrypoint === "section_page").every((s) => s.total === 0));
+  assert.equal((await api.job(refs.section_job.id)).media_complete, true);
+  checks.push("distinct section coverage and observed section totals survive worker/HTTP/SDK boundaries");
   const boardPreview = await api.preview({
     ...refs.job.definition,
     seeds: [{ kind: "board", id: "https://www.pinterest.com/test/board/" }],

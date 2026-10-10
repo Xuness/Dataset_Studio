@@ -22796,6 +22796,7 @@
           "pages",
           "members",
           "unique_pins",
+          "unique_sections",
           "force_detail",
           "samples_checked",
           "mismatches",
@@ -22866,6 +22867,11 @@
             "minimum": 0
           },
           "unique_pins": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "unique_sections": {
             "type": "integer",
             "format": "int64",
             "minimum": 0

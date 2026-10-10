@@ -6946,6 +6946,8 @@ export interface components {
             total?: number | null;
             /** Format: int64 */
             unique_pins: number;
+            /** Format: int64 */
+            unique_sections: number;
             updated_at: string;
         };
         PinterestStreams: {
