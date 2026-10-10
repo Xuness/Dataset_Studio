@@ -177,6 +177,7 @@ class Service:
                 return self.job(identity, db)
         row = self.row(identity, db)
         usage = budget.usage(db, row)
+        committed_budget = budget.usage(db, row, include_pending=True)
         baseline = json.loads(row.pop("budget_baseline_json"))
         spec = json.loads(row.pop("definition_json"))
         row.pop("context_json")
@@ -191,13 +192,15 @@ class Service:
                    "waiting_budget": ["continue", "pause", "cancel"], "needs_review": ["resume", "cancel"]}.get(row["state"], ["pause", "cancel"])
         if row["state"] == "completed" and db.execute("SELECT 1 FROM pinterest_streams s WHERE s.job_id=? AND " + DISCOVERY_RETRY + " LIMIT 1", (identity,)).fetchone():
             actions = ["retry", "cancel"]
-        if row["state"] == "needs_review" and not db.execute("SELECT 1 FROM pinterest_tasks WHERE job_id=? AND state='running' LIMIT 1", (identity,)).fetchone():
+        if row["state"] == "needs_review" and not db.execute("SELECT 1 FROM pinterest_tasks WHERE job_id=? AND state IN ('running','prepared') LIMIT 1", (identity,)).fetchone():
             actions = ["retry", "resume", "cancel"]
         metrics = {r[0]: r[1] for r in db.execute("SELECT name,value FROM pinterest_metrics WHERE job_id=?", (identity,))}
-        media_pending = sum(r["n"] for r in counts if r["kind"] != "pin_enrichment" and r["state"] in ("queued", "running", "waiting_retry", "waiting_budget"))
+        buffered = db.execute("SELECT count(*),coalesce(sum(media_records),0) FROM pinterest_outbox WHERE job_id=? AND state='prepared'", (identity,)).fetchone()
+        metrics.update(buffered_results=buffered[0], buffered_media_results=buffered[1])
+        media_pending = sum(r["n"] for r in counts if r["kind"] != "pin_enrichment" and r["state"] in ("queued", "running", "prepared", "waiting_retry", "waiting_budget"))
         media_gaps = sum(r["n"] for r in counts if r["kind"] != "pin_enrichment" and r["state"] in ("needs_review", "unavailable"))
         return dict(**row, definition=spec, counts=counts, phase=row["state"], actions=actions,
-            metrics=metrics, totals=usage, budget_usage={k: v - baseline.get(k, 0) for k, v in usage.items()},
+            metrics=metrics, totals=usage, budget_usage={k: v - baseline.get(k, 0) for k, v in committed_budget.items()},
             media_complete=media_pending == 0 and media_gaps == 0 and not metrics.get("manifest_discrepancies") and row["state"] in ("completed", "waiting_budget"),
             enrichment_pending=sum(r["n"] for r in counts if r["kind"] == "pin_enrichment" and r["state"] != "done"))
 
@@ -275,11 +278,11 @@ class Service:
             state = dict(pause="pausing", resume="queued", **{"continue": "queued"}, cancel="cancelling", retry="queued")[action]
             if action == "continue":
                 db.execute("UPDATE pinterest_jobs SET budget_round=budget_round+1,budget_baseline_json=? WHERE id=?",
-                           (canonical(budget.usage(db, row)), row["id"]))
+                           (canonical(budget.usage(db, row, include_pending=True)), row["id"]))
                 db.execute("UPDATE pinterest_tasks SET state='queued',reason=NULL WHERE job_id=? AND state='waiting_budget'", (row["id"],))
             if action == "retry":
                 # Active claims and accepted receipts must be replayed before a new generation is possible.
-                if db.execute("SELECT 1 FROM pinterest_tasks WHERE job_id=? AND state='running' LIMIT 1", (row["id"],)).fetchone():
+                if db.execute("SELECT 1 FROM pinterest_tasks WHERE job_id=? AND state IN ('running','prepared') LIMIT 1", (row["id"],)).fetchone():
                     raise UpdateError("PINTEREST_CONFLICT", "Pause and let the current claim settle before retrying")
                 # Preserve cleanup intent in the same transaction as generation advancement.
                 for old in db.execute("SELECT * FROM pinterest_tasks WHERE job_id=? AND kind='media_download' AND state IN ('needs_review','unavailable','waiting_retry')", (row["id"],)):

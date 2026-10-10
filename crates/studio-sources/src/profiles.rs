@@ -222,7 +222,7 @@ pub fn detected_site(root: &std::path::Path) -> Result<Option<String>> {
             serde_json::from_slice(&std::fs::read(&library_path).map_err(Error::io)?)
                 .map_err(Error::io)?;
         if library["format_version"] == 3 {
-            crate::pinterest_metadata::validate_format(&library)?;
+            crate::pinterest_metadata::validate_archive_format(&library)?;
             return Ok(Some("pinterest".into()));
         }
         if library["format_version"] == 2 {

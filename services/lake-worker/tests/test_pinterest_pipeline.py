@@ -35,11 +35,11 @@ def test_specified_pins_share_acquisition_but_keep_all_media_and_rebuild(tmp_pat
     result = fixture.run()
     assert result["state"] == "completed", result
     assert len(fixture.pin_calls) == 2 and len(fixture.media_calls) == 1
-    assert result["archive_seq"] == result["served_seq"] == 5
+    assert result["archive_seq"] == result["served_seq"] == 3
     assert result["download_bytes"] == len(fixture.data)
     lib = fixture.service.library(fixture.lake["library_id"])
     assert isinstance(Library(lib.config), PinterestLibrary)
-    assert lib.verify(deep=True) == dict(batches=5, captures=2, objects=1)
+    assert lib.verify(deep=True) == dict(batches=3, captures=2, objects=1)
     db = connect(lib.cache / "online.sqlite")
     try:
         assert db.execute("SELECT count(*) FROM assets").fetchone()[0] == 2
@@ -52,7 +52,7 @@ def test_specified_pins_share_acquisition_but_keep_all_media_and_rebuild(tmp_pat
     finally:
         db.close()
     rebuilt = rebuild(PinterestLibrary.archive(lib.root), tmp_path / "rebuilt")
-    assert rebuilt["served_seq"] == 5
+    assert rebuilt["served_seq"] == 3
     db = connect(tmp_path / "rebuilt" / "online.sqlite")
     try:
         assert db.execute("SELECT count(*) FROM assets").fetchone()[0] == 2
@@ -118,7 +118,7 @@ def test_same_url_still_checks_each_pins_declared_dimensions(tmp_path):
 @pytest.mark.parametrize("stage", ["pin", "media"])
 def test_recovery_replays_saved_evidence_without_refetch_or_duplicate_publication(tmp_path, monkeypatch, point, stage):
     from studio_lake import archive_io
-    from studio_lake.pinterest import runner
+    from studio_lake.pinterest import packing, runner
     from studio_lake.pinterest.lake import library, online
 
     fixture = Fixture(tmp_path)
@@ -130,7 +130,7 @@ def test_recovery_replays_saved_evidence_without_refetch_or_duplicate_publicatio
         if name == point and ready and not fired:
             fired.append(name)
             raise Crash()
-    for module in (runner, archive_io, library, online):
+    for module in (runner, packing, archive_io, library, online):
         monkeypatch.setattr(module, "failpoint", fault)
     with pytest.raises(Crash):
         fixture.run()

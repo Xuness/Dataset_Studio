@@ -21,6 +21,7 @@ class Reservation:
             if not self.released:
                 self.owner.reservations.pop(self.key, None)
                 self.owner.plans.pop(self.key, None)
+                self.owner.retained.pop(self.key, None)
                 self.owner.aliases = {k: v for k, v in self.owner.aliases.items() if v != self.key}
                 self.released = True
             self.owner.condition.notify_all()
@@ -38,6 +39,7 @@ class Resources:
         self.reservations = {}
         self.plans = {}
         self.aliases = {}
+        self.retained = {}
         self.roots = set()
         self.devices = {}
         self.encode_jobs = self.decode_bytes = 0
@@ -96,7 +98,7 @@ class Resources:
         directory.mkdir(parents=True, exist_ok=True)
         identity = (directory, key)
         with self.condition:
-            if identity in self.reservations:
+            if identity in self.reservations or identity in self.aliases:
                 return None
             self.roots.add(directory.parent)
             self.devices.setdefault(directory.parent, directory.parent.stat().st_dev)
@@ -115,6 +117,62 @@ class Resources:
                     for member in members:
                         self.aliases.pop(member, None)
             return Reservation(self, identity)
+
+    def retained_lease(self, directory, key):
+        """Only the source's execution-lock owner may reattach a durable staging promise."""
+        with self.condition:
+            identity = (Path(directory), key)
+            return self.retained.get(self.aliases.get(identity, identity))
+
+    def retain(self, lease):
+        with self.condition:
+            if not lease.released:
+                self.retained[lease.key] = lease
+
+    def restore(self, directory, key, needed, *, related=()):
+        """Restore existing durable debt before admission; a lowered limit cannot erase it."""
+        Path(directory).mkdir(parents=True, exist_ok=True)
+        with self.condition:
+            existing = self.retained_lease(directory, key)
+            if existing:
+                return existing
+            identity = (Path(directory), key)
+            self.track(directory)
+            for folder, member in related:
+                self.track(folder)
+                self.aliases[(Path(folder), member)] = identity
+            self.reservations[identity] = max(needed, self._actual().get(identity, 0))
+            lease = Reservation(self, identity)
+            self.retain(lease)
+            return lease
+
+    def combine(self, leases, directory, key):
+        """Transfer already admitted source promises to one physical pack without an admission gap."""
+        with self.condition:
+            identity = (Path(directory), key)
+            existing = self.retained.get(identity)
+            if existing:
+                return existing
+            members = {lease.key: lease for lease in leases if not lease.released}
+            if not members or any(self.retained.get(k) is not lease for k, lease in members.items()):
+                raise RuntimeError("Cannot combine staging without durable ownership")
+            self.track(directory)
+            need = sum(self.reservations[k] for k in members)
+            for alias, owner in list(self.aliases.items()):
+                if owner in members:
+                    self.aliases[alias] = identity
+            for old, lease in members.items():
+                self.reservations.pop(old)
+                self.plans.pop(old, None)
+                self.retained.pop(old, None)
+                if old != identity:
+                    self.aliases[old] = identity
+                lease.released = True
+            self.aliases.pop(identity, None)
+            self.reservations[identity] = need
+            lease = Reservation(self, identity)
+            self.retain(lease)
+            return lease
 
     def track(self, directory):
         """Include a related output directory in the same admission accounting."""

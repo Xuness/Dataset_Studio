@@ -21,7 +21,7 @@ def collect(state, lib, job_id):
             raise IntegrityError("Invalid Pinterest acquisition cleanup key")
         with state.db() as db:
             pending = db.execute("SELECT 1 FROM pinterest_tasks WHERE job_id=? AND kind='media_download' "
-                "AND state IN ('queued','running','waiting_retry','waiting_budget') AND download_generation=? "
+                "AND state IN ('queued','running','prepared','waiting_retry','waiting_budget') AND download_generation=? "
                 "AND json_extract(input_json,'$.normalized_url')=? AND json_extract(input_json,'$.context_id')=? LIMIT 1",
                 (job_id, row["generation"], row["normalized_url"], row["context_id"])).fetchone()
             saved = db.execute("SELECT acquisition_json FROM pinterest_downloads WHERE job_id=? AND download_key=?", (job_id, key)).fetchone()

@@ -175,7 +175,7 @@ def test_v19_upgrade_backfills_distinct_candidates_and_keeps_claims(tmp_path):
 
 @pytest.mark.parametrize("point", ["pinterest_after_response", "pinterest_after_prepared", "pinterest_after_control_replay"])
 def test_empty_page_retry_survives_receipt_recovery(tmp_path, monkeypatch, point):
-    from studio_lake.pinterest import runner
+    from studio_lake.pinterest import packing, runner
     from studio_lake import archive_io
     from studio_lake.pinterest.lake import library, online
     calls = 0
@@ -196,7 +196,7 @@ def test_empty_page_retry_survives_receipt_recovery(tmp_path, monkeypatch, point
         if name == point and calls == 1 and not hit:
             hit = True
             raise Crash()
-    for module in (runner, archive_io, library, online):
+    for module in (runner, packing, archive_io, library, online):
         monkeypatch.setattr(module, "failpoint", crash)
     with pytest.raises(Crash):
         fixture.run()

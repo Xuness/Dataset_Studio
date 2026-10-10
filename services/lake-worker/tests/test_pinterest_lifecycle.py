@@ -105,7 +105,7 @@ def test_waiting_in_the_rate_lane_does_not_spend_requests_or_attempts(tmp_path, 
 
 
 @pytest.mark.parametrize("limit", ["pixels", "bytes", "memory", "decoder_pixels"])
-def test_permanent_media_limit_is_a_gap_and_later_pins_can_finish(tmp_path, limit):
+def test_permanent_media_limit_is_a_gap_and_later_pins_can_finish(tmp_path, monkeypatch, limit):
     from PIL import Image
     import io
 
@@ -113,6 +113,8 @@ def test_permanent_media_limit_is_a_gap_and_later_pins_can_finish(tmp_path, limi
     Image.new("RGB", (1000, 1000), "red").save(buffer, "PNG", compress_level=0)
     large = buffer.getvalue()
     if limit == "decoder_pixels":
+        # The shared image executor changes Pillow's process-wide default; our own guard still wins.
+        monkeypatch.setattr(Image, "MAX_IMAGE_PIXELS", 1_000_000_000)
         import struct
         import zlib
         header = struct.pack(">II", 25000, 25000) + large[24:29]
@@ -279,7 +281,9 @@ def test_crash_after_acceptance_replays_cleanup_before_new_space_admission(tmp_p
     with pytest.raises(Crash):
         run.run(fixture.job["id"], time_slice=60)
     assert resources.snapshot()["staging_bytes"] >= 8 * 1024**2
-    other = resources.try_reserve(tmp_path / "other/job", "other", 46 * 1024**2)
+    snapshot = resources.snapshot()
+    assert resources.try_reserve(tmp_path / "other/job", "too-large", 46 * 1024**2) is None
+    other = resources.try_reserve(tmp_path / "other/job", "other", resources.spool_bytes - snapshot["staging_reserved_bytes"] - 1024**2)
     assert other is not None
     monkeypatch.setattr(archive_io, "failpoint", lambda _: None)
     try:

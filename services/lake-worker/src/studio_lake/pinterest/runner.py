@@ -6,7 +6,7 @@ import threading
 import time
 import uuid
 
-from . import budget, downloader, garbage, model, normalize, planner, receipts
+from . import budget, downloader, garbage, model, normalize, outbox, packing, planner, receipts
 from .http import Client
 from .lake.library import Batch
 from .lake.schema import arrow_schema
@@ -16,7 +16,7 @@ from ..canonical import utc
 from ..updates import locations
 from ..updates.resources import Resources
 from ..updates.sites import UpdateError
-from ..util import FileLock, IntegrityError, contained, failpoint, read_json, stable_id
+from ..util import FileLock, IntegrityError, contained, digest, failpoint, read_json, stable_id
 
 
 class Runner:
@@ -25,6 +25,7 @@ class Runner:
         self.resources, self.stop = resources or Resources(), stop or threading.Event()
         self.resources.configure_source("pinterest", model.SITE_LIMITS)
         self.client_factory, self.image_http = client_factory or Client, image_http
+        packing.restore_all(state, self.service, self.resources)
 
     def update_state(self, identity, state, reason=None, *, retry=0):
         with self.state.db() as db:
@@ -60,7 +61,10 @@ class Runner:
                 with self.state.db() as db:
                     db.execute("UPDATE pinterest_tasks SET state=CASE WHEN attempts>=3 THEN 'unavailable' ELSE 'waiting_retry' END,"
                         "reason=?,retry_at=? WHERE job_id=? AND state='running'", (error.code, time.time() + error.retry_after, identity))
-                self.update_state(identity, "waiting_retry", error.code, retry=error.retry_after)
+                with self.state.db() as db:
+                    buffered = outbox.pending(db, identity)
+                retry = min(error.retry_after, max(1, buffered[0]["created_at"] + outbox.MAX_AGE - time.time())) if buffered else error.retry_after
+                self.update_state(identity, "waiting_retry", error.code, retry=retry)
             else:
                 self.update_state(identity, "needs_review", error.code)
         except (IntegrityError, OSError):
@@ -117,12 +121,27 @@ class Runner:
             raise IntegrityError("Pinterest frozen definition changed")
         if current["desired_state"] != "running":
             raise UpdateError("CANCELLED", "Pinterest admission is closed")
+        if replay["kind"] == "bundle":
+            with self.state.db() as db:
+                plan = db.execute("SELECT * FROM pinterest_batches WHERE batch_id=? AND job_id=?", (replay["batch_id"], job["id"])).fetchone()
+            if not plan or json.loads(plan["receipt_ids_json"]) != [r["receipt_id"] for r in replay["receipts"]]:
+                raise IntegrityError("Pinterest bundle differs from its durable membership")
+            for member, row in zip(replay["receipts"], outbox.members(self.state, plan)):
+                if member["prepared_sha256"] != row["content_sha256"] or member["input_sha256"] != row["input_sha256"]:
+                    raise IntegrityError("Pinterest bundle differs from its durable result")
+                self._fence(job, member)
+            return
         if replay["kind"] == "task":
             with self.state.db() as db:
-                task = db.execute("SELECT state,claim_token,receipt_id FROM pinterest_tasks WHERE task_id=? AND job_id=?",
+                task = db.execute("SELECT state,claim_token,receipt_id,input_json FROM pinterest_tasks WHERE task_id=? AND job_id=?",
                                   (replay["task_id"], job["id"])).fetchone()
-            if not task or tuple(task) != ("running", replay["claim_token"], replay["receipt_id"]):
+            if not task or task["state"] not in ("running", "prepared") or (task["claim_token"], task["receipt_id"]) != (replay["claim_token"], replay["receipt_id"]):
                 raise IntegrityError("Stale Pinterest execution claim")
+            if replay.get("version") == 2 and digest(task["input_json"].encode()) != replay["input_sha256"]:
+                raise IntegrityError("Pinterest frozen task input changed")
+
+    def _flush(self, lib, job):
+        return packing.publish(self.state, lib, job, self.resources, lambda r: self._fence(job, r), lambda: self._cancelled(job["id"]))
 
     def _publish(self, lib, job, replay, records, media=None, definition=None, spool=None):
         identity = replay["receipt_id"]
@@ -204,7 +223,11 @@ class Runner:
         root = receipts.directory(lib, job["id"])
         old = receipts.load_prepared(root, task["receipt_id"])
         if old:
+            spool.metadata(task["receipt_id"], (root / (task["receipt_id"] + ".prepared.json")).stat().st_size + packing.OVERHEAD)
+            if old["media"]:
+                spool.reserve(old["media"]["download_key"], task["receipt_id"])
             return old
+        spool.metadata(task["receipt_id"], 12 * 1024**2 if task["kind"] in model.NETWORK_KINDS else packing.OVERHEAD)
         replay = dict(kind="task", receipt_id=task["receipt_id"], task_id=task["task_id"], claim_token=task["claim_token"],
                       state="done", reason=None, retry_at=0, next_tasks=[])
         entry = json.loads(task["input_json"])
@@ -253,8 +276,8 @@ class Runner:
             if scan and scan[0] and not entry.get("confirmed_detail"):
                 replay.update(state="superseded", reason="list_manifest_requires_detail")
                 replay["next_tasks"].append(planner.task("pin_detail", entry["pin_id"], pin_id=entry["pin_id"], scan_id=entry["scan_id"]))
-                receipts.save_prepared(root, replay, {})
-                return dict(replay=replay, records={}, media=None)
+                receipts.save_prepared(root, replay, {}, job=job, task=task, spool=spool)
+                return receipts.load_prepared(root, task["receipt_id"])
             replay["download_key"] = downloader.download_key(job["id"], task, entry)
             replay["download_scope"] = {k: entry[k] for k in ("normalized_url", "context_id")}
             replay["download_scope"]["download_generation"] = task["download_generation"]
@@ -279,7 +302,6 @@ class Runner:
                 replay["download_key"] = result["download_key"]
                 if result["evidence"] != "downloaded":
                     planner.metric(replay, result["evidence"])
-                planner.metric(replay, "new_byte_objects" if lib.lookup_object(result["download_sha256"]) is None else "existing_byte_bindings")
                 if entry.get("scan_id"):
                     with self.state.db() as db:
                         origin = db.execute("SELECT entrypoint FROM pinterest_streams WHERE scan_id=?", (entry["scan_id"],)).fetchone()
@@ -288,18 +310,19 @@ class Runner:
             else:
                 state = "waiting_retry" if result["state"] == "failed" and task["attempts"] < 3 else "needs_review"
                 replay.update(state=state, reason=result.get("reason"), retry_at=result.get("retry_at", 0))
-        receipts.save_prepared(root, replay, records, media)
-        failpoint("pinterest_after_prepared")
-        return dict(replay=replay, records=records, media=media)
+        receipts.save_prepared(root, replay, records, media, job=job, task=task, spool=spool)
+        return receipts.load_prepared(root, task["receipt_id"])
 
     def _run(self, lib, identity, deadline, started):
         job = self.service.row(identity)
+        packing.restore_job(self.state, lib, identity, self.resources)
         # Accepted work always replays and publishes, even if the next user command is cancel.
         while receipts.replay(self.state, lib, identity) == 128:
             pass
         published = lib.sync_online()
         with self.state.db() as db:
             db.execute("UPDATE pinterest_jobs SET served_seq=? WHERE id=?", (published["served_seq"], identity))
+        packing.cleanup(self.state, lib, identity, self.resources, published["served_seq"])
         # A crash after acceptance can precede both control replay and file cleanup.
         for path in receipts.directory(lib, identity).glob("*.prepared.json"):
             receipt_id = model.identity(path.name.removesuffix(".prepared.json"))
@@ -319,6 +342,9 @@ class Runner:
         if job["state"] in model.TERMINAL:
             self.cleanup(lib, identity)
             return
+        snapshot = self.resources.snapshot()
+        if snapshot["staging_reserved_bytes"] > snapshot["staging_limit_bytes"]:
+            raise UpdateError("UPDATE_SPACE", "Existing staging exceeds the current shared resource budget")
         self._intent(lib, job)
         self.update_state(identity, "running")
         spec = json.loads(job["definition_json"])
@@ -332,16 +358,27 @@ class Runner:
                 with self.state.db() as db:
                     pending = db.execute("SELECT 1 FROM pinterest_tasks WHERE job_id=? AND state='running' LIMIT 1", (identity,)).fetchone()
                 baseline = json.loads(current["budget_baseline_json"])
+                with self.state.db() as db:
+                    buffered = outbox.pending(db, identity)
+                if outbox.ready(buffered):
+                    self._flush(lib, job)
+                    continue
                 if not pending and current["elapsed_seconds"] + time.monotonic() - started - baseline.get("elapsed_seconds", 0) >= spec["run_budget"]["wall_seconds"]:
+                    if buffered:
+                        self._flush(lib, job)
+                        continue
                     self.update_state(identity, "waiting_budget", "PINTEREST_RUN_BUDGET")
                     return
                 task = self._claim(identity, spec)
                 if task and "blocked" in task:
                     continue
                 if task is None:
+                    if buffered:
+                        self._flush(lib, job)
+                        continue
                     with self.state.db() as db:
                         # A drained media queue can release discovery backpressure without a new budget round.
-                        backlog = db.execute("SELECT coalesce(sum(n),0) FROM pinterest_counts WHERE job_id=? AND kind IN ('media_download','pin_admit') AND state IN ('queued','running','waiting_retry','waiting_budget')", (identity,)).fetchone()[0]
+                        backlog = db.execute("SELECT coalesce(sum(n),0) FROM pinterest_counts WHERE job_id=? AND kind IN ('media_download','pin_admit') AND state IN ('queued','running','prepared','waiting_retry','waiting_budget')", (identity,)).fetchone()[0]
                         if backlog < spec.get("discovery", {}).get("max_pending_downloads", 128):
                             released = db.execute("UPDATE pinterest_tasks SET state='queued',reason=NULL WHERE job_id=? AND state='waiting_budget' AND reason='discovery_backlog'", (identity,)).rowcount
                             if released:
@@ -359,13 +396,37 @@ class Runner:
                 # Recover a sealed batch without reconstructing mutable execution inputs.
                 sealed = next((p for p in (lib.root / "segments" / task["receipt_id"], lib.root / "staging" / task["receipt_id"])
                                if (p / "manifest.json").exists()), None)
-                with Spool(lib, identity, self.resources) as spool:
-                    def before_send():
-                        self._before_send(job, task, started, deadline)
-                    prepared = dict(replay=read_json(sealed / "replay.json"), records={}, media=None) if sealed else self._prepare(lib, job, task, client, cancelled, spool, before_send)
-                    self._publish(lib, job, **prepared, spool=spool)
+                sample = task["kind"] == "pin_enrichment" and json.loads(task["input_json"]).get("purpose") == "sample"
+                if sample and buffered:
+                    self._flush(lib, job)
+                try:
+                    with Spool(lib, identity, self.resources) as spool:
+                        def before_send():
+                            self._before_send(job, task, started, deadline)
+                        if sealed:
+                            prepared = dict(replay=read_json(sealed / "replay.json"), records={}, media=None)
+                            self._publish(lib, job, **prepared, spool=spool)
+                        else:
+                            prepared = self._prepare(lib, job, task, client, cancelled, spool, before_send)
+                            outbox.register(self.state, lib, job, task, prepared)
+                            spool.retain()
+                            outbox.failpoint("pinterest_after_outbox")
+                            root = receipts.directory(lib, identity)
+                            (root / (task["receipt_id"] + ".response.json")).unlink(missing_ok=True)
+                            spool.metadata(task["receipt_id"], (root / (task["receipt_id"] + ".prepared.json")).stat().st_size + packing.OVERHEAD)
+                            failpoint("pinterest_after_prepared")
+                except UpdateError as error:
+                    if error.code == "UPDATE_SPACE" and buffered:
+                        self._flush(lib, job)
+                        continue
+                    raise
                 reason = prepared["replay"].get("reason")
-                if reason in ("pin_http_401", "pin_http_403", "pin_http_301", "pin_http_302", "pin_response_invalid", "image_http_401", "image_http_403", "discovery_visibility_changed"):
+                barrier = reason in ("pin_http_401", "pin_http_403", "pin_http_301", "pin_http_302", "pin_response_invalid", "image_http_401", "image_http_403", "discovery_visibility_changed")
+                sampling_admission = any(r["kind"] == "pin_enrichment" and r["input"].get("purpose") == "sample" for r in prepared["replay"]["next_tasks"])
+                if sample or sampling_admission or barrier:
+                    while self._flush(lib, job):
+                        pass
+                if barrier:
                     self.update_state(identity, "needs_review", reason)
                     return
             current = self.service.row(identity)
@@ -376,6 +437,8 @@ class Runner:
     def cleanup(self, lib, identity):
         # Successful acquisition files must remain available for unfinished/failed bindings sharing their URL.
         row = self.service.row(identity)
+        if row["state"] == "cancelled":
+            packing.cancel(self.state, lib, identity, self.resources)
         root = receipts.directory(lib, identity)
         # Inspect only still-staged receipts, not the entire accepted history of a growing job.
         for receipt_path in root.glob("*.prepared.json"):
@@ -403,5 +466,5 @@ class Runner:
                     root.rmdir()
         with self.state.db() as db:
             if row["state"] == "cancelled":
-                db.execute("UPDATE pinterest_tasks SET state='cancelled',reason='cancelled' WHERE job_id=? AND state IN ('queued','running','waiting_retry','waiting_budget')", (identity,))
+                db.execute("UPDATE pinterest_tasks SET state='cancelled',reason='cancelled' WHERE job_id=? AND state IN ('queued','running','prepared','waiting_retry','waiting_budget')", (identity,))
             db.execute("UPDATE pinterest_jobs SET cleanup_state='complete' WHERE id=?", (identity,))

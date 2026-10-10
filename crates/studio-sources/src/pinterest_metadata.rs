@@ -14,11 +14,22 @@ const FEATURES: [&str; 4] = [
     "sha256-objects-v1",
 ];
 pub(crate) fn validate_format(value: &serde_json::Value) -> Result<()> {
+    validate_features(value, false)
+}
+
+pub(crate) fn validate_archive_format(value: &serde_json::Value) -> Result<()> {
+    validate_features(value, true)
+}
+
+fn validate_features(value: &serde_json::Value, archive: bool) -> Result<()> {
     let features = value["required_features"].as_array();
     if value["site"] != "pinterest"
         || value["schema_set"] != "pinterest-media-v1"
         || !features.is_some_and(|v| {
-            v.len() == FEATURES.len()
+            (v.len() == FEATURES.len()
+                || (archive
+                    && v.len() == FEATURES.len() + 1
+                    && v.iter().any(|x| x.as_str() == Some("receipt-bundles-v1"))))
                 && FEATURES
                     .iter()
                     .all(|f| v.iter().any(|x| x.as_str() == Some(f)))
@@ -40,6 +51,19 @@ mod tests {
     fn pinterest_requires_its_complete_supported_feature_set() {
         let supported = json!({"site":"pinterest","schema_set":"pinterest-media-v1","required_features":FEATURES});
         validate_format(&supported).unwrap();
+        validate_archive_format(&supported).unwrap();
+        let mut bundled = supported.clone();
+        bundled["required_features"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!("receipt-bundles-v1"));
+        validate_archive_format(&bundled).unwrap();
+        assert!(validate_format(&bundled).is_err());
+        bundled["required_features"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!("unknown-feature"));
+        assert!(validate_archive_format(&bundled).is_err());
         for (key, value) in [
             ("site", json!("pixiv")),
             ("schema_set", json!("canonical-media-v2")),
@@ -61,6 +85,7 @@ mod tests {
                 validate_format(&invalid).unwrap_err().code,
                 "SOURCE_FORMAT_UNSUPPORTED"
             );
+            assert!(validate_archive_format(&invalid).is_err());
         }
     }
 }

@@ -214,7 +214,7 @@ def test_ambiguous_pagination_never_claims_exhaustion(tmp_path, case):
     "pinterest_after_rename", "pinterest_after_commit", "pinterest_after_publish", "pinterest_after_control_replay"])
 def test_page_receipt_recovery_does_not_refetch_or_skip_members(tmp_path, monkeypatch, point):
     from studio_lake import archive_io
-    from studio_lake.pinterest import runner
+    from studio_lake.pinterest import packing, runner
     from studio_lake.pinterest.lake import library, online
     fixture = collection(tmp_path, lambda kind, entry: pages([listed("123")], ("next",)) if entry["cursor"] is None else pages([listed("124")]))
     class Crash(BaseException):
@@ -224,7 +224,7 @@ def test_page_receipt_recovery_does_not_refetch_or_skip_members(tmp_path, monkey
         if name == point and fixture.page_calls and not fired:
             fired.append(True)
             raise Crash()
-    for module in (runner, archive_io, library, online):
+    for module in (runner, packing, archive_io, library, online):
         monkeypatch.setattr(module, "failpoint", fault)
     with pytest.raises(Crash):
         fixture.run()

@@ -27,7 +27,7 @@ def remove_collection_recovery(db):
 
 def remove_pinterest_schema(db):
     """Historical control fixtures predate the separately versioned Pinterest tables."""
-    for name in ("pinterest_download_cleanup", "pinterest_expansion_depths", "pinterest_stream_sections", "pinterest_schedule_runs", "pinterest_schedules", "pinterest_reuse", "pinterest_seen", "pinterest_stream_pins", "pinterest_stream_pages", "pinterest_streams", "pinterest_admitted_counts", "pinterest_admitted", "pinterest_metrics",
+    for name in ("pinterest_outbox", "pinterest_batches", "pinterest_download_cleanup", "pinterest_expansion_depths", "pinterest_stream_sections", "pinterest_schedule_runs", "pinterest_schedules", "pinterest_reuse", "pinterest_seen", "pinterest_stream_pins", "pinterest_stream_pages", "pinterest_streams", "pinterest_admitted_counts", "pinterest_admitted", "pinterest_metrics",
                  "pinterest_downloads", "pinterest_applied", "pinterest_counts", "pinterest_tasks", "pinterest_jobs", "pinterest_requests", "pinterest_lakes"):
         db.execute('DROP TABLE IF EXISTS "' + name + '"')
 
@@ -41,7 +41,13 @@ def remove_pinterest_pagination(db):
 
 
 def remove_pinterest_coverage(db):
+    remove_pinterest_batches(db)
     db.execute("DROP TABLE pinterest_download_cleanup")
     db.execute("DROP TABLE pinterest_expansion_depths")
     db.execute("DROP TABLE pinterest_stream_sections")
     db.execute("ALTER TABLE pinterest_streams DROP COLUMN unique_sections")
+
+
+def remove_pinterest_batches(db):
+    db.execute("DROP TABLE pinterest_outbox")
+    db.execute("DROP TABLE pinterest_batches")

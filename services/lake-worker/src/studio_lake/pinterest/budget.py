@@ -5,17 +5,23 @@ import json
 from . import model, planner
 
 
-def usage(db, job):
+def usage(db, job, *, include_pending=False):
     result = {k: job[k] for k in ("api_requests", "detail_requests", "download_bytes", "elapsed_seconds")}
     result.update({"admitted_" + ("pins" if r[0] == "pin" else "boards"): r[1]
         for r in db.execute("SELECT kind,n FROM pinterest_admitted_counts WHERE job_id=? AND kind IN ('pin','board')", (job["id"],))})
     result.update({r[0]: r[1] for r in db.execute("SELECT name,value FROM pinterest_metrics WHERE job_id=? AND name LIKE '%:requests'", (job["id"],))})
+    if include_pending:
+        admissions = {(r["kind"], r["source_id"]) for r in planner.pending_values(db, job["id"], "admissions")}
+        for kind, subject in admissions:
+            if kind in ("pin", "board") and not db.execute("SELECT 1 FROM pinterest_admitted WHERE job_id=? AND kind=? AND source_id=?", (job["id"], kind, subject)).fetchone():
+                name = "admitted_pins" if kind == "pin" else "admitted_boards"
+                result[name] = result.get(name, 0) + 1
     return result
 
 
 def reason(db, job, task, spec):
     baseline = json.loads(job["budget_baseline_json"])
-    values = usage(db, job)
+    values = usage(db, job, include_pending=True)
     limits = spec["run_budget"]
     def spent(name):
         return values.get(name, 0) - baseline.get(name, 0)
@@ -37,7 +43,8 @@ def reason(db, job, task, spec):
         if spent("admitted_boards") >= limits["admitted_boards"]:
             return "admitted_boards"
     if kind in model.PAGE_KINDS:
-        pending = db.execute("SELECT coalesce(sum(n),0) FROM pinterest_counts WHERE job_id=? AND kind IN ('media_download','pin_admit') AND state IN ('queued','running','waiting_retry','waiting_budget')", (job["id"],)).fetchone()[0]
+        pending = db.execute("SELECT coalesce(sum(n),0) FROM pinterest_counts WHERE job_id=? AND kind IN ('media_download','pin_admit') AND state IN ('queued','running','prepared','waiting_retry','waiting_budget')", (job["id"],)).fetchone()[0]
+        pending += sum(r["kind"] in ("media_download", "pin_admit") for r in planner.pending_values(db, job["id"], "next_tasks"))
         if pending >= spec.get("discovery", {}).get("max_pending_downloads", 128):
             return "discovery_backlog"
     return None

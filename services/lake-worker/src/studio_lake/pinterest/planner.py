@@ -20,7 +20,14 @@ def metric(replay, name, value=1):
 
 
 def admitted(db, job, kind, subject):
-    return db.execute("SELECT 1 FROM pinterest_admitted WHERE job_id=? AND kind=? AND source_id=?", (job, kind, subject)).fetchone() is not None
+    return (db.execute("SELECT 1 FROM pinterest_admitted WHERE job_id=? AND kind=? AND source_id=?", (job, kind, subject)).fetchone() is not None
+            or any(r["kind"] == kind and r["source_id"] == subject for r in pending_values(db, job, "admissions")))
+
+
+def pending_values(db, job, field):
+    # At most 64 immutable receipts per job. Never scan historical outcomes here.
+    return [json.loads(r[0]) for r in db.execute("SELECT j.value FROM pinterest_outbox o,json_each(o.replay_json,?) j WHERE o.job_id=? AND o.state='prepared'",
+                                                ("$." + field, job))]
 
 
 def intent(spec, job_id, replay):
@@ -67,6 +74,10 @@ def better_depth(state, job_id, kind, subject, entry, replay):
     with state.db() as db:
         previous = db.execute("SELECT min_depth FROM pinterest_expansion_depths WHERE job_id=? AND root_json=? AND kind=? AND source_id=?",
                               (job_id, root, kind, subject)).fetchone()
+        depths = [r["min_depth"] for r in pending_values(db, job_id, "expansion_depths")
+                  if (r["root_json"], r["kind"], r["source_id"]) == (root, kind, subject)]
+        if depths:
+            previous = (min(*depths, previous[0]) if previous else min(depths),)
     if previous and previous[0] <= depth:
         return False
     replay.setdefault("expansion_depths", []).append(dict(root_json=root, kind=kind, source_id=subject, min_depth=depth))
@@ -120,6 +131,9 @@ def admit_pin(state, job, entry, replay):
         if enrichment == "sample":
             with state.db() as db:
                 scheduled = db.execute("SELECT count(*) FROM pinterest_tasks WHERE job_id=? AND json_extract(input_json,'$.scan_id')=? AND kind='pin_enrichment'", (job["id"], entry["scan_id"])).fetchone()[0]
+                scheduled += len({stable_id("pinterest-task-v1", job["id"], r["kind"], r["input"])
+                                  for r in pending_values(db, job["id"], "next_tasks")
+                                  if r["kind"] == "pin_enrichment" and r["input"].get("scan_id") == entry["scan_id"]})
         if enrichment == "all" or (enrichment == "sample" and scheduled < metadata.get("sample_size", 3)):
             replay["next_tasks"].append(task("pin_enrichment", subject, pin_id=subject, scan_id=entry["scan_id"],
                 list_revision=parsed["content_revision"], purpose=enrichment))

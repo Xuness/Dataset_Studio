@@ -7,7 +7,7 @@ import shutil
 import sqlite3
 import uuid
 
-from . import ARCHIVE_VERSION, FEATURES, ONLINE_VERSION, SCHEMA_SET, schema
+from . import ARCHIVE_FEATURES, ARCHIVE_VERSION, BUNDLE_FEATURE, FEATURES, ONLINE_VERSION, SCHEMA_SET, schema, supported_archive_features
 from ... import __version__
 from ...archive_io import accept_batch, descriptor, write_facts
 from ...canonical import canonical, utc
@@ -18,7 +18,7 @@ from ...util import FileLock, IntegrityError, atomic_json, contained, digest, fa
 
 def check_info(info):
     if (info.get("format_version") != ARCHIVE_VERSION or info.get("site") != "pinterest"
-            or info.get("schema_set") != SCHEMA_SET or info.get("required_features") != list(FEATURES)
+            or info.get("schema_set") != SCHEMA_SET or not supported_archive_features(info.get("required_features"))
             or str(uuid.UUID(info["library_id"])) != info["library_id"]):
         raise IntegrityError("Unsupported Pinterest archive identity or features")
 
@@ -39,22 +39,50 @@ def verify_manifest(lib, directory, manifest, *, hash_media=True):
             raise IntegrityError("Pinterest archive file hash mismatch")
     if canonical(read_json(directory / "manifest.json")) != canonical(manifest):
         raise IntegrityError("Pinterest journal and sealed manifest differ")
+    if files["replay.json"]["bytes"] > schema.MAX_METADATA:
+        raise IntegrityError("Pinterest replay exceeds its byte budget")
     replay = read_json(directory / "replay.json")
-    for field in ("library_id", "batch_id", "job_id", "definition_sha256", "receipt_id"):
+    for field in ("library_id", "batch_id", "job_id", "definition_sha256"):
         if replay.get(field) != manifest.get(field):
             raise IntegrityError("Pinterest replay identity mismatch")
+    if manifest.get("collector") != "pinterest_web_v1":
+        raise IntegrityError("Unsupported Pinterest replay semantics")
+    if replay.get("kind") == "bundle":
+        members = replay.get("receipts")
+        if (replay.get("version") != 2 or BUNDLE_FEATURE not in manifest["required_features"]
+                or BUNDLE_FEATURE not in lib.info["required_features"] or not isinstance(members, list)
+                or not 1 <= len(members) <= 64 or any(not isinstance(r, dict) for r in members)
+                or manifest.get("receipt_ids") != [r.get("receipt_id") for r in members]
+                or len(set(manifest["receipt_ids"])) != len(members)
+                or len({r.get("task_id") for r in members}) != len(members)
+                or files["replay.json"].get("schema") != "pinterest-replay-v2"
+                or files["replay.json"].get("rows") != len(members)
+                or manifest["dedupe_key"] != stable_id("pinterest-bundle-v1", manifest["library_id"], manifest["job_id"], sorted(manifest["receipt_ids"]))):
+            raise IntegrityError("Invalid Pinterest bundle membership")
+        for member in members:
+            if (member.get("version") != 2 or member.get("kind") != "task"
+                    or any(member.get(k) != replay[k] for k in ("library_id", "batch_id", "job_id", "definition_sha256"))
+                    or not all(isinstance(member.get(k), str) and member[k] for k in ("receipt_id", "task_id", "claim_token", "prepared_sha256", "input_sha256"))):
+                raise IntegrityError("Invalid Pinterest bundle receipt identity")
+            validate_task(member)
+        return replay
     if (replay.get("version") != 1 or replay.get("kind") not in ("intent", "task")
-            or manifest.get("collector") != "pinterest_web_v1"
+            or replay.get("receipt_id") != manifest.get("receipt_id")
             or manifest["dedupe_key"] != stable_id("pinterest-batch-v1", manifest["library_id"], manifest["job_id"], manifest["receipt_id"])):
         raise IntegrityError("Unsupported Pinterest replay semantics")
     if replay["kind"] == "intent":
         intent = read_json(directory / "run.json")
         if digest(canonical(intent).encode()) != manifest["definition_sha256"]:
             raise IntegrityError("Pinterest frozen definition hash mismatch")
-    elif (replay.get("state") not in ("done", "superseded", "needs_review", "unavailable", "waiting_retry")
-          or not isinstance(replay.get("next_tasks"), list) or len(replay["next_tasks"]) > 1000):
-        raise IntegrityError("Invalid Pinterest task replay")
+    else:
+        validate_task(replay)
     return replay
+
+
+def validate_task(replay):
+    if (replay.get("state") not in ("done", "superseded", "needs_review", "unavailable", "waiting_retry")
+            or not isinstance(replay.get("next_tasks"), list) or len(replay["next_tasks"]) > 1000):
+        raise IntegrityError("Invalid Pinterest task replay")
 
 
 class PinterestLibrary(Library):
@@ -103,7 +131,7 @@ class PinterestLibrary(Library):
                         raise IntegrityError("Pinterest journal initialization was replaced")
                 sync_file(config.root / "journal.sqlite")
                 info = dict(format_version=ARCHIVE_VERSION, library_id=library_id, site="pinterest", schema_set=SCHEMA_SET,
-                    required_features=list(FEATURES), created_at=utc(), created_by=__version__, image_format="uncompressed-pax-tar",
+                    required_features=list(ARCHIVE_FEATURES), created_at=utc(), created_by=__version__, image_format="uncompressed-pax-tar",
                     source_policy="preserve-all-fields-and-original-api-response-bodies")
                 atomic_json(marker, info)
             owner = config.cache / "cache_owner.json"
@@ -119,6 +147,12 @@ class PinterestLibrary(Library):
     def sync_online(self, **kwargs):
         from .online import Publisher
         return Publisher(self).sync(**kwargs)
+
+    def enable_bundles(self):
+        # Caller owns the archive writer lock. Existing segments and online generations stay immutable.
+        if BUNDLE_FEATURE not in self.info["required_features"]:
+            self.info = {**self.info, "required_features": list(ARCHIVE_FEATURES)}
+            atomic_json(self.root / "library.json", self.info)
 
     def lookup_object(self, sha):
         from .online import Publisher
@@ -156,8 +190,9 @@ class PinterestLibrary(Library):
             row = db.execute("SELECT definition_sha256 FROM pinterest_runs WHERE job_id=?", (manifest["job_id"],)).fetchone()
             if not row or row[0] != manifest["definition_sha256"]:
                 raise IntegrityError("Pinterest run intent differs")
-            db.execute("INSERT INTO pinterest_receipts VALUES(?,?,?,?,?,?)", (manifest["receipt_id"], manifest["job_id"], seq,
-                replay.get("task_id"), replay.get("claim_token"), canonical(replay)))
+            for member in replay["receipts"] if replay["kind"] == "bundle" else [replay]:
+                db.execute("INSERT INTO pinterest_receipts VALUES(?,?,?,?,?,?)", (member["receipt_id"], manifest["job_id"], seq,
+                    member.get("task_id"), member.get("claim_token"), canonical(member)))
 
         return accept_batch(self, directory, manifest, write_journal, fence=lambda: fence(replay), fault_prefix="pinterest")
 
@@ -223,15 +258,20 @@ class Archive:
 
 
 class Batch(BlobBatch):
-    def __init__(self, lib, job, replay, records, *, definition=None):
-        self.lib, self.id = lib, replay["receipt_id"]
+    def __init__(self, lib, job, replay, records, *, definition=None, batch_id=None):
+        bundle = replay["kind"] == "bundle"
+        self.lib, self.id = lib, batch_id if bundle else replay["receipt_id"]
         if str(uuid.UUID(self.id)) != self.id:
             raise IntegrityError("Pinterest receipt must be a UUID")
-        self.key = stable_id("pinterest-batch-v1", lib.info["library_id"], job["id"], self.id)
+        self.key = (stable_id("pinterest-bundle-v1", lib.info["library_id"], job["id"], sorted(r["receipt_id"] for r in replay["receipts"]))
+                    if bundle else stable_id("pinterest-batch-v1", lib.info["library_id"], job["id"], self.id))
         self.path = contained(lib.root, "staging/" + self.id)
         self.path.mkdir(parents=True, exist_ok=True)
-        self.replay = {**replay, "version": 1, "library_id": lib.info["library_id"], "batch_id": self.id,
+        self.replay = {**replay, "version": 2 if bundle else 1, "library_id": lib.info["library_id"], "batch_id": self.id,
                        "job_id": job["id"], "definition_sha256": job["definition_sha256"]}
+        if bundle:
+            header = {k: self.replay[k] for k in ("version", "library_id", "batch_id", "job_id", "definition_sha256")}
+            self.replay["receipts"] = [{**member, **header} for member in replay["receipts"]]
         self.definition, self.records = definition, records
         self.objects, self.new_hashes, self.payload_bytes = [], set(), 0
         self.tar = self.pack_writer = self.pack_staging_path = None
@@ -274,11 +314,19 @@ class Batch(BlobBatch):
             atomic_json(self.path / "run.json", self.definition)
             files["run.json"] = descriptor(self.path / "run.json", "intent", "pinterest-run-v1", 1)
         atomic_json(self.path / "replay.json", self.replay)
-        files["replay.json"] = descriptor(self.path / "replay.json", "replay", "pinterest-replay-v1", 1)
-        manifest = dict(format_version=ARCHIVE_VERSION, site="pinterest", schema_set=SCHEMA_SET, required_features=list(FEATURES),
-            library_id=self.lib.info["library_id"], batch_id=self.id, receipt_id=self.id, job_id=self.replay["job_id"],
+        bundle = self.replay["kind"] == "bundle"
+        files["replay.json"] = descriptor(self.path / "replay.json", "replay", "pinterest-replay-v2" if bundle else "pinterest-replay-v1",
+                                          len(self.replay["receipts"]) if bundle else 1)
+        if files["replay.json"]["bytes"] > schema.MAX_METADATA:
+            raise IntegrityError("Pinterest replay exceeds its byte budget")
+        manifest = dict(format_version=ARCHIVE_VERSION, site="pinterest", schema_set=SCHEMA_SET, required_features=list(ARCHIVE_FEATURES if bundle else FEATURES),
+            library_id=self.lib.info["library_id"], batch_id=self.id, job_id=self.replay["job_id"],
             definition_sha256=self.replay["definition_sha256"], collector="pinterest_web_v1", dedupe_key=self.key,
             created_at=utc(), writer_version=__version__, files=files)
+        if bundle:
+            manifest["receipt_ids"] = [r["receipt_id"] for r in self.replay["receipts"]]
+        else:
+            manifest["receipt_id"] = self.id
         atomic_json(self.path / "manifest.json", manifest)
         sync_directory(self.path)
         failpoint("pinterest_after_seal")

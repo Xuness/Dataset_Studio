@@ -85,12 +85,12 @@ def acquire(state, lib, job, task, entry, resources, cancelled, *, spool, before
                 width, height = image.size
                 frames = getattr(image, "n_frames", 1)
                 fmt = image.format
+                if width * height > resources.config["max_image_pixels"]:
+                    raise UpdateError("UPDATE_RESOURCE_LIMIT", "Pinterest image exceeds the pixel budget")
                 if frames != 1:
                     return dict(state="needs_review", reason="animation_not_supported"), None
                 if (width, height) != (entry["width"], entry["height"]):
                     return dict(state="needs_review", reason="original_dimensions_mismatch"), None
-                if width * height > resources.config["max_image_pixels"]:
-                    raise UpdateError("UPDATE_RESOURCE_LIMIT", "Pinterest image exceeds the pixel budget")
                 image.verify()
             with resources.encoding(max(width * height * 16 + path.stat().st_size, 2 * path.stat().st_size), cancelled):
                 with Image.open(path) as image:
