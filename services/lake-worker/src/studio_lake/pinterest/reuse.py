@@ -12,6 +12,7 @@ from ..updates import rate
 from ..updates.sites import UpdateError
 from ..updates.transfer import strong_etag
 from ..util import IntegrityError, contained, read_json, stable_id
+from .lake.storage import open_file
 
 
 def key(lib, entry):
@@ -35,7 +36,7 @@ def object_available(lib, saved, resources, cancelled):
         return False
     sha, remaining = hashlib.sha256(), obj["length"]
     try:
-        with contained(lib.root, obj["pack_path"]).open("rb") as source:
+        with open_file(lib.root, obj["pack_path"]) as source:
             source.seek(obj["offset"])
             while remaining:
                 if cancelled():

@@ -304,7 +304,12 @@ def verify_files(directory, manifest, hash_contents=True):
 def read_object(root, relative_path, offset, length):
     if offset < 0 or length < 0:
         raise IntegrityError("无效图片范围")
-    with contained(root, relative_path).open("rb") as f:
+    try:
+        source = contained(root, relative_path).open("rb")
+    except FileNotFoundError:
+        from .archive_ranges import open_file
+        source = open_file(root, relative_path)
+    with source as f:
         f.seek(offset)
         data = f.read(length)
     if len(data) != length:

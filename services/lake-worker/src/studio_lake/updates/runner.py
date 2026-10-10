@@ -60,6 +60,9 @@ class Runner:
         from ..pinterest.runner import Runner as PinterestRunner
 
         self.pinterest = PinterestRunner(state, resources=self.resources, stop=self.stop)
+        from ..pinterest.archiving import Archiving
+
+        self.archiving = Archiving(self.pinterest.service, self.stop)
         self.executors = {"update": self.run_slice, "collection": self.collections.run, "pinterest": self.pinterest.run}
         self.executor_failures = {
             "update": lambda identity, execution: dispatch.failed(self.state, identity, execution),
@@ -764,6 +767,7 @@ class Runner:
     def schedule(self, pool, background_io):
         active = {}
         cleaning = None
+        archiving = None
         while not self.stop.is_set():
             self.refresh_settings()
             self.state.tick_schedules()
@@ -787,12 +791,22 @@ class Runner:
                     future.result()
                 except Exception:
                     cleanup.record(self.state, identity, error_code="UPDATE_CLEANUP_INTERRUPTED", delay=30)
+            if archiving is not None and archiving[0].done():
+                try:
+                    archiving[0].result()
+                except Exception:
+                    # The archive owns recovery; an inaccessible status store must
+                    # not tear down unrelated collectors or change finished jobs.
+                    self.archiving.last = dict(lake_id=archiving[1], state="needs_review", error_code="PINTEREST_ARCHIVE_CHECK_REQUIRED")
+                archiving = None
             # Give a due cleanup its lake before admitting that lake's next task.
             # Continuous update backlog must not starve terminal spool reclamation.
-            if cleaning is None and (pending := dispatch.next_cleanup(self.state, active)):
+            if cleaning is None and archiving is None and (pending := dispatch.next_cleanup(self.state, active)):
                 identity = pending["job_id"]
                 cleaning = (pool.submit(self.cleanup, identity), identity, pending["lake_id"])
-            excluded = {*active, *([cleaning[2]] if cleaning else [])}
+            if cleaning is None and archiving is None and (lake := self.archiving.candidate(active)):
+                archiving = (pool.submit(self.archiving.run, lake), lake)
+            excluded = {*active, *([cleaning[2]] if cleaning else []), *([archiving[1]] if archiving else [])}
             for job in dispatch.candidates(
                 self.state, excluded, self.resources.config["active_lakes"] - len(active)
             ):
@@ -806,6 +820,8 @@ class Runner:
                     "at": now(),
                     "active_lakes": list(active),
                     "cleanup_job": cleaning[1] if cleaning else None,
+                    "archive_lake": archiving[1] if archiving else None,
+                    "archive_maintenance": self.archiving.last,
                     "background_io": background_io,
                 },
             )

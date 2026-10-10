@@ -30,7 +30,7 @@ def write_facts(directory, records, names, schema, prefix, max_bytes):
     return files
 
 
-def read_facts(directory, manifest, names, schema, prefix, max_rows, max_bytes):
+def read_facts(directory, manifest, names, schema, prefix, max_rows, max_bytes, *, opener=None):
     result, total, size = {}, 0, 0
     for name in names:
         info = manifest["files"].get(name + ".parquet")
@@ -38,18 +38,20 @@ def read_facts(directory, manifest, names, schema, prefix, max_rows, max_bytes):
             continue
         if info.get("schema") != prefix + name or info.get("role") != "facts":
             raise IntegrityError("Unknown canonical Parquet schema")
-        parquet = pq.ParquetFile(contained(directory, name + ".parquet"))
-        if not parquet.schema_arrow.equals(schema(name), check_metadata=True):
-            raise IntegrityError("Archive schema differs from its declared record set")
-        total += parquet.metadata.num_rows
-        if total > max_rows or parquet.metadata.num_rows != info.get("rows"):
-            raise IntegrityError("Archive row count exceeds its declared budget")
-        rows = []
-        for chunk in parquet.iter_batches(batch_size=256):
-            size += chunk.nbytes
-            if size > max_bytes:
-                raise IntegrityError("Archive metadata exceeds batch budget")
-            rows.extend(chunk.to_pylist())
+        path = contained(directory, name + ".parquet")
+        with opener(path) if opener else path.open("rb") as source:
+            parquet = pq.ParquetFile(source)
+            if not parquet.schema_arrow.equals(schema(name), check_metadata=True):
+                raise IntegrityError("Archive schema differs from its declared record set")
+            total += parquet.metadata.num_rows
+            if total > max_rows or parquet.metadata.num_rows != info.get("rows"):
+                raise IntegrityError("Archive row count exceeds its declared budget")
+            rows = []
+            for chunk in parquet.iter_batches(batch_size=256):
+                size += chunk.nbytes
+                if size > max_bytes:
+                    raise IntegrityError("Archive metadata exceeds batch budget")
+                rows.extend(chunk.to_pylist())
         result[name] = rows
     return result
 

@@ -2,6 +2,8 @@
 
 日期：2026-10-10。状态：已实现，并完成 Windows 故障恢复及外接容量盘有界合成验证；证据见[组批验收](../../verification/2026-10-10-pinterest-bounded-packing.md)。此前生命周期修复见[审查修复验收](../../verification/2026-10-10-pinterest-production-review-fixes.md)。本文件不构成百万级生产验收。
 
+后续长期归档已由 [ADR 0074](../../decisions/0074-pinterest-archive-containers.md)补充：本文件的有界 Batch 仍是逻辑接受/发布边界，多批次的全部原文件在接受后进入更大容器。分页和作业结束不再决定永久文件粒度；[容器验收](../../verification/2026-10-11-pinterest-archive-containers.md)记录实际转换和文件密度。
+
 ## 已确认的问题
 
 改动前，每个逻辑任务立即封存一个物理 Batch。Windows 隔离环境中，经正式 Runner 处理 100 个指定 Pin、100 张不同字节的静态图片，产生 201 个 segment 目录、1,403 个普通文件和 100 个 TAR。改动后相同构造为 5 个目录、31 个文件、2 个 TAR。两次都完成深验证、原始响应往返、独立重建和固定水位比较。这个结果证明文件数量减少，不代表真实源站吞吐。

@@ -26,13 +26,15 @@ fn validate_features(value: &serde_json::Value, archive: bool) -> Result<()> {
     if value["site"] != "pinterest"
         || value["schema_set"] != "pinterest-media-v1"
         || !features.is_some_and(|v| {
-            (v.len() == FEATURES.len()
-                || (archive
-                    && v.len() == FEATURES.len() + 1
-                    && v.iter().any(|x| x.as_str() == Some("receipt-bundles-v1"))))
-                && FEATURES
-                    .iter()
-                    .all(|f| v.iter().any(|x| x.as_str() == Some(f)))
+            let extras = ["receipt-bundles-v1", "archive-containers-v1"];
+            FEATURES
+                .iter()
+                .all(|f| v.iter().any(|x| x.as_str() == Some(f)))
+                && v.iter().all(|x| {
+                    x.as_str()
+                        .is_some_and(|f| FEATURES.contains(&f) || (archive && extras.contains(&f)))
+                })
+                && v.iter().enumerate().all(|(i, x)| !v[..i].contains(x))
         })
     {
         return Err(Error::new(
@@ -57,6 +59,12 @@ mod tests {
             .as_array_mut()
             .unwrap()
             .push(json!("receipt-bundles-v1"));
+        validate_archive_format(&bundled).unwrap();
+        assert!(validate_format(&bundled).is_err());
+        bundled["required_features"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!("archive-containers-v1"));
         validate_archive_format(&bundled).unwrap();
         assert!(validate_format(&bundled).is_err());
         bundled["required_features"]

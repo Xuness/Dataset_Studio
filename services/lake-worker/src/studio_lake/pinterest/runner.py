@@ -9,6 +9,7 @@ import uuid
 from . import budget, downloader, garbage, model, normalize, outbox, packing, planner, receipts
 from .http import Client
 from .lake.library import Batch
+from .lake import storage
 from .lake.schema import arrow_schema
 from .service import Service
 from .staging import Spool
@@ -16,7 +17,7 @@ from ..canonical import utc
 from ..updates import locations
 from ..updates.resources import Resources
 from ..updates.sites import UpdateError
-from ..util import FileLock, IntegrityError, contained, digest, failpoint, read_json, stable_id
+from ..util import FileLock, IntegrityError, contained, digest, failpoint, stable_id
 
 
 class Runner:
@@ -146,10 +147,10 @@ class Runner:
     def _publish(self, lib, job, replay, records, media=None, definition=None, spool=None):
         identity = replay["receipt_id"]
         sealed = next((p for p in (lib.root / "segments" / identity, lib.root / "staging" / identity)
-                       if (p / "manifest.json").exists()), None)
+                       if storage.exists(p / "manifest.json")), None)
         with lib.writer_lock():
             if sealed:
-                lib.accept_manifest(sealed, read_json(sealed / "manifest.json"), fence=lambda r: self._fence(job, r))
+                lib.accept_manifest(sealed, storage.json_file(sealed / "manifest.json"), fence=lambda r: self._fence(job, r))
             else:
                 batch = Batch(lib, job, replay, records, definition=definition)
                 if media:
@@ -395,7 +396,7 @@ class Runner:
                     return
                 # Recover a sealed batch without reconstructing mutable execution inputs.
                 sealed = next((p for p in (lib.root / "segments" / task["receipt_id"], lib.root / "staging" / task["receipt_id"])
-                               if (p / "manifest.json").exists()), None)
+                               if storage.exists(p / "manifest.json")), None)
                 sample = task["kind"] == "pin_enrichment" and json.loads(task["input_json"]).get("purpose") == "sample"
                 if sample and buffered:
                     self._flush(lib, job)
@@ -404,7 +405,7 @@ class Runner:
                         def before_send():
                             self._before_send(job, task, started, deadline)
                         if sealed:
-                            prepared = dict(replay=read_json(sealed / "replay.json"), records={}, media=None)
+                            prepared = dict(replay=storage.json_file(sealed / "replay.json"), records={}, media=None)
                             self._publish(lib, job, **prepared, spool=spool)
                         else:
                             prepared = self._prepare(lib, job, task, client, cancelled, spool, before_send)

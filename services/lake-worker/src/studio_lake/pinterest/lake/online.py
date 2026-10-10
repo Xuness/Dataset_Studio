@@ -7,6 +7,7 @@ import zlib
 
 from . import FEATURES, ONLINE_VERSION, SCHEMA_SET
 from . import schema
+from .storage import open_batch_file
 from ...archive_io import read_facts
 from ...canonical import canonical, utc
 from ...online_schema import set_state, settings
@@ -47,7 +48,8 @@ def initialize(info, index, *, generation=None, activate=True):
 
 
 def load_records(directory, manifest):
-    records = read_facts(directory, manifest, schema.FACTS, schema.arrow_schema, SCHEMA_SET + ":", schema.MAX_ROWS, schema.MAX_METADATA)
+    records = read_facts(directory, manifest, schema.FACTS, schema.arrow_schema, SCHEMA_SET + ":", schema.MAX_ROWS, schema.MAX_METADATA,
+                        opener=open_batch_file)
     schema.check_rows(records)
     return records
 

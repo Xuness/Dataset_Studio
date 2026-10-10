@@ -1,8 +1,10 @@
 # Pinterest 独立采集下载模块与数据湖接入设计
 
-创建日期：2026-10-09。更新日期：2026-10-10。状态：第一至四批已接入正式后端、HTTP/SDK 和现有工作台。支持匿名公开范围的指定 Pin、图版/分区、列表清单、抽样与完整补取、推荐、搜索、Ideas 主题、预算接续、历史复用、周期计划和流诊断。[第二至四批验收](../../verification/2026-10-10-pinterest-phases-2-4.md)记录证据与边界；实际能力以能力接口为准。
+创建日期：2026-10-09。更新日期：2026-10-11。状态：第一至四批已接入正式后端、HTTP/SDK 和现有工作台。支持匿名公开范围的指定 Pin、图版/分区、列表清单、抽样与完整补取、推荐、搜索、Ideas 主题、预算接续、历史复用、周期计划和流诊断。[第二至四批验收](../../verification/2026-10-10-pinterest-phases-2-4.md)记录证据与边界；实际能力以能力接口为准。
 
 后续[生产审查修复](../../verification/2026-10-10-pinterest-production-review-fixes.md)补齐请求与资源生命周期、分区覆盖、最小扩展深度、原始字节验证及 TAR 复制校验。[有界组批](pinterest-bounded-packing-plan.md)已实施并完成 Windows 容量盘合成验证，证据见[组批验收](../../verification/2026-10-10-pinterest-bounded-packing.md)；这不等同于百万级或多日无人值守投产验收。
+
+长期物理布局进一步采用 [ADR 0074 的归档容器](../../decisions/0074-pinterest-archive-containers.md)：跨已接受批次和作业保留原字节，经过验证、映射切换和引用检查回收小文件；归档新增 `archive-containers-v1` 必需能力，在线格式和固定版本不变。见[容器验收](../../verification/2026-10-11-pinterest-archive-containers.md)。
 
 Pinterest 直接在 Dataset Studio 内接入，通过正式任务、下载、归档和浏览路径验证与迭代。Pinterest 独立维护自己的采集下载模块，只共享来源无关的基础能力。首批完成指定 Pin 的端到端处理，之后加入图版与推荐发现，不再以独立验证原型或视觉模型选型作为前置条件。
 

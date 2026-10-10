@@ -4,9 +4,10 @@ from pathlib import Path
 
 from . import garbage, outbox, receipts, reuse
 from .lake.library import Batch
+from .lake import storage
 from ..canonical import utc
 from ..updates.sites import UpdateError
-from ..util import IntegrityError, contained, failpoint, read_json
+from ..util import IntegrityError, contained, failpoint
 
 OVERHEAD = 64 * 1024
 
@@ -78,10 +79,10 @@ def publish(state, lib, job, resources, fence, cancelled):
     combine(state, lib, plan, resources)
     rows = outbox.members(state, plan)
     sealed = next((p for p in (lib.root / "segments" / plan["batch_id"], lib.root / "staging" / plan["batch_id"])
-                   if (p / "manifest.json").exists()), None)
+                   if storage.exists(p / "manifest.json")), None)
     with lib.writer_lock():
         if sealed:
-            manifest = read_json(sealed / "manifest.json")
+            manifest = storage.json_file(sealed / "manifest.json")
         else:
             snapshot = resources.snapshot()
             if snapshot["staging_reserved_bytes"] > snapshot["staging_limit_bytes"]:

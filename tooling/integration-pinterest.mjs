@@ -50,13 +50,21 @@ try {
   assert.equal(streams.items[0].total, null);
   assert.equal(streams.items[0].unique_sections, 0);
   const sectionStreams = (await api.streams(refs.section_job.id)).items;
-  const sections = sectionStreams.find((s) => s.entrypoint === "board_sections");
+  const sections = sectionStreams.find(
+    (s) => s.entrypoint === "board_sections",
+  );
   assert.equal(sections.unique_sections, 2);
   assert.equal(sections.total, 2);
   assert.equal(sections.state, "exhausted");
-  assert.ok(sectionStreams.filter((s) => s.entrypoint === "section_page").every((s) => s.total === 0));
+  assert.ok(
+    sectionStreams
+      .filter((s) => s.entrypoint === "section_page")
+      .every((s) => s.total === 0),
+  );
   assert.equal((await api.job(refs.section_job.id)).media_complete, true);
-  checks.push("distinct section coverage and observed section totals survive worker/HTTP/SDK boundaries");
+  checks.push(
+    "distinct section coverage and observed section totals survive worker/HTTP/SDK boundaries",
+  );
   const boardPreview = await api.preview({
     ...refs.job.definition,
     seeds: [{ kind: "board", id: "https://www.pinterest.com/test/board/" }],
@@ -280,6 +288,47 @@ try {
   );
   checks.push(
     "shared bytes retain separate Pin origins, bounded metadata/raw ownership and native image/storage queries",
+  );
+
+  const compacted = await promisify(execFile)(
+    python,
+    [
+      "-m",
+      "studio_lake.pinterest.lake.compaction",
+      "--media-root",
+      resolve(run, "media"),
+      "--index-root",
+      resolve(run, "index"),
+      "--force",
+      "--drain",
+    ],
+    {
+      windowsHide: true,
+      env: {
+        ...process.env,
+        PYTHONPATH: resolve(root, "services/lake-worker/src"),
+      },
+    },
+  );
+  assert.ok(compacted.stdout.includes('"state": "cleaned"'));
+  const afterCompactMetadata = await engine.api(
+    base +
+      `/metadata?limit=1&version=${encodeURIComponent(metadata.version.token)}`,
+  );
+  assert.deepEqual(afterCompactMetadata, metadata);
+  const afterCompactOriginal = await engine.response(base + "/original");
+  assert.equal(afterCompactOriginal.ok, true);
+  assert.equal(
+    Buffer.from(await afterCompactOriginal.arrayBuffer()).toString("hex"),
+    refs.original_hex,
+  );
+  assert.equal(
+    (await client.queries.assets(project.id, view.id, { limit: 10 })).page.items
+      .length,
+    1,
+  );
+  checks.push(
+    "archive containers preserve fixed metadata, existing query views and original media after loose-file reclamation",
   );
 
   const preview = await api.preview(refs.budget_job.definition);

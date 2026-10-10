@@ -49,6 +49,8 @@ Pixiv：[结果隔离与有界组批](decisions/0055-pixiv-receipts-and-bounded-
 
 Pinterest：[生产审查修复](verification/2026-10-10-pinterest-production-review-fixes.md)、[有界组批实现](plans/Dataset%20Scraping/pinterest-bounded-packing-plan.md)与[组批验收](verification/2026-10-10-pinterest-bounded-packing.md)。已完成 Windows 故障恢复及 1,000 Pin 外接容量盘合成验证；百万级、真实源站长期无人值守仍未验收。
 
+Pinterest 长期物理归档：[逻辑提交与容器分离](decisions/0074-pinterest-archive-containers.md)、[2026-10-11 验收与现有湖转换](verification/2026-10-11-pinterest-archive-containers.md)。元数据、回执和媒体按原字节跨批次聚合；百万图文件数的策略外推与实际运行证据分开记录。
+
 数据湖来源：[统一接口与调度](decisions/0035-source-registry-and-dispatch.md)、[Yandere/Gelbooru 验收](verification/2026-09-26-multibooru.md)、[多湖交互与查询缓存补齐](verification/2026-09-26-multibooru-followup.md)。
 
 在线架构升级：[阶段计划](plans/数据库架构审查升级-2026-09-26/README.md)、[发布与预览并发边界](decisions/0036-online-read-path-preparation.md)、[在线湖与固定成员协议](decisions/0037-versioned-online-lakes.md)、[P1 验收](verification/2026-09-26-online-upgrade-phase1.md)、[P2/P3 迁移验收](verification/2026-09-26-online-upgrade-p23.md)、[Danbooru 工作区归并](verification/2026-09-26-danbooru-workspace-relocation.md)。

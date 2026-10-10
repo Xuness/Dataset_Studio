@@ -16,6 +16,145 @@ struct Current {
     index_version: u32,
     generation: String,
 }
+
+#[cfg(test)]
+mod container_tests {
+    use super::*;
+    use std::sync::{Arc, atomic::AtomicBool};
+
+    fn fixture() -> (tempfile::TempDir, Catalog, Connection, Vec<String>) {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().to_path_buf();
+        fs::create_dir_all(root.join("segments/one")).unwrap();
+        fs::create_dir_all(root.join("segments/two")).unwrap();
+        fs::create_dir(root.join("containers")).unwrap();
+        fs::write(root.join("library.json"), serde_json::json!({
+            "library_id":"test-library","format_version":3,"site":"pinterest","schema_set":"pinterest-media-v1",
+            "required_features":["pinterest-pins-v1","raw-captures-v1","receipt-replay-v1","sha256-objects-v1","receipt-bundles-v1","archive-containers-v1"]
+        }).to_string()).unwrap();
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE objects(sha256 TEXT PRIMARY KEY,pack_path TEXT,offset INTEGER,length INTEGER,stored_ext TEXT)").unwrap();
+        let journal = Connection::open(root.join("journal.sqlite")).unwrap();
+        journal.execute_batch("CREATE TABLE archive_containers(container_id TEXT PRIMARY KEY,path TEXT,state TEXT,bytes INTEGER); CREATE TABLE archive_members(path TEXT PRIMARY KEY,container_id TEXT,offset INTEGER,length INTEGER);INSERT INTO archive_containers VALUES('c','containers/c.tar','sealed',4096)").unwrap();
+        let mut container = vec![0; 4096];
+        let mut ids = Vec::new();
+        for (index, name) in ["one", "two"].iter().enumerate() {
+            let pack = format!("segments/{name}/media.tar");
+            let mut original = vec![0; 1024];
+            original[512..515].copy_from_slice(name.as_bytes());
+            fs::write(root.join(&pack), &original).unwrap();
+            let base = (index + 1) * 1024;
+            container[base..base + 1024].copy_from_slice(&original);
+            let sha = hex::encode(Sha256::digest(name.as_bytes()));
+            db.execute(
+                "INSERT INTO objects VALUES(?1,?2,512,3,'png')",
+                params![sha, pack],
+            )
+            .unwrap();
+            journal
+                .execute(
+                    "INSERT INTO archive_members VALUES(?1,'c',?2,1024)",
+                    params![pack, base as i64],
+                )
+                .unwrap();
+            ids.push(sha);
+        }
+        fs::write(root.join("containers/c.tar"), container).unwrap();
+        let catalog = Catalog {
+            db,
+            revision: "fixed-version".into(),
+            library_id: "test-library".into(),
+            root: root.clone(),
+            index: root.clone(),
+            generation_path: root,
+            generation: "unchanged".into(),
+            sequence: 3,
+            online: true,
+            format_version: 4,
+            count: Some(2),
+        };
+        (directory, catalog, journal, ids)
+    }
+
+    #[test]
+    fn pinterest_container_switch_preserves_an_open_catalog_and_orders_physical_reads() {
+        let (_directory, catalog, journal, ids) = fixture();
+        assert_eq!(catalog.read(&ids[0]).unwrap().bytes, b"one");
+        journal
+            .execute("UPDATE archive_containers SET state='active'", [])
+            .unwrap();
+        for name in ["one", "two"] {
+            fs::remove_file(catalog.root.join(format!("segments/{name}/media.tar"))).unwrap();
+        }
+        assert_eq!(catalog.read(&ids[0]).unwrap().bytes, b"one");
+        let inputs = [1, 0].map(|i| MediaInput {
+            asset_id: ids[i].clone(),
+            byte_limit: 3,
+            deadline: None,
+            cancelled: Arc::new(AtomicBool::new(false)),
+        });
+        let result = catalog.read_many(&inputs).unwrap();
+        assert_eq!(result.stats.opens, 1);
+        assert_eq!(
+            result
+                .stats
+                .trace
+                .iter()
+                .map(|v| v.offset)
+                .collect::<Vec<_>>(),
+            vec![1536, 2560]
+        );
+        assert_eq!(
+            result
+                .items
+                .into_iter()
+                .map(|r| r.unwrap().bytes)
+                .collect::<Vec<_>>(),
+            vec![b"two".to_vec(), b"one".to_vec()]
+        );
+        assert_eq!(catalog.revision, "fixed-version");
+    }
+
+    #[test]
+    fn pinterest_reclamation_between_resolve_and_open_retries_the_published_mapping() {
+        let (_directory, catalog, journal, _) = fixture();
+        let (mut pack, mut offset) = catalog
+            .resolve_pack("segments/one/media.tar", 512, 3)
+            .unwrap();
+        journal
+            .execute("UPDATE archive_containers SET state='cleaned'", [])
+            .unwrap();
+        fs::remove_file(catalog.root.join(&pack)).unwrap();
+        let mut file = catalog.open_pack(&mut pack, &mut offset, 3).unwrap();
+        assert_eq!(offset, 1536);
+        file.seek(SeekFrom::Start(offset)).unwrap();
+        let mut bytes = [0; 3];
+        file.read_exact(&mut bytes).unwrap();
+        assert_eq!(&bytes, b"one");
+    }
+
+    #[test]
+    fn pinterest_container_rejects_escaping_ranges_and_paths() {
+        let (_directory, catalog, journal, ids) = fixture();
+        journal
+            .execute("UPDATE archive_containers SET state='active'", [])
+            .unwrap();
+        journal
+            .execute("UPDATE archive_members SET length=514", [])
+            .unwrap();
+        assert_eq!(catalog.read(&ids[0]).err().unwrap().code, "SOURCE_CORRUPT");
+        journal
+            .execute("UPDATE archive_members SET length=1024", [])
+            .unwrap();
+        journal
+            .execute("UPDATE archive_containers SET path='../outside'", [])
+            .unwrap();
+        assert_eq!(
+            catalog.read(&ids[0]).err().unwrap().code,
+            "SOURCE_PATH_INVALID"
+        );
+    }
+}
 #[derive(Deserialize)]
 struct Library {
     library_id: String,
@@ -73,6 +212,71 @@ pub struct Catalog {
     count: Option<u64>,
 }
 impl Catalog {
+    fn resolve_pack(&self, pack: &str, offset: u64, length: u64) -> Result<(String, u64)> {
+        if self.format_version != 4 {
+            return Ok((pack.into(), offset));
+        }
+        let info: serde_json::Value =
+            serde_json::from_slice(&fs::read(self.root.join("library.json")).map_err(Error::io)?)
+                .map_err(Error::io)?;
+        crate::pinterest_metadata::validate_archive_format(&info)?;
+        if info["library_id"].as_str() != Some(&self.library_id) || info["format_version"] != 3 {
+            return Err(Error::new("SOURCE_CORRUPT", "Pinterest 归档身份已改变"));
+        }
+        if !info["required_features"]
+            .as_array()
+            .is_some_and(|features| features.iter().any(|x| x == "archive-containers-v1"))
+        {
+            return Ok((pack.into(), offset));
+        }
+        let db = Connection::open_with_flags(
+            self.root.join("journal.sqlite"),
+            OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )
+        .map_err(err)?;
+        db.busy_timeout(std::time::Duration::from_secs(5))
+            .map_err(err)?;
+        let row: Option<(String, u64, u64, u64)> = db.query_row(
+            "SELECT c.path,m.offset,m.length,c.bytes FROM archive_members m JOIN archive_containers c USING(container_id) WHERE m.path=?1 AND c.state IN ('active','cleaned')",
+            [pack], |r| Ok((r.get(0)?, unsigned(r,1)?, unsigned(r,2)?, unsigned(r,3)?))
+        ).optional().map_err(err)?;
+        let Some((container, base, member_length, container_length)) = row else {
+            return Ok((pack.into(), offset));
+        };
+        if offset
+            .checked_add(length)
+            .is_none_or(|end| end > member_length)
+            || base
+                .checked_add(member_length)
+                .is_none_or(|end| end > container_length)
+            || fs::metadata(child(&self.root, &container)?)
+                .map_err(Error::io)?
+                .len()
+                != container_length
+        {
+            return Err(Error::new("SOURCE_CORRUPT", "Pinterest 容器范围校验失败"));
+        }
+        Ok((container, base + offset))
+    }
+
+    fn open_pack(&self, pack: &mut String, offset: &mut u64, length: u64) -> Result<File> {
+        let first = child(&self.root, pack).and_then(|path| File::open(path).map_err(Error::io));
+        match first {
+            Ok(file) => Ok(file),
+            Err(original) => {
+                // Activation can occur between resolving a loose path and opening it.
+                let (next, next_offset) = self.resolve_pack(pack, *offset, length)?;
+                if next == *pack {
+                    return Err(original);
+                }
+                let file = File::open(child(&self.root, &next)?).map_err(Error::io)?;
+                *pack = next;
+                *offset = next_offset;
+                Ok(file)
+            }
+        }
+    }
+
     pub(crate) fn connection(&self) -> &Connection {
         &self.db
     }
@@ -345,8 +549,8 @@ impl Catalog {
                 "首版预览支持最大 64 MiB 的单张图片",
             ));
         }
-        let path = child(&self.root, &pack)?;
-        let mut file = File::open(path).map_err(Error::io)?;
+        let (mut pack, mut offset) = self.resolve_pack(&pack, offset, length)?;
+        let mut file = self.open_pack(&mut pack, &mut offset, length)?;
         if offset
             .checked_add(length)
             .is_none_or(|end| end > file.metadata().map(|m| m.len()).unwrap_or(0))
@@ -394,7 +598,10 @@ impl Catalog {
                 }
                 Some((pack, offset, length, extension)) if length <= 64 << 20 => {
                     total += length;
-                    locations.push((i, pack, offset, length, extension));
+                    match self.resolve_pack(&pack, offset, length) {
+                        Ok((pack, offset)) => locations.push((i, pack, offset, length, extension)),
+                        Err(error) => items[i] = Some(Err(error)),
+                    }
                 }
                 Some(_) => {
                     items[i] = Some(Err(Error::new(
@@ -414,15 +621,15 @@ impl Catalog {
         locations.sort_by(|a, b| (&a.1, a.2, a.0).cmp(&(&b.1, b.2, b.0)));
         let mut current: Option<(String, File)> = None;
         let mut stats = PhysicalReadStats::default();
-        for (index, pack, offset, length, extension) in locations {
+        for (index, mut pack, mut offset, length, extension) in locations {
             let input = &inputs[index];
             let mut read = 0u64;
             let result = (|| -> Result<Media> {
                 input.check()?;
                 if current.as_ref().is_none_or(|(name, _)| name != &pack) {
-                    let path = child(&self.root, &pack)?;
                     input.check()?;
-                    current = Some((pack.clone(), File::open(path).map_err(Error::io)?));
+                    let file = self.open_pack(&mut pack, &mut offset, length)?;
+                    current = Some((pack.clone(), file));
                     stats.opens += 1;
                 }
                 let file = &mut current.as_mut().expect("opened pack").1;

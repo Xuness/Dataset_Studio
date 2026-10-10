@@ -14,6 +14,7 @@ from ...canonical import canonical, utc
 from ...library import Library, Batch as BlobBatch, read_object
 from ...sqlite_control import Connection
 from ...util import FileLock, IntegrityError, atomic_json, contained, digest, failpoint, file_hash, read_json, stable_id, sync_directory, sync_file
+from .storage import hash_stream, json_file, open_batch_file
 
 
 def check_info(info):
@@ -33,15 +34,17 @@ def verify_manifest(lib, directory, manifest, *, hash_media=True):
         raise IntegrityError("Unknown Pinterest archive files")
     for name, info in files.items():
         path = contained(directory, name)
-        if not path.is_file() or path.stat().st_size != info["bytes"]:
-            raise IntegrityError("Pinterest archive file missing or truncated")
-        if (hash_media or name != "media.tar") and file_hash(path) != info["sha256"]:
-            raise IntegrityError("Pinterest archive file hash mismatch")
-    if canonical(read_json(directory / "manifest.json")) != canonical(manifest):
+        with open_batch_file(path) as source:
+            if source.seek(0, 2) != info["bytes"]:
+                raise IntegrityError("Pinterest archive file missing or truncated")
+            source.seek(0)
+            if (hash_media or name != "media.tar") and hash_stream(source) != info["sha256"]:
+                raise IntegrityError("Pinterest archive file hash mismatch")
+    if canonical(json_file(directory / "manifest.json")) != canonical(manifest):
         raise IntegrityError("Pinterest journal and sealed manifest differ")
     if files["replay.json"]["bytes"] > schema.MAX_METADATA:
         raise IntegrityError("Pinterest replay exceeds its byte budget")
-    replay = read_json(directory / "replay.json")
+    replay = json_file(directory / "replay.json")
     for field in ("library_id", "batch_id", "job_id", "definition_sha256"):
         if replay.get(field) != manifest.get(field):
             raise IntegrityError("Pinterest replay identity mismatch")
@@ -71,7 +74,7 @@ def verify_manifest(lib, directory, manifest, *, hash_media=True):
             or manifest["dedupe_key"] != stable_id("pinterest-batch-v1", manifest["library_id"], manifest["job_id"], manifest["receipt_id"])):
         raise IntegrityError("Unsupported Pinterest replay semantics")
     if replay["kind"] == "intent":
-        intent = read_json(directory / "run.json")
+        intent = json_file(directory / "run.json")
         if digest(canonical(intent).encode()) != manifest["definition_sha256"]:
             raise IntegrityError("Pinterest frozen definition hash mismatch")
     else:
@@ -151,7 +154,8 @@ class PinterestLibrary(Library):
     def enable_bundles(self):
         # Caller owns the archive writer lock. Existing segments and online generations stay immutable.
         if BUNDLE_FEATURE not in self.info["required_features"]:
-            self.info = {**self.info, "required_features": list(ARCHIVE_FEATURES)}
+            from . import CONTAINER_FEATURE
+            self.info = {**self.info, "required_features": [*ARCHIVE_FEATURES, *([CONTAINER_FEATURE] if CONTAINER_FEATURE in self.info["required_features"] else [])]}
             atomic_json(self.root / "library.json", self.info)
 
     def lookup_object(self, sha):
@@ -199,6 +203,9 @@ class PinterestLibrary(Library):
     def verify(self, deep=False):
         from .online import load_records
 
+        if deep:
+            from .compaction import verify_containers
+            verify_containers(self)
         result = dict(batches=0, objects=0, captures=0)
         with self.journal() as db:
             for row in db.execute("SELECT * FROM commits ORDER BY seq"):
@@ -210,7 +217,7 @@ class PinterestLibrary(Library):
                 result["captures"] += len(records.get("captures", []))
                 result["objects"] += len(records.get("objects", []))
                 for obj in records.get("objects", []) if deep else []:
-                    if digest(read_object(directory, obj["pack_file"], obj["offset"], obj["length"])) != obj["sha256"]:
+                    if digest(read_object(self.root, "segments/" + row["batch_id"] + "/" + obj["pack_file"], obj["offset"], obj["length"])) != obj["sha256"]:
                         raise IntegrityError("Pinterest object byte identity differs")
         return result
 
