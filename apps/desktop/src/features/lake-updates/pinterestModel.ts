@@ -127,6 +127,10 @@ const reasons: Record<string, string> = {
   list_detail_media_difference: "列表与抽样详情的媒体不同，本扫描改为详情确认",
   list_manifest_requires_detail: "列表清单已转交详情确认",
   empty_result_reason_unknown: "本次为空结果，原因未知",
+  empty_result_confirmed: "空页结束信号已复查，或已与来源计数核对",
+  discovery_end_unconfirmed: "分页途中收到空页结束信号，正在保留原游标复查",
+  discovery_count_shortfall:
+    "已观察的不同 Pin 少于来源报告数量，保留原游标复查；重试后仍不足会保留缺口",
   discovery_backlog: "等待已有候选与下载积压处理",
   api_requests: "本轮来源请求预算用完",
   detail_requests: "本轮详情 / 补取预算用完",

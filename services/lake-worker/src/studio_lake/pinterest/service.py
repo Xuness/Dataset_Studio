@@ -13,6 +13,9 @@ from ..updates import locations
 from ..updates.sites import UpdateError
 from ..util import FileLock, atomic_json, digest, read_json
 
+DISCOVERY_RETRY = ("s.entrypoint IN ('board_page','section_page') AND s.reason IN "
+                   "('empty_result_reason_unknown','discovery_end_unconfirmed','discovery_count_shortfall')")
+
 
 class Service:
     def __init__(self, state):
@@ -186,6 +189,8 @@ class Service:
         actions = {"completed": [], "cancelled": [], "completed_with_gaps": ["retry", "cancel"],
                    "paused": ["resume", "continue", "cancel"], "pausing": ["cancel"], "cancelling": [],
                    "waiting_budget": ["continue", "pause", "cancel"], "needs_review": ["resume", "cancel"]}.get(row["state"], ["pause", "cancel"])
+        if row["state"] == "completed" and db.execute("SELECT 1 FROM pinterest_streams s WHERE s.job_id=? AND " + DISCOVERY_RETRY + " LIMIT 1", (identity,)).fetchone():
+            actions = ["retry", "cancel"]
         if row["state"] == "needs_review" and not db.execute("SELECT 1 FROM pinterest_tasks WHERE job_id=? AND state='running' LIMIT 1", (identity,)).fetchone():
             actions = ["retry", "resume", "cancel"]
         metrics = {r[0]: r[1] for r in db.execute("SELECT name,value FROM pinterest_metrics WHERE job_id=?", (identity,))}
@@ -240,8 +245,8 @@ class Service:
                 if kind == "jobs":
                     value = self.job(row["id"], db)
                 elif kind == "streams":
-                    value = {k: row[k] for k in ("scan_id", "entrypoint", "subject_id", "depth", "state", "reason", "pages", "members", "force_detail", "samples_checked", "mismatches", "updated_at")}
-                    value.update(root=json.loads(row["root_json"]), total=None, has_cursor=row["cursor_json"] not in (None, "null"))
+                    value = {k: row[k] for k in ("scan_id", "entrypoint", "subject_id", "depth", "state", "reason", "pages", "members", "unique_pins", "force_detail", "samples_checked", "mismatches", "updated_at")}
+                    value.update(root=json.loads(row["root_json"]), total=row["reported_total"], has_cursor=row["cursor_json"] not in (None, "null"))
                 else:
                     value = {k: row[k] for k in ("task_id", "kind", "pin_id", "state", "attempts", "reason", "updated_at")}
                 encoded = len(canonical(value).encode())
@@ -276,11 +281,30 @@ class Service:
                 # Active claims and accepted receipts must be replayed before a new generation is possible.
                 if db.execute("SELECT 1 FROM pinterest_tasks WHERE job_id=? AND state='running' LIMIT 1", (row["id"],)).fetchone():
                     raise UpdateError("PINTEREST_CONFLICT", "Pause and let the current claim settle before retrying")
+                self.retry_discovery(db, row["id"])
                 db.execute("UPDATE pinterest_tasks SET state='queued',reason=NULL,retry_at=0,attempts=0,claim_token=NULL,receipt_id=NULL,"
                     "download_generation=download_generation+1 WHERE job_id=? AND state IN ('needs_review','unavailable','waiting_retry')", (row["id"],))
             db.execute("UPDATE pinterest_jobs SET desired_state=?,state=?,revision=revision+1,retry_at=0,error_code=NULL,error_message=NULL,updated_at=? WHERE id=?",
                        (desired, state, utc(), row["id"]))
         return self.job(row["id"])
+
+    @staticmethod
+    def retry_discovery(db, identity):
+        # Revisit the actual last request, not a fabricated cursor or the start of the board.
+        # Old versions accepted the first empty response; retain the original run and byte cache.
+        reset = ("state='queued',reason=NULL,retry_at=0,attempts=0,claim_token=NULL,receipt_id=NULL,"
+                 "download_generation=download_generation+1,updated_at=?")
+        scope = "s.job_id=? AND " + DISCOVERY_RETRY
+        latest = ("SELECT t.task_row FROM pinterest_tasks t WHERE t.job_id=s.job_id AND t.kind=s.entrypoint "
+                  "AND json_extract(t.input_json,'$.scan_id')=s.scan_id ORDER BY t.task_row DESC LIMIT 1")
+        db.execute("UPDATE pinterest_tasks SET " + reset + " WHERE job_id=? AND kind IN ('board_resolve','section_resolve') "
+                   "AND pin_id IN (SELECT json_extract(s.root_json,'$.id') FROM pinterest_streams s WHERE " + scope + ")",
+                   (utc(), identity, identity))
+        db.execute("UPDATE pinterest_tasks SET " + reset + " WHERE task_row IN (SELECT (" + latest + ") FROM pinterest_streams s WHERE " + scope + ")",
+                   (utc(), identity))
+        db.execute("UPDATE pinterest_streams AS s SET state='active',reason=NULL,cursor_json=coalesce(("
+                   "SELECT json_extract(input_json,'$.cursor') FROM pinterest_tasks WHERE task_row=(" + latest + ")),'null'),updated_at=? WHERE " + scope,
+                   (utc(), identity))
 
     def dispatch(self, command, args):
         if command in ("schedules", "schedule_save", "schedule_remove"):

@@ -22795,6 +22795,7 @@
           "state",
           "pages",
           "members",
+          "unique_pins",
           "force_detail",
           "samples_checked",
           "mismatches",
@@ -22861,6 +22862,11 @@
               "integer",
               "null"
             ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "unique_pins": {
+            "type": "integer",
             "format": "int64",
             "minimum": 0
           },

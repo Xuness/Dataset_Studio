@@ -100,7 +100,7 @@ export function PinterestJobDetails({
           <dd>{job.totals.admitted_pins ?? 0}</dd>
           <dt>已归档原图记录</dt>
           <dd>{pinterestCount(job, ["done"], "media_download")}</dd>
-          <dt>新增字节对象</dt>
+          <dt>去重后新增文件</dt>
           <dd>{job.metrics.new_byte_objects ?? 0}</dd>
           <dt>HTTP 核验复用</dt>
           <dd>{job.metrics.http_validated ?? 0}</dd>

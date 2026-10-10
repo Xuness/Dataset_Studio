@@ -197,7 +197,7 @@ class Runner:
                 elif records.get("pin_observations"):
                     planner.comparison(replay, entry, parsed)
             elif task["kind"] in model.PAGE_KINDS:
-                records = planner.page(self.state, response, job, entry, replay)
+                records = planner.page(self.state, response, job, entry, replay, attempt=task["attempts"])
             else:
                 records = planner.resolved(response, job, entry, replay)
             if response.status in (429, 503) or response.status >= 500:

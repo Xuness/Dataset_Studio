@@ -46,7 +46,12 @@ export function PinterestStreams({
             </strong>
             <small>{stream.subject_id}</small>
             <p>
-              {stream.pages} 页 · {stream.members} 次 Pin 出现 · 总量未知
+              {stream.pages} 页 ·{" "}
+              {stream.entrypoint === "board_sections"
+                ? stream.total == null
+                  ? "分区总量未知"
+                  : `来源报告 ${stream.total} 个分区`
+                : `${stream.unique_pins} 个不同 Pin · ${stream.members} 次出现 · ${stream.total == null ? "来源总量未知" : `来源报告 ${stream.total} 个 Pin`}`}
               {stream.has_cursor ? " · 保留后续游标" : ""}
             </p>
             <p>
@@ -79,7 +84,7 @@ export function PinterestStreams({
           </footer>
         )}
         <p className="lake-hint">
-          结束标记只描述本次访问下的流。图版分页期间可能变化，推荐与搜索结果也会随时间改变。
+          来源总量是图版或分区信息中的计数，可能随时间变化。结束标记只描述本次访问下的流；可疑结束页会复查，已观察数量仍不足时保留缺口。
         </p>
       </details>
       {origins.length > 0 && (

@@ -73,6 +73,15 @@ def replay(state, lib, job_id):
                     parameters_json,depth,state,updated_at) VALUES(?,?,?,?,?,?,?,'active',?)
                     ON CONFLICT(scan_id) DO NOTHING""", (stream["scan_id"], job_id, stream["entrypoint"], stream["subject_id"],
                     canonical(stream["root"]), canonical(stream["parameters"]), stream["depth"], utc()))
+            for hint in value.get("stream_totals", []):
+                total = hint["source_total"]
+                db.execute("UPDATE pinterest_streams SET reported_total=?,parameters_json=json_set(parameters_json,'$.source_total',json(?)) WHERE scan_id=? AND job_id=?",
+                           (total["count"], canonical(total), hint["scan_id"], job_id))
+            # Older accepted pages lack stream_pins; their queued admission tasks carry the same identities.
+            pins = {(p["scan_id"], p["pin_id"]) for p in value.get("stream_pins", [])}
+            pins.update((p["input"]["scan_id"], p["pin_id"]) for p in value["next_tasks"]
+                        if p["kind"] == "pin_admit" and p["input"].get("scan_id"))
+            db.executemany("INSERT INTO pinterest_stream_pins VALUES(?,?) ON CONFLICT DO NOTHING", sorted(pins))
             for admission in value.get("admissions", []):
                 db.execute("INSERT INTO pinterest_admitted VALUES(?,?,?,?) ON CONFLICT DO NOTHING",
                     (job_id, admission["kind"], admission["source_id"], row["receipt_id"]))

@@ -13,6 +13,7 @@ from studio_lake.updates.state import SCHEMA_VERSION, State
 from studio_lake.util import FileLock
 from test_pinterest_discovery import collection, listed, pages
 from test_update_schema import rows
+from update_fixtures import remove_pinterest_pagination
 
 
 def legacy_control(tmp_path, layout="missing"):
@@ -20,6 +21,7 @@ def legacy_control(tmp_path, layout="missing"):
                          budget=dict(api_requests=1, admitted_pins=1))
     assert fixture.run()["state"] == "waiting_budget"
     with fixture.state.db() as db:
+        remove_pinterest_pagination(db)
         db.execute("INSERT INTO settings VALUES('unrelated-setting','retained')")
         db.execute("INSERT INTO credentials VALUES('yandere',?,7)", (b"opaque fixture credential",))
         db.execute("INSERT INTO schedules VALUES('old-schedule','{}',60,123,0,4,NULL)")
@@ -44,8 +46,9 @@ def test_v18_upgrade_preserves_jobs_and_backfills_derived_counts(tmp_path, layou
     fixture.state = State(fixture.state.root)
     fixture.service = Service(fixture.state)
     after = rows(fixture.state)
-    assert {name: after[name] for name in before if name != "pinterest_admitted_counts"} == {
-        name: value for name, value in before.items() if name != "pinterest_admitted_counts"}
+    assert {name: after[name] for name in before if name not in ("pinterest_admitted_counts", "pinterest_streams")} == {
+        name: value for name, value in before.items() if name not in ("pinterest_admitted_counts", "pinterest_streams")}
+    assert [r[:-2] for r in after["pinterest_streams"]] == before["pinterest_streams"]
     with fixture.state.db() as db:
         assert db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
         assert db.execute("SELECT job_id,kind,n FROM pinterest_admitted_counts ORDER BY job_id,kind").fetchall() == db.execute(

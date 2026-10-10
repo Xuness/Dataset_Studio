@@ -713,7 +713,7 @@ export default function LakeWorkspace({
                       const targetLake = lakes.find((l) => l.id === id);
                       const done =
                         row.family === "pinterest"
-                          ? `${row.job.totals.admitted_pins ?? 0} Pin · ${pinterestCount(row.job, ["done"], "media_download")} 原图记录`
+                          ? `${row.job.totals.admitted_pins ?? 0} Pin · ${pinterestCount(row.job, ["done"], "media_download")} 原图记录 · ${row.job.metrics.new_byte_objects ?? 0} 新文件`
                           : row.family === "collection"
                             ? `${row.job.progress.works.details} 作品 · ${row.job.progress.media.published + row.job.progress.media.retained} 媒体`
                             : processedCount(row.job).toLocaleString();

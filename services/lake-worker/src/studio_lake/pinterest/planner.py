@@ -2,6 +2,7 @@
 
 import json
 import re
+import time
 
 from . import normalize, topics
 from ..canonical import canonical
@@ -45,8 +46,12 @@ def enabled(spec, entrypoint, depth):
     return entrypoint in spec["discovery"]["entrypoints"] and depth < spec["discovery"]["max_depth"]
 
 
-def stream(replay, job_id, kind, subject, root, depth=0, **parameters):
+def stream(replay, job_id, kind, subject, root, depth=0, *, source_total=None, enqueue=True, **parameters):
     scan = stable_id("pinterest-scan-v1", job_id, kind, subject, root, parameters)
+    if source_total is not None:
+        replay.setdefault("stream_totals", []).append(dict(scan_id=scan, source_total=source_total))
+    if not enqueue:
+        return
     entry = dict(scan_id=scan, entrypoint=kind, subject_id=subject, root=root, depth=depth, parameters=parameters, cursor=None)
     replay.setdefault("streams", []).append(entry)
     replay["next_tasks"].append(task(kind, subject, **entry))
@@ -56,17 +61,21 @@ def admission(state, job, entry, replay):
     spec = json.loads(job["definition_json"])
     subject, kind = entry["subject_id"], entry["source_kind"]
     with state.db() as db:
-        if admitted(db, job["id"], kind, subject):
-            return
-    replay.setdefault("admissions", []).append(dict(kind=kind, source_id=subject))
+        existing = admitted(db, job["id"], kind, subject)
+    if not existing:
+        replay.setdefault("admissions", []).append(dict(kind=kind, source_id=subject))
+    totals = entry.get("source_totals", {})
     if kind == "board":
-        stream(replay, job["id"], "board_page", subject, entry["root"], entry["depth"])
+        stream(replay, job["id"], "board_page", subject, entry["root"], entry["depth"],
+               source_total=totals.get("board_page"), enqueue=not existing)
         if spec.get("discovery", {}).get("include_sections", True):
-            stream(replay, job["id"], "board_sections", subject, entry["root"], entry["depth"])
-        if enabled(spec, "board_more_ideas", entry["depth"]):
+            stream(replay, job["id"], "board_sections", subject, entry["root"], entry["depth"],
+                   source_total=totals.get("board_sections"), enqueue=not existing)
+        if not existing and enabled(spec, "board_more_ideas", entry["depth"]):
             stream(replay, job["id"], "board_more_ideas", subject, entry["root"], entry["depth"] + 1)
     else:
-        stream(replay, job["id"], "section_page", subject, entry["root"], entry["depth"], board_id=entry.get("board_id"))
+        stream(replay, job["id"], "section_page", subject, entry["root"], entry["depth"], board_id=entry.get("board_id"),
+               source_total=totals.get("section_page"), enqueue=not existing)
 
 
 def admit_pin(state, job, entry, replay):
@@ -140,8 +149,15 @@ def resolved(response, job, entry, replay):
     board_id = board.get("id") if isinstance(board, dict) else None
     if board_id:
         normalize.entity_facts(records, board, "board", response)
+    fields = {"section_page": "pin_count"} if kind == "section" else {
+        "board_page": "sectionless_pin_count" if type(data.get("sectionless_pin_count")) is int else
+            "pin_count" if type(data.get("section_count")) is int and data["section_count"] == 0 else None,
+        "board_sections": "section_count"}
+    totals = {entrypoint: dict(count=data[field], field=field, capture_id=records["captures"][0]["capture_id"],
+                              observed_at=response.observed_at)
+              for entrypoint, field in fields.items() if field is not None and type(data.get(field)) is int and 0 <= data[field] <= 2**53-1}
     replay["next_tasks"].append(task("board_admit", data["id"], subject_id=data["id"], source_kind=kind,
-        root=entry["root"], depth=entry["depth"], board_id=board_id))
+        root=entry["root"], depth=entry["depth"], board_id=board_id, source_totals=totals))
     return records
 
 
@@ -159,7 +175,7 @@ def pagination(payload):
     return cursor, False, None
 
 
-def page(state, response, job, entry, replay):
+def page(state, response, job, entry, replay, *, attempt=1):
     kind, subject, scan = entry["entrypoint"], entry["subject_id"], entry["scan_id"]
     topic, topic_options, decoded = None, None, None
     if kind == "topic_page" and entry.get("cursor") is None and response.status == 200:
@@ -170,7 +186,7 @@ def page(state, response, job, entry, replay):
     records, payload, error = normalize.capture_facts(response, replay["receipt_id"], subject, parsed_payload=decoded)
     visibility = {k: response.context[k] for k in ("mode", "language", "session_id", "anonymous_cookie_policy", "source_country", "source_language", "source_locale") if response.context.get(k) is not None}
     with state.db() as db:
-        saved = db.execute("SELECT parameters_json FROM pinterest_streams WHERE scan_id=? AND job_id=?", (scan, job["id"])).fetchone()
+        saved = db.execute("SELECT parameters_json,unique_pins,reported_total FROM pinterest_streams WHERE scan_id=? AND job_id=?", (scan, job["id"])).fetchone()
     old_visibility = json.loads(saved[0]).get("visibility", {}) if saved else {}
     if any(k in visibility and visibility[k] != v for k, v in old_visibility.items()):
         error = "discovery_visibility_changed"
@@ -265,22 +281,44 @@ def page(state, response, job, entry, replay):
         # Known placeholders are recorded without inventing Pin identities; unknown shapes stay reviewable.
         if any(not isinstance(v, dict) or v.get("type") not in ("story", "ad", "separator") for v in items):
             reason, exhausted = "unrecognized_discovery_items", False
+    control_cursor = cursor
+    if members:
+        replay["stream_pins"] = [dict(scan_id=scan, pin_id=identity) for identity in sorted(seen)]
+    if exhausted and not reason and kind in ("board_page", "section_page"):
+        with state.db() as db:
+            known = db.execute("SELECT count(*) FROM pinterest_stream_pins WHERE scan_id=? AND pin_id IN ("
+                               + ",".join("?" for _ in seen) + ")", (scan, *seen)).fetchone()[0] if seen else 0
+        observed = (saved["unique_pins"] if saved else 0) + len(seen) - known
+        total = saved["reported_total"] if saved else None
+        shortfall = total is not None and observed < total
+        uncertain = total is None and not items and entry.get("cursor") is not None
+        if total is not None and not shortfall:
+            replay["end_confirmed"] = True
+        if shortfall or uncertain:
+            if attempt < 3 or shortfall:
+                reason = "discovery_count_shortfall" if shortfall else "discovery_end_unconfirmed"
+                exhausted, control_cursor = False, entry.get("cursor")
+                replay.update(state="waiting_retry" if attempt < 3 else "needs_review", reason=reason,
+                              retry_at=time.time() + 5 if attempt < 3 else 0)
+            else:
+                replay["end_confirmed"] = True
     records["discovery_snapshots"] = [dict(snapshot_id=snapshot, capture_id=capture["capture_id"],
         entrypoint=kind, scan_id=scan, root_json=canonical(entry["root"]), context_id=capture["context_id"],
         observed_at=response.observed_at, page_key=key + ":" + replay["receipt_id"],
         next_cursor_json=canonical(cursor) if cursor else None, complete=reason is None, exhausted=exhausted)]
     records["discovery_members"] = members
-    replay["checkpoint"] = dict(scan_id=scan, page_key=key, cursor=cursor,
-        state="needs_review" if reason else "exhausted" if exhausted else "active",
-        reason=reason or ("empty_result_reason_unknown" if not items else None), members=len(members), visibility=visibility)
+    replay["checkpoint"] = dict(scan_id=scan, page_key=key, cursor=control_cursor,
+        state=replay["state"] if replay.get("state") == "waiting_retry" else "needs_review" if reason else "exhausted" if exhausted else "active",
+        reason=reason or (("empty_result_confirmed" if replay.get("end_confirmed") or (saved and saved["reported_total"] == 0)
+                          else "empty_result_reason_unknown") if not items else None), members=len(members), visibility=visibility)
     metric(replay, kind + ":pages")
     metric(replay, kind + ":members", len(members))
     metric(replay, kind + ":ignored_items", ignored)
     if not items:
         metric(replay, kind + ":empty_pages")
-    if reason:
+    if reason and replay.get("state") != "waiting_retry":
         replay.update(state="needs_review", reason=reason)
-    elif not exhausted:
+    elif not reason and not exhausted:
         parameters = {**entry["parameters"], **({"topic_options": topic_options} if topic_options else {})}
         replay["next_tasks"].append(task(kind, subject, **{**entry, "cursor": cursor, "parameters": parameters}))
     return records

@@ -209,6 +209,7 @@ pub struct PinterestStream {
     pub reason: Option<String>,
     pub pages: u64,
     pub members: u64,
+    pub unique_pins: u64,
     pub total: Option<u64>,
     pub force_detail: u32,
     pub samples_checked: u64,
