@@ -14,6 +14,28 @@ from update_fixtures import remove_pinterest_pagination
 BOARD = "https://www.pinterest.com/fixture/board/"
 
 
+def test_each_resource_attempt_has_a_fresh_query_nonce_saved_in_its_receipt(monkeypatch):
+    from pinterest_fixtures import MediaResponse
+    from studio_lake.pinterest import http
+    ticks = iter((12345, 23456))
+    monkeypatch.setattr(http.time, "time_ns", lambda: next(ticks))
+    class Session:
+        def __init__(self):
+            self.sent = []
+        def get(self, url, **kwargs):
+            self.sent.append((url, kwargs["params"]))
+            return MediaResponse(b'{"resource_response":{"data":[]}}')
+    session = Session()
+    client = http.Client(None, dict(mode="anonymous", language="zh-TW", session_id="fixture"), session=session)
+    options = dict(board_id="777", bookmarks=["tail"], page_size=25)
+    first = client.resource("/resource/BoardFeedResource/get/", options, "/")
+    second = client.resource("/resource/BoardFeedResource/get/", options, "/")
+    assert [v[1]["_"] for v in session.sent] == ["12345", "23456"]
+    assert first.parameters["_"] == "12345" and second.metadata()["parameters"]["_"] == "23456"
+    assert all(json.loads(v[1]["data"]) == dict(options=options, context={}) for v in session.sent)
+    assert first.parameters["options"] == second.parameters["options"] == options
+
+
 def board(total=None):
     value = dict(id="777", type="board", section_count=0)
     if total is not None:

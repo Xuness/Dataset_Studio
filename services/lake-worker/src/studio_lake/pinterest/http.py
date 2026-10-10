@@ -16,7 +16,7 @@ from ..updates.sites import UpdateError
 from ..util import retry_after_seconds
 
 MAX_RESPONSE = 8 * 1024**2
-CLIENT_VERSION = "pinterest-web-20261009"
+CLIENT_VERSION = "pinterest-web-20261010"
 
 
 @dataclass(frozen=True)
@@ -66,6 +66,12 @@ class Client:
 
     def resource(self, endpoint, options, source):
         parameters = dict(options=options, source_url=source, context={})
+        query = None
+        if endpoint.startswith("/resource/"):
+            # A fixed resource URL can keep returning a premature empty result.
+            # Retain the exact freshness parameter with the response evidence.
+            parameters["_"] = str(time.time_ns())
+            query = dict(source_url=source, data=canonical(dict(options=options, context={})), _=parameters["_"])
         lane = nullcontext() if self.injected or self.rate_root is None else rate.admission(
             self.rate_root, self.name, self.cancelled, delay=1 / model.SITE_LIMITS["api_requests_per_second"])
         cooldown = 0
@@ -78,7 +84,7 @@ class Client:
                     self.session.cookies.clear()
                     self.session.cookies.set("csrftoken", self.csrf_token, domain="www.pinterest.com", path="/", secure=True)
                 with self.session.get("https://www.pinterest.com" + endpoint,
-                        params=dict(source_url=source, data=canonical(dict(options=options, context={}))) if endpoint.startswith("/resource/") else None,
+                        params=query,
                         headers={"X-Pinterest-Source-Url": source, "Accept": "application/json" if endpoint.startswith("/resource/") else "text/html"},
                         timeout=(10, 35), stream=True, allow_redirects=False) as response:
                     body, started = bytearray(), time.monotonic()
