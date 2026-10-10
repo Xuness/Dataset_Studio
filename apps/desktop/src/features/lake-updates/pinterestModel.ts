@@ -4,6 +4,7 @@ export type PinterestJob = Schema["PinterestJob"];
 export const pinterestStates: Record<string, string> = {
   queued: "排队中",
   running: "正在采集",
+  prepared: "等待归档",
   pausing: "正在暂停",
   paused: "已暂停",
   cancelling: "正在取消",

@@ -100,6 +100,11 @@ export function PinterestJobDetails({
           <dd>{job.totals.admitted_pins ?? 0}</dd>
           <dt>已归档原图记录</dt>
           <dd>{pinterestCount(job, ["done"], "media_download")}</dd>
+          <dt>等待归档</dt>
+          <dd>
+            {job.metrics.buffered_results ?? 0} 项结果 ·{" "}
+            {job.metrics.buffered_media_results ?? 0} 条原图记录
+          </dd>
           <dt>去重后新增文件</dt>
           <dd>{job.metrics.new_byte_objects ?? 0}</dd>
           <dt>HTTP 核验复用</dt>
@@ -178,6 +183,7 @@ export function PinterestJobDetails({
                 "needs_review",
                 "unavailable",
                 "waiting_retry",
+                "prepared",
                 "waiting_budget",
                 "superseded",
                 "cancelled",
