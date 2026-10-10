@@ -48,7 +48,7 @@ def test_v18_upgrade_preserves_jobs_and_backfills_derived_counts(tmp_path, layou
     after = rows(fixture.state)
     assert {name: after[name] for name in before if name not in ("pinterest_admitted_counts", "pinterest_streams")} == {
         name: value for name, value in before.items() if name not in ("pinterest_admitted_counts", "pinterest_streams")}
-    assert [r[:-2] for r in after["pinterest_streams"]] == before["pinterest_streams"]
+    assert [r[:-3] for r in after["pinterest_streams"]] == before["pinterest_streams"]
     with fixture.state.db() as db:
         assert db.execute("PRAGMA user_version").fetchone()[0] == SCHEMA_VERSION
         assert db.execute("SELECT job_id,kind,n FROM pinterest_admitted_counts ORDER BY job_id,kind").fetchall() == db.execute(

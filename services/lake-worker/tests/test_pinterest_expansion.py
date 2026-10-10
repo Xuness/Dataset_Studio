@@ -97,7 +97,10 @@ def test_ideas_resources_preserve_original_html_and_topic_relationship(tmp_path)
     original = fixture.factory
     def factory(root, context, *, cancelled):
         client = original(root, context, cancelled=cancelled)
-        client.request = lambda kind, entry: Response(body, "/ideas/test/777/", dict(options=dict(field_set_key="__PWS_INITIAL_PROPS__")), 200, utc(), context)
+        def request(kind, entry):
+            client.before_send()
+            return Response(body, "/ideas/test/777/", dict(options=dict(field_set_key="__PWS_INITIAL_PROPS__")), 200, utc(), context)
+        client.request = request
         return client
     fixture.factory = factory
     result = fixture.run()

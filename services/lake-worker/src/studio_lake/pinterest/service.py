@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import uuid
 
-from . import COLLECTOR, CONTRACT_VERSION, budget, model
+from . import COLLECTOR, CONTRACT_VERSION, budget, garbage, model
 from .lake.library import PinterestLibrary
 from ..canonical import canonical, utc
 from ..config import Config
@@ -13,7 +13,7 @@ from ..updates import locations
 from ..updates.sites import UpdateError
 from ..util import FileLock, atomic_json, digest, read_json
 
-DISCOVERY_RETRY = ("s.entrypoint IN ('board_page','section_page') AND s.reason IN "
+DISCOVERY_RETRY = ("s.entrypoint IN ('board_page','section_page','board_sections') AND s.reason IN "
                    "('empty_result_reason_unknown','discovery_end_unconfirmed','discovery_count_shortfall')")
 
 
@@ -245,7 +245,7 @@ class Service:
                 if kind == "jobs":
                     value = self.job(row["id"], db)
                 elif kind == "streams":
-                    value = {k: row[k] for k in ("scan_id", "entrypoint", "subject_id", "depth", "state", "reason", "pages", "members", "unique_pins", "force_detail", "samples_checked", "mismatches", "updated_at")}
+                    value = {k: row[k] for k in ("scan_id", "entrypoint", "subject_id", "depth", "state", "reason", "pages", "members", "unique_pins", "unique_sections", "force_detail", "samples_checked", "mismatches", "updated_at")}
                     value.update(root=json.loads(row["root_json"]), total=row["reported_total"], has_cursor=row["cursor_json"] not in (None, "null"))
                 else:
                     value = {k: row[k] for k in ("task_id", "kind", "pin_id", "state", "attempts", "reason", "updated_at")}
@@ -281,6 +281,9 @@ class Service:
                 # Active claims and accepted receipts must be replayed before a new generation is possible.
                 if db.execute("SELECT 1 FROM pinterest_tasks WHERE job_id=? AND state='running' LIMIT 1", (row["id"],)).fetchone():
                     raise UpdateError("PINTEREST_CONFLICT", "Pause and let the current claim settle before retrying")
+                # Preserve cleanup intent in the same transaction as generation advancement.
+                for old in db.execute("SELECT * FROM pinterest_tasks WHERE job_id=? AND kind='media_download' AND state IN ('needs_review','unavailable','waiting_retry')", (row["id"],)):
+                    garbage.enqueue(db, row["id"], old, json.loads(old["input_json"]))
                 self.retry_discovery(db, row["id"])
                 db.execute("UPDATE pinterest_tasks SET state='queued',reason=NULL,retry_at=0,attempts=0,claim_token=NULL,receipt_id=NULL,"
                     "download_generation=download_generation+1 WHERE job_id=? AND state IN ('needs_review','unavailable','waiting_retry')", (row["id"],))

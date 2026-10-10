@@ -56,7 +56,7 @@ CREATE TRIGGER IF NOT EXISTS input_count AFTER INSERT ON input_ids BEGIN
  UPDATE inputs SET count=count+1 WHERE id=new.input_id; END;
 """
 TERMINAL = {"completed", "completed_with_exclusions", "cancelled"}
-SCHEMA_VERSION = 20
+SCHEMA_VERSION = 21
 
 
 class State:
@@ -177,6 +177,9 @@ class State:
             if version < 20:
                 db.executescript((Path(__file__).parents[1] / "pinterest" / "pagination.sql").read_text(encoding="utf-8"))
                 db.execute("PRAGMA user_version=20")
+            if version < 21:
+                db.executescript((Path(__file__).parents[1] / "pinterest" / "coverage.sql").read_text(encoding="utf-8"))
+                db.execute("PRAGMA user_version=21")
 
     @contextmanager
     def db(self):

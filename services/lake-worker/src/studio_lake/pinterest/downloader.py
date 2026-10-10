@@ -13,12 +13,18 @@ from ..canonical import canonical, utc
 from ..png_compat import inspect_path, PngCompatibilityError
 from ..updates import transfer
 from ..updates.sites import UpdateError
-from ..updates.staging import StagingPlan, INITIAL_DOWNLOAD
 from ..util import file_hash, read_json, stable_id
 
 
-def acquire(state, lib, job, task, entry, resources, cancelled, *, http=None):
-    key = stable_id("pinterest-url-acquisition-v1", job["id"], entry["normalized_url"], entry["context_id"], task["download_generation"])
+def download_key(job_id, task, entry):
+    return stable_id("pinterest-url-acquisition-v1", job_id, entry["normalized_url"], entry["context_id"], task["download_generation"])
+
+
+def acquire(state, lib, job, task, entry, resources, cancelled, *, spool, before_send, admission_cancelled, http=None):
+    key = download_key(job["id"], task, entry)
+    if entry["width"] * entry["height"] > resources.config["max_image_pixels"]:
+        raise UpdateError("UPDATE_RESOURCE_LIMIT", "Pinterest image exceeds the pixel budget")
+    spool.reserve(key, task["receipt_id"])
     directory = lib.cache / "pinterest_downloads" / job["id"]
     directory.mkdir(parents=True, exist_ok=True)
     with state.db() as db:
@@ -35,16 +41,10 @@ def acquire(state, lib, job, task, entry, resources, cancelled, *, http=None):
         if file_hash(path) != saved["download_sha256"]:
             raise UpdateError("PINTEREST_ACQUISITION_LOST", "A staged acquisition is missing or changed; explicit retry is required")
         return {**saved, "state": "downloaded", "reused": True}, path
-    plan = StagingPlan(min(resources.max_download_bytes, INITIAL_DOWNLOAD), None)
-    lease = resources.try_reserve(directory, key, plan.peak())
-    if lease is None:
-        raise UpdateError("UPDATE_SPACE", "Waiting for Pinterest download staging space")
     slot = resources.try_download("pinterest")
     if slot is None:
-        lease.release()
         raise UpdateError("UPDATE_SPACE", "Waiting for a shared Pinterest download slot")
-    resources.plan(directory, key, plan)
-    sessions = MediaSessions(http)
+    sessions = MediaSessions(http, before_send, admission_cancelled)
     with state.db() as db:
         origin = db.execute("SELECT entrypoint FROM pinterest_streams WHERE scan_id=? AND job_id=?", (entry.get("scan_id"), job["id"])).fetchone()
     try:
@@ -72,7 +72,8 @@ def acquire(state, lib, job, task, entry, resources, cancelled, *, http=None):
                                        (job["id"], origin[0] + ":download_bytes", delta))
 
             saved = transfer.fetch(directory, key, entry["normalized_url"], "original", {"post_id": entry["pin_id"]},
-                SimpleNamespace(name="pinterest", rate_root=state.root), resources, cancelled, sessions, progress)
+                SimpleNamespace(name="pinterest", rate_root=state.root), resources, cancelled, sessions, progress,
+                max_seconds=300)
         if saved["state"] != "downloaded":
             return saved, None
         etag = saved.get("etag")
@@ -91,12 +92,14 @@ def acquire(state, lib, job, task, entry, resources, cancelled, *, http=None):
                 if width * height > resources.config["max_image_pixels"]:
                     raise UpdateError("UPDATE_RESOURCE_LIMIT", "Pinterest image exceeds the pixel budget")
                 image.verify()
-            with resources.encoding(width * height * 16 + path.stat().st_size, cancelled):
+            with resources.encoding(max(width * height * 16 + path.stat().st_size, 2 * path.stat().st_size), cancelled):
                 with Image.open(path) as image:
                     image.load()
                     image.convert("RGBA").load()
             if fmt not in ("JPEG", "PNG", "WEBP", "GIF", "AVIF"):
                 return dict(state="needs_review", reason="image_format_not_supported"), None
+        except Image.DecompressionBombError:
+            raise UpdateError("UPDATE_RESOURCE_LIMIT", "Pinterest image exceeds the decoder pixel limit") from None
         except (UnidentifiedImageError, OSError, ValueError, PngCompatibilityError):
             return dict(state="needs_review", reason="image_decode_failed"), None
         actual_md5 = hashlib.md5()
@@ -117,4 +120,3 @@ def acquire(state, lib, job, task, entry, resources, cancelled, *, http=None):
     finally:
         sessions.close()
         slot.release()
-        lease.release()

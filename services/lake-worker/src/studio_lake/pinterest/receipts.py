@@ -3,7 +3,7 @@
 import base64
 import json
 
-from . import model
+from . import garbage, model
 from .http import Response
 from ..canonical import canonical, utc
 from ..util import IntegrityError, atomic_json, read_json, stable_id
@@ -82,6 +82,11 @@ def replay(state, lib, job_id):
             pins.update((p["input"]["scan_id"], p["pin_id"]) for p in value["next_tasks"]
                         if p["kind"] == "pin_admit" and p["input"].get("scan_id"))
             db.executemany("INSERT INTO pinterest_stream_pins VALUES(?,?) ON CONFLICT DO NOTHING", sorted(pins))
+            sections = {(p["scan_id"], p["section_id"]) for p in value.get("stream_sections", [])}
+            db.executemany("INSERT INTO pinterest_stream_sections VALUES(?,?) ON CONFLICT DO NOTHING", sorted(sections))
+            for depth in value.get("expansion_depths", []):
+                db.execute("INSERT INTO pinterest_expansion_depths VALUES(?,?,?,?,?) ON CONFLICT(job_id,root_json,kind,source_id) DO UPDATE SET min_depth=min(min_depth,excluded.min_depth)",
+                    (job_id, depth["root_json"], depth["kind"], depth["source_id"], depth["min_depth"]))
             for admission in value.get("admissions", []):
                 db.execute("INSERT INTO pinterest_admitted VALUES(?,?,?,?) ON CONFLICT DO NOTHING",
                     (job_id, admission["kind"], admission["source_id"], row["receipt_id"]))
@@ -122,6 +127,8 @@ def replay(state, lib, job_id):
                     raise IntegrityError("Pinterest accepted outcome no longer owns its claim")
                 db.execute("UPDATE pinterest_tasks SET state=?,reason=?,retry_at=?,updated_at=? WHERE task_id=?",
                            (value["state"], value.get("reason"), value.get("retry_at", 0), utc(), value["task_id"]))
+                if value.get("download_scope") and value["state"] != "waiting_retry":
+                    garbage.enqueue(db, job_id, value["download_scope"], value["download_scope"])
                 for item in value["next_tasks"]:
                     task(db, job_id, item["kind"], item["pin_id"], item["input"])
             db.execute("INSERT INTO pinterest_applied VALUES(?,?,?)", (row["receipt_id"], job_id, row["seq"]))

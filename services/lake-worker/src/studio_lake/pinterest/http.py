@@ -39,6 +39,7 @@ class Client:
         # An anonymous job keeps one explicit session identity across execution slices/restarts.
         self.context = {**context, "session_instance": context["session_id"], "anonymous_cookie_policy": "fixed-csrf-only"}
         self.cancelled, self.injected = cancelled, session is not None
+        self.admission_cancelled, self.before_send = cancelled, lambda: None
         self.session = session or requests.Session()
         if session is None:
             self.session.trust_env = False
@@ -73,16 +74,17 @@ class Client:
             parameters["_"] = str(time.time_ns())
             query = dict(source_url=source, data=canonical(dict(options=options, context={})), _=parameters["_"])
         lane = nullcontext() if self.injected or self.rate_root is None else rate.admission(
-            self.rate_root, self.name, self.cancelled, delay=1 / model.SITE_LIMITS["api_requests_per_second"])
+            self.rate_root, self.name, self.admission_cancelled, delay=1 / model.SITE_LIMITS["api_requests_per_second"])
         cooldown = 0
         try:
             with lane:
-                if self.cancelled():
+                if self.admission_cancelled():
                     raise UpdateError("CANCELLED", "Pinterest collection paused")
                 if not self.injected:
                     # Do not silently acquire a different anonymous cookie scope between pages or slices.
                     self.session.cookies.clear()
                     self.session.cookies.set("csrftoken", self.csrf_token, domain="www.pinterest.com", path="/", secure=True)
+                self.before_send()
                 with self.session.get("https://www.pinterest.com" + endpoint,
                         params=query,
                         headers={"X-Pinterest-Source-Url": source, "Accept": "application/json" if endpoint.startswith("/resource/") else "text/html"},
@@ -163,15 +165,29 @@ def request_parameters(kind, entry):
 
 
 class MediaSessions:
-    def __init__(self, injected=None):
+    def __init__(self, injected=None, before_send=lambda: None, admission_cancelled=lambda: False):
         self.injected = injected
+        self.admission_cancelled = admission_cancelled
         self.session = injected or requests.Session()
         if injected is None:
             self.session.trust_env = False
             self.session.headers.update({"User-Agent": "Mozilla/5.0 Dataset-Studio/0.2", "Referer": "https://www.pinterest.com/"})
+        self.session = GuardedSession(self.session, before_send)
 
     def get(self):
         return self.session
+
+    def close(self):
+        self.session.close()
+
+
+class GuardedSession:
+    def __init__(self, session, before_send):
+        self.session, self.before_send = session, before_send
+
+    def get(self, *args, **kwargs):
+        self.before_send()
+        return self.session.get(*args, **kwargs)
 
     def close(self):
         self.session.close()

@@ -31,6 +31,7 @@ def collection(tmp_path, handler, *, seeds=None, metadata="none", budget=None, d
         client = original(root, context, cancelled=cancelled)
         old_pin = client.pin
         def request(kind, entry):
+            client.before_send()
             fixture.page_calls.append((kind, entry))
             payload = handler(kind, entry)
             endpoint, options, source = request_parameters(kind, entry)

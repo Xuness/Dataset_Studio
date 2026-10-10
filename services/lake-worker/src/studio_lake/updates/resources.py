@@ -21,6 +21,7 @@ class Reservation:
             if not self.released:
                 self.owner.reservations.pop(self.key, None)
                 self.owner.plans.pop(self.key, None)
+                self.owner.aliases = {k: v for k, v in self.owner.aliases.items() if v != self.key}
                 self.released = True
             self.owner.condition.notify_all()
 
@@ -36,6 +37,7 @@ class Resources:
         self.condition = threading.Condition()
         self.reservations = {}
         self.plans = {}
+        self.aliases = {}
         self.roots = set()
         self.devices = {}
         self.encode_jobs = self.decode_bytes = 0
@@ -89,7 +91,7 @@ class Resources:
             else self.config["reserve_mib"] * MIB
         )
 
-    def try_reserve(self, directory, key, required_bytes=None, *, prepared=False):
+    def try_reserve(self, directory, key, required_bytes=None, *, prepared=False, related=()):
         directory = Path(directory)
         directory.mkdir(parents=True, exist_ok=True)
         identity = (directory, key)
@@ -99,8 +101,19 @@ class Resources:
             self.roots.add(directory.parent)
             self.devices.setdefault(directory.parent, directory.parent.stat().st_dev)
             need = required_bytes if required_bytes is not None else (0 if prepared else self.max_download_bytes * 4)
-            if not self._resize(identity, need, prepared=prepared):
+            members = [(Path(folder), member) for folder, member in related]
+            if any(member in self.reservations or member in self.aliases for member in members):
                 return None
+            for member in members:
+                self.track(member[0])
+                self.aliases[member] = identity
+            try:
+                if not self._resize(identity, need, prepared=prepared):
+                    return None
+            finally:
+                if identity not in self.reservations:
+                    for member in members:
+                        self.aliases.pop(member, None)
             return Reservation(self, identity)
 
     def track(self, directory):
@@ -117,6 +130,7 @@ class Resources:
                 if path.suffix not in {".ready", ".downloaded", ".partial", ".tmp", ".json"}:
                     continue
                 identity = (path.parent, path.name.split(".")[0])
+                identity = self.aliases.get(identity, identity)
                 try:
                     sizes[identity] = sizes.get(identity, 0) + path.stat().st_size
                 except FileNotFoundError:

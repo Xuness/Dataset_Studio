@@ -6,11 +6,12 @@ import threading
 import time
 import uuid
 
-from . import budget, downloader, model, normalize, planner, receipts
+from . import budget, downloader, garbage, model, normalize, planner, receipts
 from .http import Client
 from .lake.library import Batch
 from .lake.schema import arrow_schema
 from .service import Service
+from .staging import Spool
 from ..canonical import utc
 from ..updates import locations
 from ..updates.resources import Resources
@@ -49,8 +50,12 @@ class Runner:
             if error.code == "CANCELLED":
                 target = {"running": "queued", "paused": "paused", "cancelled": "cancelling"}[current["desired_state"]]
                 self.update_state(identity, target)
-            elif error.code in ("UPDATE_SPACE", "UPDATE_RESOURCE_LIMIT"):
+            elif error.code == "UPDATE_SPACE":
                 self.update_state(identity, "waiting_resources", error.code, retry=30)
+            elif error.code == "PINTEREST_WAIT_BUDGET":
+                self.update_state(identity, "waiting_budget", str(error))
+            elif error.code == "PINTEREST_ATTEMPT_LIMIT":
+                self.update_state(identity, "queued")
             elif error.code == "PINTEREST_NETWORK":
                 with self.state.db() as db:
                     db.execute("UPDATE pinterest_tasks SET state=CASE WHEN attempts>=3 THEN 'unavailable' ELSE 'waiting_retry' END,"
@@ -58,20 +63,53 @@ class Runner:
                 self.update_state(identity, "waiting_retry", error.code, retry=error.retry_after)
             else:
                 self.update_state(identity, "needs_review", error.code)
+        except (IntegrityError, OSError):
+            self.update_state(identity, "needs_review", "PINTEREST_STORAGE_CHECK_REQUIRED")
+            raise
         except RuntimeError as error:
             if str(error).startswith("另一个进程正在使用此工作区"):
                 return self.service.job(identity)
-            raise
-        except (IntegrityError, OSError):
-            self.update_state(identity, "needs_review", "PINTEREST_STORAGE_CHECK_REQUIRED")
             raise
         finally:
             with self.state.db() as db:
                 db.execute("UPDATE pinterest_jobs SET elapsed_seconds=elapsed_seconds+? WHERE id=?", (time.monotonic() - started, identity))
         return self.service.job(identity)
 
-    def _cancelled(self, identity, deadline):
-        return self.stop.is_set() or time.monotonic() >= deadline or self.service.row(identity)["desired_state"] != "running"
+    def _cancelled(self, identity):
+        return self.stop.is_set() or self.service.row(identity)["desired_state"] != "running"
+
+    def _before_send(self, job, task, started, deadline):
+        # Rate waiting spends neither an attempt nor a request. A resumed claim goes
+        # through this same transaction whenever it needs another physical HTTP call.
+        if time.monotonic() >= deadline or self._cancelled(job["id"]):
+            raise UpdateError("CANCELLED", "Pinterest request admission is closed")
+        blocked, exhausted = None, False
+        with self.state.db() as db:
+            db.execute("BEGIN IMMEDIATE")
+            current = self.service.row(job["id"], db)
+            if current["desired_state"] != "running":
+                raise UpdateError("CANCELLED", "Pinterest admission is closed")
+            saved = db.execute("SELECT * FROM pinterest_tasks WHERE task_id=?", (task["task_id"],)).fetchone()
+            if saved["state"] != "running" or saved["claim_token"] != task["claim_token"]:
+                raise IntegrityError("Pinterest request no longer owns its claim")
+            spec = json.loads(current["definition_json"])
+            baseline = json.loads(current["budget_baseline_json"])
+            blocked = budget.reason(db, current, task, spec)
+            if current["elapsed_seconds"] + time.monotonic() - started - baseline.get("elapsed_seconds", 0) >= spec["run_budget"]["wall_seconds"]:
+                blocked = "PINTEREST_RUN_BUDGET"
+            exhausted = saved["attempts"] >= 3
+            if blocked or exhausted:
+                db.execute("UPDATE pinterest_tasks SET state=?,reason=?,updated_at=? WHERE task_id=?",
+                    ("waiting_budget" if blocked else "unavailable", blocked or "PINTEREST_ATTEMPT_LIMIT", utc(), task["task_id"]))
+            else:
+                task["attempts"] = saved["attempts"] + 1
+                db.execute("UPDATE pinterest_tasks SET attempts=?,updated_at=? WHERE task_id=?", (task["attempts"], utc(), task["task_id"]))
+                if task["kind"] in model.NETWORK_KINDS:
+                    budget.request(db, job["id"], task["kind"], json.loads(task["input_json"]).get("scan_id"))
+                else:
+                    db.execute("INSERT INTO pinterest_metrics VALUES(?,'image_requests',1) ON CONFLICT(job_id,name) DO UPDATE SET value=value+1", (job["id"],))
+        if blocked or exhausted:
+            raise UpdateError("PINTEREST_WAIT_BUDGET" if blocked else "PINTEREST_ATTEMPT_LIMIT", blocked or "Pinterest request attempt limit reached")
 
     def _fence(self, job, replay):
         current = self.service.row(job["id"])
@@ -86,7 +124,7 @@ class Runner:
             if not task or tuple(task) != ("running", replay["claim_token"], replay["receipt_id"]):
                 raise IntegrityError("Stale Pinterest execution claim")
 
-    def _publish(self, lib, job, replay, records, media=None, definition=None):
+    def _publish(self, lib, job, replay, records, media=None, definition=None, spool=None):
         identity = replay["receipt_id"]
         sealed = next((p for p in (lib.root / "segments" / identity, lib.root / "staging" / identity)
                        if (p / "manifest.json").exists()), None)
@@ -99,6 +137,7 @@ class Runner:
                     key = media["download_key"]
                     if not re.fullmatch("[0-9a-f]{64}", key):
                         raise IntegrityError("Invalid Pinterest download key")
+                    spool.reserve(key, identity)
                     path = contained(lib.cache, "pinterest_downloads/" + job["id"] + "/" + key + ".downloaded")
                     if path.stat().st_size > self.resources.max_download_bytes:
                         raise IntegrityError("Pinterest staged image exceeds current resource limits")
@@ -118,12 +157,14 @@ class Runner:
         for suffix in ("response.json", "prepared.json"):
             (root / (identity + "." + suffix)).unlink(missing_ok=True)
         contained(lib.cache, "pack_staging/" + identity + ".tar.tmp").unlink(missing_ok=True)
-        if replay.get("download_key"):
-            key = replay["download_key"]
-            if not re.fullmatch("[0-9a-f]{64}", key):
-                raise IntegrityError("Invalid accepted Pinterest download key")
-            for suffix in ("downloaded", "download.json", "partial", "partial.json"):
-                contained(lib.cache, "pinterest_downloads/" + job["id"] + "/" + key + "." + suffix).unlink(missing_ok=True)
+        self._cleanup_download(lib, job["id"], replay)
+
+    def _cleanup_download(self, lib, job_id, replay):
+        scope = replay.get("download_scope")
+        if scope and replay["state"] != "waiting_retry":
+            with self.state.db() as db:
+                garbage.enqueue(db, job_id, scope, scope)
+        garbage.collect(self.state, lib, job_id)
 
     def _intent(self, lib, job):
         identity = str(uuid.uuid5(uuid.UUID(job["id"]), "pinterest-intent-v1"))
@@ -152,12 +193,14 @@ class Runner:
                 if blocked:
                     db.execute("UPDATE pinterest_tasks SET state='waiting_budget',reason=?,updated_at=? WHERE task_id=?", (blocked, utc(), task["task_id"]))
                     return {"blocked": blocked}
-                task.update(state="running", claim_token=str(uuid.uuid4()), receipt_id=str(uuid.uuid4()), attempts=task["attempts"] + 1)
+                # Network attempts are charged at the send boundary, including resumed claims.
+                attempts = task["attempts"] + int(task["kind"] not in (*model.NETWORK_KINDS, "media_download"))
+                task.update(state="running", claim_token=str(uuid.uuid4()), receipt_id=str(uuid.uuid4()), attempts=attempts)
                 db.execute("UPDATE pinterest_tasks SET state='running',claim_token=?,receipt_id=?,attempts=?,updated_at=? WHERE task_id=?",
                            (task["claim_token"], task["receipt_id"], task["attempts"], utc(), task["task_id"]))
             return task
 
-    def _prepare(self, lib, job, task, client, cancelled):
+    def _prepare(self, lib, job, task, client, cancelled, spool, before_send):
         root = receipts.directory(lib, job["id"])
         old = receipts.load_prepared(root, task["receipt_id"])
         if old:
@@ -175,8 +218,7 @@ class Runner:
         elif task["kind"] in model.NETWORK_KINDS:
             response = receipts.load_response(root, task["receipt_id"])
             if response is None:
-                with self.state.db() as db:
-                    budget.request(db, job["id"], task["kind"], entry.get("scan_id"))
+                client.before_send = before_send
                 if task["kind"] == "pin_detail":
                     response = client.pin(task["pin_id"])
                 elif task["kind"] == "pin_enrichment":
@@ -213,7 +255,16 @@ class Runner:
                 replay["next_tasks"].append(planner.task("pin_detail", entry["pin_id"], pin_id=entry["pin_id"], scan_id=entry["scan_id"]))
                 receipts.save_prepared(root, replay, {})
                 return dict(replay=replay, records={}, media=None)
-            result, path = downloader.acquire(self.state, lib, job, task, entry, self.resources, cancelled, http=self.image_http)
+            replay["download_key"] = downloader.download_key(job["id"], task, entry)
+            replay["download_scope"] = {k: entry[k] for k in ("normalized_url", "context_id")}
+            replay["download_scope"]["download_generation"] = task["download_generation"]
+            try:
+                result, path = downloader.acquire(self.state, lib, job, task, entry, self.resources, cancelled,
+                    spool=spool, before_send=before_send, admission_cancelled=client.admission_cancelled, http=self.image_http)
+            except UpdateError as error:
+                if error.code != "UPDATE_RESOURCE_LIMIT":
+                    raise
+                result = dict(state="needs_review", reason=error.code)
             records = {}
             if result["state"] == "downloaded":
                 if not result.get("archive_reuse"):
@@ -249,6 +300,17 @@ class Runner:
         published = lib.sync_online()
         with self.state.db() as db:
             db.execute("UPDATE pinterest_jobs SET served_seq=? WHERE id=?", (published["served_seq"], identity))
+        # A crash after acceptance can precede both control replay and file cleanup.
+        for path in receipts.directory(lib, identity).glob("*.prepared.json"):
+            receipt_id = model.identity(path.name.removesuffix(".prepared.json"))
+            with lib.journal() as journal:
+                accepted = journal.execute("SELECT replay_json FROM pinterest_receipts WHERE job_id=? AND receipt_id=?", (identity, receipt_id)).fetchone()
+            if accepted:
+                self._cleanup_download(lib, identity, json.loads(accepted[0]))
+                path.unlink(missing_ok=True)
+                path.with_name(receipt_id + ".response.json").unlink(missing_ok=True)
+                contained(lib.cache, "pack_staging/" + receipt_id + ".tar.tmp").unlink(missing_ok=True)
+        garbage.collect(self.state, lib, identity)
         if job["desired_state"] != "running":
             self.update_state(identity, "cancelled" if job["desired_state"] == "cancelled" else "paused")
             if job["desired_state"] == "cancelled":
@@ -261,10 +323,11 @@ class Runner:
         self.update_state(identity, "running")
         spec = json.loads(job["definition_json"])
         def cancelled():
-            return self._cancelled(identity, deadline)
+            return self._cancelled(identity)
         client = self.client_factory(self.state.root, json.loads(job["context_json"]), cancelled=cancelled)
+        client.admission_cancelled = lambda: cancelled() or time.monotonic() >= deadline
         try:
-            while not cancelled():
+            while not cancelled() and time.monotonic() < deadline:
                 current = self.service.row(identity)
                 with self.state.db() as db:
                     pending = db.execute("SELECT 1 FROM pinterest_tasks WHERE job_id=? AND state='running' LIMIT 1", (identity,)).fetchone()
@@ -296,8 +359,11 @@ class Runner:
                 # Recover a sealed batch without reconstructing mutable execution inputs.
                 sealed = next((p for p in (lib.root / "segments" / task["receipt_id"], lib.root / "staging" / task["receipt_id"])
                                if (p / "manifest.json").exists()), None)
-                prepared = dict(replay=read_json(sealed / "replay.json"), records={}, media=None) if sealed else self._prepare(lib, job, task, client, cancelled)
-                self._publish(lib, job, **prepared)
+                with Spool(lib, identity, self.resources) as spool:
+                    def before_send():
+                        self._before_send(job, task, started, deadline)
+                    prepared = dict(replay=read_json(sealed / "replay.json"), records={}, media=None) if sealed else self._prepare(lib, job, task, client, cancelled, spool, before_send)
+                    self._publish(lib, job, **prepared, spool=spool)
                 reason = prepared["replay"].get("reason")
                 if reason in ("pin_http_401", "pin_http_403", "pin_http_301", "pin_http_302", "pin_response_invalid", "image_http_401", "image_http_403", "discovery_visibility_changed"):
                     self.update_state(identity, "needs_review", reason)
@@ -327,8 +393,6 @@ class Runner:
             if archived:
                 receipt_path.unlink(missing_ok=True)
                 (root / (receipt_id + ".response.json")).unlink(missing_ok=True)
-        if row["state"] == "completed_with_gaps":
-            return
         for folder in ("pinterest_downloads", "pinterest_receipts"):
             root = contained(lib.cache, folder + "/" + model.identity(identity))
             if root.exists():

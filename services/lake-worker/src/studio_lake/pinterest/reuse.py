@@ -72,7 +72,7 @@ def previous(state, lib, job, task, entry, reuse_key, download_key, sessions, re
         if not etag:
             return None, None
         if sessions.injected is None:
-            rate.wait_start(state.root, "pinterest", cancelled, lambda: resources.config["sites"]["pinterest"]["image_requests_per_second"])
+            rate.wait_start(state.root, "pinterest", sessions.admission_cancelled, lambda: resources.config["sites"]["pinterest"]["image_requests_per_second"])
         try:
             response = sessions.get().get(entry["normalized_url"], headers={"If-None-Match": etag, "Accept-Encoding": "identity"},
                 timeout=(10, 45), stream=True, allow_redirects=False)

@@ -48,6 +48,7 @@ def main():
     def factory(root, context, *, cancelled):
         client = old_factory(root, context, cancelled=cancelled)
         def request(kind, entry):
+            client.before_send()
             value = pin("858146903966145189" if entry["cursor"] is None else "1089097122423035272")
             value.update(type="pin")
             details(value)
@@ -63,8 +64,27 @@ def main():
         "discovery": dict(include_sections=False)}))
     discovery_job = fixture.run()
     assert discovery_job["state"] == "completed", discovery_job
+    def sections_factory(root, context, *, cancelled):
+        client = old_factory(root, context, cancelled=cancelled)
+        def request(kind, entry):
+            client.before_send()
+            if kind == "board_resolve":
+                body = dict(resource_response=dict(data=dict(id="1002", section_count=2, sectionless_pin_count=0)))
+            else:
+                items = [dict(id=v, type="board_section", pin_count=0) for v in ("9001", "9002")] if kind == "board_sections" else []
+                body = dict(resource_response=dict(data=items), resource=dict(options=dict(bookmarks=["-end-"])))
+            endpoint, options, source = request_parameters(kind, entry)
+            return Response(json.dumps(body).encode(), endpoint, dict(options=options, source_url=source), 200, utc(), context)
+        client.request = request
+        return client
+    fixture.factory = sections_factory
+    fixture.job = fixture.service.create(dict(request_key=str(uuid.uuid4()), definition={**fixture.spec,
+        "seeds": [dict(kind="board", id="https://www.pinterest.com/fixture/sections/")],
+        "metadata": dict(detail_enrichment="none"), "discovery": dict(include_sections=True)}))
+    section_job = fixture.run()
+    assert section_job["state"] == "completed" and section_job["media_complete"], section_job
     atomic_json(root / "pinterest.json", {"lake": fixture.lake, "job": result, "budget_job": budget_job,
-        "discovery_job": discovery_job,
+        "discovery_job": discovery_job, "section_job": section_job,
         "records": records, "first_version": first_version, "sha256": hashlib.sha256(fixture.data).hexdigest(),
         "md5": hashlib.md5(fixture.data).hexdigest(), "bytes": len(fixture.data), "original_hex": fixture.data.hex()})
 

@@ -135,7 +135,7 @@ def transport_error(error, post_id, partial, started):
     }
 
 
-def fetch(directory, key, url, kind, observation, site, resources, cancelled, sessions, progress):
+def fetch(directory, key, url, kind, observation, site, resources, cancelled, sessions, progress, *, max_seconds=None):
     md5 = observation.get("md5") if kind == "original" else None
     md5 = md5.lower() if isinstance(md5, str) and re.fullmatch("[a-fA-F0-9]{32}", md5) else None
     partial = Partial(directory, key, url, kind, md5, resources.max_download_bytes)
@@ -166,7 +166,7 @@ def fetch(directory, key, url, kind, observation, site, resources, cancelled, se
                 rate.wait_start(
                     site.rate_root,
                     site.name,
-                    cancelled,
+                    getattr(sessions, "admission_cancelled", cancelled),
                     lambda: resources.config["sites"][site.name]["image_requests_per_second"],
                 )
             progress(phase="connecting", image_requests_delta=1)
@@ -246,6 +246,8 @@ def fetch(directory, key, url, kind, observation, site, resources, cancelled, se
                         partial.checkpoint(output)
                         try:
                             for chunk in response.iter_content(CHUNK):
+                                if max_seconds is not None and time.perf_counter() - started > max_seconds:
+                                    raise requests.exceptions.Timeout("Image transfer exceeded its operation deadline")
                                 if cancelled():
                                     raise UpdateError("CANCELLED", "Update paused")
                                 if partial.size + len(chunk) > partial.limit:

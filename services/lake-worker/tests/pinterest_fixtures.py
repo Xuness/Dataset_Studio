@@ -53,6 +53,7 @@ class Fixture:
 
         class Pins:
             def pin(self, identity):
+                self.before_send()
                 fixture.pin_calls.append(identity)
                 value = pin(identity)
                 if fixture.pin_transform:
