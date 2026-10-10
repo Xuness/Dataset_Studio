@@ -22,7 +22,7 @@ def encode(raw):
     return -1 if raw is None else len(body), hashlib.sha256(body).hexdigest(), zlib.compress(body, 1)
 
 
-def decode(compressed, length, sha256, *, maximum_bytes):
+def decode_bytes(compressed, length, sha256, *, maximum_bytes):
     """Check the declared bound before allocating, and verify the original bytes."""
     if length < -1 or maximum_bytes < 0 or length > maximum_bytes:
         raise IntegrityError("原始元数据超过解压预算或长度无效")
@@ -34,6 +34,14 @@ def decode(compressed, length, sha256, *, maximum_bytes):
             raise IntegrityError("原始元数据压缩内容或长度校验失败")
         if hashlib.sha256(body).hexdigest() != sha256:
             raise IntegrityError("原始元数据摘要校验失败")
-        return None if length == -1 else body.decode("utf-8")
-    except (zlib.error, UnicodeError) as error:
+        return None if length == -1 else body
+    except zlib.error as error:
         raise IntegrityError("原始元数据压缩内容无效") from error
+
+
+def decode(compressed, length, sha256, *, maximum_bytes):
+    body = decode_bytes(compressed, length, sha256, maximum_bytes=maximum_bytes)
+    try:
+        return None if body is None else body.decode("utf-8")
+    except UnicodeError as error:
+        raise IntegrityError("原始元数据不是有效的 UTF-8 文本") from error

@@ -261,9 +261,14 @@ class Batch(BlobBatch):
             self.pack_writer.flush()
             self.pack_writer.close()
             sync_file(self.pack_staging_path)
+            expected = self.pack_writer.hash.hexdigest()
+            if file_hash(self.pack_staging_path) != expected:
+                raise IntegrityError("Pinterest temporary pack differs before copy")
             shutil.copyfile(self.pack_staging_path, self.path / "media.tar")
             sync_file(self.path / "media.tar")
             files["media.tar"] = descriptor(self.path / "media.tar", "objects", "pax-tar-v1", len(self.objects))
+            if files["media.tar"]["sha256"] != expected:
+                raise IntegrityError("Pinterest pack copy differs from its sealed source")
         files.update(write_facts(self.path, self.records, schema.FACTS, schema.arrow_schema, SCHEMA_SET + ":", schema.MAX_METADATA))
         if self.definition is not None:
             atomic_json(self.path / "run.json", self.definition)

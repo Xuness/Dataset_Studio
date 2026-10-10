@@ -10,7 +10,7 @@ from .. import NORMALIZER
 from ...canonical import utc
 from ...online_schema import settings
 from ...online_storage import MODULUS, connect, row_digest
-from ...raw_codec import decode
+from ...raw_codec import decode_bytes
 from ...util import FileLock, IntegrityError, atomic_json, contained, file_hash, read_json
 
 
@@ -78,7 +78,7 @@ def signatures(db, sequence, *, maximum_raw_bytes=schema.MAX_METADATA):
             count += 1
         result[name] = dict(rows=count, digest=format(hashed, "x"))
     for body, size, sha in db.execute("SELECT raw_zlib,raw_bytes,raw_sha256 FROM captures WHERE commit_seq<=?", (sequence,)):
-        decode(body, size, sha, maximum_bytes=maximum_raw_bytes)
+        decode_bytes(body, size, sha, maximum_bytes=maximum_raw_bytes)
     return result
 
 
