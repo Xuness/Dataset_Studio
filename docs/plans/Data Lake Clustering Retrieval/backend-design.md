@@ -1,6 +1,6 @@
 # 三个 Booru 数据湖的视觉特征后端设计
 
-日期：2026-10-11。状态：拟实施的架构与接入方案。
+日期：2026-10-11。状态：架构方案，首轮后端接入已实现；运行方式与实现边界见[视觉特征后端](../../architecture/visual-features.md)。前端和项目工作集引用尚未接入。
 
 当前工程直接面向 Danbooru、Yandere、Gelbooru 三个真实数据湖，提供 SHA 复用、感知哈希、向量提取和相似检索。首批接入 SigLIP 2 NaFlex、EmbeddingGemma 2、Kaloscope 3.0-preview，三个向量空间并存，便于在同一批真实图片上比较效果。批次大小、输入配方和检索参数随实际运行调整。
 
