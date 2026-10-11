@@ -77,6 +77,7 @@ try {
 await lock.writeFile(JSON.stringify({ pid: process.pid }));
 await lock.close();
 let state;
+let explicitResumeAvailable = args.includes("--resume");
 async function save() {
   state.updated_at = new Date().toISOString();
   const temporary = statePath + ".tmp";
@@ -100,7 +101,8 @@ async function submit(kind, request, repair = false) {
 async function settle() {
   const pending = state.pending;
   const collection = pending.kind === "index" ? "indexes" : "runs";
-  let allowResume = args.includes("--resume");
+  let allowResume = explicitResumeAvailable;
+  explicitResumeAvailable = false;
   let observationsFailed = 0;
   for (;;) {
     let job;
@@ -123,6 +125,11 @@ async function settle() {
       await sleep(3000);
       continue;
     }
+    // --resume authorizes the state observed at controller startup, not a
+    // later manual pause, nor a pause of every subsequent task in the series.
+    const explicitlyResumeNow =
+      allowResume && ["paused", "failed"].includes(job.status);
+    allowResume = false;
     state.progress = {
       id: job.id,
       status: job.status,
@@ -148,8 +155,7 @@ async function settle() {
     if (job.status === "paused" || job.status === "failed") {
       const restart =
         job.status === "paused" && job.error?.startsWith("引擎重启");
-      if (!interrupted && (allowResume || restart)) {
-        allowResume = false;
+      if (!interrupted && (explicitlyResumeNow || restart)) {
         await api(`${collection}/${job.id}/actions`, { action: "resume" });
       } else {
         state.status = job.status;
