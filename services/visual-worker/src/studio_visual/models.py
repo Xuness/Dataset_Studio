@@ -4,6 +4,7 @@ import gc
 import hashlib
 import importlib.metadata
 import json
+import time
 from pathlib import Path
 
 import numpy as np
@@ -100,6 +101,11 @@ class Models:
         torch.set_num_threads(min(8, torch.get_num_threads()))
         self.device = device
         self.loaded = {}
+        self.timings = {}
+
+    def timed(self, recipe, stage, started):
+        row = self.timings.setdefault(recipe["id"], {})
+        row[stage] = row.get(stage, 0.0) + (time.perf_counter() - started) * 1000
 
     def _load(self, recipe):
         import torch
@@ -138,6 +144,7 @@ class Models:
 
         key = recipe["id"]
         if key not in self.loaded:
+            started = time.perf_counter()
             try:
                 self.loaded[key] = self._load(recipe)
             except torch.cuda.OutOfMemoryError:
@@ -145,16 +152,25 @@ class Models:
                 gc.collect()
                 torch.cuda.empty_cache()
                 self.loaded[key] = self._load(recipe)
+            finally:
+                self.timed(recipe, "load", started)
         model, processor = self.loaded[key]
         kind = recipe["model"]
         with torch.inference_mode():
+            started = time.perf_counter()
             if kind == "siglip2_naflex":
                 inputs = processor(images=images, max_num_patches=784, return_tensors="pt")
                 inputs = inputs.to(self.device, dtype=model.dtype)
+                if self.device == "cuda": torch.cuda.synchronize()
+                self.timed(recipe, "preprocess", started)
+                started = time.perf_counter()
                 output = model(**inputs).pooler_output
             elif kind == "embeddinggemma2":
                 inputs = processor(images=[[image] for image in images], return_tensors="pt")
                 inputs = inputs.to(self.device, dtype=model.dtype)
+                if self.device == "cuda": torch.cuda.synchronize()
+                self.timed(recipe, "preprocess", started)
+                started = time.perf_counter()
                 tokens = model(**inputs).last_hidden_state
                 mask = inputs["attention_mask"].unsqueeze(-1).float()
                 output = (tokens.float() * mask).sum(1) / mask.sum(1).clamp(min=1)
@@ -162,9 +178,14 @@ class Models:
                 spatial = transforms.Compose([transforms.Resize(512), transforms.CenterCrop(512)])
                 tensors = [torch.from_numpy(np.array(spatial(i), copy=True)).permute(2, 0, 1) for i in images]
                 inputs = torch.stack(tensors).to(self.device)
+                if self.device == "cuda": torch.cuda.synchronize()
+                self.timed(recipe, "preprocess", started)
+                started = time.perf_counter()
                 with torch.autocast(device_type="cuda", dtype=torch.bfloat16, enabled=self.device == "cuda"):
                     output = model(inputs)
-        return normalized(output.float().cpu().numpy(), recipe["dimension"])
+        value = normalized(output.float().cpu().numpy(), recipe["dimension"])
+        self.timed(recipe, "inference", started)
+        return value
 
     def encode_bounded(self, recipe, images):
         """Split CUDA OOM batches without changing preprocessing or vector semantics."""

@@ -10,11 +10,12 @@ const option = (name) =>
 const [command, id, action] = args.filter((a) => !a.startsWith("--"));
 if (!command || command === "help") {
   console.log(`用法：pnpm visual <命令> [--data-dir=应用目录]
-runtime | models | recipes | sources | runs | coverage
+runtime | models | recipes | sources | runs | coverage | snapshots
 configure --materials-root=目录 [--models-root=目录] [--python=解释器] [--device=cuda|cpu]
 create --sources=来源ID,... [--models=all|siglip2_naflex,embeddinggemma2,kaloscope3|none] [--limit=每湖对象数] [--batch=256]
-run 任务ID | action 任务ID pause|resume|cancel | failures 任务ID
-search | duplicates | index --input=请求JSON文件
+run 任务ID | action 任务ID pause|resume|cancel | failures 任务ID | metrics 任务ID
+create | snapshot | features | export | search | duplicates | index --input=请求JSON文件
+create 也可使用 --scope-run=已有任务ID，复用其全部图片范围。
 不设置 create --limit 时，任务覆盖所选来源固定版本的全部对象。`);
 } else {
   const directory = resolve(option("data-dir") ?? resolve(root, ".local/dev"));
@@ -39,9 +40,15 @@ search | duplicates | index --input=请求JSON文件
   }
   let result;
   if (
-    ["runtime", "models", "recipes", "sources", "runs", "coverage"].includes(
-      command,
-    )
+    [
+      "runtime",
+      "models",
+      "recipes",
+      "sources",
+      "runs",
+      "coverage",
+      "snapshots",
+    ].includes(command)
   )
     result = await request(command);
   else if (command === "configure") {
@@ -60,6 +67,11 @@ search | duplicates | index --input=请求JSON文件
       },
       "PUT",
     );
+  } else if (command === "create" && option("input")) {
+    result = await request(
+      "runs",
+      JSON.parse(await readFile(resolve(option("input")), "utf8")),
+    );
   } else if (command === "create") {
     if (!option("sources")) throw new Error("create 需要 --sources");
     const models = await request("models");
@@ -74,6 +86,7 @@ search | duplicates | index --input=请求JSON文件
       recipe_ids: recipes.map((r) => r.id),
       max_objects_per_source: option("limit") ? Number(option("limit")) : null,
       batch_size: Number(option("batch") ?? 256),
+      scope_run_id: option("scope-run") ?? null,
     });
   } else if (command === "run" && id)
     result = await request(`runs/${encodeURIComponent(id)}`);
@@ -81,16 +94,26 @@ search | duplicates | index --input=请求JSON文件
     result = await request(`runs/${encodeURIComponent(id)}/actions`, {
       action,
     });
+  else if (command === "metrics" && id)
+    result = await request(`runs/${encodeURIComponent(id)}/metrics`);
   else if (command === "failures" && id)
     result = await request(
       `runs/${encodeURIComponent(id)}/failures?after=${option("after") ?? 0}`,
     );
   else if (
-    ["search", "duplicates", "index"].includes(command) &&
+    [
+      "search",
+      "duplicates",
+      "index",
+      "snapshot",
+      "features",
+      "export",
+    ].includes(command) &&
     option("input")
   )
     result = await request(
-      command === "index" ? "indexes" : command,
+      { index: "indexes", snapshot: "snapshots", export: "exports" }[command] ??
+        command,
       JSON.parse(await readFile(resolve(option("input")), "utf8")),
     );
   else throw new Error("未知命令或缺少参数；运行 pnpm visual help 查看用法");

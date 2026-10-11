@@ -52,3 +52,28 @@ def test_fragment_maintenance_keeps_published_versions(tmp_path):
     assert any("object_id" in index.columns for index in table.list_indices())
     table.checkout(initial)
     assert table.count_rows() == 1
+
+
+def test_snapshot_entries_and_arrow_export_keep_exact_floats(tmp_path):
+    import hashlib
+    from pathlib import Path
+    import pyarrow as pa
+
+    recipe = {"id": "e" * 64, "dimension": 1152}
+    vectors = Vectors(tmp_path)
+    values = normalized(np.random.default_rng(41).normal(size=(10, 1152)), 1152)
+    rows = [{"object_id": n + 1, "source_ids": [1]} for n in range(10)]
+    vectors.append(recipe, "old", rows[:5], values[:5])
+    old = vectors.project_sources(recipe, rows[:1])
+    vectors.pin(recipe, old, "snapshot_frozen")
+    vectors.append(recipe, "new", rows[5:], values[5:])
+    assert vectors.entries(recipe, old, list(range(1, 11)))["object_ids"] == list(range(1, 6))
+    exported = vectors.export_page(recipe, old, [2, 4, 6, 8])
+    assert exported["rows"] == 2
+    path = Path(exported["path"])
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == exported["sha256"]
+    table = pa.ipc.open_file(path).read_all()
+    assert b"studio_visual" in table.schema.metadata
+    for row in table.to_pylist():
+        np.testing.assert_array_equal(np.asarray(row["vector"], dtype=np.float32), values[row["object_id"] - 1])
+    assert vectors.table(recipe).tags.get_version("snapshot_frozen") == old

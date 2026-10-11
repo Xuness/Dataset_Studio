@@ -47,6 +47,35 @@ pnpm visual failures 任务ID
 
 已有 SHA 和所选配方全部完成、来源检索投影也已同步的条目，会在目录规划阶段剔除，计入 `reused_bindings`。新关联保留；缺失的配方与失败项可在下一次任务中补算。
 
+### 固定图片范围与模型批量
+
+任务支持三种输入：默认按来源目录枚举；`assets` 指定最多 4096 个 `AssetKey`；`scope_run_id` 引用一次已完成发现的任务范围。后两种不能与 `max_objects_per_source` 混用，引用任务时来源集合保持一致。范围包含已成功复用的条目，后续任务直接引用原成员清单，按页规划缺失特征。首版旧任务没有保存完整成员范围，不能用作范围引用；重新创建一次相同目录任务即可形成范围，已有特征继续复用。
+
+读取批量与推理批量独立。`batch_size` 控制每次读取的目标项数，`micro_batch_sizes` 按模型名称配置 1–64 张推理小批量，未指定的模型仍使用 4。实际推理还受解码像素预算与 OOM 拆分约束。参数通过 `pnpm visual create --input=任务.json` 提交，例如：
+
+```json
+{
+  "source_ids": ["来源ID"],
+  "recipe_ids": ["配方ID"],
+  "max_objects_per_source": null,
+  "batch_size": 128,
+  "scope_run_id": "已有任务ID",
+  "micro_batch_sizes": {
+    "siglip2_naflex": 8,
+    "embeddinggemma2": 8,
+    "kaloscope3": 8
+  }
+}
+```
+
+`GET /runs/{id}/metrics` 汇总已确认批次的读盘、SHA 校验、解码、pHash、模型加载／预处理／前向、Lance 写入与整理耗时，以及图片数、批次数和内存峰值。重复确认回执不重复累加。RSS 是工作进程生命周期的工作集高水位；CUDA 指标是每批重置的 PyTorch 分配／保留峰值，聚合时取最大值。它们不代表整台主机或其他程序的占用。旧回执没有这些细分指标。
+
+### 特征快照与分批导出
+
+`POST /snapshots` 用名称和 `recipe_ids` 固定各配方的已发布 Lance 版本，并创建保留 tag。`search` 的 `snapshot_id` 可选择旧快照；省略时读取当前发布版本。`POST /features` 返回指定配方和可选 `run_id` 范围内的成功条目，最多 100 项；通过 `after` 和 `next_cursor` 继续读取。游标表示已检查的对象身份，旧快照或部分失败可能产生空页，只要游标非空就需要继续。
+
+`POST /exports` 使用相同范围与游标，要求指定 `snapshot_id`，单次最多检查 4096 个对象。每页写成独立 Arrow IPC 文件，保留完整 FP32 向量、对象身份、来源关联和配方／版本元数据，返回文件路径、行数、字节数和 SHA-256。导出文件位于材料目录的 `exports/`；向量不经 HTTP JSON 传输。快照、条目与导出分别可通过 `pnpm visual snapshot|features|export --input=请求.json` 调用。
+
 ## 读取、存储与恢复
 
 - 来源适配器保留每个湖的发布版本，以对象行键分页枚举，在共享 SQLite 中建立按包和偏移排序的清单。不会修改湖的对象／媒体数据，也不反复对湖执行物理排序或大 OFFSET 查询。版本保留沿用现有的来源 lease。
@@ -62,17 +91,20 @@ pnpm visual failures 任务ID
 
 ## 查询接口
 
-| 接口                                            | 用途                                       |
-| ----------------------------------------------- | ------------------------------------------ |
-| `GET/PUT /v1/visual/runtime`                    | 环境配置与进程状态                         |
-| `GET /v1/visual/models`、`/recipes`、`/sources` | 当前模型描述、已登记配方、三个 Booru 来源  |
-| `POST/GET /v1/visual/runs`                      | 创建任务／有界分页列出任务                 |
-| `GET /v1/visual/runs/{id}`、`/failures`         | 进度／按对象分页读取本次任务失败           |
-| `POST /v1/visual/runs/{id}/actions`             | `pause`、`resume`、`cancel`                |
-| `GET /v1/visual/coverage`                       | 各来源与配方的已发现、成功、失败、待算计数 |
-| `POST /v1/visual/search`                        | 已入库图片引用或给定向量的相似检索         |
-| `POST /v1/visual/duplicates`                    | 跨来源 SHA 分组或 pHash 候选               |
-| `POST /v1/visual/indexes`                       | 手动构建／重建 IVF_FLAT；至少 256 条向量   |
+| 接口                                                   | 用途                                       |
+| ------------------------------------------------------ | ------------------------------------------ |
+| `GET/PUT /v1/visual/runtime`                           | 环境配置与进程状态                         |
+| `GET /v1/visual/models`、`/recipes`、`/sources`        | 当前模型描述、已登记配方、三个 Booru 来源  |
+| `POST/GET /v1/visual/runs`                             | 创建任务／有界分页列出任务                 |
+| `GET /v1/visual/runs/{id}`、`/failures`                | 进度／按对象分页读取本次任务失败           |
+| `GET /v1/visual/runs/{id}/metrics`                     | 已确认批次的性能和内存统计                 |
+| `POST/GET /v1/visual/snapshots`、`GET /snapshots/{id}` | 固定、分页列出和读取特征快照               |
+| `POST /v1/visual/features`、`/exports`                 | 成功条目分页与固定快照 Arrow 分批导出      |
+| `POST /v1/visual/runs/{id}/actions`                    | `pause`、`resume`、`cancel`                |
+| `GET /v1/visual/coverage`                              | 各来源与配方的已发现、成功、失败、待算计数 |
+| `POST /v1/visual/search`                               | 已入库图片引用或给定向量的相似检索         |
+| `POST /v1/visual/duplicates`                           | 跨来源 SHA 分组或 pHash 候选               |
+| `POST /v1/visual/indexes`                              | 手动构建／重建 IVF_FLAT；至少 256 条向量   |
 
 SDK 入口为 `StudioClient.visual`。请求和响应来自生成的 OpenAPI 契约；[VisualClient](../../packages/client/src/visual.ts) 与前端页面无耦合。
 

@@ -22,6 +22,24 @@ fn visual_projection_is_bounded_frozen_and_validates_ranges() {
     .unwrap();
     assert_eq!(page.items.len(), 1);
     assert!(!page.complete);
+    let selected = super::visual::selected(
+        &fixture.source,
+        &version,
+        &[sha(2)],
+        Arc::new(AtomicBool::new(false)),
+    )
+    .unwrap();
+    assert_eq!(selected.items.len(), 1);
+    assert_eq!(selected.items[0].row_id, 2);
+    assert!(
+        super::visual::selected(
+            &fixture.source,
+            &version,
+            &[sha(99)],
+            Arc::new(AtomicBool::new(false))
+        )
+        .is_err()
+    );
     let db = Connection::open(&fixture.path).unwrap();
     db.execute(
         "INSERT INTO objects VALUES(3,?1,'new.tar',0,20,'png',2)",

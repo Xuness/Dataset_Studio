@@ -77,6 +77,12 @@ pub struct VisualRunRequest {
     pub max_objects_per_source: Option<u64>,
     #[serde(default = "batch_size")]
     pub batch_size: u32,
+    #[serde(default)]
+    pub scope_run_id: Option<String>,
+    #[serde(default)]
+    pub assets: Vec<AssetKey>,
+    #[serde(default)]
+    pub micro_batch_sizes: std::collections::BTreeMap<String, u32>,
 }
 fn batch_size() -> u32 {
     256
@@ -143,6 +149,8 @@ pub struct VisualMatch {
 #[serde(deny_unknown_fields)]
 pub struct VisualSearchRequest {
     pub recipe_id: String,
+    #[serde(default)]
+    pub snapshot_id: Option<String>,
     pub asset: Option<AssetKey>,
     pub vector: Option<Vec<f32>>,
     #[serde(default)]
@@ -189,4 +197,74 @@ pub struct VisualIndexResult {
     pub rows: u64,
     pub partitions: u32,
     pub index_type: String,
+}
+
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct VisualMetrics {
+    pub elapsed_ms: u64,
+    pub lookup_ms: u64,
+    pub read_ms: u64,
+    pub sha256_ms: u64,
+    pub decode_ms: u64,
+    pub phash_ms: u64,
+    pub write_ms: u64,
+    pub model_ms: std::collections::BTreeMap<String, u64>,
+    pub model_load_ms: std::collections::BTreeMap<String, u64>,
+    pub model_preprocess_ms: std::collections::BTreeMap<String, u64>,
+    pub model_inference_ms: std::collections::BTreeMap<String, u64>,
+    pub model_images: std::collections::BTreeMap<String, u64>,
+    pub model_batches: std::collections::BTreeMap<String, u64>,
+    pub peak_rss_bytes: u64,
+    pub peak_cuda_allocated_bytes: u64,
+    pub peak_cuda_reserved_bytes: u64,
+    pub opens: u64,
+    pub decoded_images: u64,
+    pub batches: u64,
+}
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct VisualSnapshot {
+    pub id: String,
+    pub name: String,
+    pub created_at: String,
+    pub versions: std::collections::BTreeMap<String, u64>,
+}
+#[derive(Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct VisualSnapshotRequest {
+    pub name: String,
+    pub recipe_ids: Vec<String>,
+}
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct VisualSnapshots {
+    pub items: Vec<VisualSnapshot>,
+    pub next_cursor: Option<String>,
+}
+#[derive(Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct VisualFeaturePageRequest {
+    pub recipe_id: String,
+    pub snapshot_id: Option<String>,
+    pub run_id: Option<String>,
+    #[serde(default)]
+    pub after: i64,
+    pub limit: u32,
+}
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct VisualFeaturePage {
+    pub recipe_id: String,
+    pub version: u64,
+    pub items: Vec<VisualMatch>,
+    /// The cursor covers examined identities; continue empty pages when non-null.
+    pub next_cursor: Option<i64>,
+}
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct VisualExportPage {
+    pub recipe_id: String,
+    pub snapshot_id: String,
+    pub version: u64,
+    pub rows: u64,
+    pub path: Option<String>,
+    pub sha256: Option<String>,
+    pub bytes: u64,
+    pub next_cursor: Option<i64>,
 }

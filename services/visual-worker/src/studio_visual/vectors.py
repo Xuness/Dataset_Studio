@@ -45,6 +45,67 @@ class Vectors:
         return {int(row["object_id"]) for batch in table.search().where(predicate).select(["object_id"]).to_batches()
                 for row in batch.to_pylist()}
 
+    def pin(self, recipe, version, tag):
+        if not re.fullmatch(r"snapshot_[a-zA-Z0-9-]{1,80}", tag):
+            raise ValueError("invalid snapshot tag")
+        table = self.table(recipe)
+        table.checkout(int(version))
+        try:
+            old = table.tags.get_version(tag)
+        except RuntimeError as error:
+            if "Ref not found" not in str(error):
+                raise
+            table.tags.create(tag, int(version))
+        else:
+            if old != int(version):
+                raise ValueError("snapshot tag already names another version")
+        return {"version": int(version)}
+
+    def entries(self, recipe, version, ids):
+        if len(ids) > 100:
+            raise ValueError("entry page exceeds limit")
+        if not ids:
+            return {"object_ids": []}
+        table = self.table(recipe)
+        table.checkout(int(version))
+        selected = ",".join(str(int(i)) for i in ids)
+        values = table.search().where(f"object_id IN ({selected})").select(["object_id"]).to_list()
+        return {"object_ids": sorted(r["object_id"] for r in values)}
+
+    def export_page(self, recipe, version, ids):
+        import hashlib
+        import json
+        import os
+        import uuid
+        if len(ids) > 4096:
+            raise ValueError("export page exceeds limit")
+        if not ids:
+            return {"rows": 0, "path": None, "sha256": None, "bytes": 0}
+        table = self.table(recipe)
+        table.checkout(int(version))
+        selected = ",".join(str(int(i)) for i in ids)
+        schema = table.schema.with_metadata({b"studio_visual": json.dumps({"recipe_id": recipe["id"], "version": int(version), "dtype": "float32"}).encode()})
+        directory = self.root / "exports"
+        directory.mkdir(exist_ok=True)
+        path = directory / (str(uuid.uuid4()) + ".arrow")
+        temporary = path.with_suffix(".partial")
+        count = 0
+        try:
+            with temporary.open("wb") as output:
+                with pa.ipc.new_file(output, schema) as writer:
+                    for batch in table.search().where(f"object_id IN ({selected})").to_batches(batch_size=256):
+                        count += len(batch)
+                        writer.write_batch(batch)
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(temporary, path)
+        except BaseException:
+            temporary.unlink(missing_ok=True)
+            raise
+        with path.open("rb") as stream:
+            checksum = hashlib.file_digest(stream, "sha256").hexdigest()
+        return {"rows": count, "path": str(path), "sha256": checksum, "bytes": path.stat().st_size}
+
     def append(self, recipe, batch_id, rows, values):
         table = self.table(recipe, create=True)
         values = np.asarray(values, dtype=np.float32)

@@ -46,6 +46,10 @@ def main():
                 result = execution.finish(value["batch_id"])
             elif op == "search":
                 result = Vectors(args.root).search(**value)
+            elif op in ("entries", "export_page"):
+                result = getattr(Vectors(args.root), op)(**value)
+            elif op == "pin":
+                result = execution.vectors.pin(**value)
             elif op == "index":
                 result = execution.vectors.index(**value)
             elif op == "ping":
@@ -67,7 +71,7 @@ def main():
             if not line.endswith(b"\n"):
                 raise ValueError("oversized protocol message")
             request = json.loads(line)
-            (cpu if request.get("op") in ("search", "ping") else gpu).submit(respond, request)
+            (cpu if request.get("op") in ("search", "ping", "entries", "export_page") else gpu).submit(respond, request)
         # Parent death closes stdin. Never keep an orphan writing while a new
         # engine owns the root. Lance commits and receipt replay handle interruption.
         os._exit(0)

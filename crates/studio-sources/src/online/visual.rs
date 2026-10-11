@@ -8,6 +8,41 @@ pub(crate) fn page(
     limit: u32,
     cancelled: studio_application::ReadCancellation,
 ) -> Result<VisualMediaPage> {
+    query_page(source, expected, after_row, limit, None, cancelled)
+}
+
+pub(crate) fn selected(
+    source: &Source,
+    expected: &QuerySourceVersion,
+    assets: &[String],
+    cancelled: studio_application::ReadCancellation,
+) -> Result<VisualMediaPage> {
+    if assets.is_empty()
+        || assets.len() > 4096
+        || assets
+            .iter()
+            .any(|id| id.len() != 64 || !id.bytes().all(|b| b.is_ascii_hexdigit()))
+    {
+        return Err(Error::invalid("指定图片需要 1-4096 个 SHA 身份"));
+    }
+    let page = query_page(source, expected, 0, 4096, Some(assets), cancelled)?;
+    if page.items.len() != assets.len() {
+        return Err(Error::new(
+            "NOT_FOUND",
+            "指定图片在固定来源版本中缺失或重复",
+        ));
+    }
+    Ok(page)
+}
+
+fn query_page(
+    source: &Source,
+    expected: &QuerySourceVersion,
+    after_row: u64,
+    limit: u32,
+    assets: Option<&[String]>,
+    cancelled: studio_application::ReadCancellation,
+) -> Result<VisualMediaPage> {
     if !matches!(source.kind.as_str(), "danbooru" | "yandere" | "gelbooru") || !available(source) {
         return Err(Error::new(
             "SOURCE_FORMAT_UNSUPPORTED",
@@ -26,15 +61,22 @@ pub(crate) fn page(
     if view.version(source) != *expected {
         return Err(Error::new("SOURCE_CHANGED", "视觉来源版本不一致"));
     }
-    let mut query = view
-        .db
-        .prepare(
-            "SELECT object_row,sha256,pack_path,offset,length,coalesce(stored_ext,'') \
-         FROM visible_objects WHERE object_row>?1 ORDER BY object_row LIMIT ?2",
-        )
-        .map_err(sql_error)?;
+    let sql = if assets.is_some() {
+        "SELECT object_row,sha256,pack_path,offset,length,coalesce(stored_ext,'') FROM visible_objects WHERE sha256 IN (SELECT value FROM json_each(?3)) AND object_row>?1 ORDER BY object_row LIMIT ?2"
+    } else {
+        "SELECT object_row,sha256,pack_path,offset,length,coalesce(stored_ext,'') FROM visible_objects WHERE object_row>?1 AND ?3 IS NULL ORDER BY object_row LIMIT ?2"
+    };
+    let mut query = view.db.prepare(sql).map_err(sql_error)?;
+    let selected_json = assets
+        .map(serde_json::to_string)
+        .transpose()
+        .map_err(error)?;
     let mut rows = query
-        .query(params![after_row as i64, i64::from(limit) + 1])
+        .query(params![
+            after_row as i64,
+            i64::from(limit) + 1,
+            selected_json
+        ])
         .map_err(sql_error)?;
     let mut items = Vec::with_capacity(limit as usize + 1);
     while let Some(row) = rows.next().map_err(sql_error)? {

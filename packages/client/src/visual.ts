@@ -54,6 +54,39 @@ export class VisualClient {
   coverage() {
     return this.request<Schema["VisualCoverageResponse"]>(`${base}/coverage`);
   }
+  metrics(id: string) {
+    return this.request<Schema["VisualMetrics"]>(
+      `${base}/runs/${encodeURIComponent(id)}/metrics`,
+    );
+  }
+  snapshots(after = "", limit = 50) {
+    return this.request<Schema["VisualSnapshots"]>(
+      `${base}/snapshots?after=${encodeURIComponent(after)}&limit=${limit}`,
+    );
+  }
+  snapshot(id: string) {
+    return this.request<Schema["VisualSnapshot"]>(
+      `${base}/snapshots/${encodeURIComponent(id)}`,
+    );
+  }
+  createSnapshot(value: Schema["VisualSnapshotRequest"]) {
+    return this.request<Schema["VisualSnapshot"]>(`${base}/snapshots`, {
+      method: "POST",
+      body: JSON.stringify(value),
+    });
+  }
+  features(value: Schema["VisualFeaturePageRequest"]) {
+    return this.request<Schema["VisualFeaturePage"]>(`${base}/features`, {
+      method: "POST",
+      body: JSON.stringify(value),
+    });
+  }
+  exportPage(value: Schema["VisualFeaturePageRequest"]) {
+    return this.request<Schema["VisualExportPage"]>(`${base}/exports`, {
+      method: "POST",
+      body: JSON.stringify(value),
+    });
+  }
   search(value: Schema["VisualSearchRequest"], signal?: AbortSignal) {
     return this.request<Schema["VisualSearchResult"]>(`${base}/search`, {
       method: "POST",

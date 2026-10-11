@@ -3663,6 +3663,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/visual/exports": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["visual_export"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/visual/features": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["visual_features"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/visual/indexes": {
         parameters: {
             query?: never;
@@ -3775,6 +3807,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/visual/runs/{id}/metrics": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["visual_metrics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/visual/runtime": {
         parameters: {
             query?: never;
@@ -3801,6 +3849,38 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["visual_search"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/visual/snapshots": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["visual_snapshots"];
+        put?: never;
+        post: operations["visual_create_snapshot"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/visual/snapshots/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["visual_snapshot"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -8343,6 +8423,20 @@ export interface components {
             /** Format: int32 */
             radius?: number | null;
         };
+        VisualExportPage: {
+            /** Format: int64 */
+            bytes: number;
+            /** Format: int64 */
+            next_cursor?: number | null;
+            path?: string | null;
+            recipe_id: string;
+            /** Format: int64 */
+            rows: number;
+            sha256?: string | null;
+            snapshot_id: string;
+            /** Format: int64 */
+            version: number;
+        };
         VisualFailure: {
             error?: string | null;
             /** Format: int64 */
@@ -8354,6 +8448,26 @@ export interface components {
             items: components["schemas"]["VisualFailure"][];
             /** Format: int64 */
             next_cursor?: number | null;
+        };
+        VisualFeaturePage: {
+            items: components["schemas"]["VisualMatch"][];
+            /**
+             * Format: int64
+             * @description The cursor covers examined identities; continue empty pages when non-null.
+             */
+            next_cursor?: number | null;
+            recipe_id: string;
+            /** Format: int64 */
+            version: number;
+        };
+        VisualFeaturePageRequest: {
+            /** Format: int64 */
+            after?: number;
+            /** Format: int32 */
+            limit: number;
+            recipe_id: string;
+            run_id?: string | null;
+            snapshot_id?: string | null;
         };
         VisualIndexRequest: {
             /** Format: int32 */
@@ -8376,6 +8490,52 @@ export interface components {
             /** Format: int64 */
             object_id: number;
             sha256: string;
+        };
+        VisualMetrics: {
+            /** Format: int64 */
+            batches: number;
+            /** Format: int64 */
+            decode_ms: number;
+            /** Format: int64 */
+            decoded_images: number;
+            /** Format: int64 */
+            elapsed_ms: number;
+            /** Format: int64 */
+            lookup_ms: number;
+            model_batches: {
+                [key: string]: number;
+            };
+            model_images: {
+                [key: string]: number;
+            };
+            model_inference_ms: {
+                [key: string]: number;
+            };
+            model_load_ms: {
+                [key: string]: number;
+            };
+            model_ms: {
+                [key: string]: number;
+            };
+            model_preprocess_ms: {
+                [key: string]: number;
+            };
+            /** Format: int64 */
+            opens: number;
+            /** Format: int64 */
+            peak_cuda_allocated_bytes: number;
+            /** Format: int64 */
+            peak_cuda_reserved_bytes: number;
+            /** Format: int64 */
+            peak_rss_bytes: number;
+            /** Format: int64 */
+            phash_ms: number;
+            /** Format: int64 */
+            read_ms: number;
+            /** Format: int64 */
+            sha256_ms: number;
+            /** Format: int64 */
+            write_ms: number;
         };
         VisualModelDescription: {
             device: string;
@@ -8421,12 +8581,17 @@ export interface components {
             status: string;
         };
         VisualRunRequest: {
+            assets?: components["schemas"]["AssetKey"][];
             /** Format: int32 */
             batch_size?: number;
             /** Format: int64 */
             max_objects_per_source?: number | null;
+            micro_batch_sizes?: {
+                [key: string]: number;
+            };
             /** @description Immutable recipe IDs from /visual/models or /visual/recipes. Empty runs pHash only. */
             recipe_ids: string[];
+            scope_run_id?: string | null;
             source_ids: string[];
         };
         VisualRuns: {
@@ -8455,6 +8620,7 @@ export interface components {
             /** Format: int32 */
             nprobes?: number | null;
             recipe_id: string;
+            snapshot_id?: string | null;
             source_ids?: string[];
             vector?: number[] | null;
         };
@@ -8465,6 +8631,22 @@ export interface components {
             score_type: string;
             /** Format: int64 */
             version: number;
+        };
+        VisualSnapshot: {
+            created_at: string;
+            id: string;
+            name: string;
+            versions: {
+                [key: string]: number;
+            };
+        };
+        VisualSnapshotRequest: {
+            name: string;
+            recipe_ids: string[];
+        };
+        VisualSnapshots: {
+            items: components["schemas"]["VisualSnapshot"][];
+            next_cursor?: string | null;
         };
         VisualSource: {
             id: string;
@@ -14675,6 +14857,52 @@ export interface operations {
             };
         };
     };
+    visual_export: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VisualFeaturePageRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VisualExportPage"];
+                };
+            };
+        };
+    };
+    visual_features: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VisualFeaturePageRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VisualFeaturePage"];
+                };
+            };
+        };
+    };
     visual_build_index: {
         parameters: {
             query?: never;
@@ -14851,6 +15079,27 @@ export interface operations {
             };
         };
     };
+    visual_metrics: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VisualMetrics"];
+                };
+            };
+        };
+    };
     visual_runtime: {
         parameters: {
             query?: never;
@@ -14912,6 +15161,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["VisualSearchResult"];
+                };
+            };
+        };
+    };
+    visual_snapshots: {
+        parameters: {
+            query?: {
+                after?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VisualSnapshots"];
+                };
+            };
+        };
+    };
+    visual_create_snapshot: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VisualSnapshotRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VisualSnapshot"];
+                };
+            };
+        };
+    };
+    visual_snapshot: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VisualSnapshot"];
                 };
             };
         };

@@ -32,6 +32,15 @@ pub struct VisualRunRequest {
     pub max_objects_per_source: Option<u64>,
     #[serde(default = "batch_size")]
     pub batch_size: u32,
+    /// Frozen membership of an earlier fully discovered run. No member copy.
+    #[serde(default)]
+    pub scope_run_id: Option<String>,
+    /// Explicit bounded selection; mutually exclusive with scope_run_id.
+    #[serde(default)]
+    pub assets: Vec<crate::AssetKey>,
+    /// Performance knobs, keyed by model name; do not change feature semantics.
+    #[serde(default)]
+    pub micro_batch_sizes: std::collections::BTreeMap<String, u32>,
 }
 fn batch_size() -> u32 {
     256
@@ -91,6 +100,8 @@ pub struct VisualBatchRequest {
     pub items: Vec<VisualPlanItem>,
     pub recipes: Vec<VisualRecipe>,
     pub projection_recipes: Vec<VisualRecipe>,
+    #[serde(default)]
+    pub micro_batch_sizes: std::collections::BTreeMap<String, u32>,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct VisualOutcome {
@@ -110,6 +121,83 @@ pub struct VisualBatchReceipt {
     pub elapsed_ms: u64,
     #[serde(default)]
     pub model_images: std::collections::BTreeMap<String, u64>,
+    #[serde(default)]
+    pub metrics: VisualMetrics,
+}
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct VisualMetrics {
+    pub elapsed_ms: u64,
+    pub lookup_ms: u64,
+    pub read_ms: u64,
+    pub sha256_ms: u64,
+    pub decode_ms: u64,
+    pub phash_ms: u64,
+    pub write_ms: u64,
+    pub model_ms: std::collections::BTreeMap<String, u64>,
+    pub model_load_ms: std::collections::BTreeMap<String, u64>,
+    pub model_preprocess_ms: std::collections::BTreeMap<String, u64>,
+    pub model_inference_ms: std::collections::BTreeMap<String, u64>,
+    pub model_images: std::collections::BTreeMap<String, u64>,
+    pub model_batches: std::collections::BTreeMap<String, u64>,
+    pub peak_rss_bytes: u64,
+    pub peak_cuda_allocated_bytes: u64,
+    pub peak_cuda_reserved_bytes: u64,
+    pub opens: u64,
+    pub decoded_images: u64,
+    pub batches: u64,
+}
+impl VisualMetrics {
+    pub fn accumulate(&mut self, other: &Self) {
+        macro_rules! add { ($($field:ident),*) => {$(self.$field += other.$field;)*} }
+        add!(
+            elapsed_ms,
+            lookup_ms,
+            read_ms,
+            sha256_ms,
+            decode_ms,
+            phash_ms,
+            write_ms,
+            opens,
+            decoded_images,
+            batches
+        );
+        macro_rules! maps { ($($field:ident),*) => {$(for (k,v) in &other.$field {
+            *self.$field.entry(k.clone()).or_default() += v;
+        })*} }
+        maps!(
+            model_ms,
+            model_load_ms,
+            model_preprocess_ms,
+            model_inference_ms,
+            model_images,
+            model_batches
+        );
+        self.peak_rss_bytes = self.peak_rss_bytes.max(other.peak_rss_bytes);
+        self.peak_cuda_allocated_bytes = self
+            .peak_cuda_allocated_bytes
+            .max(other.peak_cuda_allocated_bytes);
+        self.peak_cuda_reserved_bytes = self
+            .peak_cuda_reserved_bytes
+            .max(other.peak_cuda_reserved_bytes);
+    }
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct VisualSnapshot {
+    pub id: String,
+    pub name: String,
+    pub created_at: String,
+    pub versions: std::collections::BTreeMap<String, u64>,
+}
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VisualFeaturePageRequest {
+    pub recipe_id: String,
+    pub snapshot_id: Option<String>,
+    pub run_id: Option<String>,
+    #[serde(default)]
+    pub after: i64,
+    pub limit: u32,
 }
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct VisualCoverage {
@@ -132,6 +220,8 @@ pub struct VisualMatch {
 #[serde(deny_unknown_fields)]
 pub struct VisualSearchRequest {
     pub recipe_id: String,
+    #[serde(default)]
+    pub snapshot_id: Option<String>,
     pub asset: Option<crate::AssetKey>,
     pub vector: Option<Vec<f32>>,
     #[serde(default)]

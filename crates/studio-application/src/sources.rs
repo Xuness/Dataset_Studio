@@ -37,6 +37,18 @@ pub trait SourceQueryFactory: Send + Sync {
     fn create(&self, options: &SourceQueryOptions) -> Box<dyn QueryAdapter>;
 }
 pub trait SourceProjection: Send + Sync {
+    fn visual_selected(
+        &self,
+        _source: &Source,
+        _expected: &QuerySourceVersion,
+        _assets: &[String],
+        _cancelled: ReadCancellation,
+    ) -> Result<studio_domain::visual::VisualMediaPage> {
+        Err(Error::new(
+            "SOURCE_FORMAT_UNSUPPORTED",
+            "该来源不支持指定视觉图片",
+        ))
+    }
     /// Row-key discovery at a retained release; the visual repository materializes
     /// physical ordering once, instead of repeatedly sorting the lake catalog.
     fn visual_media(

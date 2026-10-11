@@ -24,6 +24,15 @@ struct Projections {
     directory: PathBuf,
 }
 impl SourceProjection for Projections {
+    fn visual_selected(
+        &self,
+        source: &Source,
+        expected: &QuerySourceVersion,
+        assets: &[String],
+        cancelled: ReadCancellation,
+    ) -> Result<studio_domain::visual::VisualMediaPage> {
+        crate::online::visual::selected(source, expected, assets, cancelled)
+    }
     fn visual_media(
         &self,
         source: &Source,

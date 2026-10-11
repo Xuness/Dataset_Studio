@@ -1,4 +1,5 @@
 //! Shared identities, physical plans, sparse coverage and atomic publication.
+mod results;
 use fs2::FileExt;
 use rusqlite::{Connection, OptionalExtension, params};
 use std::{
@@ -75,14 +76,23 @@ impl VisualStore {
         let version: u32 = db
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .map_err(err)?;
-        if version > 1 {
+        if version > 2 {
             return Err(Error::new("VISUAL_FORMAT", "视觉目录版本高于当前引擎"));
         }
         db.execute_batch(
             "PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA cache_size=-32768;",
         )
         .map_err(err)?;
+        if version == 1 {
+            let backup = root.join("visual-v1-before-v2.sqlite");
+            if !backup.exists() {
+                db.execute("VACUUM INTO ?1", [backup.to_string_lossy().as_ref()])
+                    .map_err(err)?;
+            }
+        }
+        db.execute_batch("BEGIN IMMEDIATE").map_err(err)?;
         db.execute_batch(include_str!("schema.sql")).map_err(err)?;
+        db.execute_batch("COMMIT").map_err(err)?;
         db.execute("UPDATE runs SET status='paused',error='引擎重启，可恢复未确认批次' WHERE status IN ('queued','planning','running','pausing','cancelling')", []).map_err(err)?;
         Ok(Self {
             root,
@@ -140,12 +150,20 @@ impl VisualStore {
         sources: &[VisualSourceSnapshot],
     ) -> Result<VisualRun> {
         let id = new_id();
-        self.db()?
-            .execute(
-                "INSERT INTO runs(id,status,request,sources) VALUES (?1,'queued',?2,?3)",
-                params![id, json(request)?, json(&sources)?],
-            )
-            .map_err(err)?;
+        let mut db = self.db()?;
+        let tx = db.transaction().map_err(err)?;
+        tx.execute(
+            "INSERT INTO runs(id,status,request,sources) VALUES (?1,'queued',?2,?3)",
+            params![id, json(request)?, json(&sources)?],
+        )
+        .map_err(err)?;
+        tx.execute(
+            "INSERT INTO run_scopes(run,member_run) VALUES (?1,?2)",
+            params![id, request.scope_run_id.as_deref().unwrap_or(&id)],
+        )
+        .map_err(err)?;
+        tx.commit().map_err(err)?;
+        drop(db);
         self.run(&id)
     }
     pub fn runs(&self, after: u64, limit: u32) -> Result<Vec<VisualRun>> {
@@ -243,6 +261,21 @@ impl VisualStore {
                     |r| r.get(0),
                 )
                 .map_err(err)?;
+            if run.request.scope_run_id.is_none() {
+                tx.execute(
+                    "INSERT OR IGNORE INTO members VALUES (?1,?2,?3,?4,?5,?6,?7)",
+                    params![
+                        run.id,
+                        sid,
+                        signed(item.row_id)?,
+                        oid,
+                        item.pack,
+                        signed(item.offset)?,
+                        signed(item.length)?
+                    ],
+                )
+                .map_err(err)?;
+            }
             if tx
                 .execute(
                     "INSERT OR IGNORE INTO bindings VALUES (?1,?2)",
@@ -283,6 +316,10 @@ impl VisualStore {
             params![run.id, json(&snapshots)?, added as i64, reused],
         )
         .map_err(err)?;
+        if snapshots.iter().all(|s| s.complete) {
+            tx.execute("UPDATE run_scopes SET ready=1 WHERE run=?1", [&run.id])
+                .map_err(err)?;
+        }
         tx.commit().map_err(err)
     }
     pub fn pending_batch(&self, run: &str) -> Result<Option<VisualBatchRequest>> {
@@ -450,6 +487,7 @@ impl VisualStore {
             items,
             recipes,
             projection_recipes: all_recipes,
+            micro_batch_sizes: run.request.micro_batch_sizes.clone(),
         };
         tx.execute(
             "INSERT INTO batches VALUES (?1,?2,'pending',?3,NULL)",
@@ -585,6 +623,15 @@ impl VisualStore {
         )
         .map_err(err)?;
         tx.execute("UPDATE runs SET completed=completed+?2,failed=failed+?3,bytes_read=bytes_read+?4 WHERE id=?1", params![run,processed.len() as i64,failed,signed(receipt.bytes_read)?]).map_err(err)?;
+        let old: Option<String> = tx
+            .query_row("SELECT json FROM run_metrics WHERE run=?1", [&run], |r| {
+                r.get(0)
+            })
+            .optional()
+            .map_err(err)?;
+        let mut metrics: VisualMetrics = old.map(|v| parse(&v)).transpose()?.unwrap_or_default();
+        metrics.accumulate(&receipt.metrics);
+        tx.execute("INSERT INTO run_metrics VALUES (?1,?2) ON CONFLICT(run) DO UPDATE SET json=excluded.json",params![run,json(&metrics)?]).map_err(err)?;
         tx.commit().map_err(err)
     }
     pub fn version(&self, recipe: &str) -> Result<u64> {

@@ -10396,6 +10396,66 @@
         }
       }
     },
+    "/v1/visual/exports": {
+      "post": {
+        "tags": [
+          "visual"
+        ],
+        "operationId": "visual_export",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VisualFeaturePageRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VisualExportPage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/visual/features": {
+      "post": {
+        "tags": [
+          "visual"
+        ],
+        "operationId": "visual_features",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VisualFeaturePageRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VisualFeaturePage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/visual/indexes": {
       "post": {
         "tags": [
@@ -10655,6 +10715,36 @@
         }
       }
     },
+    "/v1/visual/runs/{id}/metrics": {
+      "get": {
+        "tags": [
+          "visual"
+        ],
+        "operationId": "visual_metrics",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VisualMetrics"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/visual/runtime": {
       "get": {
         "tags": [
@@ -10726,6 +10816,104 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/VisualSearchResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/visual/snapshots": {
+      "get": {
+        "tags": [
+          "visual"
+        ],
+        "operationId": "visual_snapshots",
+        "parameters": [
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VisualSnapshots"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "visual"
+        ],
+        "operationId": "visual_create_snapshot",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VisualSnapshotRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VisualSnapshot"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/visual/snapshots/{id}": {
+      "get": {
+        "tags": [
+          "visual"
+        ],
+        "operationId": "visual_snapshot",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VisualSnapshot"
                 }
               }
             }
@@ -27993,6 +28181,58 @@
         },
         "additionalProperties": false
       },
+      "VisualExportPage": {
+        "type": "object",
+        "required": [
+          "recipe_id",
+          "snapshot_id",
+          "version",
+          "rows",
+          "bytes"
+        ],
+        "properties": {
+          "bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "next_cursor": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "recipe_id": {
+            "type": "string"
+          },
+          "rows": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "sha256": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "snapshot_id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "VisualFailure": {
         "type": "object",
         "required": [
@@ -28039,6 +28279,72 @@
             "format": "int64"
           }
         }
+      },
+      "VisualFeaturePage": {
+        "type": "object",
+        "required": [
+          "recipe_id",
+          "version",
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VisualMatch"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "The cursor covers examined identities; continue empty pages when non-null."
+          },
+          "recipe_id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "VisualFeaturePageRequest": {
+        "type": "object",
+        "required": [
+          "recipe_id",
+          "limit"
+        ],
+        "properties": {
+          "after": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "recipe_id": {
+            "type": "string"
+          },
+          "run_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "snapshot_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
       },
       "VisualIndexRequest": {
         "type": "object",
@@ -28116,6 +28422,163 @@
           },
           "sha256": {
             "type": "string"
+          }
+        }
+      },
+      "VisualMetrics": {
+        "type": "object",
+        "required": [
+          "elapsed_ms",
+          "lookup_ms",
+          "read_ms",
+          "sha256_ms",
+          "decode_ms",
+          "phash_ms",
+          "write_ms",
+          "model_ms",
+          "model_load_ms",
+          "model_preprocess_ms",
+          "model_inference_ms",
+          "model_images",
+          "model_batches",
+          "peak_rss_bytes",
+          "peak_cuda_allocated_bytes",
+          "peak_cuda_reserved_bytes",
+          "opens",
+          "decoded_images",
+          "batches"
+        ],
+        "properties": {
+          "batches": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "decode_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "decoded_images": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "elapsed_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "lookup_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "model_batches": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "model_images": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "model_inference_ms": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "model_load_ms": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "model_ms": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "model_preprocess_ms": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "opens": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "peak_cuda_allocated_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "peak_cuda_reserved_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "peak_rss_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "phash_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "read_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "sha256_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "write_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           }
         }
       },
@@ -28276,6 +28739,12 @@
           "recipe_ids"
         ],
         "properties": {
+          "assets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssetKey"
+            }
+          },
           "batch_size": {
             "type": "integer",
             "format": "int32",
@@ -28289,12 +28758,29 @@
             "format": "int64",
             "minimum": 0
           },
+          "micro_batch_sizes": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
           "recipe_ids": {
             "type": "array",
             "items": {
               "type": "string"
             },
             "description": "Immutable recipe IDs from /visual/models or /visual/recipes. Empty runs pHash only."
+          },
+          "scope_run_id": {
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "source_ids": {
             "type": "array",
@@ -28426,6 +28912,12 @@
           "recipe_id": {
             "type": "string"
           },
+          "snapshot_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "source_ids": {
             "type": "array",
             "items": {
@@ -28474,6 +28966,76 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          }
+        }
+      },
+      "VisualSnapshot": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "created_at",
+          "versions"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "versions": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "VisualSnapshotRequest": {
+        "type": "object",
+        "required": [
+          "name",
+          "recipe_ids"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "recipe_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "VisualSnapshots": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VisualSnapshot"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },

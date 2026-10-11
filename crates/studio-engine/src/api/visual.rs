@@ -154,10 +154,91 @@ async fn index(
         blocking(move || s.visual.index(&value.recipe_id, value.partitions)).await?,
     )?))
 }
+#[utoipa::path(get,path="/runs/{id}/metrics",params(("id"=String,Path)),responses((status=200,body=VisualMetrics)),operation_id="visual_metrics")]
+async fn metrics(State(s): State<AppState>, Path(id): Path<String>) -> ApiResult<VisualMetrics> {
+    Ok(Json(wire(blocking(move || s.visual.metrics(&id)).await?)?))
+}
+#[derive(Deserialize)]
+struct SnapshotPage {
+    after: Option<String>,
+    limit: Option<u32>,
+}
+#[utoipa::path(get,path="/snapshots",params(("after"=Option<String>,Query),("limit"=Option<u32>,Query)),responses((status=200,body=VisualSnapshots)),operation_id="visual_snapshots")]
+async fn snapshots(
+    State(s): State<AppState>,
+    Query(page): Query<SnapshotPage>,
+) -> ApiResult<VisualSnapshots> {
+    let limit = page.limit.unwrap_or(50).clamp(1, 100);
+    let mut items = blocking(move || {
+        s.visual
+            .snapshots(page.after.as_deref().unwrap_or(""), limit + 1)
+    })
+    .await?;
+    let more = items.len() > limit as usize;
+    items.truncate(limit as usize);
+    let next_cursor = if more {
+        items.last().map(|s| s.id.clone())
+    } else {
+        None
+    };
+    Ok(Json(VisualSnapshots {
+        items: wire(items)?,
+        next_cursor,
+    }))
+}
+#[utoipa::path(get,path="/snapshots/{id}",params(("id"=String,Path)),responses((status=200,body=VisualSnapshot)),operation_id="visual_snapshot")]
+async fn snapshot(State(s): State<AppState>, Path(id): Path<String>) -> ApiResult<VisualSnapshot> {
+    Ok(Json(wire(blocking(move || s.visual.snapshot(&id)).await?)?))
+}
+#[utoipa::path(post,path="/snapshots",request_body=VisualSnapshotRequest,responses((status=200,body=VisualSnapshot)),operation_id="visual_create_snapshot")]
+async fn create_snapshot(
+    State(s): State<AppState>,
+    Body(value): Body<VisualSnapshotRequest>,
+) -> ApiResult<VisualSnapshot> {
+    Ok(Json(wire(
+        blocking(move || s.visual.create_snapshot(&value.name, &value.recipe_ids)).await?,
+    )?))
+}
+#[utoipa::path(post,path="/features",request_body=VisualFeaturePageRequest,responses((status=200,body=VisualFeaturePage)),operation_id="visual_features")]
+async fn features(
+    State(s): State<AppState>,
+    Body(value): Body<VisualFeaturePageRequest>,
+) -> ApiResult<VisualFeaturePage> {
+    Ok(Json(wire(
+        blocking(move || s.visual.feature_page(wire(value)?, false)).await?,
+    )?))
+}
+#[utoipa::path(post,path="/exports",request_body=VisualFeaturePageRequest,responses((status=200,body=VisualExportPage)),operation_id="visual_export")]
+async fn export(
+    State(s): State<AppState>,
+    Body(value): Body<VisualFeaturePageRequest>,
+) -> ApiResult<VisualExportPage> {
+    Ok(Json(wire(
+        blocking(move || s.visual.feature_page(wire(value)?, true)).await?,
+    )?))
+}
 #[derive(OpenApi)]
 #[openapi(paths(
-    runtime, configure, models, recipes, sources, runs, create, run, action, coverage, failures,
-    search, duplicates, index
+    runtime,
+    configure,
+    models,
+    recipes,
+    sources,
+    runs,
+    create,
+    run,
+    action,
+    coverage,
+    failures,
+    search,
+    duplicates,
+    index,
+    metrics,
+    snapshots,
+    snapshot,
+    create_snapshot,
+    features,
+    export
 ))]
 pub struct VisualApiDoc;
 pub(super) fn routes() -> axum::Router<AppState> {
@@ -170,6 +251,11 @@ pub(super) fn routes() -> axum::Router<AppState> {
         .route("/runs/{id}", get(run))
         .route("/runs/{id}/actions", post(action))
         .route("/runs/{id}/failures", get(failures))
+        .route("/runs/{id}/metrics", get(metrics))
+        .route("/snapshots", get(snapshots).post(create_snapshot))
+        .route("/snapshots/{id}", get(snapshot))
+        .route("/features", post(features))
+        .route("/exports", post(export))
         .route("/coverage", get(coverage))
         .route("/search", post(search))
         .route("/duplicates", post(duplicates))

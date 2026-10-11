@@ -141,3 +141,19 @@ def test_pixel_budget_chunks_decode_without_failing_valid_images(tmp_path, monke
     assert result["object_ids"] == [1, 2, 3, 4]
     assert [n for _, n in FakeModels.calls] == [1, 1, 1, 1]
     assert all(r["status"] == "success" for r in result["results"])
+
+
+def test_independent_micro_batches_and_persisted_metrics(tmp_path):
+    rows = images(tmp_path)[:4]
+    recipes = [{**recipe(), "model": "siglip2_naflex"}, {**recipe(2), "model": "kaloscope3"}]
+    value = request(rows, recipes)
+    value["micro_batch_sizes"] = {"siglip2_naflex": 3, "kaloscope3": 2}
+    worker = execution.Execution(tmp_path / "features", "cpu")
+    worker.prepare(value)
+    result = worker.finish("one")
+    assert [n for rid, n in FakeModels.calls if rid == recipes[0]["id"]] == [3, 1]
+    assert [n for rid, n in FakeModels.calls if rid == recipes[1]["id"]] == [2, 2]
+    assert result["metrics"]["decoded_images"] == 4
+    assert result["metrics"]["peak_rss_bytes"] > 0
+    assert result["metrics"]["model_batches"] == {r["id"]: 2 for r in recipes}
+    assert worker.finish("one")["metrics"] == result["metrics"]

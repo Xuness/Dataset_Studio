@@ -4,6 +4,7 @@ mod bundle;
 mod process;
 #[cfg(windows)]
 mod process_tree;
+mod results;
 
 use serde_json::{Value, json};
 use std::{
@@ -242,7 +243,7 @@ impl Backend {
         session.store.failures(id, after, limit)
     }
 
-    pub fn create(self: &Arc<Self>, request: VisualRunRequest) -> Result<VisualRun> {
+    pub fn create(self: &Arc<Self>, mut request: VisualRunRequest) -> Result<VisualRun> {
         let _gate = self.gate.lock().map_err(lock)?;
         if self.busy() {
             return Err(Error::new("VISUAL_BUSY", "当前已有视觉提取或索引任务"));
@@ -254,6 +255,32 @@ impl Backend {
             || request.max_objects_per_source == Some(0)
             || request.source_ids.iter().collect::<BTreeSet<_>>().len() != request.source_ids.len()
             || request.recipe_ids.iter().collect::<BTreeSet<_>>().len() != request.recipe_ids.len()
+            || request.assets.len() > 4096
+            || (request.scope_run_id.is_some() && !request.assets.is_empty())
+            || ((request.scope_run_id.is_some() || !request.assets.is_empty())
+                && request.max_objects_per_source.is_some())
+            || request.micro_batch_sizes.iter().any(|(k, v)| {
+                !matches!(
+                    k.as_str(),
+                    "siglip2_naflex" | "embeddinggemma2" | "kaloscope3"
+                ) || !(1..=64).contains(v)
+            })
+            || request
+                .assets
+                .iter()
+                .any(|k| !request.source_ids.contains(&k.source_id))
+            || request
+                .assets
+                .iter()
+                .map(|k| (&k.source_id, &k.asset_id))
+                .collect::<BTreeSet<_>>()
+                .len()
+                != request.assets.len()
+            || (!request.assets.is_empty()
+                && request
+                    .source_ids
+                    .iter()
+                    .any(|s| !request.assets.iter().any(|k| &k.source_id == s)))
         {
             return Err(Error::invalid(
                 "视觉任务需要 1-3 个不同来源、最多 3 个配方、1-512 张批次",
@@ -271,30 +298,50 @@ impl Backend {
         }
         let available = self.registry.visual_sources()?;
         let mut snapshots = Vec::new();
-        for id in &request.source_ids {
-            let source = available
-                .iter()
-                .find(|s| &s.id == id)
-                .ok_or_else(|| Error::new("NOT_FOUND", "来源未登记或不属于三个 Booru 数据湖"))?
-                .clone();
-            let read =
-                self.sources
-                    .background(ReadClass::NativeQuery, METADATA_MEMORY_BYTES, flag())?;
-            let version = read
-                .query(METADATA_MEMORY_BYTES, false)
-                .read_version(&source, false)?;
-            let probe = read.probe(&source)?;
-            if probe.revision != version.catalog_revision {
-                return Err(Error::new("SOURCE_CHANGED", "来源正在发布，请重试创建任务"));
+        if let Some(id) = &request.scope_run_id {
+            let root = session.store.scope_root(id)?;
+            let original = session.store.run(&root)?;
+            if request.source_ids.iter().collect::<BTreeSet<_>>()
+                != original.request.source_ids.iter().collect::<BTreeSet<_>>()
+            {
+                return Err(Error::invalid("复用任务范围时来源集合须保持一致"));
             }
-            snapshots.push(VisualSourceSnapshot {
-                source,
-                version,
-                total_objects: probe.count.unwrap_or(0),
-                after_row: 0,
-                discovered: 0,
-                complete: false,
-            });
+            snapshots = original.sources;
+            for source in &mut snapshots {
+                source.after_row = 0;
+                source.discovered = 0;
+                source.complete = false;
+            }
+            request.scope_run_id = Some(root);
+        }
+        if request.scope_run_id.is_none() {
+            for id in &request.source_ids {
+                let source = available
+                    .iter()
+                    .find(|s| &s.id == id)
+                    .ok_or_else(|| Error::new("NOT_FOUND", "来源未登记或不属于三个 Booru 数据湖"))?
+                    .clone();
+                let read = self.sources.background(
+                    ReadClass::NativeQuery,
+                    METADATA_MEMORY_BYTES,
+                    flag(),
+                )?;
+                let version = read
+                    .query(METADATA_MEMORY_BYTES, false)
+                    .read_version(&source, false)?;
+                let probe = read.probe(&source)?;
+                if probe.revision != version.catalog_revision {
+                    return Err(Error::new("SOURCE_CHANGED", "来源正在发布，请重试创建任务"));
+                }
+                snapshots.push(VisualSourceSnapshot {
+                    source,
+                    version,
+                    total_objects: probe.count.unwrap_or(0),
+                    after_row: 0,
+                    discovered: 0,
+                    complete: false,
+                });
+            }
         }
         let run = session.store.create_run(&request, &snapshots)?;
         if let Err(error) = self.retain(&run) {
@@ -471,18 +518,36 @@ impl Backend {
                 .max_objects_per_source
                 .map(|n| n.saturating_sub(snapshot.discovered).min(4096) as u32)
                 .unwrap_or(4096);
-            let read = self.sources.background(
-                ReadClass::NativeQuery,
-                METADATA_MEMORY_BYTES,
-                cancelled.clone(),
-            )?;
-            let page = read.visual_media(
-                &snapshot.source,
-                &snapshot.version,
-                snapshot.after_row,
-                limit,
-            )?;
-            drop(read);
+            let page = if let Some(scope) = &run.request.scope_run_id {
+                session
+                    .store
+                    .scope_page(scope, &snapshot.source.id, snapshot.after_row, limit)?
+            } else {
+                let read = self.sources.background(
+                    ReadClass::NativeQuery,
+                    METADATA_MEMORY_BYTES,
+                    cancelled.clone(),
+                )?;
+                let page = if run.request.assets.is_empty() {
+                    read.visual_media(
+                        &snapshot.source,
+                        &snapshot.version,
+                        snapshot.after_row,
+                        limit,
+                    )?
+                } else {
+                    let assets = run
+                        .request
+                        .assets
+                        .iter()
+                        .filter(|k| k.source_id == snapshot.source.id)
+                        .map(|k| k.asset_id.clone())
+                        .collect::<Vec<_>>();
+                    read.visual_selected(&snapshot.source, &snapshot.version, &assets)?
+                };
+                drop(read);
+                page
+            };
             session.store.discover(&run, index, &page)?;
         }
         session.store.status(id, "running", None)?;
@@ -561,8 +626,13 @@ impl Backend {
         }) {
             return Err(Error::invalid("查询向量维度或数值无效"));
         }
-        let version = session.store.version(&recipe.id)?;
-        if !request.source_ids.is_empty() && !session.store.projection_ready(&recipe.id)? {
+        let version = session
+            .store
+            .selected_version(&recipe.id, request.snapshot_id.as_deref())?;
+        if request.snapshot_id.is_none()
+            && !request.source_ids.is_empty()
+            && !session.store.projection_ready(&recipe.id)?
+        {
             return Err(Error::new(
                 "RESULT_NOT_READY",
                 "来源关联投影尚未发布；继续视觉任务后可按来源检索",

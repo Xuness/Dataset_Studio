@@ -106,6 +106,19 @@ impl SourceService {
     }
 }
 impl SourceRead {
+    pub fn visual_selected(
+        &self,
+        source: &Source,
+        expected: &QuerySourceVersion,
+        assets: &[String],
+    ) -> Result<studio_domain::visual::VisualMediaPage> {
+        self.require_class(ReadClass::NativeQuery)?;
+        self.provider(source)?
+            .projection
+            .as_ref()
+            .ok_or_else(unsupported)?
+            .visual_selected(source, expected, assets, self.context.cancelled.clone())
+    }
     pub fn visual_media(
         &self,
         source: &Source,

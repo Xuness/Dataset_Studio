@@ -57,6 +57,9 @@ fn new_run(store: &VisualStore, sources: &[&str], with_model: bool) -> VisualRun
                 },
                 max_objects_per_source: None,
                 batch_size: 8,
+                scope_run_id: None,
+                assets: vec![],
+                micro_batch_sizes: BTreeMap::new(),
             },
             &sources.iter().map(|s| snapshot(s)).collect::<Vec<_>>(),
         )
@@ -90,6 +93,7 @@ fn receipt(batch: &VisualBatchRequest, results: Vec<VisualOutcome>) -> VisualBat
         bytes_read: 100,
         elapsed_ms: 1,
         model_images: BTreeMap::new(),
+        metrics: VisualMetrics::default(),
     }
 }
 
@@ -329,4 +333,110 @@ fn phash_radius_seven_is_complete_across_pages() {
     }
     assert_eq!(actual, expected);
     assert!(store.duplicates(Some(&key), 0, 3, 8).is_err());
+}
+
+#[test]
+fn scopes_include_reused_members_without_copying_and_metrics_publish_once() {
+    let temp = temporary();
+    let store = fixture(temp.path());
+    let first = new_run(&store, &["one"], false);
+    assert!(store.scope_root(&first.id).is_err());
+    let page = VisualMediaPage {
+        items: vec![media(1, 10), media(2, 20)],
+        complete: true,
+    };
+    store.discover(&first, 0, &page).unwrap();
+    let batch = store
+        .next_batch(&store.run(&first.id).unwrap())
+        .unwrap()
+        .unwrap();
+    let mut receipt = receipt(
+        &batch,
+        batch
+            .items
+            .iter()
+            .map(|i| hash_result(i.object_id, 0))
+            .collect(),
+    );
+    receipt.metrics.read_ms = 7;
+    receipt.metrics.peak_rss_bytes = 1234;
+    store.publish(&receipt).unwrap();
+    store.publish(&receipt).unwrap();
+    assert_eq!(store.metrics(&first.id).unwrap().read_ms, 7);
+    let second = new_run(&store, &["one"], false);
+    store.discover(&second, 0, &page).unwrap();
+    assert_eq!(store.run(&second.id).unwrap().reused_bindings, 2);
+    assert_eq!(
+        store
+            .feature_candidates(Some(&second.id), 0, 1)
+            .unwrap()
+            .len(),
+        1
+    );
+    let mut request = second.request.clone();
+    request.scope_run_id = Some(store.scope_root(&second.id).unwrap());
+    let third = store.create_run(&request, &[snapshot("one")]).unwrap();
+    let scope_page = store.scope_page(&second.id, "one", 0, 1).unwrap();
+    assert!(!scope_page.complete);
+    store.discover(&third, 0, &scope_page).unwrap();
+    let final_page = store
+        .scope_page(&second.id, "one", scope_page.items[0].row_id, 1)
+        .unwrap();
+    store
+        .discover(&store.run(&third.id).unwrap(), 0, &final_page)
+        .unwrap();
+    assert_eq!(store.scope_root(&third.id).unwrap(), second.id);
+    assert_eq!(
+        store.feature_candidates(Some(&third.id), 0, 10).unwrap(),
+        store.feature_candidates(Some(&second.id), 0, 10).unwrap()
+    );
+    let count: i64 = store
+        .db()
+        .unwrap()
+        .query_row(
+            "SELECT count(*) FROM members WHERE scope=?1",
+            [third.id],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(count, 0);
+}
+
+#[test]
+fn upgrade_preserves_v1_coverage_and_snapshot_selects_old_version() {
+    let temp = temporary();
+    let store = fixture(temp.path());
+    store.register_recipes(&[recipe()]).unwrap();
+    store
+        .db()
+        .unwrap()
+        .execute("INSERT INTO versions VALUES (?1,7)", [recipe().id])
+        .unwrap();
+    let snapshot = store
+        .save_snapshot(
+            "frozen",
+            "first",
+            &store.version_map(&[recipe().id]).unwrap(),
+        )
+        .unwrap();
+    store.publish_index(&recipe().id, 9).unwrap();
+    assert_eq!(
+        store
+            .selected_version(&recipe().id, Some(&snapshot.id))
+            .unwrap(),
+        7
+    );
+    store
+        .db()
+        .unwrap()
+        .execute_batch("PRAGMA user_version=1")
+        .unwrap();
+    drop(store);
+    let reopened = fixture(temp.path());
+    assert!(temp.path().join("visual-v1-before-v2.sqlite").exists());
+    assert_eq!(reopened.version(&recipe().id).unwrap(), 9);
+    assert_eq!(
+        reopened.snapshot("frozen").unwrap().versions[&recipe().id],
+        7
+    );
 }
