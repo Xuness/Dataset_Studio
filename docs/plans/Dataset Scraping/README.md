@@ -49,6 +49,7 @@ Pinterest 已直接接入项目中的正式采集和浏览链路。后续可按�
 
 ## 文档入口
 
+- [数据湖聚类与检索规划](../Data%20Lake%20Clustering%20Retrieval/README.md)：本地内容与画风表征、近重复关系、候选评估及后续采集反馈；当前为研究规划，尚未接入。
 - [Pinterest 独立采集下载模块与数据湖接入设计](pinterest-backend-and-lake-design.md)：当前实施入口，包含独立模块、公共基础边界、湖内模型、下载哈希、恢复、API 和分批交付。
 - [Pinterest 采集研究与方案](pinterest-collector-design.md)：发现入口、推荐循环、会话、质量证据、覆盖口径和分阶段验证。
 - [Pinterest 发现策略与入口实测](pinterest-discovery-strategy.md)：图版、站内签名与兴趣主题，匿名入口实测、有界发现，以及后续视觉分析的研究范围。
