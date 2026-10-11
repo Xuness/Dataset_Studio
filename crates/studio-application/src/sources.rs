@@ -37,6 +37,21 @@ pub trait SourceQueryFactory: Send + Sync {
     fn create(&self, options: &SourceQueryOptions) -> Box<dyn QueryAdapter>;
 }
 pub trait SourceProjection: Send + Sync {
+    /// Row-key discovery at a retained release; the visual repository materializes
+    /// physical ordering once, instead of repeatedly sorting the lake catalog.
+    fn visual_media(
+        &self,
+        _source: &Source,
+        _expected: &QuerySourceVersion,
+        _after_row: u64,
+        _limit: u32,
+        _cancelled: ReadCancellation,
+    ) -> Result<studio_domain::visual::VisualMediaPage> {
+        Err(Error::new(
+            "SOURCE_FORMAT_UNSUPPORTED",
+            "该来源不支持视觉媒体投影",
+        ))
+    }
     /// Project every identity at a retained version in canonical identity order.
     /// The receiving engine seals the complete typed input as the member proof.
     fn ranking_source(

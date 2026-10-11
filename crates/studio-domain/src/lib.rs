@@ -5,6 +5,7 @@ pub mod aesthetic_analysis;
 mod image_input;
 pub mod lake_updates;
 pub mod llm;
+pub mod visual;
 pub use image_input::*;
 pub mod pinterest;
 pub mod source_collections;

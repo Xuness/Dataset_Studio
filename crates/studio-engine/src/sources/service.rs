@@ -106,6 +106,26 @@ impl SourceService {
     }
 }
 impl SourceRead {
+    pub fn visual_media(
+        &self,
+        source: &Source,
+        expected: &QuerySourceVersion,
+        after_row: u64,
+        limit: u32,
+    ) -> Result<studio_domain::visual::VisualMediaPage> {
+        self.require_class(ReadClass::NativeQuery)?;
+        self.provider(source)?
+            .projection
+            .as_ref()
+            .ok_or_else(unsupported)?
+            .visual_media(
+                source,
+                expected,
+                after_row,
+                limit,
+                self.context.cancelled.clone(),
+            )
+    }
     pub fn source_relation(
         &self,
         source: &Source,

@@ -4219,6 +4219,7 @@ dependencies = [
  "studio-resources",
  "studio-sources",
  "studio-storage",
+ "studio-visual-store",
  "tempfile",
  "tokio",
  "tokio-util",
@@ -4328,6 +4329,19 @@ dependencies = [
  "tempfile",
  "tracing",
  "url",
+]
+
+[[package]]
+name = "studio-visual-store"
+version = "0.9.1"
+dependencies = [
+ "fs2",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "studio-application",
+ "studio-domain",
+ "tempfile",
 ]
 
 [[package]]

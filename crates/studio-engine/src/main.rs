@@ -19,6 +19,7 @@ mod ranking_reads;
 mod source_indexes;
 mod sources;
 mod tool_inputs;
+mod visual;
 mod worker;
 use clap::{Parser, Subcommand};
 use fs2::FileExt;
@@ -220,7 +221,14 @@ async fn serve(root: PathBuf, port: u16, cache_dir: Option<PathBuf>) -> Result<(
             "lake update worker unavailable; browsing remains available"
         );
     }
+    let visual = visual::Backend::new(
+        root.clone(),
+        store.clone(),
+        sources.clone(),
+        resources.clone(),
+    );
     let state = api::AppState {
+        visual: visual.clone(),
         lake_updates: lake_updates.clone(),
         aesthetic: aesthetic.clone(),
         aesthetic_analysis: aesthetic_analysis.clone(),
@@ -424,6 +432,7 @@ async fn serve(root: PathBuf, port: u16, cache_dir: Option<PathBuf>) -> Result<(
             preview_shutdown.shutdown();
             aesthetic_shutdown.shutdown();
             analysis_shutdown.shutdown();
+            visual.shutdown();
         })
         .await
         .map_err(Error::io);

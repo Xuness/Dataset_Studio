@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "studio-visual-worker"
+version = "0.1.0"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+  "torch==2.11.0", "torchvision==0.26.0", "transformers==5.19.0",
+  "lancedb==0.40.0", "numpy==2.4.6", "pyarrow==26.0.0",
+  "pylance==9.0.0",
+  "Pillow==12.3.0", "ImageHash==4.3.2", "safetensors==0.8.0",
+  "scipy==1.17.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=9,<10"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

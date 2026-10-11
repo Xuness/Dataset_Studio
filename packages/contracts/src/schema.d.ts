@@ -3631,6 +3631,198 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/visual/coverage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["visual_coverage"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/visual/duplicates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["visual_duplicates"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/visual/indexes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["visual_build_index"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/visual/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["visual_models"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/visual/recipes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["visual_recipes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/visual/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["visual_runs"];
+        put?: never;
+        post: operations["visual_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/visual/runs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["visual_run"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/visual/runs/{id}/actions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["visual_action"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/visual/runs/{id}/failures": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["visual_failures"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/visual/runtime": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["visual_runtime"];
+        put: operations["visual_configure"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/visual/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["visual_search"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/visual/sources": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["visual_sources"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -8110,6 +8302,197 @@ export interface components {
         };
         UpdateLakes: {
             items: components["schemas"]["UpdateLake"][];
+        };
+        VisualAction: {
+            action: string;
+        };
+        VisualCoverage: {
+            /**
+             * Format: int64
+             * @description Objects inventoried by visual jobs. This is not a whole-lake count.
+             */
+            discovered: number;
+            /** Format: int64 */
+            failed: number;
+            /** Format: int64 */
+            pending: number;
+            recipe_id: string;
+            source_id: string;
+            /** Format: int64 */
+            succeeded: number;
+        };
+        VisualCoverageResponse: {
+            items: components["schemas"]["VisualCoverage"][];
+        };
+        VisualDuplicates: {
+            items: components["schemas"]["VisualMatch"][];
+            kind: string;
+            /**
+             * Format: int64
+             * @description Resume even an empty page: crowded hash buckets are examined in bounded pages.
+             */
+            next_cursor?: number | null;
+            recipe_id: string;
+        };
+        VisualDuplicatesRequest: {
+            /** Format: int64 */
+            after?: number | null;
+            asset?: null | components["schemas"]["AssetKey"];
+            /** Format: int32 */
+            limit: number;
+            /** Format: int32 */
+            radius?: number | null;
+        };
+        VisualFailure: {
+            error?: string | null;
+            /** Format: int64 */
+            object_id: number;
+            recipe_id: string;
+            status: string;
+        };
+        VisualFailures: {
+            items: components["schemas"]["VisualFailure"][];
+            /** Format: int64 */
+            next_cursor?: number | null;
+        };
+        VisualIndexRequest: {
+            /** Format: int32 */
+            partitions?: number | null;
+            recipe_id: string;
+        };
+        VisualIndexResult: {
+            index_type: string;
+            /** Format: int32 */
+            partitions: number;
+            /** Format: int64 */
+            rows: number;
+            /** Format: int64 */
+            version: number;
+        };
+        VisualMatch: {
+            assets: components["schemas"]["AssetKey"][];
+            /** Format: double */
+            distance?: number | null;
+            /** Format: int64 */
+            object_id: number;
+            sha256: string;
+        };
+        VisualModelDescription: {
+            device: string;
+            device_name: string;
+            hash_recipe: string;
+            packages: {
+                [key: string]: string;
+            };
+            recipes: components["schemas"]["VisualRecipe"][];
+        };
+        VisualRecipe: {
+            /** Format: int32 */
+            dimension: number;
+            id: string;
+            model: string;
+            path: string;
+            spec: unknown;
+            weights: string;
+        };
+        VisualRecipes: {
+            items: components["schemas"]["VisualRecipe"][];
+        };
+        VisualRun: {
+            /** Format: int64 */
+            bytes_read: number;
+            /** Format: int64 */
+            completed_objects: number;
+            error?: string | null;
+            /** Format: int64 */
+            failed_features: number;
+            id: string;
+            /** Format: int64 */
+            ordinal: number;
+            /** Format: int64 */
+            planned_objects: number;
+            request: components["schemas"]["VisualRunRequest"];
+            /**
+             * Format: int64
+             * @description Already covered source bindings skipped during catalog planning.
+             */
+            reused_bindings: number;
+            sources: components["schemas"]["VisualSourceSnapshot"][];
+            status: string;
+        };
+        VisualRunRequest: {
+            /** Format: int32 */
+            batch_size?: number;
+            /** Format: int64 */
+            max_objects_per_source?: number | null;
+            /** @description Immutable recipe IDs from /visual/models or /visual/recipes. Empty runs pHash only. */
+            recipe_ids: string[];
+            source_ids: string[];
+        };
+        VisualRuns: {
+            items: components["schemas"]["VisualRun"][];
+            /** Format: int64 */
+            next_cursor?: number | null;
+        };
+        VisualRuntimeConfig: {
+            device: string;
+            materials_root: string;
+            model_root: string;
+            python: string;
+        };
+        VisualRuntimeStatus: {
+            busy: boolean;
+            config?: null | components["schemas"]["VisualRuntimeConfig"];
+            configured: boolean;
+            description?: null | components["schemas"]["VisualModelDescription"];
+            worker_running: boolean;
+        };
+        VisualSearchRequest: {
+            asset?: null | components["schemas"]["AssetKey"];
+            exact?: boolean;
+            /** Format: int32 */
+            limit: number;
+            /** Format: int32 */
+            nprobes?: number | null;
+            recipe_id: string;
+            source_ids?: string[];
+            vector?: number[] | null;
+        };
+        VisualSearchResult: {
+            items: components["schemas"]["VisualMatch"][];
+            method: string;
+            recipe_id: string;
+            score_type: string;
+            /** Format: int64 */
+            version: number;
+        };
+        VisualSource: {
+            id: string;
+            index_root?: string | null;
+            kind: string;
+            media_root?: string | null;
+            name: string;
+        };
+        VisualSourceSnapshot: {
+            /** Format: int64 */
+            after_row: number;
+            complete: boolean;
+            /** Format: int64 */
+            discovered: number;
+            source: components["schemas"]["VisualSource"];
+            /** Format: int64 */
+            total_objects: number;
+            version: components["schemas"]["VisualSourceVersion"];
+        };
+        VisualSourceVersion: {
+            analysis_sequence?: string | null;
+            catalog_revision: string;
+            consistency: string;
+            semantics_version?: string | null;
+            source_id: string;
+        };
+        VisualSources: {
+            items: components["schemas"]["VisualSource"][];
         };
         WorkMediaItem: {
             availability: string;
@@ -14246,6 +14629,308 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SourcePreflight"];
+                };
+            };
+        };
+    };
+    visual_coverage: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VisualCoverageResponse"];
+                };
+            };
+        };
+    };
+    visual_duplicates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VisualDuplicatesRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VisualDuplicates"];
+                };
+            };
+        };
+    };
+    visual_build_index: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VisualIndexRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VisualIndexResult"];
+                };
+            };
+        };
+    };
+    visual_models: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VisualModelDescription"];
+                };
+            };
+        };
+    };
+    visual_recipes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VisualRecipes"];
+                };
+            };
+        };
+    };
+    visual_runs: {
+        parameters: {
+            query?: {
+                after?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VisualRuns"];
+                };
+            };
+        };
+    };
+    visual_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VisualRunRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VisualRun"];
+                };
+            };
+        };
+    };
+    visual_run: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VisualRun"];
+                };
+            };
+        };
+    };
+    visual_action: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VisualAction"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VisualRun"];
+                };
+            };
+        };
+    };
+    visual_failures: {
+        parameters: {
+            query?: {
+                after?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VisualFailures"];
+                };
+            };
+        };
+    };
+    visual_runtime: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VisualRuntimeStatus"];
+                };
+            };
+        };
+    };
+    visual_configure: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VisualRuntimeConfig"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VisualRuntimeStatus"];
+                };
+            };
+        };
+    };
+    visual_search: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VisualSearchRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VisualSearchResult"];
+                };
+            };
+        };
+    };
+    visual_sources: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VisualSources"];
                 };
             };
         };

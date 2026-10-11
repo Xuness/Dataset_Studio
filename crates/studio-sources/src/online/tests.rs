@@ -6,6 +6,72 @@ use studio_application::{MetadataAdapter, QueryAdapter, SourceAdapter};
 fn sha(n: u32) -> String {
     format!("{n:064x}")
 }
+#[test]
+fn visual_projection_is_bounded_frozen_and_validates_ranges() {
+    let fixture = Fixture::new();
+    let version = QueryReader::default()
+        .read_version(&fixture.source, false)
+        .unwrap();
+    let page = super::visual::page(
+        &fixture.source,
+        &version,
+        0,
+        1,
+        Arc::new(AtomicBool::new(false)),
+    )
+    .unwrap();
+    assert_eq!(page.items.len(), 1);
+    assert!(!page.complete);
+    let db = Connection::open(&fixture.path).unwrap();
+    db.execute(
+        "INSERT INTO objects VALUES(3,?1,'new.tar',0,20,'png',2)",
+        [sha(3)],
+    )
+    .unwrap();
+    db.execute("INSERT INTO publications VALUES(2,'next','now',3,3,3)", [])
+        .unwrap();
+    db.execute(
+        "UPDATE online_state SET value='2' WHERE key='served_seq'",
+        [],
+    )
+    .unwrap();
+    let next = super::visual::page(
+        &fixture.source,
+        &version,
+        page.items[0].row_id,
+        1,
+        Arc::new(AtomicBool::new(false)),
+    )
+    .unwrap();
+    assert_eq!(next.items[0].row_id, 2);
+    assert!(next.complete);
+    assert!(
+        !fixture
+            .source
+            .media_root
+            .as_ref()
+            .unwrap()
+            .join("segments/base/images.tar")
+            .exists()
+    );
+    db.execute(
+        "UPDATE objects SET pack_path='../outside.tar' WHERE object_row=2",
+        [],
+    )
+    .unwrap();
+    assert_eq!(
+        super::visual::page(
+            &fixture.source,
+            &version,
+            1,
+            1,
+            Arc::new(AtomicBool::new(false))
+        )
+        .unwrap_err()
+        .code,
+        "SOURCE_CORRUPT"
+    );
+}
 struct Fixture {
     source: Source,
     root: tempfile::TempDir,

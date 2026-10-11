@@ -21,6 +21,7 @@ pub(crate) mod ranking_source;
 pub(crate) mod raw;
 #[cfg(test)]
 mod tests;
+pub(crate) mod visual;
 
 pub const SCHEMA_VERSION: u32 = 2;
 pub const VIEW_TTL_MS: u64 = 30 * 60 * 1000;

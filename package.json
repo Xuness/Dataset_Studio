@@ -7,6 +7,9 @@
   "scripts": {
     "setup:duckdb": "node tooling/setup-duckdb.mjs",
     "setup:lake": "node tooling/setup-lake-worker.mjs",
+    "setup:visual": "node tooling/setup-visual-worker.mjs",
+    "test:visual": "node tooling/test-visual-worker.mjs",
+    "visual": "node tooling/visual.mjs",
     "dev": "node tooling/dev.mjs",
     "dev:web": "node tooling/dev.mjs --web",
     "build": "pnpm --filter @studio/desktop build",

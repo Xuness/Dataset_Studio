@@ -10345,6 +10345,413 @@
           }
         }
       }
+    },
+    "/v1/visual/coverage": {
+      "get": {
+        "tags": [
+          "visual"
+        ],
+        "operationId": "visual_coverage",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VisualCoverageResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/visual/duplicates": {
+      "post": {
+        "tags": [
+          "visual"
+        ],
+        "operationId": "visual_duplicates",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VisualDuplicatesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VisualDuplicates"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/visual/indexes": {
+      "post": {
+        "tags": [
+          "visual"
+        ],
+        "operationId": "visual_build_index",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VisualIndexRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VisualIndexResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/visual/models": {
+      "get": {
+        "tags": [
+          "visual"
+        ],
+        "operationId": "visual_models",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VisualModelDescription"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/visual/recipes": {
+      "get": {
+        "tags": [
+          "visual"
+        ],
+        "operationId": "visual_recipes",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VisualRecipes"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/visual/runs": {
+      "get": {
+        "tags": [
+          "visual"
+        ],
+        "operationId": "visual_runs",
+        "parameters": [
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VisualRuns"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "visual"
+        ],
+        "operationId": "visual_create",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VisualRunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VisualRun"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/visual/runs/{id}": {
+      "get": {
+        "tags": [
+          "visual"
+        ],
+        "operationId": "visual_run",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VisualRun"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/visual/runs/{id}/actions": {
+      "post": {
+        "tags": [
+          "visual"
+        ],
+        "operationId": "visual_action",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VisualAction"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VisualRun"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/visual/runs/{id}/failures": {
+      "get": {
+        "tags": [
+          "visual"
+        ],
+        "operationId": "visual_failures",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VisualFailures"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/visual/runtime": {
+      "get": {
+        "tags": [
+          "visual"
+        ],
+        "operationId": "visual_runtime",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VisualRuntimeStatus"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "visual"
+        ],
+        "operationId": "visual_configure",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VisualRuntimeConfig"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VisualRuntimeStatus"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/visual/search": {
+      "post": {
+        "tags": [
+          "visual"
+        ],
+        "operationId": "visual_search",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VisualSearchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VisualSearchResult"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/visual/sources": {
+      "get": {
+        "tags": [
+          "visual"
+        ],
+        "operationId": "visual_sources",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VisualSources"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -27446,6 +27853,739 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/UpdateLake"
+            }
+          }
+        }
+      },
+      "VisualAction": {
+        "type": "object",
+        "required": [
+          "action"
+        ],
+        "properties": {
+          "action": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "VisualCoverage": {
+        "type": "object",
+        "required": [
+          "source_id",
+          "recipe_id",
+          "discovered",
+          "succeeded",
+          "failed",
+          "pending"
+        ],
+        "properties": {
+          "discovered": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Objects inventoried by visual jobs. This is not a whole-lake count.",
+            "minimum": 0
+          },
+          "failed": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "pending": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "recipe_id": {
+            "type": "string"
+          },
+          "source_id": {
+            "type": "string"
+          },
+          "succeeded": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "VisualCoverageResponse": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VisualCoverage"
+            }
+          }
+        }
+      },
+      "VisualDuplicates": {
+        "type": "object",
+        "required": [
+          "kind",
+          "recipe_id",
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VisualMatch"
+            }
+          },
+          "kind": {
+            "type": "string"
+          },
+          "next_cursor": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Resume even an empty page: crowded hash buckets are examined in bounded pages."
+          },
+          "recipe_id": {
+            "type": "string"
+          }
+        }
+      },
+      "VisualDuplicatesRequest": {
+        "type": "object",
+        "required": [
+          "limit"
+        ],
+        "properties": {
+          "after": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "asset": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AssetKey",
+                "description": "Omit for cross-source SHA groups; supply for pHash neighbours."
+              }
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "radius": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "VisualFailure": {
+        "type": "object",
+        "required": [
+          "object_id",
+          "recipe_id",
+          "status"
+        ],
+        "properties": {
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "object_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "recipe_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "VisualFailures": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VisualFailure"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          }
+        }
+      },
+      "VisualIndexRequest": {
+        "type": "object",
+        "required": [
+          "recipe_id"
+        ],
+        "properties": {
+          "partitions": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "recipe_id": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "VisualIndexResult": {
+        "type": "object",
+        "required": [
+          "version",
+          "rows",
+          "partitions",
+          "index_type"
+        ],
+        "properties": {
+          "index_type": {
+            "type": "string"
+          },
+          "partitions": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "rows": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "VisualMatch": {
+        "type": "object",
+        "required": [
+          "object_id",
+          "sha256",
+          "assets"
+        ],
+        "properties": {
+          "assets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AssetKey"
+            }
+          },
+          "distance": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "format": "double"
+          },
+          "object_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "sha256": {
+            "type": "string"
+          }
+        }
+      },
+      "VisualModelDescription": {
+        "type": "object",
+        "required": [
+          "recipes",
+          "device",
+          "device_name",
+          "packages",
+          "hash_recipe"
+        ],
+        "properties": {
+          "device": {
+            "type": "string"
+          },
+          "device_name": {
+            "type": "string"
+          },
+          "hash_recipe": {
+            "type": "string"
+          },
+          "packages": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "recipes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VisualRecipe"
+            }
+          }
+        }
+      },
+      "VisualRecipe": {
+        "type": "object",
+        "required": [
+          "id",
+          "model",
+          "dimension",
+          "spec",
+          "path",
+          "weights"
+        ],
+        "properties": {
+          "dimension": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "id": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "spec": {},
+          "weights": {
+            "type": "string"
+          }
+        }
+      },
+      "VisualRecipes": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VisualRecipe"
+            }
+          }
+        }
+      },
+      "VisualRun": {
+        "type": "object",
+        "required": [
+          "id",
+          "ordinal",
+          "status",
+          "request",
+          "sources",
+          "planned_objects",
+          "completed_objects",
+          "reused_bindings",
+          "failed_features",
+          "bytes_read"
+        ],
+        "properties": {
+          "bytes_read": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "completed_objects": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "failed_features": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "id": {
+            "type": "string"
+          },
+          "ordinal": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "planned_objects": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "request": {
+            "$ref": "#/components/schemas/VisualRunRequest"
+          },
+          "reused_bindings": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Already covered source bindings skipped during catalog planning.",
+            "minimum": 0
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VisualSourceSnapshot"
+            }
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "VisualRunRequest": {
+        "type": "object",
+        "required": [
+          "source_ids",
+          "recipe_ids"
+        ],
+        "properties": {
+          "batch_size": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "max_objects_per_source": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "recipe_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Immutable recipe IDs from /visual/models or /visual/recipes. Empty runs pHash only."
+          },
+          "source_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "VisualRuns": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VisualRun"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "VisualRuntimeConfig": {
+        "type": "object",
+        "required": [
+          "python",
+          "materials_root",
+          "model_root",
+          "device"
+        ],
+        "properties": {
+          "device": {
+            "type": "string"
+          },
+          "materials_root": {
+            "type": "string"
+          },
+          "model_root": {
+            "type": "string"
+          },
+          "python": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "VisualRuntimeStatus": {
+        "type": "object",
+        "required": [
+          "configured",
+          "worker_running",
+          "busy"
+        ],
+        "properties": {
+          "busy": {
+            "type": "boolean"
+          },
+          "config": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/VisualRuntimeConfig"
+              }
+            ]
+          },
+          "configured": {
+            "type": "boolean"
+          },
+          "description": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/VisualModelDescription"
+              }
+            ]
+          },
+          "worker_running": {
+            "type": "boolean"
+          }
+        }
+      },
+      "VisualSearchRequest": {
+        "type": "object",
+        "required": [
+          "recipe_id",
+          "limit"
+        ],
+        "properties": {
+          "asset": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AssetKey"
+              }
+            ]
+          },
+          "exact": {
+            "type": "boolean"
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "nprobes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "recipe_id": {
+            "type": "string"
+          },
+          "source_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "vector": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "number",
+              "format": "float"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "VisualSearchResult": {
+        "type": "object",
+        "required": [
+          "recipe_id",
+          "version",
+          "method",
+          "score_type",
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VisualMatch"
+            }
+          },
+          "method": {
+            "type": "string"
+          },
+          "recipe_id": {
+            "type": "string"
+          },
+          "score_type": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "VisualSource": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "kind"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "index_root": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": "string"
+          },
+          "media_root": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          }
+        }
+      },
+      "VisualSourceSnapshot": {
+        "type": "object",
+        "required": [
+          "source",
+          "version",
+          "total_objects",
+          "after_row",
+          "discovered",
+          "complete"
+        ],
+        "properties": {
+          "after_row": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "complete": {
+            "type": "boolean"
+          },
+          "discovered": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "source": {
+            "$ref": "#/components/schemas/VisualSource"
+          },
+          "total_objects": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "version": {
+            "$ref": "#/components/schemas/VisualSourceVersion"
+          }
+        }
+      },
+      "VisualSourceVersion": {
+        "type": "object",
+        "required": [
+          "source_id",
+          "catalog_revision",
+          "consistency"
+        ],
+        "properties": {
+          "analysis_sequence": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "catalog_revision": {
+            "type": "string"
+          },
+          "consistency": {
+            "type": "string"
+          },
+          "semantics_version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source_id": {
+            "type": "string"
+          }
+        }
+      },
+      "VisualSources": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VisualSource"
             }
           }
         }

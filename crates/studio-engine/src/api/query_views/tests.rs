@@ -340,6 +340,12 @@ fn fixture(
     ));
     let backend = Arc::new(studio_llm::RemoteLlm::new(credentials.clone()));
     let state = AppState {
+        visual: crate::visual::Backend::new(
+            root.join("registry"),
+            store.clone(),
+            sources.clone(),
+            resources.clone(),
+        ),
         lake_updates: Arc::new(crate::lake_updates::Backend::new(root.join("registry"))),
         aesthetic: Arc::new(crate::aesthetic::Runner::default()),
         aesthetic_analysis: Arc::new(crate::aesthetic::analysis::Runner::default()),

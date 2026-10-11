@@ -4,6 +4,7 @@ pub mod aesthetic;
 pub mod aesthetic_analysis;
 mod image_input;
 pub mod llm;
+pub mod visual;
 pub use image_input::*;
 mod sources;
 pub use sources::*;

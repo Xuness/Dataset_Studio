@@ -11,6 +11,24 @@ fn same_path(a: &Option<PathBuf>, b: &Option<PathBuf>) -> bool {
     }
 }
 impl SqliteStore {
+    pub fn visual_sources(&self) -> Result<Vec<Source>> {
+        let registry = self.registry.lock().map_err(lock_error)?;
+        let mut statement = registry
+            .prepare("SELECT json FROM source_locations ORDER BY id")
+            .map_err(db_error)?;
+        let rows = statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(db_error)?;
+        let mut result = Vec::new();
+        for row in rows {
+            let source: Source =
+                serde_json::from_str(&row.map_err(db_error)?).map_err(Error::io)?;
+            if matches!(source.kind.as_str(), "danbooru" | "yandere" | "gelbooru") {
+                result.push(source);
+            }
+        }
+        Ok(result)
+    }
     /// Shared lake roots, including sources attached only to closed projects.
     /// Reading this registry must not acquire or migrate other project databases.
     pub fn source_location_roots(&self) -> Result<Vec<PathBuf>> {

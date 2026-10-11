@@ -9,6 +9,7 @@ test-faults = ["studio-storage/test-faults"]
 studio-domain = { path = "../studio-domain" }
 studio-application = { path = "../studio-application" }
 studio-storage = { path = "../studio-storage" }
+studio-visual-store = { path = "../studio-visual-store" }
 studio-sources = { path = "../studio-sources" }
 studio-protocol = { path = "../studio-protocol" }
 studio-operators = { path = "../studio-operators" }
@@ -32,7 +33,7 @@ base64.workspace = true
 tempfile.workspace = true
 tokio-util = { version = "0.7", features = ["io", "codec"] }
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_Security", "Win32_System_Threading", "Win32_System_ProcessStatus", "Win32_Storage_FileSystem"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_JobObjects", "Win32_Security", "Win32_System_Threading", "Win32_System_ProcessStatus", "Win32_System_Diagnostics_ToolHelp", "Win32_Storage_FileSystem"] }
 [target.'cfg(target_os = "linux")'.dependencies]
 libc = "0.2"
 [dev-dependencies]

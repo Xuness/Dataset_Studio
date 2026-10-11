@@ -1,5 +1,6 @@
 import { SourceClient } from "./sources.js";
 import { LakeUpdateClient } from "./lakeUpdates.js";
+import { VisualClient } from "./visual.js";
 import { SourceCollectionClient } from "./sourceCollections.js";
 import { PinterestCollectionClient } from "./pinterestCollections.js";
 import type { CollectionLoginAssistant } from "./collectionLogin.js";
@@ -91,6 +92,9 @@ function metadataQuery(options: MetadataOptions) {
   return query;
 }
 export class StudioClient {
+  readonly visual = new VisualClient(<T>(path: string, init?: RequestInit) =>
+    this.request<T>(path, init),
+  );
   readonly pinterestCollections = new PinterestCollectionClient(
     <T>(path: string, init?: RequestInit) => this.request<T>(path, init),
   );

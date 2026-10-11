@@ -24,6 +24,16 @@ struct Projections {
     directory: PathBuf,
 }
 impl SourceProjection for Projections {
+    fn visual_media(
+        &self,
+        source: &Source,
+        expected: &QuerySourceVersion,
+        after_row: u64,
+        limit: u32,
+        cancelled: ReadCancellation,
+    ) -> Result<studio_domain::visual::VisualMediaPage> {
+        crate::online::visual::page(source, expected, after_row, limit, cancelled)
+    }
     fn ranking_source(
         &self,
         source: &Source,

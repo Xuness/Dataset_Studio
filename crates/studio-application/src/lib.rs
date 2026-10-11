@@ -7,6 +7,7 @@ pub mod llm;
 pub mod pinterest;
 pub mod source_collections;
 mod sources;
+pub mod visual;
 pub use sources::*;
 mod tools;
 pub use tools::*;

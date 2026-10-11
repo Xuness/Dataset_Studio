@@ -42,9 +42,11 @@ mod source_collections;
 mod source_locations;
 mod source_probe;
 mod tools;
+mod visual;
 
 #[derive(Clone)]
 pub struct AppState {
+    pub visual: Arc<crate::visual::Backend>,
     pub lake_updates: Arc<dyn studio_application::lake_updates::LakeUpdateBackend>,
     pub aesthetic: Arc<crate::aesthetic::Runner>,
     pub aesthetic_analysis: Arc<crate::aesthetic::analysis::Runner>,
@@ -109,6 +111,8 @@ impl IntoResponse for Failure {
             | "COLLECTION_PROTOCOL"
             | "COLLECTION_FORMAT_UNSUPPORTED" => StatusCode::CONFLICT,
             "LLM_QUEUE_FULL"
+            | "VISUAL_BUSY"
+            | "VISUAL_UNAVAILABLE"
             | "EVALUATION_BUSY"
             | "EVALUATION_STORAGE_UNHEALTHY"
             | "EVALUATION_STORAGE_FULL"
@@ -1465,7 +1469,7 @@ async fn shutdown(State(s): State<AppState>) -> Json<OkResponse> {
 }
 #[derive(OpenApi)]
 #[openapi(
-    nest((path = "/v1/llm", api = llm::LlmApiDoc), (path = "/v1/projects/{project_id}/aesthetic", api = aesthetic::AestheticApiDoc), (path = "/v1/projects/{project_id}/aesthetic/analysis", api = aesthetic_analysis::AestheticAnalysisApiDoc)),
+    nest((path = "/v1/visual", api = visual::VisualApiDoc), (path = "/v1/llm", api = llm::LlmApiDoc), (path = "/v1/projects/{project_id}/aesthetic", api = aesthetic::AestheticApiDoc), (path = "/v1/projects/{project_id}/aesthetic/analysis", api = aesthetic_analysis::AestheticAnalysisApiDoc)),
     paths(
         health,
         shutdown,
@@ -1629,6 +1633,7 @@ pub fn routes() -> axum::Router<AppState> {
         .route("/v1/source-adapters", get(source_probe::adapters))
         .route("/v1/source-probes", post(source_probe::probe))
         .nest("/v1/llm", llm::routes())
+        .nest("/v1/visual", visual::routes())
         .nest("/v1/lake-updates", lake_updates::routes())
         .nest("/v1/source-collections", source_collections::routes())
         .nest("/v1/pinterest-collections", pinterest::routes())
