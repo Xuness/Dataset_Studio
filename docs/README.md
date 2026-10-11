@@ -4,7 +4,7 @@
 
 本目录保存工程说明、设计依据和验收摘要。计划与历史记录中的版本、日期和“当前”均对应文档当时的基线；判断现状时，以仓库说明、最新模块接入文档和后续架构决策为准。
 
-三湖视觉特征：[后端、模型与命令行](architecture/visual-features.md)、[首轮验证](verification/2026-10-11-visual-backend.md)。支持 NaFlex、EmbeddingGemma 2、Kaloscope 3.0-preview、pHash 与完整向量检索；前端和项目工作集引用尚未接入。
+三湖视觉特征：[后端、模型与命令行](architecture/visual-features.md)、[首轮验证](verification/2026-10-11-visual-backend.md)、[生产运行与召回验证](verification/2026-10-12-visual-production.md)。支持三模型完整向量、pHash、固定范围／快照、增量续跑、后台索引及历史保留；前端和项目工作集引用尚未接入。
 
 日常验证遵循 [AGENTS.md](../AGENTS.md) 的最小范围规则。历史计划中的完整验收清单不要求后续每次开发重跑；旧记录中的 `pnpm check` / `pnpm test:integration` 全量范围，现由 `pnpm check:full` / `pnpm test:integration:all` 提供。
 

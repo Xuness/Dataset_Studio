@@ -2,7 +2,7 @@
 
 以下命令均从仓库根目录运行。日常启动、所需环境及数据目录见[仓库说明](../README.md)，架构与历史验收见[文档导航](../docs/README.md)。
 
-视觉特征后端：`pnpm setup:visual --dev` 安装独立环境，`pnpm visual help` 查看无界面操作入口，`pnpm test:visual` 验证 Python 执行／向量存储；真实三湖与模型的有界验证使用 `tooling/verify-visual-backend.py`。配置、参数和恢复边界见[视觉特征后端](../docs/architecture/visual-features.md)。
+视觉特征后端：`pnpm setup:visual --dev` 安装独立环境，`pnpm visual help` 查看操作入口，`pnpm test:visual` 验证 Python 执行／向量存储。`pnpm visual:backfill --chunk=5000 --cycles=2` 分轮接续发现水位，省略 `--cycles` 则持续追平；状态写入 `.local/visual-backfills/`，退出后用 `--state=原状态.json --resume` 恢复。真实三湖与模型的有界验证使用 [verify-visual-backend.py](verify-visual-backend.py)；隔离合成向量的索引暂停／重启、回收与容量检查使用 [verify-visual-operations.py](verify-visual-operations.py)，百万条需显式 `--capacity-only --rows=1000000`。配置、参数和恢复边界见[视觉特征后端](../docs/architecture/visual-features.md)，结果见[生产验证](../docs/verification/2026-10-12-visual-production.md)。
 
 Linux x86_64 入口见 [Linux 开发运行](../docs/architecture/linux-development.md)：`pnpm setup:duckdb`、`pnpm setup:lake --dev`、`pnpm dev`。`bash tooling/linux-test-session.sh <命令>` 为 Linux 测试提供隔离的桌面和密钥环；`pnpm test:linux-native` 验证真实 WebKitGTK 窗口、目录选择器、剪贴板和 Pixiv 登录会话。普通 Linux 界面脚本使用 Playwright Chromium，首次运行需 `pnpm exec playwright install chromium`。Windows 原生检查保留现有入口。
 
