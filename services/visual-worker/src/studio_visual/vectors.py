@@ -1,6 +1,7 @@
 """Versioned full-float Lance tables. Only the engine publishes their versions."""
 
 import math
+import os
 from pathlib import Path
 import re
 
@@ -18,9 +19,20 @@ def table_name(recipe_id):
 
 
 class Vectors:
-    def __init__(self, root):
+    def __init__(self, root, cache_bytes=2 << 30):
+        # Rust canonical paths use the Windows verbatim prefix. LanceDB's
+        # native connection accepts it, but its Python to_lance() URI join
+        # interprets '?' as a URL query and truncates the dataset to F:/.
+        # Keep an equivalent ordinary local path at this library boundary.
+        root = os.fspath(root)
+        if os.name == "nt" and root.startswith("\\\\?\\UNC\\"):
+            root = "\\\\" + root[8:]
+        elif os.name == "nt" and root.startswith("\\\\?\\"):
+            root = root[4:]
         self.root = Path(root)
-        self.db = lancedb.connect(str(self.root / "vectors"))
+        self.session = lancedb.Session(index_cache_size_bytes=cache_bytes,
+                                       metadata_cache_size_bytes=128 << 20)
+        self.db = lancedb.connect(str(self.root / "vectors"), session=self.session)
 
     def table(self, recipe, create=False):
         name = table_name(recipe["id"])

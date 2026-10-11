@@ -157,3 +157,22 @@ def test_independent_micro_batches_and_persisted_metrics(tmp_path):
     assert result["metrics"]["peak_rss_bytes"] > 0
     assert result["metrics"]["model_batches"] == {r["id"]: 2 for r in recipes}
     assert worker.finish("one")["metrics"] == result["metrics"]
+
+
+def test_maintenance_failure_stops_batch_and_replays_committed_vectors(tmp_path, monkeypatch):
+    rows = images(tmp_path)[:2]
+    recipes = [recipe()]
+    worker = execution.Execution(tmp_path / "features", "cpu")
+    def fail(*args):
+        raise OSError("maintenance disk failure")
+    monkeypatch.setattr(worker.vectors, "_maintain", fail)
+    worker.prepare(request(rows, recipes))
+    with pytest.raises(OSError, match="maintenance disk failure"):
+        worker.finish("one")
+    assert not worker.receipt_path("one").exists()
+    assert worker.vectors.table(recipes[0]).count_rows() == 2
+    restarted = execution.Execution(tmp_path / "features", "cpu")
+    restarted.prepare(request(rows, recipes))
+    result = restarted.finish("one")
+    assert all(r["status"] == "success" for r in result["results"])
+    assert len(FakeModels.calls) == 1

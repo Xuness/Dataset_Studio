@@ -77,3 +77,18 @@ def test_snapshot_entries_and_arrow_export_keep_exact_floats(tmp_path):
     for row in table.to_pylist():
         np.testing.assert_array_equal(np.asarray(row["vector"], dtype=np.float32), values[row["object_id"] - 1])
     assert vectors.table(recipe).tags.get_version("snapshot_frozen") == old
+
+
+def test_windows_verbatim_path_supports_native_maintenance(tmp_path):
+    import os
+    if os.name != "nt":
+        pytest.skip("Windows verbatim path regression")
+    root = "\\\\?\\" + str(tmp_path)
+    vectors = Vectors(root)
+    recipe = {"id": "d" * 64, "dimension": 256}
+    values = normalized(np.ones((1, 256)), 256)
+    for n in range(35):
+        rows = [{"object_id": n + 1, "source_ids": [1]}]
+        vectors.append(recipe, f"batch-{n}", rows, values)
+        vectors.project_sources(recipe, rows)
+    assert vectors.table(recipe).to_lance().count_rows() == 35

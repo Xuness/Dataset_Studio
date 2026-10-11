@@ -231,14 +231,12 @@ class Execution:
                 existing = state["existing"][rid]
                 selected = feature_rows[rid]
                 if selected:
-                    try:
-                        values = np.concatenate(features[rid], axis=0)
-                        self.vectors.append(recipe, batch_id, selected, values)
-                        existing.update(r["object_id"] for r in selected)
-                    except Exception as error:
-                        for row in selected:
-                            results.append({"object_id": row["object_id"], "recipe_id": rid, "status": "failed",
-                                            "hash": None, "error": str(error)[:200]})
+                    # Storage and maintenance errors are batch failures, never
+                    # per-image/model failures. Preserve the intent and recover
+                    # already committed heads before attempting any new batch.
+                    values = np.concatenate(features[rid], axis=0)
+                    self.vectors.append(recipe, batch_id, selected, values)
+                    existing.update(r["object_id"] for r in selected)
                 for row in rows:
                     if row["object_id"] in existing:
                         results.append({"object_id": row["object_id"], "recipe_id": rid,

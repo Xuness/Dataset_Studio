@@ -463,6 +463,8 @@ impl Backend {
                 let control = action.load(Ordering::Acquire);
                 let state = if control == 1 {
                     "paused"
+                } else if control == 2 && session.store.pending_any().is_ok_and(|b| b.is_none()) {
+                    "cancelled"
                 } else if result.is_err() {
                     "failed"
                 } else if control == 2 {
@@ -559,7 +561,10 @@ impl Backend {
             let Some(batch) = session.store.next_batch_with_cancel(&run, &cancelled)? else {
                 return Ok(());
             };
-            self.batch(session, batch, cancelled.clone())?;
+            // Once the durable intent exists, settle this batch before applying
+            // pause/cancel. Cancelling resource admission after that point would
+            // strand an intent behind a terminal job and release its source lease.
+            self.batch(session, batch, flag())?;
         }
     }
     fn batch(
