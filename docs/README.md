@@ -134,7 +134,7 @@ API 图片输入：[发送前缩放与阶段中途调整分辨率](decisions/006
 
 ## 实施计划
 
-- [数据湖聚类与检索：讨论规划、模型取舍与评估方案（2026-10-11，研究规划）](plans/Data%20Lake%20Clustering%20Retrieval/README.md)
+- [数据湖聚类与检索：讨论规划、模型取舍、评估方案与实施顺序（2026-10-11，研究规划）](plans/Data%20Lake%20Clustering%20Retrieval/README.md)
 
 早期阶段计划保留当时的范围与验收标准；美学排序目录同时维护阶段说明及后续计划。
 
