@@ -10,6 +10,7 @@
     "setup:visual": "node tooling/setup-visual-worker.mjs",
     "test:visual": "node tooling/test-visual-worker.mjs",
     "visual": "node tooling/visual.mjs",
+    "visual:backfill": "node tooling/visual-backfill.mjs",
     "dev": "node tooling/dev.mjs",
     "dev:web": "node tooling/dev.mjs --web",
     "build": "pnpm --filter @studio/desktop build",

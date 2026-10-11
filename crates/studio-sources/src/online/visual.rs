@@ -1,6 +1,31 @@
 use super::*;
 use studio_domain::visual::{VisualMediaPage, VisualMediaRef};
 
+pub(crate) fn namespace(
+    source: &Source,
+    expected: &QuerySourceVersion,
+    cancelled: studio_application::ReadCancellation,
+) -> Result<String> {
+    let view = Snapshot::open(
+        source,
+        Some(&expected.catalog_revision),
+        cancelled,
+        Some(Instant::now() + Duration::from_secs(30)),
+    )?;
+    if view.version(source) != *expected {
+        return Err(Error::new("SOURCE_CHANGED", "视觉来源版本不一致"));
+    }
+    if view.pointer.schema_version != 2
+        || !matches!(source.kind.as_str(), "danbooru" | "yandere" | "gelbooru")
+    {
+        return Err(Error::new(
+            "SOURCE_FORMAT_UNSUPPORTED",
+            "视觉增量发现仅支持三个 Booru 在线数据湖",
+        ));
+    }
+    Ok(format!("online-v2:{}", view.pointer.generation))
+}
+
 pub(crate) fn page(
     source: &Source,
     expected: &QuerySourceVersion,

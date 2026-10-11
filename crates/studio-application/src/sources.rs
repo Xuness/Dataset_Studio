@@ -37,6 +37,17 @@ pub trait SourceQueryFactory: Send + Sync {
     fn create(&self, options: &SourceQueryOptions) -> Box<dyn QueryAdapter>;
 }
 pub trait SourceProjection: Send + Sync {
+    fn visual_discovery_namespace(
+        &self,
+        _source: &Source,
+        _expected: &QuerySourceVersion,
+        _cancelled: ReadCancellation,
+    ) -> Result<String> {
+        Err(Error::new(
+            "SOURCE_FORMAT_UNSUPPORTED",
+            "该来源不支持增量视觉发现",
+        ))
+    }
     fn visual_selected(
         &self,
         _source: &Source,

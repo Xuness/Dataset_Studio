@@ -15,7 +15,7 @@ import imagehash
 import scipy.fftpack
 from PIL import Image, ImageOps
 
-from .models import Models
+from .models import Models, ModelLoadError
 from .vectors import Vectors
 from .metrics import milliseconds, peak_memory
 
@@ -185,6 +185,8 @@ class Execution:
                                 values = self.models.encode_bounded(recipe, [image for _, image in micro])
                                 features[rid].append(values)
                                 feature_rows[rid].extend(row for row, _ in micro)
+                            except ModelLoadError:
+                                raise
                             except Exception as error:
                                 for row, _ in micro:
                                     results.append({"object_id": row["object_id"], "recipe_id": rid, "status": "failed",

@@ -145,13 +145,79 @@ async fn duplicates(
         next_cursor,
     }))
 }
-#[utoipa::path(post,path="/indexes",request_body=VisualIndexRequest,responses((status=200,body=VisualIndexResult)),operation_id="visual_build_index")]
+#[utoipa::path(post,path="/indexes",request_body=VisualIndexRequest,responses((status=200,body=VisualIndexJob)),operation_id="visual_build_index")]
 async fn index(
     State(s): State<AppState>,
     Body(value): Body<VisualIndexRequest>,
-) -> ApiResult<VisualIndexResult> {
+) -> ApiResult<VisualIndexJob> {
     Ok(Json(wire(
-        blocking(move || s.visual.index(&value.recipe_id, value.partitions)).await?,
+        blocking(move || s.visual.create_index(wire(value)?)).await?,
+    )?))
+}
+#[utoipa::path(get,path="/indexes",params(("after"=Option<u64>,Query),("limit"=Option<u32>,Query)),responses((status=200,body=VisualIndexJobs)),operation_id="visual_index_jobs")]
+async fn index_jobs(
+    State(s): State<AppState>,
+    Query(page): Query<Page>,
+) -> ApiResult<VisualIndexJobs> {
+    let limit = page.limit.unwrap_or(50).clamp(1, 100);
+    let mut items =
+        blocking(move || s.visual.index_jobs(page.after.unwrap_or(0), limit + 1)).await?;
+    let more = items.len() > limit as usize;
+    items.truncate(limit as usize);
+    let next_cursor = if more {
+        items.last().map(|j| j.ordinal)
+    } else {
+        None
+    };
+    Ok(Json(VisualIndexJobs {
+        items: wire(items)?,
+        next_cursor,
+    }))
+}
+#[utoipa::path(get,path="/indexes/{id}",params(("id"=String,Path)),responses((status=200,body=VisualIndexJob)),operation_id="visual_index_job")]
+async fn index_job(State(s): State<AppState>, Path(id): Path<String>) -> ApiResult<VisualIndexJob> {
+    Ok(Json(wire(
+        blocking(move || s.visual.index_job(&id)).await?,
+    )?))
+}
+#[utoipa::path(post,path="/indexes/{id}/actions",params(("id"=String,Path)),request_body=VisualAction,responses((status=200,body=VisualIndexJob)),operation_id="visual_index_action")]
+async fn index_action(
+    State(s): State<AppState>,
+    Path(id): Path<String>,
+    Body(value): Body<VisualAction>,
+) -> ApiResult<VisualIndexJob> {
+    Ok(Json(wire(
+        blocking(move || s.visual.index_action(&id, &value.action)).await?,
+    )?))
+}
+#[utoipa::path(get,path="/discovery",responses((status=200,body=VisualDiscoveryCursors)),operation_id="visual_discovery")]
+async fn discovery(State(s): State<AppState>) -> ApiResult<VisualDiscoveryCursors> {
+    Ok(Json(VisualDiscoveryCursors {
+        items: wire(blocking(move || s.visual.discovery_cursors()).await?)?,
+    }))
+}
+#[utoipa::path(get,path="/retention",responses((status=200,body=VisualRetentionPolicy)),operation_id="visual_retention")]
+async fn retention(State(s): State<AppState>) -> ApiResult<VisualRetentionPolicy> {
+    Ok(Json(wire(
+        blocking(move || s.visual.retention_policy()).await?,
+    )?))
+}
+#[utoipa::path(put,path="/retention",request_body=VisualRetentionPolicy,responses((status=200,body=VisualRetentionPolicy)),operation_id="visual_set_retention")]
+async fn set_retention(
+    State(s): State<AppState>,
+    Body(value): Body<VisualRetentionPolicy>,
+) -> ApiResult<VisualRetentionPolicy> {
+    Ok(Json(wire(
+        blocking(move || s.visual.set_retention_policy(wire(value)?)).await?,
+    )?))
+}
+#[utoipa::path(post,path="/retention/cleanup",request_body=VisualCleanupRequest,responses((status=200,body=VisualCleanupResults)),operation_id="visual_cleanup")]
+async fn cleanup(
+    State(s): State<AppState>,
+    Body(value): Body<VisualCleanupRequest>,
+) -> ApiResult<VisualCleanupResults> {
+    Ok(Json(wire(
+        blocking(move || s.visual.cleanup(value.apply)).await?,
     )?))
 }
 #[utoipa::path(get,path="/runs/{id}/metrics",params(("id"=String,Path)),responses((status=200,body=VisualMetrics)),operation_id="visual_metrics")]
@@ -233,6 +299,14 @@ async fn export(
     search,
     duplicates,
     index,
+    index_jobs,
+    index_status,
+    index_job,
+    index_action,
+    discovery,
+    retention,
+    set_retention,
+    cleanup,
     metrics,
     snapshots,
     snapshot,
@@ -241,6 +315,12 @@ async fn export(
     export
 ))]
 pub struct VisualApiDoc;
+#[utoipa::path(get,path="/index-status",responses((status=200,body=VisualIndexStates)),operation_id="visual_index_status")]
+async fn index_status(State(s): State<AppState>) -> ApiResult<VisualIndexStates> {
+    Ok(Json(wire(
+        blocking(move || s.visual.index_status()).await?,
+    )?))
+}
 pub(super) fn routes() -> axum::Router<AppState> {
     axum::Router::new()
         .route("/runtime", get(runtime).put(configure))
@@ -259,5 +339,11 @@ pub(super) fn routes() -> axum::Router<AppState> {
         .route("/coverage", get(coverage))
         .route("/search", post(search))
         .route("/duplicates", post(duplicates))
-        .route("/indexes", post(index))
+        .route("/indexes", get(index_jobs).post(index))
+        .route("/index-status", get(index_status))
+        .route("/indexes/{id}", get(index_job))
+        .route("/indexes/{id}/actions", post(index_action))
+        .route("/discovery", get(discovery))
+        .route("/retention", get(retention).put(set_retention))
+        .route("/retention/cleanup", post(cleanup))
 }

@@ -1,4 +1,5 @@
 //! Shared identities, physical plans, sparse coverage and atomic publication.
+mod lifecycle;
 mod results;
 use fs2::FileExt;
 use rusqlite::{Connection, OptionalExtension, params};
@@ -76,15 +77,15 @@ impl VisualStore {
         let version: u32 = db
             .pragma_query_value(None, "user_version", |r| r.get(0))
             .map_err(err)?;
-        if version > 2 {
+        if version > 3 {
             return Err(Error::new("VISUAL_FORMAT", "视觉目录版本高于当前引擎"));
         }
         db.execute_batch(
             "PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA cache_size=-32768;",
         )
         .map_err(err)?;
-        if version == 1 {
-            let backup = root.join("visual-v1-before-v2.sqlite");
+        if version > 0 && version < 3 {
+            let backup = root.join(format!("visual-v{version}-before-v3.sqlite"));
             if !backup.exists() {
                 db.execute("VACUUM INTO ?1", [backup.to_string_lossy().as_ref()])
                     .map_err(err)?;
@@ -92,8 +93,12 @@ impl VisualStore {
         }
         db.execute_batch("BEGIN IMMEDIATE").map_err(err)?;
         db.execute_batch(include_str!("schema.sql")).map_err(err)?;
+        if version < 3 {
+            lifecycle::seed_discovery(&db)?;
+        }
         db.execute_batch("COMMIT").map_err(err)?;
         db.execute("UPDATE runs SET status='paused',error='引擎重启，可恢复未确认批次' WHERE status IN ('queued','planning','running','pausing','cancelling')", []).map_err(err)?;
+        db.execute("UPDATE index_jobs SET status='paused',error='引擎重启，可从索引检查点恢复' WHERE status IN ('queued','running','pausing','cancelling')",[]).map_err(err)?;
         Ok(Self {
             root,
             db: Mutex::new(db),
@@ -149,7 +154,7 @@ impl VisualStore {
         request: &VisualRunRequest,
         sources: &[VisualSourceSnapshot],
     ) -> Result<VisualRun> {
-        let id = new_id();
+        let id = request.request_id.clone().unwrap_or_else(new_id);
         let mut db = self.db()?;
         let tx = db.transaction().map_err(err)?;
         tx.execute(
@@ -311,6 +316,9 @@ impl VisualStore {
                 .request
                 .max_objects_per_source
                 .is_some_and(|n| snapshot.discovered >= n);
+        if run.request.scope_run_id.is_none() && run.request.assets.is_empty() {
+            tx.execute("INSERT INTO source_cursors VALUES (?1,?2,?3) ON CONFLICT(source_id,namespace) DO UPDATE SET after_row=max(after_row,excluded.after_row)",params![snapshot.source.id,lifecycle::namespace(snapshot),signed(snapshot.after_row)?]).map_err(err)?;
+        }
         tx.execute(
             "UPDATE runs SET sources=?2,planned=planned+?3,reused=reused+?4 WHERE id=?1",
             params![run.id, json(&snapshots)?, added as i64, reused],
@@ -378,7 +386,7 @@ impl VisualStore {
         }
     }
     pub fn has_unfinished(&self) -> Result<bool> {
-        self.db()?.query_row("SELECT EXISTS(SELECT 1 FROM runs WHERE status NOT IN ('completed','completed_with_errors','cancelled'))",[],|r|r.get(0)).map_err(err)
+        self.db()?.query_row("SELECT EXISTS(SELECT 1 FROM runs WHERE status NOT IN ('completed','completed_with_errors','cancelled')) OR EXISTS(SELECT 1 FROM index_jobs WHERE status NOT IN ('completed','cancelled'))",[],|r|r.get(0)).map_err(err)
     }
     fn select_batch(&self, run: &VisualRun) -> Result<Option<VisualBatchRequest>> {
         let all_recipes = self.recipes()?;
@@ -719,18 +727,21 @@ impl VisualStore {
                     .map_err(err)?
                     .ok_or_else(|| Error::new("RESULT_NOT_READY", "查询图片尚无 pHash"))?;
                 let bits = u64::from_str_radix(&hash, 16).map_err(err)?;
-                // At radius <= 7, one of eight disjoint bytes is unchanged. UNION
-                // gives complete candidates, and keyset pages handle crowded buckets.
-                let union = (0..8).map(|band| format!("SELECT object FROM hash_bands WHERE band={band} AND bits={} AND object>{after}", (bits >> (band*8)) & 255)).collect::<Vec<_>>().join(" UNION ");
+                // At radius <= 7, one byte is unchanged. The first K identities
+                // of a union must occur in a bucket's first K identities, so
+                // bounding each indexed range preserves complete keyset paging.
+                let scan_budget = (limit * 64).max(1024);
+                let fetch = scan_budget + 1;
+                let union = (0..8).map(|band| format!("SELECT object FROM (SELECT object FROM hash_bands WHERE band={band} AND bits={} AND object>{after} ORDER BY object LIMIT {fetch})", (bits >> (band*8)) & 255)).collect::<Vec<_>>().join(" UNION ");
                 let sql = format!(
-                    "SELECT h.object,h.value FROM hashes h JOIN ({union}) c ON c.object=h.object ORDER BY h.object LIMIT 50001"
+                    "SELECT h.object,h.value FROM hashes h JOIN ({union}) c ON c.object=h.object ORDER BY h.object LIMIT {fetch}"
                 );
                 let mut statement = db.prepare(&sql).map_err(err)?;
                 let mut rows = statement.query([]).map_err(err)?;
                 let mut examined = 0;
                 while let Some(row) = rows.next().map_err(err)? {
                     let id: i64 = row.get(0).map_err(err)?;
-                    if examined == 50000 || ids.len() == limit as usize {
+                    if examined == scan_budget || ids.len() == limit as usize {
                         more = true;
                         break;
                     }

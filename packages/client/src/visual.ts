@@ -101,9 +101,46 @@ export class VisualClient {
     });
   }
   buildIndex(value: Schema["VisualIndexRequest"]) {
-    return this.request<Schema["VisualIndexResult"]>(`${base}/indexes`, {
+    return this.request<Schema["VisualIndexJob"]>(`${base}/indexes`, {
       method: "POST",
       body: JSON.stringify(value),
     });
+  }
+  indexJobs(after = 0, limit = 50) {
+    return this.request<Schema["VisualIndexJobs"]>(
+      `${base}/indexes?after=${after}&limit=${limit}`,
+    );
+  }
+  indexStatus() {
+    return this.request<Schema["VisualIndexStates"]>(`${base}/index-status`);
+  }
+  indexJob(id: string) {
+    return this.request<Schema["VisualIndexJob"]>(
+      `${base}/indexes/${encodeURIComponent(id)}`,
+    );
+  }
+  indexAction(id: string, action: "pause" | "resume" | "cancel") {
+    return this.request<Schema["VisualIndexJob"]>(
+      `${base}/indexes/${encodeURIComponent(id)}/actions`,
+      { method: "POST", body: JSON.stringify({ action }) },
+    );
+  }
+  discovery() {
+    return this.request<Schema["VisualDiscoveryCursors"]>(`${base}/discovery`);
+  }
+  retention() {
+    return this.request<Schema["VisualRetentionPolicy"]>(`${base}/retention`);
+  }
+  setRetention(value: Schema["VisualRetentionPolicy"]) {
+    return this.request<Schema["VisualRetentionPolicy"]>(`${base}/retention`, {
+      method: "PUT",
+      body: JSON.stringify(value),
+    });
+  }
+  cleanup(apply = false) {
+    return this.request<Schema["VisualCleanupResults"]>(
+      `${base}/retention/cleanup`,
+      { method: "POST", body: JSON.stringify({ apply }) },
+    );
   }
 }

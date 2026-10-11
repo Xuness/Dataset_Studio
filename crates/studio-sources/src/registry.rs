@@ -24,6 +24,14 @@ struct Projections {
     directory: PathBuf,
 }
 impl SourceProjection for Projections {
+    fn visual_discovery_namespace(
+        &self,
+        source: &Source,
+        expected: &QuerySourceVersion,
+        cancelled: ReadCancellation,
+    ) -> Result<String> {
+        crate::online::visual::namespace(source, expected, cancelled)
+    }
     fn visual_selected(
         &self,
         source: &Source,

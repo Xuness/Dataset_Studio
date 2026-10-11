@@ -67,10 +67,14 @@ pub struct VisualSourceSnapshot {
     pub after_row: u64,
     pub discovered: u64,
     pub complete: bool,
+    pub discovery_namespace: String,
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct VisualRunRequest {
+    /// Optional canonical UUID for idempotent submission; also becomes the task ID.
+    #[serde(default)]
+    pub request_id: Option<String>,
     pub source_ids: Vec<String>,
     /// Immutable recipe IDs from /visual/models or /visual/recipes. Empty runs pHash only.
     pub recipe_ids: Vec<String>,
@@ -83,6 +87,8 @@ pub struct VisualRunRequest {
     pub assets: Vec<AssetKey>,
     #[serde(default)]
     pub micro_batch_sizes: std::collections::BTreeMap<String, u32>,
+    #[serde(default)]
+    pub incremental: bool,
 }
 fn batch_size() -> u32 {
     256
@@ -188,8 +194,20 @@ pub struct VisualDuplicates {
 #[derive(Serialize, Deserialize, ToSchema)]
 #[serde(deny_unknown_fields)]
 pub struct VisualIndexRequest {
+    #[serde(default)]
+    pub request_id: Option<String>,
     pub recipe_id: String,
     pub partitions: Option<u32>,
+    #[serde(default = "index_iterations")]
+    pub max_iterations: u32,
+    #[serde(default = "index_sample_rate")]
+    pub sample_rate: u32,
+}
+fn index_iterations() -> u32 {
+    30
+}
+fn index_sample_rate() -> u32 {
+    128
 }
 #[derive(Serialize, Deserialize, ToSchema)]
 pub struct VisualIndexResult {
@@ -197,6 +215,99 @@ pub struct VisualIndexResult {
     pub rows: u64,
     pub partitions: u32,
     pub index_type: String,
+    pub indexed_rows: u64,
+    pub unindexed_rows: u64,
+    pub elapsed_ms: u64,
+    pub peak_rss_bytes: u64,
+    pub training_sample_rate: Option<u32>,
+    pub build_revision: Option<u32>,
+    pub training_rows_target: Option<u64>,
+    pub nonempty_partitions: Option<u32>,
+    pub largest_partition_rows: Option<u64>,
+}
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct VisualIndexProgress {
+    pub phase: String,
+    pub completed_units: Option<u64>,
+    pub total_units: Option<u64>,
+    pub unit: String,
+    pub updated_at_ms: u64,
+}
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct VisualIndexJob {
+    pub id: String,
+    pub ordinal: u64,
+    pub status: String,
+    pub request: VisualIndexRequest,
+    pub input_version: u64,
+    pub progress: VisualIndexProgress,
+    pub result: Option<VisualIndexResult>,
+    pub error: Option<String>,
+    pub worker_running: bool,
+}
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct VisualIndexJobs {
+    pub items: Vec<VisualIndexJob>,
+    pub next_cursor: Option<u64>,
+}
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct VisualIndexState {
+    pub recipe_id: String,
+    pub version: u64,
+    pub rows: u64,
+    pub indexed_rows: u64,
+    pub unindexed_rows: u64,
+    pub index_type: Option<String>,
+    pub trained_rows: u64,
+    pub partitions: Option<u32>,
+    pub nonempty_partitions: Option<u32>,
+    pub largest_partition_rows: Option<u64>,
+    pub needs_rebuild: bool,
+}
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct VisualIndexStates {
+    pub items: Vec<VisualIndexState>,
+}
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct VisualDiscoveryCursor {
+    pub source_id: String,
+    pub namespace: String,
+    pub after_row: u64,
+}
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct VisualDiscoveryCursors {
+    pub items: Vec<VisualDiscoveryCursor>,
+}
+#[derive(Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct VisualRetentionPolicy {
+    pub automatic: bool,
+    pub keep_last_versions: u32,
+    pub min_age_hours: u32,
+}
+#[derive(Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct VisualCleanupRequest {
+    #[serde(default)]
+    pub apply: bool,
+}
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct VisualCleanupResult {
+    pub recipe_id: String,
+    pub published_version: u64,
+    pub keep_last: u32,
+    pub min_age_hours: u32,
+    pub applied: bool,
+    pub versions_before: u64,
+    pub candidate_versions: u64,
+    pub released_publication_tags: u64,
+    pub protected_versions: u64,
+    pub removed_versions: u64,
+    pub bytes_removed: u64,
+}
+#[derive(Serialize, Deserialize, ToSchema)]
+pub struct VisualCleanupResults {
+    pub items: Vec<VisualCleanupResult>,
 }
 
 #[derive(Serialize, Deserialize, ToSchema)]
@@ -253,6 +364,7 @@ pub struct VisualFeaturePageRequest {
 pub struct VisualFeaturePage {
     pub recipe_id: String,
     pub version: u64,
+    pub cursor_kind: String,
     pub items: Vec<VisualMatch>,
     /// The cursor covers examined identities; continue empty pages when non-null.
     pub next_cursor: Option<i64>,
@@ -262,6 +374,7 @@ pub struct VisualExportPage {
     pub recipe_id: String,
     pub snapshot_id: String,
     pub version: u64,
+    pub cursor_kind: String,
     pub rows: u64,
     pub path: Option<String>,
     pub sha256: Option<String>,

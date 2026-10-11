@@ -92,3 +92,31 @@ def test_windows_verbatim_path_supports_native_maintenance(tmp_path):
         vectors.append(recipe, f"batch-{n}", rows, values)
         vectors.project_sources(recipe, rows)
     assert vectors.table(recipe).to_lance().count_rows() == 35
+
+
+def test_shared_read_cache_keeps_versions_isolated_and_paginates_deleted_offsets(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    import pyarrow as pa
+    recipe = {"id": "a" * 64, "dimension": 256}
+    vectors = Vectors(tmp_path)
+    values = normalized(np.random.default_rng(19).normal(size=(20, 256)), 256)
+    rows = [{"object_id": 100 + n * 7, "source_ids": [1]} for n in range(20)]
+    vectors.append(recipe, "old", rows[:10], values[:10])
+    old = vectors.project_sources(recipe, rows[:1])
+    vectors.append(recipe, "new", rows[10:], values[10:])
+    vectors.project_sources(recipe, [{"object_id": rows[1]["object_id"], "source_ids": [1, 2]}])
+    latest = vectors.table(recipe).version
+    def read(version):
+        after, ids = 0, []
+        while True:
+            page = vectors.snapshot_page(recipe, version, after, 3)
+            ids.extend(page["object_ids"])
+            if page["next_cursor"] is None:
+                return sorted(ids)
+            after = page["next_cursor"]
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(read, [old, latest] * 4))
+    assert all(r == [i["object_id"] for i in rows[:10]] for r in results[::2])
+    assert all(r == [i["object_id"] for i in rows] for r in results[1::2])
+    exported = vectors.snapshot_page(recipe, old, 3, 4, export=True)
+    assert pa.ipc.open_file(exported["path"]).read_all()["object_id"].to_pylist() == [r["object_id"] for r in rows[3:7]]

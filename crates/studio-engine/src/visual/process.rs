@@ -25,12 +25,22 @@ fn unavailable(e: impl std::fmt::Display) -> Error {
 
 impl Worker {
     pub fn start(root: &Path, config: &VisualRuntimeConfig) -> Result<Arc<Self>> {
+        Self::start_as(root, config, "models")
+    }
+    pub fn start_index(root: &Path, config: &VisualRuntimeConfig) -> Result<Arc<Self>> {
+        Self::start_as(root, config, "index")
+    }
+    fn start_as(root: &Path, config: &VisualRuntimeConfig, purpose: &str) -> Result<Arc<Self>> {
         let bundle = super::bundle::install(root)?;
         fs::create_dir_all(root.join("logs")).map_err(Error::io)?;
         let log = OpenOptions::new()
             .create(true)
             .append(true)
-            .open(root.join("logs/visual-worker.log"))
+            .open(root.join(if purpose == "index" {
+                "logs/visual-index-worker.log"
+            } else {
+                "logs/visual-worker.log"
+            }))
             .map_err(Error::io)?;
         let mut command = Command::new(&config.python);
         command
@@ -40,6 +50,8 @@ impl Worker {
             .arg(&config.materials_root)
             .arg("--device")
             .arg(&config.device)
+            .arg("--purpose")
+            .arg(purpose)
             .current_dir(&bundle)
             .env_remove("PYTHONPATH")
             .env("PYTHONIOENCODING", "utf-8")
@@ -178,11 +190,13 @@ impl VisualExecutor for Worker {
             self.waiting.lock().map_err(unavailable)?.remove(&id);
             return Err(error);
         }
-        match receiver.recv_timeout(Duration::from_secs(if operation == "index" {
-            24 * 60 * 60
-        } else {
-            15 * 60
-        })) {
+        match receiver.recv_timeout(Duration::from_secs(
+            if matches!(operation, "index" | "index_job") {
+                24 * 60 * 60
+            } else {
+                15 * 60
+            },
+        )) {
             Ok(result) => result,
             Err(_) => {
                 // A timed-out writer must be dead before another writer starts.

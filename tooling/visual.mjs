@@ -10,12 +10,14 @@ const option = (name) =>
 const [command, id, action] = args.filter((a) => !a.startsWith("--"));
 if (!command || command === "help") {
   console.log(`用法：pnpm visual <命令> [--data-dir=应用目录]
-runtime | models | recipes | sources | runs | coverage | snapshots
+runtime | models | recipes | sources | runs | coverage | snapshots | indexes | index-status | discovery | retention
 configure --materials-root=目录 [--models-root=目录] [--python=解释器] [--device=cuda|cpu]
 create --sources=来源ID,... [--models=all|siglip2_naflex,embeddinggemma2,kaloscope3|none] [--limit=每湖对象数] [--batch=256]
 run 任务ID | action 任务ID pause|resume|cancel | failures 任务ID | metrics 任务ID
 create | snapshot | features | export | search | duplicates | index --input=请求JSON文件
-create 也可使用 --scope-run=已有任务ID，复用其全部图片范围。
+index-job 索引任务ID | index-action 索引任务ID pause|resume|cancel
+retention-set --input=策略JSON文件 | cleanup [--apply]
+create 也可使用 --scope-run=已有任务ID，或 --incremental 接续发现水位。
 不设置 create --limit 时，任务覆盖所选来源固定版本的全部对象。`);
 } else {
   const directory = resolve(option("data-dir") ?? resolve(root, ".local/dev"));
@@ -48,6 +50,10 @@ create 也可使用 --scope-run=已有任务ID，复用其全部图片范围。
       "runs",
       "coverage",
       "snapshots",
+      "indexes",
+      "index-status",
+      "discovery",
+      "retention",
     ].includes(command)
   )
     result = await request(command);
@@ -87,6 +93,7 @@ create 也可使用 --scope-run=已有任务ID，复用其全部图片范围。
       max_objects_per_source: option("limit") ? Number(option("limit")) : null,
       batch_size: Number(option("batch") ?? 256),
       scope_run_id: option("scope-run") ?? null,
+      incremental: args.includes("--incremental"),
     });
   } else if (command === "run" && id)
     result = await request(`runs/${encodeURIComponent(id)}`);
@@ -96,6 +103,22 @@ create 也可使用 --scope-run=已有任务ID，复用其全部图片范围。
     });
   else if (command === "metrics" && id)
     result = await request(`runs/${encodeURIComponent(id)}/metrics`);
+  else if (command === "index-job" && id)
+    result = await request(`indexes/${encodeURIComponent(id)}`);
+  else if (command === "index-action" && id && action)
+    result = await request(`indexes/${encodeURIComponent(id)}/actions`, {
+      action,
+    });
+  else if (command === "cleanup")
+    result = await request("retention/cleanup", {
+      apply: args.includes("--apply"),
+    });
+  else if (command === "retention-set" && option("input"))
+    result = await request(
+      "retention",
+      JSON.parse(await readFile(resolve(option("input")), "utf8")),
+      "PUT",
+    );
   else if (command === "failures" && id)
     result = await request(
       `runs/${encodeURIComponent(id)}/failures?after=${option("after") ?? 0}`,

@@ -106,6 +106,18 @@ impl SourceService {
     }
 }
 impl SourceRead {
+    pub fn visual_discovery_namespace(
+        &self,
+        source: &Source,
+        expected: &QuerySourceVersion,
+    ) -> Result<String> {
+        self.require_class(ReadClass::NativeQuery)?;
+        self.provider(source)?
+            .projection
+            .as_ref()
+            .ok_or_else(unsupported)?
+            .visual_discovery_namespace(source, expected, self.context.cancelled.clone())
+    }
     pub fn visual_selected(
         &self,
         source: &Source,

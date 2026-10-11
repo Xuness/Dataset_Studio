@@ -42,6 +42,7 @@ fn snapshot(id: &str) -> VisualSourceSnapshot {
         after_row: 0,
         discovered: 0,
         complete: false,
+        discovery_namespace: "fixture".into(),
     }
 }
 fn new_run(store: &VisualStore, sources: &[&str], with_model: bool) -> VisualRun {
@@ -49,6 +50,7 @@ fn new_run(store: &VisualStore, sources: &[&str], with_model: bool) -> VisualRun
     store
         .create_run(
             &VisualRunRequest {
+                request_id: None,
                 source_ids: sources.iter().map(|s| (*s).into()).collect(),
                 recipe_ids: if with_model {
                     vec![recipe().id]
@@ -60,6 +62,7 @@ fn new_run(store: &VisualStore, sources: &[&str], with_model: bool) -> VisualRun
                 scope_run_id: None,
                 assets: vec![],
                 micro_batch_sizes: BTreeMap::new(),
+                incremental: false,
             },
             &sources.iter().map(|s| snapshot(s)).collect::<Vec<_>>(),
         )
@@ -336,6 +339,41 @@ fn phash_radius_seven_is_complete_across_pages() {
 }
 
 #[test]
+fn dense_phash_bucket_has_bounded_empty_pages_without_losing_late_matches() {
+    let temp = temporary();
+    let store = fixture(temp.path());
+    {
+        let db = store.db().unwrap();
+        // All 100,000 hashes share one byte. Only the first and last match.
+        db.execute_batch("BEGIN;
+            INSERT INTO sources(id,source_id) VALUES(1,'one');
+            WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<100000)
+              INSERT INTO objects(id,sha256) SELECT x,printf('%064x',x) FROM n;
+            INSERT INTO bindings SELECT 1,id FROM objects;
+            INSERT INTO hashes SELECT id,CASE WHEN id IN (1,100000) THEN '0000000000000000' ELSE 'ffffffffffffff00' END FROM objects;
+            INSERT INTO hash_bands SELECT 0,0,id FROM objects;
+            COMMIT;").unwrap();
+    }
+    let key = AssetKey {
+        source_id: "one".into(),
+        asset_id: format!("{:064x}", 1),
+    };
+    let (items, cursor) = store.duplicates(Some(&key), 0, 1, 0).unwrap();
+    assert!(items.is_empty());
+    assert_eq!(cursor, Some(1024));
+    let mut after = cursor.unwrap();
+    let mut found = Vec::new();
+    loop {
+        let (items, next) = store.duplicates(Some(&key), after, 1, 0).unwrap();
+        found.extend(items.into_iter().map(|item| item.object_id));
+        let Some(next) = next else { break };
+        assert!(next > after && next - after <= 1024);
+        after = next;
+    }
+    assert_eq!(found, vec![100000]);
+}
+
+#[test]
 fn scopes_include_reused_members_without_copying_and_metrics_publish_once() {
     let temp = temporary();
     let store = fixture(temp.path());
@@ -433,10 +471,125 @@ fn upgrade_preserves_v1_coverage_and_snapshot_selects_old_version() {
         .unwrap();
     drop(store);
     let reopened = fixture(temp.path());
-    assert!(temp.path().join("visual-v1-before-v2.sqlite").exists());
+    assert!(temp.path().join("visual-v1-before-v3.sqlite").exists());
     assert_eq!(reopened.version(&recipe().id).unwrap(), 9);
     assert_eq!(
         reopened.snapshot("frozen").unwrap().versions[&recipe().id],
         7
     );
+}
+
+#[test]
+fn discovery_watermarks_survive_restarts_but_reset_on_source_generation_change() {
+    let temp = temporary();
+    let store = fixture(temp.path());
+    let run = new_run(&store, &["one"], false);
+    store
+        .discover(
+            &run,
+            0,
+            &VisualMediaPage {
+                items: vec![media(7, 10), media(37, 20)],
+                complete: true,
+            },
+        )
+        .unwrap();
+    assert_eq!(store.discovery_cursor("one", "fixture").unwrap(), 37);
+    let mut explicit_request = run.request.clone();
+    explicit_request.assets = vec![AssetKey {
+        source_id: "one".into(),
+        asset_id: media(100, 0).sha256,
+    }];
+    let explicit = store
+        .create_run(&explicit_request, &[snapshot("one")])
+        .unwrap();
+    store
+        .discover(
+            &explicit,
+            0,
+            &VisualMediaPage {
+                items: vec![media(100, 0)],
+                complete: true,
+            },
+        )
+        .unwrap();
+    assert_eq!(store.discovery_cursor("one", "fixture").unwrap(), 37);
+    // Reconstruct the shape of an actual v2 request/snapshot JSON, without the
+    // new namespace field, and seed only sequential catalog runs during upgrade.
+    let mut request = serde_json::to_value(&run.request).unwrap();
+    request.as_object_mut().unwrap().remove("incremental");
+    let mut sources = serde_json::to_value(&store.run(&run.id).unwrap().sources).unwrap();
+    sources[0]
+        .as_object_mut()
+        .unwrap()
+        .remove("discovery_namespace");
+    sources[0]["version"]["catalog_revision"] = serde_json::json!("online-v2:old-generation:5");
+    store
+        .db()
+        .unwrap()
+        .execute(
+            "UPDATE runs SET request=?2,sources=?3 WHERE id=?1",
+            params![run.id, json(&request).unwrap(), json(&sources).unwrap()],
+        )
+        .unwrap();
+    store
+        .db()
+        .unwrap()
+        .execute_batch("DELETE FROM source_cursors; PRAGMA user_version=2")
+        .unwrap();
+    drop(store);
+    let reopened = fixture(temp.path());
+    assert_eq!(
+        reopened
+            .discovery_cursor("one", "online-v2:old-generation")
+            .unwrap(),
+        37
+    );
+    assert_eq!(
+        reopened
+            .discovery_cursor("one", "online-v2:new-generation")
+            .unwrap(),
+        0
+    );
+    assert!(temp.path().join("visual-v2-before-v3.sqlite").exists());
+}
+
+#[test]
+fn index_job_restarts_paused_and_publishes_atomically_once() {
+    let temp = temporary();
+    let store = fixture(temp.path());
+    store.register_recipes(&[recipe()]).unwrap();
+    store
+        .db()
+        .unwrap()
+        .execute("INSERT INTO versions VALUES (?1,7)", [recipe().id])
+        .unwrap();
+    let request = VisualIndexRequest {
+        request_id: None,
+        recipe_id: recipe().id,
+        partitions: Some(4),
+        max_iterations: 3,
+        sample_rate: 64,
+    };
+    let job = store.create_index_job(&request, 7).unwrap();
+    assert!(store.create_index_job(&request, 7).is_err());
+    store.index_status(&job.id, "running", None, None).unwrap();
+    drop(store);
+    let store = fixture(temp.path());
+    assert_eq!(store.index_job(&job.id).unwrap().status, "paused");
+    assert_eq!(store.version(&recipe().id).unwrap(), 7);
+    let receipt = serde_json::json!({"version":11,"rows":500,"partitions":4,"index_type":"IVF_FLAT","indexed_rows":500,"unindexed_rows":0,"elapsed_ms":10,"peak_rss_bytes":1});
+    store.publish_index_job(&job.id, &receipt).unwrap();
+    store.publish_index_job(&job.id, &receipt).unwrap();
+    assert_eq!(store.version(&recipe().id).unwrap(), 11);
+    assert!(store.unfinished_index().unwrap().is_none());
+    let second = store.create_index_job(&request, 11).unwrap();
+    store.publish_index(&recipe().id, 12).unwrap();
+    assert!(
+        store
+            .publish_index_job(&second.id, &serde_json::json!({"version":13,"rows":500}))
+            .is_err()
+    );
+    assert_eq!(store.version(&recipe().id).unwrap(), 12);
+    assert_eq!(store.index_job(&second.id).unwrap().status, "queued");
 }

@@ -10366,6 +10366,26 @@
         }
       }
     },
+    "/v1/visual/discovery": {
+      "get": {
+        "tags": [
+          "visual"
+        ],
+        "operationId": "visual_discovery",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VisualDiscoveryCursors"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/visual/duplicates": {
       "post": {
         "tags": [
@@ -10456,7 +10476,67 @@
         }
       }
     },
+    "/v1/visual/index-status": {
+      "get": {
+        "tags": [
+          "visual"
+        ],
+        "operationId": "visual_index_status",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VisualIndexStates"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/visual/indexes": {
+      "get": {
+        "tags": [
+          "visual"
+        ],
+        "operationId": "visual_index_jobs",
+        "parameters": [
+          {
+            "name": "after",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VisualIndexJobs"
+                }
+              }
+            }
+          }
+        }
+      },
       "post": {
         "tags": [
           "visual"
@@ -10478,7 +10558,77 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/VisualIndexResult"
+                  "$ref": "#/components/schemas/VisualIndexJob"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/visual/indexes/{id}": {
+      "get": {
+        "tags": [
+          "visual"
+        ],
+        "operationId": "visual_index_job",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VisualIndexJob"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/visual/indexes/{id}/actions": {
+      "post": {
+        "tags": [
+          "visual"
+        ],
+        "operationId": "visual_index_action",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VisualAction"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VisualIndexJob"
                 }
               }
             }
@@ -10519,6 +10669,84 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/VisualRecipes"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/visual/retention": {
+      "get": {
+        "tags": [
+          "visual"
+        ],
+        "operationId": "visual_retention",
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VisualRetentionPolicy"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "visual"
+        ],
+        "operationId": "visual_set_retention",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VisualRetentionPolicy"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VisualRetentionPolicy"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/visual/retention/cleanup": {
+      "post": {
+        "tags": [
+          "visual"
+        ],
+        "operationId": "visual_cleanup",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VisualCleanupRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VisualCleanupResults"
                 }
               }
             }
@@ -28057,6 +28285,98 @@
         },
         "additionalProperties": false
       },
+      "VisualCleanupRequest": {
+        "type": "object",
+        "properties": {
+          "apply": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "VisualCleanupResult": {
+        "type": "object",
+        "required": [
+          "recipe_id",
+          "published_version",
+          "keep_last",
+          "min_age_hours",
+          "applied",
+          "versions_before",
+          "candidate_versions",
+          "released_publication_tags",
+          "protected_versions",
+          "removed_versions",
+          "bytes_removed"
+        ],
+        "properties": {
+          "applied": {
+            "type": "boolean"
+          },
+          "bytes_removed": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "candidate_versions": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "keep_last": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "min_age_hours": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "protected_versions": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "published_version": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "recipe_id": {
+            "type": "string"
+          },
+          "released_publication_tags": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "removed_versions": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "versions_before": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "VisualCleanupResults": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VisualCleanupResult"
+            }
+          }
+        }
+      },
       "VisualCoverage": {
         "type": "object",
         "required": [
@@ -28107,6 +28427,41 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/VisualCoverage"
+            }
+          }
+        }
+      },
+      "VisualDiscoveryCursor": {
+        "type": "object",
+        "required": [
+          "source_id",
+          "namespace",
+          "after_row"
+        ],
+        "properties": {
+          "after_row": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "namespace": {
+            "type": "string"
+          },
+          "source_id": {
+            "type": "string"
+          }
+        }
+      },
+      "VisualDiscoveryCursors": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VisualDiscoveryCursor"
             }
           }
         }
@@ -28187,6 +28542,7 @@
           "recipe_id",
           "snapshot_id",
           "version",
+          "cursor_kind",
           "rows",
           "bytes"
         ],
@@ -28195,6 +28551,9 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          },
+          "cursor_kind": {
+            "type": "string"
           },
           "next_cursor": {
             "type": [
@@ -28285,9 +28644,13 @@
         "required": [
           "recipe_id",
           "version",
+          "cursor_kind",
           "items"
         ],
         "properties": {
+          "cursor_kind": {
+            "type": "string"
+          },
           "items": {
             "type": "array",
             "items": {
@@ -28346,12 +28709,131 @@
         },
         "additionalProperties": false
       },
+      "VisualIndexJob": {
+        "type": "object",
+        "required": [
+          "id",
+          "ordinal",
+          "status",
+          "request",
+          "input_version",
+          "progress",
+          "worker_running"
+        ],
+        "properties": {
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "input_version": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "ordinal": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "progress": {
+            "$ref": "#/components/schemas/VisualIndexProgress"
+          },
+          "request": {
+            "$ref": "#/components/schemas/VisualIndexRequest"
+          },
+          "result": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/VisualIndexResult"
+              }
+            ]
+          },
+          "status": {
+            "type": "string"
+          },
+          "worker_running": {
+            "type": "boolean"
+          }
+        }
+      },
+      "VisualIndexJobs": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VisualIndexJob"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "VisualIndexProgress": {
+        "type": "object",
+        "required": [
+          "phase",
+          "unit",
+          "updated_at_ms"
+        ],
+        "properties": {
+          "completed_units": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "phase": {
+            "type": "string"
+          },
+          "total_units": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "unit": {
+            "type": "string"
+          },
+          "updated_at_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "VisualIndexRequest": {
         "type": "object",
         "required": [
           "recipe_id"
         ],
         "properties": {
+          "max_iterations": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
           "partitions": {
             "type": [
               "integer",
@@ -28362,6 +28844,17 @@
           },
           "recipe_id": {
             "type": "string"
+          },
+          "request_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sample_rate": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
           }
         },
         "additionalProperties": false
@@ -28372,18 +28865,82 @@
           "version",
           "rows",
           "partitions",
-          "index_type"
+          "index_type",
+          "indexed_rows",
+          "unindexed_rows",
+          "elapsed_ms",
+          "peak_rss_bytes"
         ],
         "properties": {
+          "build_revision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "elapsed_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
           "index_type": {
             "type": "string"
+          },
+          "indexed_rows": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "largest_partition_rows": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "nonempty_partitions": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
           },
           "partitions": {
             "type": "integer",
             "format": "int32",
             "minimum": 0
           },
+          "peak_rss_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
           "rows": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "training_rows_target": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "training_sample_rate": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "unindexed_rows": {
             "type": "integer",
             "format": "int64",
             "minimum": 0
@@ -28392,6 +28949,95 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          }
+        }
+      },
+      "VisualIndexState": {
+        "type": "object",
+        "required": [
+          "recipe_id",
+          "version",
+          "rows",
+          "indexed_rows",
+          "unindexed_rows",
+          "trained_rows",
+          "needs_rebuild"
+        ],
+        "properties": {
+          "index_type": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "indexed_rows": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "largest_partition_rows": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "minimum": 0
+          },
+          "needs_rebuild": {
+            "type": "boolean"
+          },
+          "nonempty_partitions": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "partitions": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "recipe_id": {
+            "type": "string"
+          },
+          "rows": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "trained_rows": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "unindexed_rows": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "version": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
+      "VisualIndexStates": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/VisualIndexState"
+            }
           }
         }
       },
@@ -28663,6 +29309,30 @@
           }
         }
       },
+      "VisualRetentionPolicy": {
+        "type": "object",
+        "required": [
+          "automatic",
+          "keep_last_versions",
+          "min_age_hours"
+        ],
+        "properties": {
+          "automatic": {
+            "type": "boolean"
+          },
+          "keep_last_versions": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "min_age_hours": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
       "VisualRun": {
         "type": "object",
         "required": [
@@ -28750,6 +29420,9 @@
             "format": "int32",
             "minimum": 0
           },
+          "incremental": {
+            "type": "boolean"
+          },
           "max_objects_per_source": {
             "type": [
               "integer",
@@ -28775,6 +29448,13 @@
               "type": "string"
             },
             "description": "Immutable recipe IDs from /visual/models or /visual/recipes. Empty runs pHash only."
+          },
+          "request_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional canonical UUID for idempotent submission; also becomes the task ID."
           },
           "scope_run_id": {
             "type": [
@@ -29078,7 +29758,8 @@
           "total_objects",
           "after_row",
           "discovered",
-          "complete"
+          "complete",
+          "discovery_namespace"
         ],
         "properties": {
           "after_row": {
@@ -29093,6 +29774,9 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          },
+          "discovery_namespace": {
+            "type": "string"
           },
           "source": {
             "$ref": "#/components/schemas/VisualSource"

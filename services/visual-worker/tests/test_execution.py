@@ -176,3 +176,14 @@ def test_maintenance_failure_stops_batch_and_replays_committed_vectors(tmp_path,
     result = restarted.finish("one")
     assert all(r["status"] == "success" for r in result["results"])
     assert len(FakeModels.calls) == 1
+
+
+def test_model_load_failure_keeps_batch_unconfirmed(tmp_path, monkeypatch):
+    worker = execution.Execution(tmp_path / "features", "cpu")
+    def fail(*args):
+        raise execution.ModelLoadError("weights changed")
+    monkeypatch.setattr(worker.models, "encode_bounded", fail)
+    worker.prepare(request(images(tmp_path)[:2], [recipe()]))
+    with pytest.raises(execution.ModelLoadError, match="weights changed"):
+        worker.finish("one")
+    assert not worker.receipt_path("one").exists()

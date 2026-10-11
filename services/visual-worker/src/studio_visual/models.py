@@ -18,6 +18,10 @@ MODELS = {
 }
 
 
+class ModelLoadError(RuntimeError):
+    """Environment/weight failures stop the durable batch, not every image."""
+
+
 def digest(path):
     with Path(path).open("rb") as stream:
         return hashlib.file_digest(stream, "sha256").hexdigest()
@@ -146,12 +150,15 @@ class Models:
         if key not in self.loaded:
             started = time.perf_counter()
             try:
-                self.loaded[key] = self._load(recipe)
-            except torch.cuda.OutOfMemoryError:
-                self.loaded.clear()
-                gc.collect()
-                torch.cuda.empty_cache()
-                self.loaded[key] = self._load(recipe)
+                try:
+                    self.loaded[key] = self._load(recipe)
+                except torch.cuda.OutOfMemoryError:
+                    self.loaded.clear()
+                    gc.collect()
+                    torch.cuda.empty_cache()
+                    self.loaded[key] = self._load(recipe)
+            except Exception as error:
+                raise ModelLoadError(f"model_load_failed: {recipe['model']}: {error}") from error
             finally:
                 self.timed(recipe, "load", started)
         model, processor = self.loaded[key]

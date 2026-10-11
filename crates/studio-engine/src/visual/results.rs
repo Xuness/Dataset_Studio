@@ -16,6 +16,7 @@ impl Backend {
         }
         let _gate = self.gate.lock().map_err(lock)?;
         let session = self.ensure()?;
+        let _history = session.history.read().map_err(lock)?;
         let versions = session.store.version_map(recipe_ids)?;
         let id = studio_domain::new_id();
         for (rid, version) in &versions {
@@ -39,17 +40,10 @@ impl Backend {
         }
         let session = self.ensure()?;
         let recipe = session.store.recipe(&request.recipe_id)?;
+        let _history = session.history.read().map_err(lock)?;
         let version = session
             .store
             .selected_version(&recipe.id, request.snapshot_id.as_deref())?;
-        let mut ids = session.store.feature_candidates(
-            request.run_id.as_deref(),
-            request.after,
-            request.limit + 1,
-        )?;
-        let more = ids.len() > request.limit as usize;
-        ids.truncate(request.limit as usize);
-        let next_cursor = if more { ids.last().copied() } else { None };
         let _lease = self.resources.acquire(
             ReadRequest {
                 class: ReadClass::NativeQuery,
@@ -58,13 +52,30 @@ impl Backend {
             },
             &flag(),
         )?;
-        let value = self.worker(&session)?.request(
-            if export { "export_page" } else { "entries" },
-            json!({"recipe":recipe,"version":version,"ids":ids}),
-        )?;
+        let (value, next_cursor, cursor_kind) = if request.run_id.is_none()
+            && request.snapshot_id.is_some()
+        {
+            let value=self.worker(&session)?.request("snapshot_page",json!({"recipe":recipe,"version":version,"after":request.after,"limit":request.limit,"export":export}))?;
+            let cursor = value["next_cursor"].as_i64();
+            (value, cursor, "snapshot_offset")
+        } else {
+            let mut ids = session.store.feature_candidates(
+                request.run_id.as_deref(),
+                request.after,
+                request.limit + 1,
+            )?;
+            let more = ids.len() > request.limit as usize;
+            ids.truncate(request.limit as usize);
+            let cursor = if more { ids.last().copied() } else { None };
+            let value = self.worker(&session)?.request(
+                if export { "export_page" } else { "entries" },
+                json!({"recipe":recipe,"version":version,"ids":ids}),
+            )?;
+            (value, cursor, "object_id")
+        };
         if export {
             return Ok(
-                json!({"recipe_id":recipe.id,"snapshot_id":request.snapshot_id,"version":version,"next_cursor":next_cursor,"rows":value["rows"],"path":value["path"],"sha256":value["sha256"],"bytes":value["bytes"]}),
+                json!({"recipe_id":recipe.id,"snapshot_id":request.snapshot_id,"version":version,"cursor_kind":cursor_kind,"next_cursor":next_cursor,"rows":value["rows"],"path":value["path"],"sha256":value["sha256"],"bytes":value["bytes"]}),
             );
         }
         let ids: Vec<i64> = decode(value["object_ids"].clone())?;
@@ -77,6 +88,8 @@ impl Backend {
             &ids.into_iter().map(|id| (id, None)).collect::<Vec<_>>(),
             &source_ids,
         )?;
-        Ok(json!({"recipe_id":recipe.id,"version":version,"items":items,"next_cursor":next_cursor}))
+        Ok(
+            json!({"recipe_id":recipe.id,"version":version,"cursor_kind":cursor_kind,"items":items,"next_cursor":next_cursor}),
+        )
     }
 }

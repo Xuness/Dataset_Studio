@@ -3647,6 +3647,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/visual/discovery": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["visual_discovery"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/visual/duplicates": {
         parameters: {
             query?: never;
@@ -3695,7 +3711,55 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/visual/index-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["visual_index_status"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/visual/indexes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["visual_index_jobs"];
+        put?: never;
+        post: operations["visual_build_index"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/visual/indexes/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["visual_index_job"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/visual/indexes/{id}/actions": {
         parameters: {
             query?: never;
             header?: never;
@@ -3704,7 +3768,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        post: operations["visual_build_index"];
+        post: operations["visual_index_action"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3737,6 +3801,38 @@ export interface paths {
         get: operations["visual_recipes"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/visual/retention": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["visual_retention"];
+        put: operations["visual_set_retention"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/visual/retention/cleanup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["visual_cleanup"];
         delete?: never;
         options?: never;
         head?: never;
@@ -8386,6 +8482,34 @@ export interface components {
         VisualAction: {
             action: string;
         };
+        VisualCleanupRequest: {
+            apply?: boolean;
+        };
+        VisualCleanupResult: {
+            applied: boolean;
+            /** Format: int64 */
+            bytes_removed: number;
+            /** Format: int64 */
+            candidate_versions: number;
+            /** Format: int32 */
+            keep_last: number;
+            /** Format: int32 */
+            min_age_hours: number;
+            /** Format: int64 */
+            protected_versions: number;
+            /** Format: int64 */
+            published_version: number;
+            recipe_id: string;
+            /** Format: int64 */
+            released_publication_tags: number;
+            /** Format: int64 */
+            removed_versions: number;
+            /** Format: int64 */
+            versions_before: number;
+        };
+        VisualCleanupResults: {
+            items: components["schemas"]["VisualCleanupResult"][];
+        };
         VisualCoverage: {
             /**
              * Format: int64
@@ -8403,6 +8527,15 @@ export interface components {
         };
         VisualCoverageResponse: {
             items: components["schemas"]["VisualCoverage"][];
+        };
+        VisualDiscoveryCursor: {
+            /** Format: int64 */
+            after_row: number;
+            namespace: string;
+            source_id: string;
+        };
+        VisualDiscoveryCursors: {
+            items: components["schemas"]["VisualDiscoveryCursor"][];
         };
         VisualDuplicates: {
             items: components["schemas"]["VisualMatch"][];
@@ -8426,6 +8559,7 @@ export interface components {
         VisualExportPage: {
             /** Format: int64 */
             bytes: number;
+            cursor_kind: string;
             /** Format: int64 */
             next_cursor?: number | null;
             path?: string | null;
@@ -8450,6 +8584,7 @@ export interface components {
             next_cursor?: number | null;
         };
         VisualFeaturePage: {
+            cursor_kind: string;
             items: components["schemas"]["VisualMatch"][];
             /**
              * Format: int64
@@ -8469,19 +8604,94 @@ export interface components {
             run_id?: string | null;
             snapshot_id?: string | null;
         };
+        VisualIndexJob: {
+            error?: string | null;
+            id: string;
+            /** Format: int64 */
+            input_version: number;
+            /** Format: int64 */
+            ordinal: number;
+            progress: components["schemas"]["VisualIndexProgress"];
+            request: components["schemas"]["VisualIndexRequest"];
+            result?: null | components["schemas"]["VisualIndexResult"];
+            status: string;
+            worker_running: boolean;
+        };
+        VisualIndexJobs: {
+            items: components["schemas"]["VisualIndexJob"][];
+            /** Format: int64 */
+            next_cursor?: number | null;
+        };
+        VisualIndexProgress: {
+            /** Format: int64 */
+            completed_units?: number | null;
+            phase: string;
+            /** Format: int64 */
+            total_units?: number | null;
+            unit: string;
+            /** Format: int64 */
+            updated_at_ms: number;
+        };
         VisualIndexRequest: {
+            /** Format: int32 */
+            max_iterations?: number;
             /** Format: int32 */
             partitions?: number | null;
             recipe_id: string;
+            request_id?: string | null;
+            /** Format: int32 */
+            sample_rate?: number;
         };
         VisualIndexResult: {
+            /** Format: int32 */
+            build_revision?: number | null;
+            /** Format: int64 */
+            elapsed_ms: number;
             index_type: string;
+            /** Format: int64 */
+            indexed_rows: number;
+            /** Format: int64 */
+            largest_partition_rows?: number | null;
+            /** Format: int32 */
+            nonempty_partitions?: number | null;
             /** Format: int32 */
             partitions: number;
             /** Format: int64 */
+            peak_rss_bytes: number;
+            /** Format: int64 */
             rows: number;
             /** Format: int64 */
+            training_rows_target?: number | null;
+            /** Format: int32 */
+            training_sample_rate?: number | null;
+            /** Format: int64 */
+            unindexed_rows: number;
+            /** Format: int64 */
             version: number;
+        };
+        VisualIndexState: {
+            index_type?: string | null;
+            /** Format: int64 */
+            indexed_rows: number;
+            /** Format: int64 */
+            largest_partition_rows?: number | null;
+            needs_rebuild: boolean;
+            /** Format: int32 */
+            nonempty_partitions?: number | null;
+            /** Format: int32 */
+            partitions?: number | null;
+            recipe_id: string;
+            /** Format: int64 */
+            rows: number;
+            /** Format: int64 */
+            trained_rows: number;
+            /** Format: int64 */
+            unindexed_rows: number;
+            /** Format: int64 */
+            version: number;
+        };
+        VisualIndexStates: {
+            items: components["schemas"]["VisualIndexState"][];
         };
         VisualMatch: {
             assets: components["schemas"]["AssetKey"][];
@@ -8558,6 +8768,13 @@ export interface components {
         VisualRecipes: {
             items: components["schemas"]["VisualRecipe"][];
         };
+        VisualRetentionPolicy: {
+            automatic: boolean;
+            /** Format: int32 */
+            keep_last_versions: number;
+            /** Format: int32 */
+            min_age_hours: number;
+        };
         VisualRun: {
             /** Format: int64 */
             bytes_read: number;
@@ -8584,6 +8801,7 @@ export interface components {
             assets?: components["schemas"]["AssetKey"][];
             /** Format: int32 */
             batch_size?: number;
+            incremental?: boolean;
             /** Format: int64 */
             max_objects_per_source?: number | null;
             micro_batch_sizes?: {
@@ -8591,6 +8809,8 @@ export interface components {
             };
             /** @description Immutable recipe IDs from /visual/models or /visual/recipes. Empty runs pHash only. */
             recipe_ids: string[];
+            /** @description Optional canonical UUID for idempotent submission; also becomes the task ID. */
+            request_id?: string | null;
             scope_run_id?: string | null;
             source_ids: string[];
         };
@@ -8661,6 +8881,7 @@ export interface components {
             complete: boolean;
             /** Format: int64 */
             discovered: number;
+            discovery_namespace: string;
             source: components["schemas"]["VisualSource"];
             /** Format: int64 */
             total_objects: number;
@@ -14834,6 +15055,25 @@ export interface operations {
             };
         };
     };
+    visual_discovery: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VisualDiscoveryCursors"];
+                };
+            };
+        };
+    };
     visual_duplicates: {
         parameters: {
             query?: never;
@@ -14903,6 +15143,47 @@ export interface operations {
             };
         };
     };
+    visual_index_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VisualIndexStates"];
+                };
+            };
+        };
+    };
+    visual_index_jobs: {
+        parameters: {
+            query?: {
+                after?: number;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VisualIndexJobs"];
+                };
+            };
+        };
+    };
     visual_build_index: {
         parameters: {
             query?: never;
@@ -14921,7 +15202,53 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["VisualIndexResult"];
+                    "application/json": components["schemas"]["VisualIndexJob"];
+                };
+            };
+        };
+    };
+    visual_index_job: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VisualIndexJob"];
+                };
+            };
+        };
+    };
+    visual_index_action: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VisualAction"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VisualIndexJob"];
                 };
             };
         };
@@ -14960,6 +15287,71 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["VisualRecipes"];
+                };
+            };
+        };
+    };
+    visual_retention: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VisualRetentionPolicy"];
+                };
+            };
+        };
+    };
+    visual_set_retention: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VisualRetentionPolicy"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VisualRetentionPolicy"];
+                };
+            };
+        };
+    };
+    visual_cleanup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VisualCleanupRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VisualCleanupResults"];
                 };
             };
         };

@@ -1,6 +1,7 @@
 //! Shared, resumable visual jobs. Rust owns state and resource admission;
 //! the supervised Python process owns model execution and Lance table writes.
 mod bundle;
+mod lifecycle;
 mod process;
 #[cfg(windows)]
 mod process_tree;
@@ -12,7 +13,7 @@ use std::{
     fs,
     path::PathBuf,
     sync::{
-        Arc, Mutex,
+        Arc, Mutex, RwLock,
         atomic::{AtomicBool, AtomicU8, Ordering},
     },
 };
@@ -31,11 +32,14 @@ struct Session {
     store: Arc<VisualStore>,
     worker: Mutex<Arc<process::Worker>>,
     description: Value,
+    history: RwLock<()>,
+    last_cleanup: Mutex<std::time::Instant>,
 }
 struct Active {
     id: String,
     action: Arc<AtomicU8>, // 0 run, 1 pause, 2 cancel
     cancelled: ReadCancellation,
+    worker: Arc<Mutex<Option<Arc<process::Worker>>>>,
 }
 pub struct Backend {
     root: PathBuf,
@@ -55,6 +59,25 @@ fn decode<T: serde::de::DeserializeOwned>(value: Value) -> Result<T> {
 }
 fn flag() -> ReadCancellation {
     Arc::new(AtomicBool::new(false))
+}
+fn validate_request_id(id: Option<&str>) -> Result<()> {
+    if let Some(id) = id {
+        studio_domain::validate_id(id)?;
+        if id.len() != 36 || id.to_ascii_lowercase() != id {
+            return Err(Error::invalid("请求标识须为小写带连字符的 UUID"));
+        }
+    }
+    Ok(())
+}
+fn same_request(a: &impl serde::Serialize, b: &impl serde::Serialize) -> Result<bool> {
+    let mut a = serde_json::to_value(a).map_err(Error::io)?;
+    let mut b = serde_json::to_value(b).map_err(Error::io)?;
+    for value in [&mut a, &mut b] {
+        if let Some(o) = value.as_object_mut() {
+            o.remove("request_id");
+        }
+    }
+    Ok(a == b)
 }
 fn lease_id(run: &str, source: &str) -> String {
     format!("visual/{run}/{source}")
@@ -112,6 +135,8 @@ impl Backend {
             store,
             worker: Mutex::new(worker),
             description,
+            history: RwLock::new(()),
+            last_cleanup: Mutex::new(std::time::Instant::now()),
         }))
     }
     fn ensure(&self) -> Result<Arc<Session>> {
@@ -205,6 +230,8 @@ impl Backend {
                 store: old.store.clone(),
                 worker: Mutex::new(worker),
                 description,
+                history: RwLock::new(()),
+                last_cleanup: Mutex::new(std::time::Instant::now()),
             })
         } else {
             self.open(config.clone())?
@@ -245,9 +272,7 @@ impl Backend {
 
     pub fn create(self: &Arc<Self>, mut request: VisualRunRequest) -> Result<VisualRun> {
         let _gate = self.gate.lock().map_err(lock)?;
-        if self.busy() {
-            return Err(Error::new("VISUAL_BUSY", "当前已有视觉提取或索引任务"));
-        }
+        validate_request_id(request.request_id.as_deref())?;
         if request.source_ids.is_empty()
             || request.source_ids.len() > 3
             || request.recipe_ids.len() > 3
@@ -281,12 +306,35 @@ impl Backend {
                     .source_ids
                     .iter()
                     .any(|s| !request.assets.iter().any(|k| &k.source_id == s)))
+            || (request.incremental
+                && (request.scope_run_id.is_some() || !request.assets.is_empty()))
         {
             return Err(Error::invalid(
                 "视觉任务需要 1-3 个不同来源、最多 3 个配方、1-512 张批次",
             ));
         }
         let session = self.ensure()?;
+        if let Some(scope) = request.scope_run_id.as_deref() {
+            request.scope_run_id = Some(session.store.scope_root(scope)?);
+        }
+        if let Some(id) = request.request_id.as_deref() {
+            match session.store.run(id) {
+                Ok(saved) => {
+                    if !same_request(&saved.request, &request)? {
+                        return Err(Error::invalid("同一请求标识已用于不同的视觉任务参数"));
+                    }
+                    return Ok(saved);
+                }
+                Err(e) if e.code == "NOT_FOUND" => {}
+                Err(e) => return Err(e),
+            }
+        }
+        if self.busy() {
+            return Err(Error::new("VISUAL_BUSY", "当前已有视觉提取或索引任务"));
+        }
+        if session.store.unfinished_index()?.is_some() {
+            return Err(Error::new("VISUAL_BUSY", "请先恢复或取消未完成的索引任务"));
+        }
         let current: Vec<VisualRecipe> = decode(session.description["recipes"].clone())?;
         for id in &request.recipe_ids {
             session.store.recipe(id)?;
@@ -306,42 +354,41 @@ impl Backend {
             {
                 return Err(Error::invalid("复用任务范围时来源集合须保持一致"));
             }
-            snapshots = original.sources;
-            for source in &mut snapshots {
-                source.after_row = 0;
-                source.discovered = 0;
-                source.complete = false;
-            }
             request.scope_run_id = Some(root);
         }
-        if request.scope_run_id.is_none() {
-            for id in &request.source_ids {
-                let source = available
-                    .iter()
-                    .find(|s| &s.id == id)
-                    .ok_or_else(|| Error::new("NOT_FOUND", "来源未登记或不属于三个 Booru 数据湖"))?
-                    .clone();
-                let read = self.sources.background(
-                    ReadClass::NativeQuery,
-                    METADATA_MEMORY_BYTES,
-                    flag(),
-                )?;
-                let version = read
-                    .query(METADATA_MEMORY_BYTES, false)
-                    .read_version(&source, false)?;
-                let probe = read.probe(&source)?;
-                if probe.revision != version.catalog_revision {
-                    return Err(Error::new("SOURCE_CHANGED", "来源正在发布，请重试创建任务"));
-                }
-                snapshots.push(VisualSourceSnapshot {
-                    source,
-                    version,
-                    total_objects: probe.count.unwrap_or(0),
-                    after_row: 0,
-                    discovered: 0,
-                    complete: false,
-                });
+        for id in &request.source_ids {
+            let source = available
+                .iter()
+                .find(|s| &s.id == id)
+                .ok_or_else(|| Error::new("NOT_FOUND", "来源未登记或不属于三个 Booru 数据湖"))?
+                .clone();
+            let read =
+                self.sources
+                    .background(ReadClass::NativeQuery, METADATA_MEMORY_BYTES, flag())?;
+            let version = read
+                .query(METADATA_MEMORY_BYTES, false)
+                .read_version(&source, false)?;
+            let probe = read.probe(&source)?;
+            if probe.revision != version.catalog_revision {
+                return Err(Error::new("SOURCE_CHANGED", "来源正在发布，请重试创建任务"));
             }
+            let discovery_namespace = read.visual_discovery_namespace(&source, &version)?;
+            let after_row = if request.incremental {
+                session
+                    .store
+                    .discovery_cursor(&source.id, &discovery_namespace)?
+            } else {
+                0
+            };
+            snapshots.push(VisualSourceSnapshot {
+                source,
+                version,
+                total_objects: probe.count.unwrap_or(0),
+                after_row,
+                discovered: 0,
+                complete: false,
+                discovery_namespace,
+            });
         }
         let run = session.store.create_run(&request, &snapshots)?;
         if let Err(error) = self.retain(&run) {
@@ -406,6 +453,9 @@ impl Backend {
         let session = self.ensure()?;
         let run = session.store.run(id)?;
         let active = self.active.lock().map_err(lock)?;
+        if action == "resume" && session.store.unfinished_index()?.is_some() {
+            return Err(Error::new("VISUAL_BUSY", "请先恢复或取消未完成的索引任务"));
+        }
         if let Some(active) = active.as_ref() {
             if active.id != id {
                 return Err(Error::new("VISUAL_BUSY", "另一项视觉任务仍在运行"));
@@ -451,15 +501,19 @@ impl Backend {
             id: id.clone(),
             action: action.clone(),
             cancelled: cancelled.clone(),
+            worker: Arc::new(Mutex::new(None)),
         });
         let backend = self.clone();
-        std::thread::Builder::new()
+        let failure_id = id.clone();
+        let failure_session = session.clone();
+        let spawned = std::thread::Builder::new()
             .name("studio-visual".into())
             .spawn(move || {
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     backend.execute(&session, &id, &action, cancelled)
                 }));
                 let result = result.unwrap_or_else(|_| Err(lock("视觉调度异常退出，批次可恢复")));
+                let _finalize = backend.gate.lock().unwrap_or_else(|e| e.into_inner());
                 let control = action.load(Ordering::Acquire);
                 let state = if control == 1 {
                     "paused"
@@ -485,8 +539,14 @@ impl Backend {
                 if let Ok(mut active) = backend.active.lock() {
                     *active = None;
                 }
-            })
-            .map_err(Error::io)?;
+            });
+        if let Err(error) = spawned {
+            *self.active.lock().map_err(lock)? = None;
+            failure_session
+                .store
+                .status(&failure_id, "failed", Some(&error.to_string()))?;
+            return Err(Error::io(error));
+        }
         Ok(())
     }
     fn execute(
@@ -521,9 +581,48 @@ impl Backend {
                 .map(|n| n.saturating_sub(snapshot.discovered).min(4096) as u32)
                 .unwrap_or(4096);
             let page = if let Some(scope) = &run.request.scope_run_id {
-                session
-                    .store
-                    .scope_page(scope, &snapshot.source.id, snapshot.after_row, limit)?
+                let frozen = session.store.scope_page(
+                    scope,
+                    &snapshot.source.id,
+                    snapshot.after_row,
+                    limit,
+                )?;
+                if frozen.items.is_empty() {
+                    frozen
+                } else {
+                    let read = self.sources.background(
+                        ReadClass::NativeQuery,
+                        METADATA_MEMORY_BYTES,
+                        cancelled.clone(),
+                    )?;
+                    let keys = frozen
+                        .items
+                        .iter()
+                        .map(|i| i.sha256.clone())
+                        .collect::<Vec<_>>();
+                    let resolved =
+                        read.visual_selected(&snapshot.source, &snapshot.version, &keys)?;
+                    let mut locations = resolved
+                        .items
+                        .into_iter()
+                        .map(|i| (i.sha256.clone(), i))
+                        .collect::<std::collections::BTreeMap<_, _>>();
+                    let items = frozen
+                        .items
+                        .into_iter()
+                        .map(|old| {
+                            let mut item = locations.remove(&old.sha256).ok_or_else(|| {
+                                Error::new("SOURCE_CHANGED", "固定范围中的图片已不在该来源")
+                            })?;
+                            item.row_id = old.row_id;
+                            Ok(item)
+                        })
+                        .collect::<Result<Vec<_>>>()?;
+                    VisualMediaPage {
+                        items,
+                        complete: frozen.complete,
+                    }
+                }
             } else {
                 let read = self.sources.background(
                     ReadClass::NativeQuery,
@@ -610,7 +709,9 @@ impl Backend {
             decode(worker.request("finish", json!({"batch_id":batch.batch_id}))?)?
         };
         drop(decode_lease);
-        session.store.publish(&receipt)
+        session.store.publish(&receipt)?;
+        self.automatic_cleanup(session);
+        Ok(())
     }
     pub fn search(&self, request: VisualSearchRequest) -> Result<VisualSearchResult> {
         if !(1..=100).contains(&request.limit)
@@ -623,6 +724,7 @@ impl Backend {
             ));
         }
         let session = self.ensure()?;
+        let _history = session.history.read().map_err(lock)?;
         let recipe = session.store.recipe(&request.recipe_id)?;
         if request.vector.as_ref().is_some_and(|v| {
             v.len() != recipe.dimension as usize
@@ -657,7 +759,7 @@ impl Backend {
             },
             &flag(),
         )?;
-        let value=self.worker(&session)?.request("search",json!({"recipe":recipe,"version":version,"object_id":object_id,"vector":request.vector,"source_ids":source_ids,"limit":request.limit,"exact":request.exact,"nprobes":request.nprobes.unwrap_or(32)}))?;
+        let value=self.worker(&session)?.request("search",json!({"recipe":recipe,"version":version,"object_id":object_id,"vector":request.vector,"source_ids":source_ids,"limit":request.limit,"exact":request.exact,"nprobes":request.nprobes.unwrap_or(64)}))?;
         let items = value["items"]
             .as_array()
             .ok_or_else(|| lock("检索响应无效"))?
@@ -694,41 +796,6 @@ impl Backend {
     ) -> Result<(Vec<VisualMatch>, Option<i64>)> {
         self.ensure()?.store.duplicates(query, after, limit, radius)
     }
-    pub fn index(self: &Arc<Self>, recipe_id: &str, partitions: Option<u32>) -> Result<Value> {
-        let _gate = self.gate.lock().map_err(lock)?;
-        if self.busy() {
-            return Err(Error::new(
-                "VISUAL_BUSY",
-                "索引维护与提取不能同时写同一材料库",
-            ));
-        }
-        let session = self.ensure()?;
-        let recipe = session.store.recipe(recipe_id)?;
-        session.store.version(recipe_id)?;
-        // The HTTP handler calls this on the blocking pool. Reads remain available
-        // at the previous published version throughout index construction.
-        let id = format!("index-{recipe_id}");
-        *self.active.lock().map_err(lock)? = Some(Active {
-            id,
-            action: Arc::new(AtomicU8::new(0)),
-            cancelled: flag(),
-        });
-        let result = (|| -> Result<Value> {
-            if let Some(batch) = session.store.pending_any()? {
-                self.batch(&session, batch, flag())?;
-            }
-            let value = self
-                .worker(&session)?
-                .request("index", json!({"recipe":recipe,"partitions":partitions}))?;
-            let version = value["version"]
-                .as_u64()
-                .ok_or_else(|| lock("索引版本无效"))?;
-            session.store.publish_index(recipe_id, version)?;
-            Ok(value)
-        })();
-        *self.active.lock().map_err(lock)? = None;
-        result
-    }
     pub fn shutdown(&self) {
         self.stopped.store(true, Ordering::Release);
         if let Ok(active) = self.active.lock()
@@ -736,6 +803,11 @@ impl Backend {
         {
             active.action.store(1, Ordering::Release);
             active.cancelled.store(true, Ordering::Release);
+            if let Ok(worker) = active.worker.lock()
+                && let Some(worker) = worker.as_ref()
+            {
+                let _ = worker.stop();
+            }
         }
         if let Ok(session) = self.session.lock()
             && let Some(session) = session.as_ref()

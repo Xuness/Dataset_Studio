@@ -46,6 +46,21 @@ class Vectors:
             return self.db.create_table(name, schema=schema, exist_ok=True)
         return self.db.open_table(name)
 
+    def index_status(self, recipe, version):
+        table = self.table(recipe)
+        table.checkout(int(version))
+        rows = table.count_rows()
+        index = next((i for i in table.list_indices() if "vector" in i.columns), None)
+        stats = table.index_stats(index.name) if index is not None else None
+        details = table.to_lance().stats.index_stats(index.name) if index is not None else {}
+        sizes = [p["size"] for i in details.get("indices", []) for p in i.get("partitions", [])]
+        return {"rows": rows, "indexed_rows": stats.num_indexed_rows if stats else 0,
+                "unindexed_rows": stats.num_unindexed_rows if stats else rows,
+                "index_type": stats.index_type if stats else None,
+                "partitions": len(sizes) if stats else None,
+                "nonempty_partitions": sum(n > 0 for n in sizes) if stats else None,
+                "largest_partition_rows": max(sizes, default=0) if stats else None}
+
     def existing(self, recipe, ids):
         if not ids:
             return set()
@@ -85,10 +100,6 @@ class Vectors:
         return {"object_ids": sorted(r["object_id"] for r in values)}
 
     def export_page(self, recipe, version, ids):
-        import hashlib
-        import json
-        import os
-        import uuid
         if len(ids) > 4096:
             raise ValueError("export page exceeds limit")
         if not ids:
@@ -96,7 +107,33 @@ class Vectors:
         table = self.table(recipe)
         table.checkout(int(version))
         selected = ",".join(str(int(i)) for i in ids)
-        schema = table.schema.with_metadata({b"studio_visual": json.dumps({"recipe_id": recipe["id"], "version": int(version), "dtype": "float32"}).encode()})
+        batches = table.search().where(f"object_id IN ({selected})").to_batches(batch_size=256)
+        return self._write_export(recipe, version, table.schema, batches)
+
+    def snapshot_page(self, recipe, version, after, limit, export=False):
+        """Direct row positions at a frozen version, never a growing catalog scan."""
+        if after < 0 or not 1 <= limit <= (4096 if export else 100):
+            raise ValueError("snapshot page exceeds bounds")
+        table = self.table(recipe)
+        table.checkout(int(version))
+        total = table.count_rows()
+        stop = min(total, int(after) + int(limit))
+        next_cursor = stop if stop < total else None
+        if after >= total:
+            result = {"rows": 0, "path": None, "sha256": None, "bytes": 0} if export else {"object_ids": []}
+        else:
+            query = table.take_offsets(list(range(int(after), stop)))
+            if export:
+                result = self._write_export(recipe, version, table.schema, query.to_batches(max_batch_length=256))
+            else:
+                result = {"object_ids": [r["object_id"] for r in query.select(["object_id"]).to_list()]}
+        return {**result, "next_cursor": next_cursor}
+
+    def _write_export(self, recipe, version, schema, batches):
+        import hashlib
+        import json
+        import uuid
+        schema = schema.with_metadata({b"studio_visual": json.dumps({"recipe_id": recipe["id"], "version": int(version), "dtype": "float32"}).encode()})
         directory = self.root / "exports"
         directory.mkdir(exist_ok=True)
         path = directory / (str(uuid.uuid4()) + ".arrow")
@@ -105,7 +142,7 @@ class Vectors:
         try:
             with temporary.open("wb") as output:
                 with pa.ipc.new_file(output, schema) as writer:
-                    for batch in table.search().where(f"object_id IN ({selected})").to_batches(batch_size=256):
+                    for batch in batches:
                         count += len(batch)
                         writer.write_batch(batch)
                 output.flush()
@@ -185,8 +222,8 @@ class Vectors:
             table.merge_insert("object_id").when_matched_update_all().execute(pa.Table.from_pylist(replacements, schema=table.schema))
             self._maintain(table, recipe)
         version = table.version
-        # Retain every published version until the engine gains explicit reference
-        # collection. No cleanup_old_versions/optimize call may remove snapshots.
+        # Pin publication before its SQLite acknowledgement. Only the engine's
+        # reference-aware retention pass may release older publication tags.
         tag = f"published_{version}"
         try:
             pinned = table.tags.get_version(tag)

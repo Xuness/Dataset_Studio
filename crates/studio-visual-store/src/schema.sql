@@ -26,4 +26,9 @@ CREATE TABLE IF NOT EXISTS members(scope TEXT NOT NULL REFERENCES runs(id),sourc
 CREATE INDEX IF NOT EXISTS member_objects ON members(scope,object,source);
 CREATE TABLE IF NOT EXISTS run_metrics(run TEXT PRIMARY KEY REFERENCES runs(id),json TEXT NOT NULL) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS snapshots(id TEXT PRIMARY KEY,name TEXT NOT NULL,created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now')),versions TEXT NOT NULL) WITHOUT ROWID;
-PRAGMA user_version=2;
+CREATE TABLE IF NOT EXISTS source_cursors(source_id TEXT NOT NULL,namespace TEXT NOT NULL,after_row INTEGER NOT NULL,PRIMARY KEY(source_id,namespace)) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS index_jobs(ordinal INTEGER PRIMARY KEY AUTOINCREMENT,id TEXT NOT NULL UNIQUE,status TEXT NOT NULL,request TEXT NOT NULL,input_version INTEGER NOT NULL,progress TEXT NOT NULL,result TEXT,error TEXT);
+CREATE UNIQUE INDEX IF NOT EXISTS one_unfinished_index_job ON index_jobs((1)) WHERE status NOT IN ('completed','cancelled');
+CREATE INDEX IF NOT EXISTS completed_recipe_indexes ON index_jobs(json_extract(request,'$.recipe_id'),ordinal DESC) WHERE status='completed';
+CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,json TEXT NOT NULL) WITHOUT ROWID;
+PRAGMA user_version=3;

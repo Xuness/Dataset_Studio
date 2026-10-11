@@ -76,6 +76,18 @@ def main():
                 result[rid] = result.get(rid, 0) + n
         return result
 
+    def wait_index(identity):
+        deadline = time.monotonic() + 1800
+        while time.monotonic() < deadline:
+            job = call(f"/v1/visual/indexes/{identity}")
+            if job["status"] in ("completed", "failed", "paused", "cancelled"):
+                assert job["status"] == "completed", job
+                while call("/v1/visual/runtime")["busy"]:
+                    time.sleep(.1)
+                return job["result"]
+            time.sleep(.25)
+        raise TimeoutError("index job observation timed out")
+
     try:
         deadline = time.monotonic() + 90
         while time.monotonic() < deadline:
@@ -137,7 +149,8 @@ def main():
                 assert self_result["items"][0]["distance"] < 1e-5
                 count = db.execute("SELECT count(*) FROM outcomes WHERE recipe=? AND status='success'", (recipe["id"],)).fetchone()[0]
                 if count >= 256:
-                    indexed = call("/v1/visual/indexes", {"recipe_id": recipe["id"], "partitions": 4})
+                    index_job = call("/v1/visual/indexes", {"recipe_id": recipe["id"], "partitions": 4})
+                    indexed = wait_index(index_job["id"])
                     ann = call("/v1/visual/search", {**query, "exact": False, "nprobes": 4})
                     assert ann["method"] == "ivf_flat"
                     assert abs(ann["items"][0]["distance"] - self_result["items"][0]["distance"]) < 1e-5

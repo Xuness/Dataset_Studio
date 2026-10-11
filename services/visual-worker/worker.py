@@ -15,6 +15,9 @@ os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 os.environ.setdefault("RAYON_NUM_THREADS", "4")
+os.environ["LANCE_CPU_THREADS"] = "4"
+os.environ["LANCE_SHUFFLE_BATCH_BYTES"] = str(64 << 20)
+os.environ["LANCE_INCLUDE_VECTOR_CENTROIDS"] = "false"
 
 from studio_visual import PROTOCOL_VERSION
 
@@ -23,6 +26,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--root", required=True)
     parser.add_argument("--device", choices=("cuda", "cpu"), default="cuda")
+    parser.add_argument("--purpose", choices=("models", "index"), default="models")
     args = parser.parse_args()
     # Reserve stdout exclusively for the protocol, including during third-party
     # imports and inference. Their ordinary print output belongs in the log.
@@ -32,12 +36,17 @@ def main():
     from studio_visual.models import describe
     from studio_visual.vectors import Vectors
 
-    execution = Execution(args.root, args.device)
+    execution = Execution(args.root, args.device) if args.purpose == "models" else None
+    # Share one bounded native cache across recipe readers. A fresh connection
+    # for every request discards the partition cache and penalizes large indexes.
+    readers = execution.vectors if execution else Vectors(args.root, cache_bytes=256 << 20)
     write_lock = threading.Lock()
 
     def respond(request):
         try:
             op, value = request["op"], request.get("args", {})
+            if args.purpose == "index" and op not in ("ping", "index_job"):
+                raise ValueError("operation is not permitted in an index process")
             if op == "describe":
                 result = describe(value["model_root"], args.device, args.root)
             elif op == "prepare":
@@ -45,13 +54,22 @@ def main():
             elif op == "finish":
                 result = execution.finish(value["batch_id"])
             elif op == "search":
-                result = Vectors(args.root).search(**value)
-            elif op in ("entries", "export_page"):
-                result = getattr(Vectors(args.root), op)(**value)
+                result = readers.search(**value)
+            elif op in ("entries", "export_page", "snapshot_page", "index_status"):
+                result = getattr(readers, op)(**value)
             elif op == "pin":
                 result = execution.vectors.pin(**value)
             elif op == "index":
                 result = execution.vectors.index(**value)
+            elif op == "index_job":
+                from studio_visual.indexing import run_index
+                result = run_index(readers, **value)
+            elif op == "release_index_input":
+                from studio_visual.indexing import release_input
+                result = release_input(readers, **value)
+            elif op == "retention":
+                from studio_visual.retention import cleanup
+                result = cleanup(readers, **value)
             elif op == "ping":
                 result = {"protocol_version": PROTOCOL_VERSION, "pid": os.getpid(), "parent_pid": os.getppid()}
             else:
@@ -71,7 +89,7 @@ def main():
             if not line.endswith(b"\n"):
                 raise ValueError("oversized protocol message")
             request = json.loads(line)
-            (cpu if request.get("op") in ("search", "ping", "entries", "export_page") else gpu).submit(respond, request)
+            (cpu if request.get("op") in ("search", "ping", "entries", "export_page", "snapshot_page", "index_status") else gpu).submit(respond, request)
         # Parent death closes stdin. Never keep an orphan writing while a new
         # engine owns the root. Lance commits and receipt replay handle interruption.
         os._exit(0)
